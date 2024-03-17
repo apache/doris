@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -162,6 +163,11 @@ public class InsertUtils {
     private static void beginBatchInsertTransaction(ConnectContext ctx,
             String dbName, String tblName, List<Column> columns) {
         TransactionEntry txnEntry = ctx.getTxnEntry();
+        if (txnEntry.isTransactionBegan()) {
+            // FIXME: support mix usage of `insert into values` and `insert into select`
+            throw new AnalysisException(
+                    "Transaction insert can not insert into values and insert into select at the same time");
+        }
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = ctx.getSessionVariable();
         long timeoutSecond = ctx.getExecTimeout();
@@ -252,7 +258,13 @@ public class InsertUtils {
                 }
             }
         }
-
+        if (table instanceof HMSExternalTable) {
+            // TODO: check HMSExternalTable
+            HMSExternalTable hiveTable = (HMSExternalTable) table;
+            if (hiveTable.isView()) {
+                throw new AnalysisException("View is not support in hive external table.");
+            }
+        }
         Plan query = unboundTableSink.child();
         if (!(query instanceof LogicalInlineTable)) {
             return plan;

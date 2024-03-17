@@ -289,11 +289,11 @@ public class HyperGraphBuilder {
             Random random = new Random();
             int randomIndex = random.nextInt(values.length);
             DistributeType hint = values[randomIndex];
-            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType, null);
+            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinTypeAndContext(joinType, null);
             ((LogicalJoin) hintJoin).setHint(new DistributeHint(hint));
             return hintJoin;
         }
-        return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType, null);
+        return ((LogicalJoin) join.withChildren(left, right)).withJoinTypeAndContext(joinType, null);
     }
 
     private Optional<BitSet> findPlan(BitSet bitSet) {

@@ -298,21 +298,14 @@ CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
 
-if [[ "${java_version}" -gt 16 ]]; then
+if [[ "${java_version}" -eq 17 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_17} ]]; then
         JAVA_OPTS_FOR_JDK_17="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
-elif [[ "${java_version}" -gt 8 ]]; then
-    if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
-        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
-    fi
-    final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
 else
-    if [[ -z ${JAVA_OPTS} ]]; then
-        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
-    fi
-    final_java_opt="${JAVA_OPTS}"
+    echo "ERROR: The jdk_version is ${java_version}, it must be 17." >>"${LOG_DIR}/be.out"
+    exit 1
 fi
 
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
@@ -322,8 +315,8 @@ if [[ "${MACHINE_OS}" == "Darwin" ]]; then
         final_java_opt="${final_java_opt} ${max_fd_limit}"
     fi
 
-    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
-        JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
+    if [[ -n "${JAVA_OPTS_FOR_JDK_17}" ]] && ! echo "${JAVA_OPTS_FOR_JDK_17}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
+        export JAVA_OPTS="${JAVA_OPTS_FOR_JDK_17} ${max_fd_limit}"
     fi
 fi
 

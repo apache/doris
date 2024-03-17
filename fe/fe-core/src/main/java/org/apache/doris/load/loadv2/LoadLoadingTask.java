@@ -139,13 +139,13 @@ public class LoadLoadingTask extends LoadTask {
         executeOnce();
     }
 
-    private void executeOnce() throws Exception {
+    protected void executeOnce() throws Exception {
         // New one query id,
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         if (this.jobProfile != null) {
-            this.jobProfile.setExecutionProfile(curCoordinator.getExecutionProfile());
+            this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);

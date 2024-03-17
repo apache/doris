@@ -35,6 +35,7 @@
 #include <typeinfo>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -244,10 +245,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state = RuntimeState::create_unique(
             local_params.fragment_instance_id, request.query_id, request.fragment_id,
             request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
-    if (idx == 0 && local_params.__isset.runtime_filter_params) {
-        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                local_params.runtime_filter_params);
-    }
 
     _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
@@ -329,7 +326,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             auto* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
-            static_cast<void>(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
+            RETURN_IF_ERROR(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
             VLOG_CRITICAL << "query " << print_id(get_query_id())
                           << " scan_node_id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
@@ -646,7 +643,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
                     node->child(1)->id(), node->child(1)->row_desc(), node->child(1));
-            static_cast<void>(new_pipe->add_operator(builder));
+            RETURN_IF_ERROR(new_pipe->add_operator(builder));
         }
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(node->id(), join_node);
@@ -811,7 +808,8 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     case TDataSinkType::OLAP_TABLE_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
+            !config::is_cloud_mode()) {
             sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
                                                                      _sink.get());
         } else {

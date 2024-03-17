@@ -185,6 +185,17 @@ public:
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                               const RowsetIdUnorderedSet& cur_rowset_ids) override;
 
+    Status calc_delete_bitmap_for_compaciton(const std::vector<RowsetSharedPtr>& input_rowsets,
+                                             const RowsetSharedPtr& output_rowset,
+                                             const RowIdConversion& rowid_conversion,
+                                             ReaderType compaction_type, int64_t merged_rows,
+                                             int64_t initiator,
+                                             DeleteBitmapPtr& output_rowset_delete_bitmap);
+
+    std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
+
+    const auto& rowset_map() const { return _rs_version_map; }
+
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -233,6 +244,7 @@ private:
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
+    mutable std::mutex _rowset_update_lock;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

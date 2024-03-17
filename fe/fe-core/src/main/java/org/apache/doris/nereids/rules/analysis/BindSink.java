@@ -68,7 +68,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * bind an unbound logicalOlapTableSink represent the target table of an insert command
+ * bind an unbound logicalTableSink represent the target table of an insert command
  */
 public class BindSink implements AnalysisRuleFactory {
 
@@ -338,6 +338,14 @@ public class BindSink implements AnalysisRuleFactory {
                         logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
                                 .then(fileSink -> fileSink.withOutputExprs(
                                         fileSink.child().getOutput().stream()
+                                                .map(NamedExpression.class::cast)
+                                                .collect(ImmutableList.toImmutableList())))
+                ),
+                // TODO: bind hive taget table
+                RuleType.BINDING_INSERT_TARGET_EXTERNAL_TABLE.build(
+                        logicalHiveTableSink().when(s -> s.getOutputExprs().isEmpty())
+                                .then(hiveTableSink -> hiveTableSink.withOutputExprs(
+                                        hiveTableSink.child().getOutput().stream()
                                                 .map(NamedExpression.class::cast)
                                                 .collect(ImmutableList.toImmutableList())))
                 )

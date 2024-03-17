@@ -66,6 +66,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFetchOption;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
@@ -239,6 +240,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     public void setIsBeingSynced(boolean isBeingSynced) {
         getOrCreatTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED,
                 String.valueOf(isBeingSynced));
+    }
+
+    public void setStorageVault(String storageVaultName) {
+        if (storageVaultName == null && storageVaultName.isEmpty()) {
+            return;
+        }
+        getOrCreatTableProperty().setStorageVaultName(storageVaultName);
     }
 
     public boolean isBeingSynced() {
@@ -2197,6 +2205,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    public void setTimeSeriesCompactionLevelThreshold(long timeSeriesCompactionLevelThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionLevelThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionLevelThreshold();
+    }
+
+    public Long getTimeSeriesCompactionLevelThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionLevelThreshold();
+        }
+        return null;
+    }
+
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
@@ -2355,11 +2377,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         tableProperty.buildStorageFormat();
     }
 
+    public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                invertedIndexStorageFormat.name());
+        tableProperty.buildInvertedIndexStorageFormat();
+    }
+
     public TStorageFormat getStorageFormat() {
         if (tableProperty == null) {
             return TStorageFormat.DEFAULT;
         }
         return tableProperty.getStorageFormat();
+    }
+
+    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+        if (tableProperty == null) {
+            return TInvertedIndexStorageFormat.V2;
+        }
+        return tableProperty.getInvertedIndexStorageFormat();
     }
 
     public TCompressionType getCompressionType() {

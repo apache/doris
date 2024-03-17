@@ -52,9 +52,9 @@ CREATE TABLE IF NOT EXISTS orders  (
     PROPERTIES ("replication_num" = "1");
 
 insert into orders values
-   (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
-   (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
-   (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy');
+   (1, 1, 'o', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+   (2, 2, 'o', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+   (3, 3, 'o', 99.5, '2023-10-19', 'a', 'b', 1, 'yy');
 
 CREATE TABLE IF NOT EXISTS lineitem (
     l_orderkey    integer not null,

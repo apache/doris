@@ -46,24 +46,29 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
+    public String getTestQuery() {
+        return "SELECT 1 FROM dual";
+    }
+
+    @Override
     public List<String> getDatabaseNameList() {
         Connection conn = getConnection();
         ResultSet rs = null;
         if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
             return getSpecifiedDatabase(conn);
         }
-        List<String> databaseNames = Lists.newArrayList();
+        List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
             rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
             while (rs.next()) {
-                databaseNames.add(rs.getString("TABLE_SCHEM"));
+                remoteDatabaseNames.add(rs.getString("TABLE_SCHEM"));
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, conn);
         }
-        return filterDatabaseNames(databaseNames);
+        return filterDatabaseNames(remoteDatabaseNames);
     }
 
     @Override

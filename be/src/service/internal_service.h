@@ -206,6 +206,16 @@ public:
     void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
                        PMultiGetResponse* response, google::protobuf::Closure* done) override;
 
+    void tablet_fetch_data(google::protobuf::RpcController* controller,
+                           const PTabletKeyLookupRequest* request,
+                           PTabletKeyLookupResponse* response,
+                           google::protobuf::Closure* done) override;
+
+    void test_jdbc_connection(google::protobuf::RpcController* controller,
+                              const PJdbcTestConnectionRequest* request,
+                              PJdbcTestConnectionResult* result,
+                              google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -228,6 +238,9 @@ private:
                          const ::doris::PTransmitDataParams* request,
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
                          const Status& extract_st);
+
+    Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                              PTabletKeyLookupResponse* response);
 
 protected:
     ExecEnv* _exec_env = nullptr;
@@ -257,11 +270,6 @@ public:
                                            PTabletWriteSlaveDoneResult* response,
                                            google::protobuf::Closure* done) override;
 
-    void tablet_fetch_data(google::protobuf::RpcController* controller,
-                           const PTabletKeyLookupRequest* request,
-                           PTabletKeyLookupResponse* response,
-                           google::protobuf::Closure* done) override;
-
     void get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
                                       const PFetchColIdsRequest* request,
                                       PFetchColIdsResponse* response,
@@ -278,9 +286,6 @@ public:
                                     google::protobuf::Closure* done) override;
 
 private:
-    Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
-                              PTabletKeyLookupResponse* response);
-
     void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,
                                      bool is_succeed);

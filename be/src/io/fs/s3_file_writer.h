@@ -79,7 +79,6 @@ private:
 
     std::atomic_bool _failed = false;
     Status _st;
-    size_t _bytes_written = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
     int64_t _expiration_time;

@@ -268,6 +268,7 @@ DEFINE_mInt32(doris_max_scan_key_num, "48");
 DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
+DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
 
 DEFINE_mInt64(column_dictionary_key_ratio_threshold, "0");
 DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
@@ -1030,6 +1031,8 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
 DEFINE_mBool(inverted_index_compaction_enable, "false");
+// Only for debug, do not use in production
+DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
 DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
@@ -1181,10 +1184,27 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
+// limit the storage space that query spill files can use
+DEFINE_String(spill_storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_mInt64(spill_storage_limit, "10737418240"); // 10G
+DEFINE_mInt32(spill_gc_interval_ms, "2000");       // 2s
+DEFINE_Int32(spill_io_thread_pool_per_disk_thread_num, "2");
+DEFINE_Int32(spill_io_thread_pool_queue_size, "1024");
+DEFINE_Int32(spill_async_task_thread_pool_thread_num, "2");
+DEFINE_Int32(spill_async_task_thread_pool_queue_size, "1024");
+DEFINE_mInt32(spill_mem_warning_water_mark_multiplier, "2");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+DEFINE_mString(ca_cert_file_paths,
+               "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+               "/etc/ssl/ca-bundle.pem");
 
 // clang-format off
 #ifdef BE_TEST

@@ -30,8 +30,8 @@
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/task_group/task_group.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "service/backend_options.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
@@ -396,8 +396,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
 }
 
 int64_t MemTrackerLimiter::tg_free_top_memory_query(
-        int64_t min_free_mem, Type type,
-        std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_groups,
+        int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
         const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
         RuntimeProfile* profile, GCType gctype) {
     return free_top_memory_query(min_free_mem, type, tracker_groups, cancel_msg, profile, gctype);
@@ -531,8 +530,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
 }
 
 int64_t MemTrackerLimiter::tg_free_top_overcommit_query(
-        int64_t min_free_mem, Type type,
-        std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_groups,
+        int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
         const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
         RuntimeProfile* profile, GCType gctype) {
     return free_top_overcommit_query(min_free_mem, type, tracker_groups, cancel_msg, profile,

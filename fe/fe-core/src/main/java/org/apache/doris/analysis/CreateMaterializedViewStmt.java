@@ -549,7 +549,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 type = Type.BIGINT;
                 break;
             default:
-                mvAggregateType = AggregateType.GENERIC_AGGREGATION;
+                mvAggregateType = AggregateType.GENERIC;
                 if (functionCallExpr.getParams().isDistinct() || functionCallExpr.getParams().isStar()) {
                     throw new AnalysisException(
                             "The Materialized-View's generic aggregation not support star or distinct");

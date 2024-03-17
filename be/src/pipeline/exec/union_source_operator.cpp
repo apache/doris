@@ -71,7 +71,7 @@ Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* bl
     } else {
         std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
-        static_cast<void>(_data_queue->get_block_from_queue(&output_block, &child_idx));
+        RETURN_IF_ERROR(_data_queue->get_block_from_queue(&output_block, &child_idx));
         if (!output_block) {
             return Status::OK();
         }

@@ -66,7 +66,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 .flatMap(Set::stream)
                                 .filter(s -> !projectOutputSet.contains(s))
                                 .collect(Collectors.toSet());
-                        if (notExistedInProject.size() == 0) {
+                        if (notExistedInProject.isEmpty()) {
                             return null;
                         }
                         List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
@@ -128,7 +128,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 .flatMap(Set::stream)
                                 .filter(s -> !childOutput.contains(s))
                                 .collect(Collectors.toSet());
-                        if (notExistedInProject.size() == 0) {
+                        if (notExistedInProject.isEmpty()) {
                             return null;
                         }
                         LogicalProject<?> project = sort.child().child();
@@ -165,7 +165,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 .flatMap(Set::stream)
                                 .filter(s -> !projectOutputSet.contains(s))
                                 .collect(Collectors.toSet());
-                        if (notExistedInProject.size() == 0) {
+                        if (notExistedInProject.isEmpty()) {
                             return null;
                         }
                         List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
@@ -189,7 +189,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             outputExpressions = aggregate.getOutputExpressions();
             groupByExpressions = aggregate.getGroupByExpressions();
             outputSubstitutionMap = outputExpressions.stream().filter(Alias.class::isInstance)
-                    .collect(Collectors.toMap(alias -> alias.toSlot(), alias -> alias.child(0),
+                    .collect(Collectors.toMap(NamedExpression::toSlot, alias -> alias.child(0),
                             (k1, k2) -> k1));
         }
 

@@ -263,7 +263,7 @@ Status ParquetReader::_open_file() {
                 _column_statistics.meta_read_calls += 1;
             }
 
-            _file_metadata = (FileMetaData*)_meta_cache_handle.data();
+            _file_metadata = (FileMetaData*)_meta_cache_handle.data<FileMetaData>();
         }
 
         if (_file_metadata == nullptr) {

@@ -84,7 +84,10 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 block.add(new byte[batchSizeNum][]);
             } else if (outputTable.getColumnType(i).getType() == Type.ARRAY) {
                 block.add(new String[batchSizeNum]);
-            } else if (outputTable.getColumnType(i).getType() == Type.STRING) {
+            } else if (outputTable.getColumnType(i).getType() == Type.TINYINT
+                    || outputTable.getColumnType(i).getType() == Type.SMALLINT
+                    || outputTable.getColumnType(i).getType() == Type.LARGEINT
+                    || outputTable.getColumnType(i).getType() == Type.STRING) {
                 block.add(new Object[batchSizeNum]);
             } else {
                 block.add(outputTable.getColumn(i).newObjectContainerArray(batchSizeNum));
@@ -105,15 +108,13 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 case BOOLEAN:
                     return resultSet.getObject(columnIndex + 1, Boolean.class);
                 case TINYINT:
-                    return resultSet.getObject(columnIndex + 1, Byte.class);
                 case SMALLINT:
-                    return resultSet.getObject(columnIndex + 1, Short.class);
+                case LARGEINT:
+                    return resultSet.getObject(columnIndex + 1);
                 case INT:
                     return resultSet.getObject(columnIndex + 1, Integer.class);
                 case BIGINT:
                     return resultSet.getObject(columnIndex + 1, Long.class);
-                case LARGEINT:
-                    return resultSet.getObject(columnIndex + 1, BigInteger.class);
                 case FLOAT:
                     return resultSet.getObject(columnIndex + 1, Float.class);
                 case DOUBLE:
@@ -144,6 +145,30 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected ColumnValueConverter getOutputConverter(ColumnType columnType, String replaceString) {
         switch (columnType.getType()) {
+            case TINYINT:
+                return createConverter(input -> {
+                    if (input instanceof Integer) {
+                        return ((Integer) input).byteValue();
+                    } else {
+                        return input;
+                    }
+                }, Byte.class);
+            case SMALLINT:
+                return createConverter(input -> {
+                    if (input instanceof Integer) {
+                        return ((Integer) input).shortValue();
+                    } else {
+                        return input;
+                    }
+                }, Short.class);
+            case LARGEINT:
+                return createConverter(input -> {
+                    if (input instanceof String) {
+                        return new BigInteger((String) input);
+                    } else {
+                        return input;
+                    }
+                }, BigInteger.class);
             case STRING:
                 if (replaceString.equals("bitmap") || replaceString.equals("hll")) {
                     return null;
@@ -278,14 +303,5 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
             hexString.append(hex.toUpperCase());
         }
         return hexString.toString();
-    }
-
-    private String timeToString(java.sql.Time time) {
-        long milliseconds = time.getTime() % 1000L;
-        if (milliseconds > 0) {
-            return String.format("%s.%03d", time, milliseconds);
-        } else {
-            return time.toString();
-        }
     }
 }

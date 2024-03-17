@@ -127,6 +127,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     _is_partial_update = pschema.partial_update();
     _is_strict_mode = pschema.is_strict_mode();
+    if (_is_partial_update) {
+        _auto_increment_column = pschema.auto_increment_column();
+    }
 
     for (auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
@@ -186,6 +189,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _is_partial_update = tschema.is_partial_update;
     if (tschema.__isset.is_strict_mode) {
         _is_strict_mode = tschema.is_strict_mode;
+    }
+    if (_is_partial_update) {
+        _auto_increment_column = tschema.auto_increment_column;
     }
 
     for (auto& tcolumn : tschema.partial_update_input_columns) {
@@ -257,6 +263,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_version(_version);
     pschema->set_partial_update(_is_partial_update);
     pschema->set_is_strict_mode(_is_strict_mode);
+    pschema->set_auto_increment_column(_auto_increment_column);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }
@@ -458,8 +465,10 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (TypeDescriptor::from_thrift(t_expr.type).is_datetime_v2_type()) {
             DateV2Value<DateTimeV2ValueType> dt;
+            const int32_t scale =
+                    t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
-                                  t_expr.date_literal.value.size())) {
+                                  t_expr.date_literal.value.size(), scale)) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
@@ -519,6 +528,11 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     }
     case TExprNodeType::BOOL_LITERAL: {
         column->insert_data(reinterpret_cast<const char*>(&t_expr.bool_literal.value), 0);
+        break;
+    }
+    case TExprNodeType::NULL_LITERAL: {
+        // insert a null literal
+        column->insert_data(nullptr, 0);
         break;
     }
     default: {

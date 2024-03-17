@@ -21,6 +21,7 @@
 #include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
 #include <atomic>
@@ -29,6 +30,7 @@
 #include <mutex>
 #include <random>
 #include <shared_mutex>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -38,15 +40,21 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/sync_point.h"
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/HeartbeatService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "gen_cpp/cloud.pb.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/tablet_meta.h"
+#include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/network_util.h"
 #include "util/s3_util.h"
+#include "util/thrift_rpc_helper.h"
 
 namespace doris::cloud {
 using namespace ErrorCode;
@@ -55,6 +63,8 @@ namespace {
 constexpr int kBrpcRetryTimes = 3;
 
 static bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+static bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency(
+        "cloud_table_stats_report_latency");
 } // namespace
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
@@ -74,10 +84,7 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
         return nullptr;
     };
 
-    std::vector<bthread_t> bthread_ids;
-    bthread_ids.resize(tasks.size());
-    for (int task_idx = 0; task_idx < tasks.size(); ++task_idx) {
-        auto* task = &(tasks[task_idx]);
+    for (const auto& task : tasks) {
         {
             std::unique_lock lk(lock);
             // Wait until there are available slots
@@ -93,8 +100,8 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
         }
 
         // dispatch task into bthreads
-        auto* fn = new std::function<void()>([&, task] {
-            auto st = (*task)();
+        auto* fn = new std::function<void()>([&, &task = task] {
+            auto st = task();
             {
                 std::lock_guard lk(lock);
                 --count;
@@ -104,7 +111,9 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
                 cond.notify_one();
             }
         });
-        if (bthread_start_background(&bthread_ids[task_idx], nullptr, run_bthread_work, fn) != 0) {
+
+        bthread_t bthread_id;
+        if (bthread_start_background(&bthread_id, nullptr, run_bthread_work, fn) != 0) {
             run_bthread_work(fn);
         }
     }
@@ -609,15 +618,14 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(
     return Status::OK();
 }
 
-Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id() << ", is_tmp: " << is_tmp;
+               << ", rowset_id: " << rs_meta.rowset_id();
 
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_temporary(is_tmp);
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -635,14 +643,13 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id() << ", is_tmp: " << is_tmp;
+               << ", rowset_id: " << rs_meta.rowset_id();
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_temporary(is_tmp);
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -676,6 +683,61 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     return st;
 }
 
+// async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP
+static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
+                                   const std::string& label, CommitTxnResponse& res) {
+    std::string protobufBytes;
+    res.SerializeToString(&protobufBytes);
+    auto st = ExecEnv::GetInstance()->send_table_stats_thread_pool()->submit_func(
+            [db_id, txn_id, label, protobufBytes]() -> Status {
+                TReportCommitTxnResultRequest request;
+                TStatus result;
+
+                if (protobufBytes.length() <= 0) {
+                    LOG(WARNING) << "protobufBytes: " << protobufBytes.length();
+                    return Status::OK(); // nobody cares the return status
+                }
+
+                request.__set_dbId(db_id);
+                request.__set_txnId(txn_id);
+                request.__set_label(label);
+                request.__set_payload(protobufBytes);
+
+                Status status;
+                int64_t duration_ns = 0;
+                TNetworkAddress master_addr =
+                        ExecEnv::GetInstance()->master_info()->network_address;
+                if (master_addr.hostname.empty() || master_addr.port == 0) {
+                    status = Status::Error<SERVICE_UNAVAILABLE>(
+                            "Have not get FE Master heartbeat yet");
+                } else {
+                    SCOPED_RAW_TIMER(&duration_ns);
+
+                    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                            master_addr.hostname, master_addr.port,
+                            [&request, &result](FrontendServiceConnection& client) {
+                                client->reportCommitTxnResult(result, request);
+                            }));
+
+                    status = Status::create<false>(result);
+                }
+                g_cloud_commit_txn_resp_redirect_latency << duration_ns / 1000;
+
+                if (!status.ok()) {
+                    LOG(WARNING) << "TableStats report RPC to FE failed, errmsg=" << status
+                                 << " dbId=" << db_id << " txnId=" << txn_id << " label=" << label;
+                    return Status::OK(); // nobody cares the return status
+                } else {
+                    LOG(INFO) << "TableStats report RPC to FE success, msg=" << status
+                              << " dbId=" << db_id << " txnId=" << txn_id << " label=" << label;
+                    return Status::OK();
+                }
+            });
+    if (!st.ok()) {
+        LOG(WARNING) << "TableStats report to FE task submission failed: " << st.to_string();
+    }
+}
+
 Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     VLOG_DEBUG << "commit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label << ", is_2pc: " << is_2pc;
@@ -685,7 +747,13 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
-    return retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
+    auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
+
+    if (st.ok()) {
+        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
+    }
+
+    return st;
 }
 
 Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
@@ -714,11 +782,13 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s3_infos) {
+Status CloudMetaMgr::get_storage_vault_info(
+        std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>>* vault_infos) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    Status s = retry_rpc("get s3 info", req, &resp, &MetaService_Stub::get_obj_store_info);
+    Status s =
+            retry_rpc("get storage vault info", req, &resp, &MetaService_Stub::get_obj_store_info);
     if (!s.ok()) {
         return s;
     }
@@ -733,7 +803,21 @@ Status CloudMetaMgr::get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s
         s3_conf.prefix = obj_store.prefix();
         s3_conf.sse_enabled = obj_store.sse_enabled();
         s3_conf.provider = obj_store.provider();
-        s3_infos->emplace_back(obj_store.id(), std::move(s3_conf));
+        vault_infos->emplace_back(obj_store.id(), std::move(s3_conf));
+    }
+    for (const auto& vault : resp.storage_vault()) {
+        THdfsParams params;
+        params.fs_name = vault.hdfs_info().build_conf().fs_name();
+        params.user = vault.hdfs_info().build_conf().user();
+        params.hdfs_kerberos_keytab = vault.hdfs_info().build_conf().hdfs_kerberos_keytab();
+        params.hdfs_kerberos_principal = vault.hdfs_info().build_conf().hdfs_kerberos_principal();
+        for (const auto& confs : vault.hdfs_info().build_conf().hdfs_confs()) {
+            THdfsConf conf;
+            conf.key = confs.key();
+            conf.value = confs.value();
+            params.hdfs_conf.emplace_back(std::move(conf));
+        }
+        vault_infos->emplace_back(vault.id(), std::move(params));
     }
     return Status::OK();
 }

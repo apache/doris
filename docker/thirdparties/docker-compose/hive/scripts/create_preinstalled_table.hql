@@ -1934,6 +1934,6 @@ create table employee_gz(name string,salary string)
 row format serde 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
 with serdeproperties 
 ('quoteChar'='\"'
-,'seperatorChar'=',');
+,'separatorChar'=',');
 
 insert into employee_gz values ('a', '1.1'), ('b', '2.2');

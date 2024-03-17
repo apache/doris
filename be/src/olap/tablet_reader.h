@@ -161,6 +161,7 @@ public:
         bool record_rowids = false;
         // flag for enable topn opt
         bool use_topn_opt = false;
+        std::vector<int> topn_filter_source_node_ids;
         // used for special optimization for query : ORDER BY key LIMIT n
         bool read_orderby_key = false;
         // used for special optimization for query : ORDER BY key DESC LIMIT n
@@ -241,7 +242,7 @@ protected:
 
     Status _init_conditions_param(const ReaderParams& read_params);
 
-    void _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
+    Status _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);

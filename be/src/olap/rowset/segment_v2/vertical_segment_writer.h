@@ -38,6 +38,7 @@
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#include "vec/sink/autoinc_buffer.h"
 
 namespace doris {
 namespace vectorized {
@@ -58,6 +59,7 @@ class FileWriter;
 } // namespace io
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 struct VerticalSegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
@@ -154,6 +156,7 @@ private:
 
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
+    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;
@@ -190,6 +193,8 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
+    std::shared_ptr<vectorized::AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
+    vectorized::AutoIncIDAllocator _auto_inc_id_allocator;
 };
 
 } // namespace segment_v2

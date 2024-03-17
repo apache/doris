@@ -24,7 +24,6 @@
 #include <pthread.h>
 #include <runtime/result_buffer_mgr.h>
 
-#include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <map>
@@ -32,6 +31,7 @@
 #include <ostream>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "exec/data_sink.h"
@@ -64,6 +64,10 @@
 #include "pipeline/exec/olap_table_sink_v2_operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
+#include "pipeline/exec/partitioned_aggregation_sink_operator.h"
+#include "pipeline/exec/partitioned_aggregation_source_operator.h"
+#include "pipeline/exec/partitioned_hash_join_probe_operator.h"
+#include "pipeline/exec/partitioned_hash_join_sink_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
@@ -74,6 +78,8 @@
 #include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/spill_sort_sink_operator.h"
+#include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
@@ -208,6 +214,17 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
 
+    const auto& local_params = request.local_params[0];
+    if (local_params.__isset.runtime_filter_params) {
+        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                local_params.runtime_filter_params);
+    }
+    if (local_params.__isset.topn_filter_source_node_ids) {
+        _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
+    } else {
+        _query_ctx->init_runtime_predicates({0});
+    }
+
     _need_local_merge =
             request.__isset.parallel_instances &&
             (request.__isset.per_node_shared_scans && !request.per_node_shared_scans.empty());
@@ -236,6 +253,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
                                              request.bucket_seq_to_instance_idx,
                                              request.shuffle_idx_to_instance_idx));
     }
+
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
         pipeline->children().clear();
@@ -346,7 +364,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
+            !config::is_cloud_mode()) {
             _sink.reset(new OlapTableSinkV2OperatorX(pool, next_sink_operator_id(), row_desc,
                                                      output_exprs));
         } else {
@@ -420,7 +439,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op.reset(new MultiCastDataStreamerSourceOperatorX(
                     i, pool, thrift_sink.multi_cast_stream_sink.sinks[i], row_desc, source_id));
-            static_cast<void>(new_pipeline->add_operator(source_op));
+            RETURN_IF_ERROR(new_pipeline->add_operator(source_op));
             // 2. create and set sink operator of data stream sender for new pipeline
 
             DataSinkOperatorXPtr sink_op;
@@ -429,7 +448,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                                               thrift_sink.multi_cast_stream_sink.sinks[i],
                                               thrift_sink.multi_cast_stream_sink.destinations[i]));
 
-            static_cast<void>(new_pipeline->set_sink(sink_op));
+            RETURN_IF_ERROR(new_pipeline->set_sink(sink_op));
             {
                 TDataSink* t = pool->add(new TDataSink());
                 t->stream_sink = thrift_sink.multi_cast_stream_sink.sinks[i];
@@ -495,6 +514,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
             runtime_state->set_num_per_fragment_instances(request.num_senders);
             runtime_state->resize_op_id_to_local_state(max_operator_id());
+            runtime_state->set_max_operator_id(max_operator_id());
             runtime_state->set_load_stream_per_node(request.load_stream_per_node);
             runtime_state->set_total_load_streams(request.total_load_streams);
             runtime_state->set_num_local_sink(request.num_local_sink);
@@ -523,10 +543,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         // build local_runtime_filter_mgr for each instance
         runtime_filter_mgr =
                 std::make_unique<RuntimeFilterMgr>(request.query_id, filterparams.get());
-        if (i == 0 && local_params.__isset.runtime_filter_params) {
-            _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                    local_params.runtime_filter_params);
-        }
+
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
         _runtime_filter_states.push_back(std::move(filterparams));
@@ -564,6 +581,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                 auto& task_runtime_state = _task_runtime_states.back();
                 init_runtime_state(task_runtime_state);
                 auto cur_task_id = _total_tasks++;
+                task_runtime_state->set_task_id(cur_task_id);
                 auto task = std::make_unique<PipelineXTask>(
                         pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
                         pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
@@ -962,7 +980,9 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        if (tnode.agg_node.aggregate_functions.empty()) {
+        if (tnode.agg_node.aggregate_functions.empty() &&
+            request.query_options.__isset.enable_distinct_streaming_aggregation &&
+            request.query_options.enable_distinct_streaming_aggregation) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
@@ -970,7 +990,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             op.reset(new StreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else {
-            op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
+            if (_runtime_state->enable_agg_spill() && !tnode.agg_node.grouping_exprs.empty()) {
+                op.reset(new PartitionedAggSourceOperatorX(pool, tnode, next_operator_id(), descs));
+            } else {
+                op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
+            }
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
             const auto downstream_pipeline_id = cur_pipe->id();
@@ -981,7 +1005,12 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
             DataSinkOperatorXPtr sink;
-            sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+            if (_runtime_state->enable_agg_spill() && !tnode.agg_node.grouping_exprs.empty()) {
+                sink.reset(new PartitionedAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
+                                                           descs));
+            } else {
+                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+            }
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -989,25 +1018,53 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::HASH_JOIN_NODE: {
-        op.reset(new HashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs));
-        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        const auto is_broadcast_join = tnode.hash_join_node.__isset.is_broadcast_join &&
+                                       tnode.hash_join_node.is_broadcast_join;
+        const auto enable_join_spill = _runtime_state->enable_join_spill();
+        if (enable_join_spill && !is_broadcast_join) {
+            const uint32_t partition_count = 16;
+            op.reset(new PartitionedHashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs,
+                                                           partition_count));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
-        const auto downstream_pipeline_id = cur_pipe->id();
-        if (_dag.find(downstream_pipeline_id) == _dag.end()) {
-            _dag.insert({downstream_pipeline_id, {}});
+            const auto downstream_pipeline_id = cur_pipe->id();
+            if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+                _dag.insert({downstream_pipeline_id, {}});
+            }
+            PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
+            _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
+
+            DataSinkOperatorXPtr sink;
+            sink.reset(new PartitionedHashJoinSinkOperatorX(pool, next_sink_operator_id(), tnode,
+                                                            descs, _need_local_merge,
+                                                            partition_count));
+            sink->set_dests_id({op->operator_id()});
+            RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
+            RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+            _pipeline_parent_map.push(op->node_id(), cur_pipe);
+            _pipeline_parent_map.push(op->node_id(), build_side_pipe);
+        } else {
+            op.reset(new HashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+            const auto downstream_pipeline_id = cur_pipe->id();
+            if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+                _dag.insert({downstream_pipeline_id, {}});
+            }
+            PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
+            _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
+
+            DataSinkOperatorXPtr sink;
+            sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                      _need_local_merge));
+            sink->set_dests_id({op->operator_id()});
+            RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
+            RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+            _pipeline_parent_map.push(op->node_id(), cur_pipe);
+            _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         }
-        PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
-        _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
-
-        DataSinkOperatorXPtr sink;
-        sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                  _need_local_merge));
-        sink->set_dests_id({op->operator_id()});
-        RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
-        RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
-
-        _pipeline_parent_map.push(op->node_id(), cur_pipe);
-        _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {
@@ -1054,7 +1111,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        op.reset(new SortSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        if (_runtime_state->enable_sort_spill()) {
+            op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        } else {
+            op.reset(new SortSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        }
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
         const auto downstream_pipeline_id = cur_pipe->id();
@@ -1065,7 +1126,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        if (_runtime_state->enable_sort_spill()) {
+            sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        } else {
+            sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        }
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));

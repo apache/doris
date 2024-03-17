@@ -65,7 +65,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     public void doExecute() throws Exception {
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if ((info.emptyJob && info.analysisMethod.equals(AnalysisInfo.AnalysisMethod.SAMPLE))
+        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod)
                 || partitionNames == null || partitionNames.isEmpty()) {
             if (partitionNames == null) {
                 LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
@@ -109,7 +109,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         String tabletStr = tabletIds.stream()
                 .map(Object::toString)
                 .collect(Collectors.joining(", "));
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(
+                info.jobType.equals(JobType.SYSTEM), false)) {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
             String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0

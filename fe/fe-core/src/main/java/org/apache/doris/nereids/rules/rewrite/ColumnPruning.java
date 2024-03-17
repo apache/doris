@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -151,9 +149,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         if (union.getQualifier() == Qualifier.DISTINCT) {
             return skipPruneThisAndFirstLevelChildren(union);
         }
-
-        LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
-
+        LogicalUnion prunedOutputUnion = pruneUnionOutput(union, context);
         // start prune children of union
         List<Slot> originOutput = union.getOutput();
         Set<Slot> prunedOutput = prunedOutputUnion.getOutputSet();
@@ -209,16 +205,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     private Plan pruneAggregate(Aggregate agg, PruneContext context) {
         // first try to prune group by and aggregate functions
         Aggregate prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
-        Set<Integer> enableNereidsRules = ConnectContext.get().getSessionVariable().getEnableNereidsRules();
-        Aggregate fillUpAggr;
 
-        if (!enableNereidsRules.contains(RuleType.ELIMINATE_GROUP_BY_KEY.type())) {
-            fillUpAggr = fillUpGroupByToOutput(prunedOutputAgg)
-                    .map(fullOutput -> prunedOutputAgg.withAggOutput(fullOutput))
-                    .orElse(prunedOutputAgg);
-        } else {
-            fillUpAggr = fillUpGroupByAndOutput(prunedOutputAgg);
-        }
+        Aggregate fillUpAggr = fillUpGroupByAndOutput(prunedOutputAgg);
 
         return pruneChildren(fillUpAggr);
     }
@@ -229,23 +217,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 .flatMap(child -> child.getOutputSet().stream())
                 .collect(Collectors.toSet());
         return pruneChildren(plan, requireAllOutputOfChildren);
-    }
-
-    private static Optional<List<NamedExpression>> fillUpGroupByToOutput(Aggregate prunedOutputAgg) {
-        List<Expression> groupBy = prunedOutputAgg.getGroupByExpressions();
-        List<NamedExpression> output = prunedOutputAgg.getOutputExpressions();
-
-        if (output.containsAll(groupBy)) {
-            return Optional.empty();
-        }
-
-        List<NamedExpression> aggFunctions = Lists.newArrayList(output);
-        aggFunctions.removeAll(groupBy);
-
-        return Optional.of(ImmutableList.<NamedExpression>builder()
-                .addAll((List) groupBy)
-                .addAll(aggFunctions)
-                .build());
     }
 
     private static Aggregate fillUpGroupByAndOutput(Aggregate prunedOutputAgg) {
@@ -300,6 +271,48 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan;
         } else {
             return withPrunedOutput.apply(prunedOutputs);
+        }
+    }
+
+    private LogicalUnion pruneUnionOutput(LogicalUnion union, PruneContext context) {
+        List<NamedExpression> originOutput = union.getOutputs();
+        if (originOutput.isEmpty()) {
+            return union;
+        }
+        List<NamedExpression> prunedOutputs = Lists.newArrayList();
+        List<List<NamedExpression>> constantExprsList = union.getConstantExprsList();
+        List<List<NamedExpression>> prunedConstantExprsList = Lists.newArrayList();
+        List<Integer> extractColumnIndex = Lists.newArrayList();
+        for (int i = 0; i < originOutput.size(); i++) {
+            NamedExpression output = originOutput.get(i);
+            if (context.requiredSlots.contains(output.toSlot())) {
+                prunedOutputs.add(output);
+                extractColumnIndex.add(i);
+            }
+        }
+        int len = extractColumnIndex.size();
+        for (List<NamedExpression> row : constantExprsList) {
+            ArrayList<NamedExpression> newRow = new ArrayList<>(len);
+            for (int idx : extractColumnIndex) {
+                newRow.add(row.get(idx));
+            }
+            prunedConstantExprsList.add(newRow);
+        }
+
+        if (prunedOutputs.isEmpty()) {
+            List<NamedExpression> candidates = Lists.newArrayList(originOutput);
+            candidates.retainAll(keys);
+            if (candidates.isEmpty()) {
+                candidates = originOutput;
+            }
+            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(candidates);
+            prunedOutputs = ImmutableList.of(minimumColumn);
+        }
+
+        if (prunedOutputs.equals(originOutput)) {
+            return union;
+        } else {
+            return union.withNewOutputsAndConstExprsList(prunedOutputs, prunedConstantExprsList);
         }
     }
 
