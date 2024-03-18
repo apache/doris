@@ -23,10 +23,7 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -52,6 +49,7 @@ public class RowPolicy extends Policy {
     public static final ShowResultSetMetaData ROW_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+                    .addColumn(new Column("CatalogName", ScalarType.createVarchar(100)))
                     .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
                     .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
                     .addColumn(new Column("Type", ScalarType.createVarchar(20)))
@@ -150,9 +148,7 @@ public class RowPolicy extends Policy {
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
-        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
-        Table table = database.getTableOrAnalysisException(this.tableId);
-        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
+        return Lists.newArrayList(this.policyName, ctlName, dbName, tableName, this.type.name(),
                 this.filterType.name(), this.wherePredicate.toSql(),
                 this.user == null ? null : this.user.getQualifiedUser(), this.roleName, this.originStmt);
     }
