@@ -81,7 +81,7 @@ public class ShowTableStmtTest {
         Assert.assertEquals(1, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_testDb", stmt.getMetaData().getColumn(0).getName());
 
-	stmt = new ShowTableStmt("abc", null, true, TableType.VIEW, "bcd", null);
+        stmt = new ShowTableStmt("abc", null, true, TableType.VIEW, "bcd", null);
         stmt.analyze(analyzer);
         Assert.assertEquals("bcd", stmt.getPattern());
         Assert.assertEquals("SHOW FULL VIEWS FROM internal.abc LIKE 'bcd'", stmt.toString());
