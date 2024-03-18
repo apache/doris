@@ -39,7 +39,7 @@ VWalWriter::VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id,
 
 VWalWriter::~VWalWriter() {}
 
-Status VWalWriter::init() {
+Status VWalWriter::init(uint32_t version) {
 #ifndef BE_TEST
     if (config::group_commit_wait_replay_wal_finish) {
         std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
@@ -60,7 +60,7 @@ Status VWalWriter::init() {
         ss << std::to_string(slot_desc.col_unique_id) << ",";
     }
     std::string col_ids = ss.str().substr(0, ss.str().size() - 1);
-    RETURN_IF_ERROR(_wal_writer->append_header(_version, col_ids));
+    RETURN_IF_ERROR(_wal_writer->append_header(version, col_ids));
     return Status::OK();
 }
 

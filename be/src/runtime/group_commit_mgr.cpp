@@ -516,7 +516,7 @@ Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                                                        real_label, _wal_base_path));
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
             db_id, tb_id, wal_id, real_label, wal_manager, slot_desc, be_exe_version);
-    return _v_wal_writer->init();
+    return _v_wal_writer->init(config::group_commit_wal_version);
 }
 
 Status LoadBlockQueue::close_wal() {

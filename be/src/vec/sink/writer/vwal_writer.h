@@ -33,7 +33,7 @@ public:
                WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
                int be_exe_version);
     ~VWalWriter();
-    Status init();
+    Status init(uint32_t version);
     Status write_wal(vectorized::Block* block);
     Status close();
 
@@ -44,8 +44,6 @@ private:
     int64_t _db_id;
     int64_t _tb_id;
     int64_t _wal_id;
-    // TODO version should in olap/wal_writer
-    uint32_t _version = 0;
     std::string _label;
     WalManager* _wal_manager;
     std::vector<TSlotDescriptor>& _slot_descs;
