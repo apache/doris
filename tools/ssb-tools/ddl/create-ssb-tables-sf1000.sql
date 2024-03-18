@@ -16,7 +16,7 @@
 -- under the License.
 
 CREATE TABLE IF NOT EXISTS `lineorder` (
-  `lo_orderkey` int(11) NOT NULL COMMENT "",
+  `lo_orderkey` bigint(20) NOT NULL COMMENT "",
   `lo_linenumber` int(11) NOT NULL COMMENT "",
   `lo_custkey` int(11) NOT NULL COMMENT "",
   `lo_partkey` int(11) NOT NULL COMMENT "",
@@ -37,19 +37,19 @@ CREATE TABLE IF NOT EXISTS `lineorder` (
 DUPLICATE KEY(`lo_orderkey`)
 COMMENT "OLAP"
 PARTITION BY RANGE(`lo_orderdate`)
-(PARTITION p1 VALUES [("-2147483648"), ("19930101")),
+(
+PARTITION p1 VALUES [("-2147483648"), ("19930101")),
 PARTITION p2 VALUES [("19930101"), ("19940101")),
 PARTITION p3 VALUES [("19940101"), ("19950101")),
 PARTITION p4 VALUES [("19950101"), ("19960101")),
 PARTITION p5 VALUES [("19960101"), ("19970101")),
 PARTITION p6 VALUES [("19970101"), ("19980101")),
-PARTITION p7 VALUES [("19980101"), ("19990101")))
-DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 48
+PARTITION p7 VALUES [("19980101"), ("19990101"))
+)
+DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 120
 PROPERTIES (
-"replication_num" = "1",
-"colocate_with" = "groupa1",
-"in_memory" = "false",
-"storage_format" = "DEFAULT"
+  "replication_num" = "1",
+  "colocate_with" = "groupa1"
 );
 
 CREATE TABLE IF NOT EXISTS `customer` (
@@ -66,10 +66,8 @@ DUPLICATE KEY(`c_custkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 12
 PROPERTIES (
-"replication_num" = "1",
-"colocate_with" = "groupa2",
-"in_memory" = "false",
-"storage_format" = "DEFAULT"
+  "replication_num" = "1",
+  "colocate_with" = "groupa2"
 );
 
 CREATE TABLE IF NOT EXISTS `dates` (
@@ -95,10 +93,8 @@ DUPLICATE KEY(`d_datekey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
-"replication_num" = "1",
-"in_memory" = "false",
-"colocate_with" = "groupa3",
-"storage_format" = "DEFAULT"
+  "replication_num" = "1",
+  "colocate_with" = "groupa3"
 );
 
  CREATE TABLE IF NOT EXISTS `supplier` (
@@ -114,10 +110,8 @@ DUPLICATE KEY(`s_suppkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 12
 PROPERTIES (
-"replication_num" = "1",
-"colocate_with" = "groupa4",
-"in_memory" = "false",
-"storage_format" = "DEFAULT"
+  "replication_num" = "1",
+  "colocate_with" = "groupa4"
 );
 
 CREATE TABLE IF NOT EXISTS `part` (
@@ -135,8 +129,6 @@ DUPLICATE KEY(`p_partkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 12
 PROPERTIES (
-"replication_num" = "1",
-"colocate_with" = "groupa5",
-"in_memory" = "false",
-"storage_format" = "DEFAULT"
+  "replication_num" = "1",
+  "colocate_with" = "groupa5"
 );
