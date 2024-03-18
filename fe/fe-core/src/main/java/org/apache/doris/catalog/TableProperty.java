@@ -573,6 +573,7 @@ public class TableProperty implements Writable {
                 .buildMinLoadReplicaNum()
                 .buildStorageMedium()
                 .buildStorageFormat()
+                .buildInvertedIndexStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
