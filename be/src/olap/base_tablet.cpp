@@ -1430,4 +1430,19 @@ Status BaseTablet::update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
     return Status::OK();
 }
 
+RowsetSharedPtr BaseTablet::get_rowset(const RowsetId& rowset_id) {
+    std::shared_lock rdlock(_meta_lock);
+    for (auto& version_rowset : _rs_version_map) {
+        if (version_rowset.second->rowset_id() == rowset_id) {
+            return version_rowset.second;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_id) {
+            return stale_version_rowset.second;
+        }
+    }
+    return nullptr;
+}
+
 } // namespace doris
