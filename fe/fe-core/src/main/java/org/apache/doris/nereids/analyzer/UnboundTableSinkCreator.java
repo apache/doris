@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
+import org.checkerframework.com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -81,7 +82,7 @@ public class UnboundTableSinkCreator {
         String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
-            return new UnboundTableSink<>(nameParts, colNames, hints, false,
+            return new UnboundTableSink<>(nameParts, colNames, hints, false, Lists.newArrayList(), true,
                     isPartialUpdate, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
         }

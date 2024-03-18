@@ -131,7 +131,11 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
     // only request for partitions not recorded for replacement
     std::set<int64_t> id_deduper;
-    for (const auto& part : _partitions) {
+    for (const auto* part : _partitions) {
+        if (part == nullptr) [[unlikely]] {
+            return Status::EndOfFile(
+                    "Cannot found origin partitions in auto detect overwriting, stop processing");
+        }
         if (_new_partition_ids.contains(part->id)) {
             // this is a new partition. dont replace again.
         } else {

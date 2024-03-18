@@ -531,7 +531,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // partitionSpec may be NULL. means auto detect partition. only available when
         // IOT
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
-        UnboundTableSink<?> sink;
+        LogicalSink<?> sink;
         if (partitionSpec.second == null) { // auto detect partition
             if (!isOverwrite) {
                 throw new ParseException("Only support wildcard in overwrite partition", ctx);
@@ -540,7 +540,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     tableName.build(),
                     colNames,
                     ImmutableList.of(),
-                    true,
                     ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
                     DMLCommandType.INSERT,
                     plan);

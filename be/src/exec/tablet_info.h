@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
@@ -172,11 +173,9 @@ public:
                                       VOlapTablePartition*& partition) const {
         auto it = _is_in_partition ? _partitions_map->find(std::tuple {block, row, true})
                                    : _partitions_map->upper_bound(std::tuple {block, row, true});
-        // enable if need
-        // LOG(WARNING) << "find row " << row << " of\n"
-        //              << block->dump_data() << "in:\n"
-        //              << _partition_block.dump_data()
-        //              << "result line row: " << std::get<1>(it->first);
+        VLOG_TRACE << "find row " << row << " of\n"
+                   << block->dump_data() << "in:\n"
+                   << _partition_block.dump_data() << "result line row: " << std::get<1>(it->first);
 
         // for list partition it might result in default partition
         if (_is_in_partition) {

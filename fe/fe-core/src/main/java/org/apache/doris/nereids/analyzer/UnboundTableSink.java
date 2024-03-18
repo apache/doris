@@ -81,14 +81,15 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
      * constructor for auto detect overwrite partition
      */
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            boolean isAutoDetectPartition, boolean isPartialUpdate, DMLCommandType dmlCommandType,
+            boolean temporaryPartition, List<String> partitions, boolean isAutoDetectPartition,
+            boolean isPartialUpdate, DMLCommandType dmlCommandType,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child);
         this.hints = Utils.copyRequiredList(hints);
-        this.temporaryPartition = false;
-        this.partitions = Lists.newArrayList();
+        this.temporaryPartition = temporaryPartition;
+        this.partitions = Utils.copyRequiredList(partitions);
         this.autoDetectPartition = isAutoDetectPartition;
         this.isPartialUpdate = isPartialUpdate;
         this.dmlCommandType = dmlCommandType;
