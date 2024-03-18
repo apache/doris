@@ -1294,4 +1294,45 @@ suite("test_join", "query,p0") {
     sql """INSERT INTO t0 (c0) VALUES (true);"""
     sql """INSERT INTO t0 (c0) VALUES (false);"""
     qt_test """SELECT t1.c0 FROM  t1 RIGHT JOIN t0 ON true WHERE  (abs(1)=0) GROUP BY  t1.c0;"""
+
+    sql """ DROP TABLE IF EXISTS tbl2; """
+    sql """ DROP TABLE IF EXISTS tbl1; """
+    sql """ CREATE TABLE tbl1 (
+            data_dt DATE NULL COMMENT '数据日期',
+            engineer VARCHAR(100) NULL COMMENT '工程师'
+            ) ENGINE=OLAP
+            UNIQUE KEY(data_dt, engineer)
+            PARTITION BY RANGE(data_dt)
+            (
+              FROM ('2022-11-05') TO ('2024-03-20') INTERVAL 1 DAY
+            )
+            DISTRIBUTED BY HASH(data_dt) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "group_commit_interval_ms" = "10000",
+            "group_commit_data_bytes" = "134217728"
+            ); """
+    sql """ CREATE TABLE tbl2 (
+            data_dt DATE NULL COMMENT '数据日期'
+            ) ENGINE=OLAP
+            UNIQUE KEY(data_dt)
+            PARTITION BY RANGE(data_dt)
+            (
+              FROM ('2022-11-05') TO ('2024-03-20') INTERVAL 1 DAY
+            )
+            DISTRIBUTED BY HASH(data_dt) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "min_load_replica_num" = "-1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "group_commit_interval_ms" = "10000",
+            "group_commit_data_bytes" = "134217728"
+            ); """
+
+    sql """ insert into tbl1 values('2023-01-01', 'engineer1'),('2023-01-01', 'engineer1'),('2023-01-02', 'engineer1'),('2023-01-02', 'engineer1'); """
+    sql """ insert into tbl2 values('2023-01-01'); """
+    qt_sql """ select /*+SET_VAR(batch_size=1, enable_nereids_planner=false)*/ count(DISTINCT dcqewrt.engineer)  as active_person_count from tbl1 dcqewrt left join [broadcast] tbl2 dd on dd.data_dt = dcqewrt.data_dt; """
+    sql """ DROP TABLE IF EXISTS tbl2; """
+    sql """ DROP TABLE IF EXISTS tbl1; """
 }
