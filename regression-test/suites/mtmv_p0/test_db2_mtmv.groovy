@@ -33,72 +33,73 @@ suite("test_db2_mtmv", "p0,external,hive,external_docker,external_docker_hive") 
         String db2_database = "DORIS_MTMV";
         String db2_port = context.config.otherConfigs.get("db2_11_port");
         String db2_table = "USER";
-
         try {
-            logger.info("CREATE SCHEMA")
-            db2_docker "CREATE SCHEMA ${db2_database};"
-            logger.info("CREATE TABLE")
-            db2_docker """CREATE TABLE ${db2_database}.${db2_table} (
-                k1 INT GENERATED ALWAYS AS IDENTITY,
-                k2 INT
-            );"""
-            logger.info("INSERT INTO")
-            db2_docker """INSERT INTO ${db2_database}.${db2_table} (
-                k2
-            ) VALUES (
-                1
-            );"""
-
-            sql """drop catalog if exists ${catalog_name} """
-
-            sql """create catalog if not exists ${catalog_name} properties(
-                "type"="jdbc",
-                "user"="db2inst1",
-                "password"="123456",
-                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris",
-                "driver_url" = "${driver_url}",
-                "driver_class" = "com.ibm.db2.jcc.DB2Driver"
-            );"""
-
-            qt_catalog """select * from ${catalog_name}.${db2_database}.${db2_table} order by k1"""
-
-            sql """drop materialized view if exists ${mvName};"""
-
-            sql """
-                CREATE MATERIALIZED VIEW ${mvName}
-                    BUILD DEFERRED REFRESH AUTO ON MANUAL
-                    DISTRIBUTED BY RANDOM BUCKETS 2
-                    PROPERTIES ('replication_num' = '1')
-                    AS
-                    SELECT * FROM ${catalog_name}.${db2_database}.${db2_table};
-                """
-
-            sql """
-                    REFRESH MATERIALIZED VIEW ${mvName} complete
-                """
-            def jobName = getJobName(dbName, mvName);
-            waitingMTMVTaskFinished(jobName)
-            order_qt_mtmv_1 "SELECT * FROM ${mvName} order by k1"
-
-            logger.info("INSERT INTO")
-                    db2_docker """INSERT INTO ${db2_database}.${db2_table} (
-                        k2
-                    ) VALUES (
-                        2
-                    );"""
-            sql """
-                    REFRESH MATERIALIZED VIEW ${mvName} complete
-                """
-            waitingMTMVTaskFinished(jobName)
-            order_qt_mtmv_2 "SELECT * FROM ${mvName} order by k1"
-
-            sql """ drop catalog if exists ${catalog_name} """
-            db2_docker "DROP TABLE IF EXISTS ${db2_database}.${db2_table};"
             db2_docker "DROP SCHEMA ${db2_database} restrict;"
-
         } catch (Exception e) {
-            e.printStackTrace()
+          logger.info("drop schema failed.")
         }
+        logger.info("CREATE SCHEMA")
+        db2_docker "CREATE SCHEMA ${db2_database};"
+        logger.info("CREATE TABLE")
+        db2_docker """CREATE TABLE ${db2_database}.${db2_table} (
+            k1 INT GENERATED ALWAYS AS IDENTITY,
+            k2 INT
+        );"""
+        logger.info("INSERT INTO")
+        db2_docker """INSERT INTO ${db2_database}.${db2_table} (
+            k2
+        ) VALUES (
+            1
+        );"""
+
+        sql """drop catalog if exists ${catalog_name} """
+
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="db2inst1",
+            "password"="123456",
+            "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.ibm.db2.jcc.DB2Driver"
+        );"""
+
+        qt_catalog """select * from ${catalog_name}.${db2_database}.${db2_table} order by k1"""
+
+        sql """drop materialized view if exists ${mvName};"""
+
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES ('replication_num' = '1')
+                AS
+                SELECT * FROM ${catalog_name}.${db2_database}.${db2_table};
+            """
+
+        sql """
+                REFRESH MATERIALIZED VIEW ${mvName} complete
+            """
+        def jobName = getJobName(dbName, mvName);
+        waitingMTMVTaskFinished(jobName)
+        order_qt_mtmv_1 "SELECT * FROM ${mvName} order by k1"
+
+        logger.info("INSERT INTO")
+                db2_docker """INSERT INTO ${db2_database}.${db2_table} (
+                    k2
+                ) VALUES (
+                    2
+                );"""
+        sql """
+                REFRESH MATERIALIZED VIEW ${mvName} complete
+            """
+        waitingMTMVTaskFinished(jobName)
+        order_qt_mtmv_2 "SELECT * FROM ${mvName} order by k1"
+
+        sql """ drop catalog if exists ${catalog_name} """
+        db2_docker "DROP TABLE IF EXISTS ${db2_database}.${db2_table};"
+        db2_docker "DROP SCHEMA ${db2_database} restrict;"
+
+
     }
 }
 
