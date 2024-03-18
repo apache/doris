@@ -138,7 +138,9 @@ enum TFileCompressType {
     DEFLATE,
     LZOP,
     LZ4BLOCK,
-    SNAPPYBLOCK
+    SNAPPYBLOCK,
+    ZLIB,
+    ZSTD
 }
 
 struct THdfsConf {
