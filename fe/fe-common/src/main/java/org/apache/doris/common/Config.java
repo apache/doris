@@ -2535,6 +2535,13 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_proxy_protocol = false;
 
+    // Used to check compatibility when upgrading.
+    @ConfField
+    public static boolean enable_check_compatibility_mode = false;
+
+    // Do checkpoint after replaying edit logs.
+    @ConfField
+    public static boolean checkpoint_after_check_compatibility = false;
 
     //==========================================================================
     //                    begin of cloud config

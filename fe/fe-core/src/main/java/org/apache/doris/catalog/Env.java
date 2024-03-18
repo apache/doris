@@ -312,6 +312,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+
 /**
  * A singleton class can also be seen as an entry point of Doris.
  * All manager classes can be obtained through this class.
@@ -1000,7 +1001,13 @@ public class Env {
         auditEventProcessor.start();
 
         // 2. get cluster id and role (Observer or Follower)
-        getClusterIdAndRole();
+        if (!Config.enable_check_compatibility_mode) {
+            getClusterIdAndRole();
+        } else {
+            role = FrontendNodeType.FOLLOWER;
+            nodeName = genFeNodeName(selfNode.getHost(),
+                    selfNode.getPort(), false /* new style */);
+        }
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
@@ -1008,6 +1015,10 @@ public class Env {
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
+
+        if (Config.enable_check_compatibility_mode) {
+            replayJournalsAndExit();
+        }
 
         // 4. create load and export job label cleaner thread
         createLabelCleaner();
@@ -1465,6 +1476,13 @@ public class Env {
         replayJournal(-1);
         long replayEndTime = System.currentTimeMillis();
         LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
+
+        if (Config.enable_check_compatibility_mode) {
+            String msg = "check metadata compatibility successfully";
+            LOG.info(msg);
+            System.out.println(msg);
+            System.exit(0);
+        }
 
         checkCurrentNodeExist();
 
@@ -5247,6 +5265,9 @@ public class Env {
             LOG.info("acquired all jobs' read lock.");
             long journalId = getMaxJournalId();
             File dumpFile = new File(Config.meta_dir, "image." + journalId);
+            if (Config.enable_check_compatibility_mode) {
+                dumpFile = new File(imageDir, "image." + journalId);
+            }
             dumpFilePath = dumpFile.getAbsolutePath();
             try {
                 LOG.info("begin to dump {}", dumpFilePath);
@@ -6103,5 +6124,20 @@ public class Env {
         } catch (Exception e) {
             throw new TException(e);
         }
+    }
+
+    private void replayJournalsAndExit() {
+        replayJournal(-1);
+        LOG.info("check metadata compatibility successfully");
+        System.out.println("check metadata compatibility successfully");
+
+        if (Config.checkpoint_after_check_compatibility) {
+            String imagePath = dumpImage();
+            String msg = "the new image file path is: " + imagePath;
+            LOG.info(msg);
+            System.out.println(msg);
+        }
+
+        System.exit(0);
     }
 }
