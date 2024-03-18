@@ -163,7 +163,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     boolean hasEmptyTargetColumns = false;
     private boolean allowAutoPartition = true;
-    private boolean autoReplacePartition = false;
+    private boolean withAutoDetectOverwrite = false;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -318,8 +318,8 @@ public class NativeInsertStmt extends InsertStmt {
         return isTransactionBegin;
     }
 
-    public NativeInsertStmt withAutoReplaceEnabled() {
-        this.autoReplacePartition = true;
+    public NativeInsertStmt withAutoDetectOverwrite() {
+        this.withAutoDetectOverwrite = true;
         return this;
     }
 

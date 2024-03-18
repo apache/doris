@@ -3610,7 +3610,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // if not by this txn, just let it fail naturally is ok.
             List<Long> replacedPartIds = overwriteManager.tryReplacePartitionIds(taskGroupId, partitionIds);
             // here if replacedPartIds still have null. this will throw exception.
-            allReqPartNames = olapTable.getPartitionNamesByIds(replacedPartIds);
+            allReqPartNames = olapTable.uncheckedGetPartNamesById(replacedPartIds);
 
             List<Long> pendingPartitionIds = IntStream.range(0, partitionIds.size())
                     .filter(i -> partitionIds.get(i) == replacedPartIds.get(i)) // equal means not replaced
@@ -3619,7 +3619,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // from here we ONLY deal the pending partitions. not include the dealed(by others).
             if (!pendingPartitionIds.isEmpty()) {
                 // below two must have same order inner.
-                List<String> pendingPartitionNames = olapTable.getPartitionNamesByIds(pendingPartitionIds);
+                List<String> pendingPartitionNames = olapTable.uncheckedGetPartNamesById(pendingPartitionIds);
                 List<String> tempPartitionNames = InsertOverwriteUtil
                         .generateTempPartitionNames(pendingPartitionNames);
 

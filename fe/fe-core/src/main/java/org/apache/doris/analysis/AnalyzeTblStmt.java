@@ -255,11 +255,15 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         return partitions;
     }
 
-    public boolean isAllPartitions() {
+    /**
+     * @return for OLAP table, only in overwrite situation, overwrite auto detect partition
+     *         for External table, all partitions.
+     */
+    public boolean isStarPartition() {
         if (partitionNames == null) {
             return false;
         }
-        return partitionNames.isAutoReplace();
+        return partitionNames.isStar();
     }
 
     public long getPartitionCount() {

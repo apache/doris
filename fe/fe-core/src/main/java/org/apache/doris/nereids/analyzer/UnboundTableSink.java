@@ -33,11 +33,9 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -52,7 +50,7 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
     private final List<String> partitions;
     private final boolean isPartialUpdate;
     private final DMLCommandType dmlCommandType;
-    private boolean autoDetectPartition = false;
+    private final boolean autoDetectPartition;
 
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, CHILD_TYPE child) {
@@ -73,6 +71,7 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
         this.hints = Utils.copyRequiredList(hints);
         this.temporaryPartition = temporaryPartition;
         this.partitions = Utils.copyRequiredList(partitions);
+        this.autoDetectPartition = false;
         this.isPartialUpdate = isPartialUpdate;
         this.dmlCommandType = dmlCommandType;
     }

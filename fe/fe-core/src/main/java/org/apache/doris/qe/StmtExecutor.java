@@ -2794,7 +2794,7 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.isAutoReplace()) {
+            if (iotStmt.isAutoDetectPartition()) {
                 // insert overwrite table auto detect which partitions need to replace
                 handleAutoOverwritePartition(iotStmt);
             } else if (iotStmt.getPartitionNames().size() == 0) {
@@ -2947,16 +2947,14 @@ public class StmtExecutor {
     }
 
     /*
-     * we use a anti-AutoPartition-like function to find partitions to replace.
+     * TODO: support insert overwrite auto detect partition in legacy planner
      */
     private void handleAutoOverwritePartition(InsertOverwriteTableStmt iotStmt) {
-        // register query in replaceManager
-
-        //
+        // TODO:
         TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
         try {
             parsedStmt = new NativeInsertStmt(targetTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
-                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true).withAutoReplaceEnabled();
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true).withAutoDetectOverwrite();
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
         } catch (Exception e) {

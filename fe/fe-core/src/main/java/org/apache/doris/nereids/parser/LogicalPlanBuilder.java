@@ -528,32 +528,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
         LogicalPlan plan = visitQuery(ctx.query());
-        // partitionSpec may be NULL. means auto detect partition. only available when
-        // IOT
+        // partitionSpec may be NULL. means auto detect partition. only available when IOT
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
-        LogicalSink<?> sink;
-        if (partitionSpec.second == null) { // auto detect partition
-            if (!isOverwrite) {
-                throw new ParseException("Only support wildcard in overwrite partition", ctx);
-            }
-            sink = UnboundTableSinkCreator.createUnboundTableSink(
-                    tableName.build(),
-                    colNames,
-                    ImmutableList.of(),
-                    ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                    DMLCommandType.INSERT,
-                    plan);
-        } else { // normal partition
-            sink = UnboundTableSinkCreator.createUnboundTableSink(
-                    tableName.build(),
-                    colNames,
-                    ImmutableList.of(),
-                    partitionSpec.first,
-                    partitionSpec.second,
-                    ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                    DMLCommandType.INSERT,
-                    plan);
-        }
+        boolean isAutoDetect = partitionSpec.second == null;
+        LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
+                tableName.build(),
+                colNames,
+                ImmutableList.of(), // hints
+                partitionSpec.first, // isTemp
+                partitionSpec.second, // partition names
+                isAutoDetect,
+                isOverwrite,
+                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                DMLCommandType.INSERT,
+                plan);
         LogicalPlan command;
         if (isOverwrite) {
             command = new InsertOverwriteTableCommand(sink, labelName);
