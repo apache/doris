@@ -599,8 +599,8 @@ Status VTabletWriterV2::_generate_commit_info(
     std::unordered_map<int64_t, int> failed_tablets;
     std::unordered_map<int64_t, Status> failed_reason;
     for (const auto& [node_id, streams] : streams_for_node) {
+        std::unordered_set<int64_t> known_tablets;
         for (const auto& stream : streams->streams()) {
-            std::unordered_set<int64_t> known_tablets;
             for (auto [tablet_id, reason] : stream->failed_tablets()) {
                 if (known_tablets.contains(tablet_id)) {
                     continue;
