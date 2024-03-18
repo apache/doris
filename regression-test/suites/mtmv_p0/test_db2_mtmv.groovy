@@ -28,6 +28,8 @@ suite("test_db2_mtmv", "p0,external,hive,external_docker,external_docker_hive") 
     logger.info("driver_url: " + driver_url)
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "db2_mtmv_catalog";
+        String mvName = "db2_mtmv";
+        String dbName = "regression_test_mtmv_p0";
         String db2_database = "DORIS_MTMV";
         String db2_port = context.config.otherConfigs.get("db2_11_port");
         String db2_table = "USER";
@@ -58,7 +60,37 @@ suite("test_db2_mtmv", "p0,external,hive,external_docker,external_docker_hive") 
                 "driver_class" = "com.ibm.db2.jcc.DB2Driver"
             );"""
 
-            qt_sql """select * from ${catalog_name}.${db2_database}.${db2_table}"""
+            qt_catalog """select * from ${catalog_name}.${db2_database}.${db2_table} order by k1"""
+
+            sql """drop materialized view if exists ${mvName};"""
+
+            sql """
+                CREATE MATERIALIZED VIEW ${mvName}
+                    BUILD DEFERRED REFRESH AUTO ON MANUAL
+                    DISTRIBUTED BY RANDOM BUCKETS 2
+                    PROPERTIES ('replication_num' = '1')
+                    AS
+                    SELECT * FROM ${catalog_name}.${db2_database}.${db2_table};
+                """
+
+            sql """
+                    REFRESH MATERIALIZED VIEW ${mvName} complete
+                """
+            def jobName = getJobName(dbName, mvName);
+            waitingMTMVTaskFinished(jobName)
+            order_qt_mtmv_1 "SELECT * FROM ${mvName} order by k1"
+
+            logger.info("INSERT INTO")
+                    db2_docker """INSERT INTO ${db2_database}.${db2_table} (
+                        k2
+                    ) VALUES (
+                        2
+                    );"""
+            sql """
+                    REFRESH MATERIALIZED VIEW ${mvName} complete
+                """
+            waitingMTMVTaskFinished(jobName)
+            order_qt_mtmv_2 "SELECT * FROM ${mvName} order by k1"
 
             sql """ drop catalog if exists ${catalog_name} """
             db2_docker "DROP TABLE IF EXISTS ${db2_database}.${db2_table};"
