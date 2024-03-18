@@ -72,8 +72,8 @@ public abstract class RoutineLoadTaskInfo {
 
     protected boolean isMultiTable = false;
 
-    protected static final int MAX_TIMEOUT_COUNT = 3;
-    protected int timeoutCount = 0;
+    protected static final int MAX_TIMEOUT_BACK_OFF_COUNT = 3;
+    protected int timeoutBackOffCount = 0;
 
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
@@ -149,12 +149,12 @@ public abstract class RoutineLoadTaskInfo {
         return txnStatus;
     }
 
-    public void setTimeoutCount(int timeoutCount) {
-        this.timeoutCount = timeoutCount;
+    public void setTimeoutBackOffCount(int timeoutBackOffCount) {
+        this.timeoutBackOffCount = timeoutBackOffCount;
     }
 
-    public int getTimeoutCount() {
-        return timeoutCount;
+    public int getTimeoutBackOffCount() {
+        return timeoutBackOffCount;
     }
 
     public boolean isTimeout() {
@@ -172,23 +172,18 @@ public abstract class RoutineLoadTaskInfo {
     }
 
     public void selfAdaptTimeout(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
-        int count = 0;
-        long leftInterval = this.timeoutMs >> 1;
-        long rightInterval = this.timeoutMs;
         long taskExecutionTime = rlTaskTxnCommitAttachment.getTaskExecutionTimeMs();
+        long timeoutMs = this.timeoutMs;
 
-        while (count < timeoutCount) {
-            if (leftInterval <= taskExecutionTime && taskExecutionTime <= rightInterval) {
-                this.timeoutMs = rightInterval;
-                this.timeoutCount = 0;
+        while (this.timeoutBackOffCount > 0) {
+            timeoutMs = timeoutMs >> 1;
+            if (timeoutMs <= taskExecutionTime) {
+                this.timeoutMs = timeoutMs << 1;
                 return;
             }
-            leftInterval = leftInterval >> 1;
-            rightInterval = rightInterval >> 1;
-            count++;
+            this.timeoutBackOffCount--;
         }
-        this.timeoutMs = rightInterval;
-        this.timeoutCount = 0;
+        this.timeoutMs = timeoutMs;
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
