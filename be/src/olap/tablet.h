@@ -471,10 +471,6 @@ private:
     std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction(int64_t min_start_version,
                                                                      int64_t max_start_version);
 
-    // When the proportion of empty edges in the adjacency matrix used to represent the version graph
-    // in the version tracker is greater than the threshold, rebuild the version tracker
-    bool _reconstruct_version_tracker_if_necessary();
-
     void _init_context_common_fields(RowsetWriterContext& context);
 
     ////////////////////////////////////////////////////////////////////////////

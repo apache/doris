@@ -54,7 +54,7 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("LstConsistencyCheckTime").add("CheckVersion")
             .add("VisibleVersionCount").add("TotalVersionCount").add("QueryHits").add("PathHash").add("Path")
             .add("MetaUrl").add("CompactionStatus")
-            .add("CooldownReplicaId").add("CooldownMetaId").build();
+            .add("CooldownReplicaId").add("CooldownMetaId")
             .build();
 
     private Table table;

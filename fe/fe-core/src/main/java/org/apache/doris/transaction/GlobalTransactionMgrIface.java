@@ -41,6 +41,7 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
 public interface GlobalTransactionMgrIface extends Writable {
@@ -109,7 +110,8 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId);
 
-    public void finishTransaction(long dbId, long transactionId) throws UserException;
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException;
 
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException;
