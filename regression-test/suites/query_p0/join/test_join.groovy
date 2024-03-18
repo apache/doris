@@ -1330,7 +1330,7 @@ suite("test_join", "query,p0") {
             "group_commit_data_bytes" = "134217728"
             ); """
 
-    sql """ insert into tbl1 values('2023-01-01', 'engineer1'),('2023-01-01', 'engineer1'),('2023-01-02', 'engineer1'),('2023-01-02', 'engineer1'); """
+    sql """ insert into tbl1 values('2023-01-01', 'engineer1'),('2023-01-01', 'engineer2'),('2023-01-02', 'engineer3'),('2023-01-02', 'enginee4'); """
     sql """ insert into tbl2 values('2023-01-01'); """
     qt_sql """ select /*+SET_VAR(batch_size=1, enable_nereids_planner=false)*/ count(DISTINCT dcqewrt.engineer)  as active_person_count from tbl1 dcqewrt left join [broadcast] tbl2 dd on dd.data_dt = dcqewrt.data_dt; """
     sql """ DROP TABLE IF EXISTS tbl2; """
