@@ -42,4 +42,6 @@ public abstract class PhysicalTableSink<CHILD_TYPE extends Plan> extends Physica
             Statistics statistics, CHILD_TYPE child) {
         super(type, outputExprs, groupExpression, logicalProperties, physicalProperties, statistics, child);
     }
+
+    public abstract PhysicalProperties getRequirePhysicalProperties();
 }

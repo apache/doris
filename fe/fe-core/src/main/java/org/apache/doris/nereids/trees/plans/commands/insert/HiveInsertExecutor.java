@@ -17,20 +17,24 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,6 +47,7 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(HiveInsertExecutor.class);
     private static final long INVALID_TXN_ID = -1L;
     private long txnId = INVALID_TXN_ID;
+    private TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
      * constructor
@@ -59,20 +64,15 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     public void beginTransaction() {
-
+        // TODO: use hive txn rather than internal txn
     }
 
     @Override
     protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
         HiveTableSink hiveTableSink = (HiveTableSink) sink;
-        // PhysicalHiveTableSink physicalHiveTableSink = (PhysicalHiveTableSink) physicalSink;
+        PhysicalHiveTableSink<? extends Plan> physicalHiveSink = (PhysicalHiveTableSink<? extends Plan>) physicalSink;
         try {
-            hiveTableSink.init();
-            hiveTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
-            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
-            if (state == null) {
-                throw new AnalysisException("txn does not exist: " + txnId);
-            }
+            hiveTableSink.bindDataSink(physicalHiveSink.getCols(), insertCtx);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -80,21 +80,36 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void beforeExec() {
-
+        // check params
     }
 
     @Override
     protected void onComplete() throws UserException {
-
+        if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
+        } else {
+            txnStatus = TransactionStatus.COMMITTED;
+        }
     }
 
     @Override
     protected void onFail(Throwable t) {
-
+        errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
+        String queryId = DebugUtil.printId(ctx.queryId());
+        // if any throwable being thrown during insert operation, first we should abort this txn
+        LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
+        if (txnId != INVALID_TXN_ID) {
+            LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
+            StringBuilder sb = new StringBuilder(t.getMessage());
+            if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
+                sb.append(". url: ").append(coordinator.getTrackingUrl());
+            }
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
+        }
     }
 
     @Override
     protected void afterExec(StmtExecutor executor) {
-
+        // TODO: set THivePartitionUpdate
     }
 }
