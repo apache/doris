@@ -1289,7 +1289,7 @@ Status FileColumnIterator::_read_dict_data() {
     auto* pd_decoder =
             (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
     _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
-    pd_decoder->get_dict_word_info(_dict_word_info.get());
+    RETURN_IF_ERROR(pd_decoder->get_dict_word_info(_dict_word_info.get()));
     return Status::OK();
 }
 
