@@ -78,6 +78,17 @@ CREATE CATALOG iceberg_hadoop_ha PROPERTIES (
 );
 ```
 
+```sql
+CREATE CATALOG iceberg_s3 PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 's3://bucket/dir/key',
+    's3.endpoint' = 's3.us-east-1.amazonaws.com',
+    's3.access_key' = 'ak',
+    's3.secret_key' = 'sk'
+);
+```
+
 #### Hive Metastore
 
 ```sql
@@ -106,7 +117,9 @@ CREATE CATALOG glue PROPERTIES (
 );
 ```
 
-For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+1. For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog).
+
+2. If you do not fill the credentials(`glue.access_key` and `glue.secret_key`) in glue catalog, the default DefaultAWSCredentialsProviderChain will be used, and it will read credentials and the system environment variables or instance profile properties on AWS EC2.
 
 #### Alibaba Cloud DLF
 
