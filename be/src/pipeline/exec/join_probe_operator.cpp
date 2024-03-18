@@ -106,7 +106,7 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
     // TODO: After FE plan support same nullable of output expr and origin block and mutable column
     // we should replace `insert_column_datas` by `insert_range_from`
 
-    auto insert_column_datas = [keep_origin](auto& to, vectorized::ColumnPtr& from, size_t rows) {
+    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (keep_origin || !from->is_exclusive()) {
                 auto& null_column = assert_cast<vectorized::ColumnNullable&>(*to);
@@ -121,6 +121,17 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
             } else {
                 to = from->assume_mutable();
             }
+        }
+
+        if (to->is_nullable()) {
+            auto& null_column = assert_cast<vectorized::ColumnNullable&>(*to);
+            bool all_null = true;
+            for (int i = 0; i < null_column.size(); i++) {
+                if (!null_column.is_null_at(i)) {
+                    all_null = false;
+                }
+            }
+            LOG_WARNING("yxc test null").tag("null node id", p._node_id).tag("all null", all_null);
         }
     };
 
@@ -145,6 +156,7 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
     };
 
     LOG_WARNING("yxc  test  ")
+            .tag("node id", p._node_id)
             .tag("Base::_projections", print(Base::_projections))
             .tag("_output_expr_ctxs", print(_output_expr_ctxs))
             .tag("output_block", mutable_block.dump_names() + "   " + mutable_block.dump_types())
@@ -260,6 +272,10 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
     } else {
         // Iff BE has been upgraded and FE has not yet, we should keep origin logics for CROSS JOIN.
         DCHECK_EQ(_join_op, TJoinOp::CROSS_JOIN);
+    }
+
+    if (Base::_node_id == 13) {
+        LOG_WARNING("yxc test");
     }
 }
 
