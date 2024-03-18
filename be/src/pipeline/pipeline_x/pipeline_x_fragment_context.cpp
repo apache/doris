@@ -1317,7 +1317,7 @@ void PipelineXFragmentContext::close_sink() {
     }
 }
 
-void PipelineXFragmentContext::close_if_prepare_failed() {
+void PipelineXFragmentContext::close_if_prepare_failed(Status st) {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             DCHECK(!t->is_pending_finish());
@@ -1325,6 +1325,7 @@ void PipelineXFragmentContext::close_if_prepare_failed() {
             close_a_pipeline();
         }
     }
+    _query_ctx->cancel(true, st.to_string(), st, _fragment_id);
 }
 
 void PipelineXFragmentContext::_close_fragment_instance() {
