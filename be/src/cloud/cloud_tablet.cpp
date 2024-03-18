@@ -28,7 +28,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"

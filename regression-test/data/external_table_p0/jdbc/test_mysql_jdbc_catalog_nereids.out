@@ -189,6 +189,7 @@ tables
 triggers
 user_privileges
 views
+workload_groups
 
 -- !test_insert1 --
 doris1	18

@@ -88,23 +88,26 @@ struct VaultCreateFSVisitor {
         }
 
         put_storage_resource(std::atol(id.data()), {s3_fs, 0});
+        LOG_INFO("successfully create s3 vault, vault id {}", id);
     }
 
+    // TODO(ByteYue): Make sure enable_java_support is on
     void operator()(const THdfsParams& hdfs_params) const {
         std::shared_ptr<io::HdfsFileSystem> hdfs_fs;
         auto st = io::HdfsFileSystem::create(hdfs_params, id, "", nullptr, &hdfs_fs);
         if (!st.ok()) {
-            LOG(WARNING) << "failed to create s3 fs. id=" << id;
+            LOG(WARNING) << "failed to create hdfs fs. id=" << id;
             return;
         }
 
         st = hdfs_fs->connect();
         if (!st.ok()) {
-            LOG(WARNING) << "failed to connect s3 fs. id=" << id;
+            LOG(WARNING) << "failed to connect hdfs fs. id=" << id;
             return;
         }
 
         put_storage_resource(std::atol(id.data()), {hdfs_fs, 0});
+        LOG_INFO("successfully create hdfs vault, vault id {}", id);
     }
     const std::string& id;
 };
@@ -256,6 +259,7 @@ Status CloudStorageEngine::start_bg_threads() {
     return Status::OK();
 }
 
+// We should enable_java_support if we want to use hdfs vault
 void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::refresh_s3_info_interval_s))) {

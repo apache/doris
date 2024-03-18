@@ -21,6 +21,7 @@
 #include <brpc/closure_guard.h>
 #include <brpc/controller.h>
 #include <bthread/bthread.h>
+#include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <google/protobuf/util/json_util.h>
@@ -497,6 +498,36 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
+    if (request->has_storage_vault_name() && !request->storage_vault_name().empty()) {
+        InstanceInfoPB instance;
+        std::unique_ptr<Transaction> txn0;
+        TxnErrorCode err = txn_kv_->create_txn(&txn0);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to create txn");
+            return;
+        }
+
+        std::shared_ptr<Transaction> txn(txn0.release());
+        auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
+        if (c0 != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get instance, info={}", m0);
+        }
+
+        auto vault_name = std::find_if(
+                instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+                [&](const auto& name) { return name == request->storage_vault_name(); });
+        if (vault_name != instance.storage_vault_names().end()) {
+            auto idx = vault_name - instance.storage_vault_names().begin();
+            response->set_storage_vault_id(instance.resource_ids().at(idx));
+        } else {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get vault id, vault name={}",
+                              request->storage_vault_name());
+            return;
+        }
+    }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
     for (auto& tablet_meta : request->tablet_metas()) {

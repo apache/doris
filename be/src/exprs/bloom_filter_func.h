@@ -185,10 +185,7 @@ public:
         return _bloom_filter->contain_null();
     }
 
-    void set_contain_null() {
-        DCHECK(_bloom_filter);
-        _bloom_filter->set_contain_null();
-    }
+    void set_contain_null() { _bloom_filter->set_contain_null(); }
 
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
 

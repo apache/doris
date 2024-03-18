@@ -554,7 +554,7 @@ class Suite implements GroovyInterceptable {
     }
 
 
-    void expectException(Closure userFunction, String tableName, String errorMessage = null) {
+    void expectException(Closure userFunction, String errorMessage = null) {
         try {
             userFunction()
         } catch (Exception e) {

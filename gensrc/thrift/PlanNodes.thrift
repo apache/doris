@@ -138,7 +138,9 @@ enum TFileCompressType {
     DEFLATE,
     LZOP,
     LZ4BLOCK,
-    SNAPPYBLOCK
+    SNAPPYBLOCK,
+    ZLIB,
+    ZSTD
 }
 
 struct THdfsConf {
@@ -1134,6 +1136,7 @@ struct TAssertNumRowsNode {
     1: optional i64 desired_num_rows;
     2: optional string subquery_string;
     3: optional TAssertion assertion;
+    4: optional bool should_convert_output_to_nullable;
 }
 
 enum TRuntimeFilterType {

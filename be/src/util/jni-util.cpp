@@ -141,7 +141,7 @@ const std::string GetDorisJNIClasspathOption() {
             jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
         }
 
-        JNIEnv* env;
+        JNIEnv* env = nullptr;
         JavaVMInitArgs vm_args;
         vm_args.version = JNI_VERSION_1_8;
         vm_args.options = jvm_options.get();
@@ -407,7 +407,7 @@ Status JniUtil::Init() {
     RETURN_IF_ERROR(LibJVMLoader::instance().load());
 
     // Get the JNIEnv* corresponding to current thread.
-    JNIEnv* env;
+    JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
 
     if (env == NULL) return Status::InternalError("Failed to get/create JVM");

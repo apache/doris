@@ -310,6 +310,7 @@ DECLARE_mInt32(doris_max_scan_key_num);
 DECLARE_mInt32(max_pushdown_conditions_per_column);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
+DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
 
 DECLARE_mInt64(column_dictionary_key_ratio_threshold);
 DECLARE_mInt64(column_dictionary_key_size_threshold);
@@ -1033,12 +1034,11 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
-DECLARE_Int64(file_cache_min_file_segment_size);
-DECLARE_Int64(file_cache_max_file_segment_size);
+DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
-// only for debug, will be removed after finding out the root cause
-DECLARE_mInt32(file_cache_wait_sec_after_fail); // zero for no waiting and retrying
+DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
+DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1085,7 +1085,7 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 // Page size of row column, default 4KB
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
-DECLARE_mInt32(s3_write_buffer_size);
+DECLARE_mInt64(s3_write_buffer_size);
 // The timeout config for S3 buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
@@ -1276,6 +1276,22 @@ DECLARE_String(tmp_file_dir);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
+
+// the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
+DECLARE_mString(ca_cert_file_paths);
+
+/** Table sink configurations(currently contains only external table types) **/
+// Minimum data processed to scale writers when non partition writing
+DECLARE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold);
+// Minimum data processed to start rebalancing in exchange when partition writing
+DECLARE_mInt64(table_sink_partition_write_data_processed_threshold);
+// Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
+DECLARE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold);
+// Maximum processed partition nums of per writer when partition writing
+DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
+
+/** Hive sink configurations **/
+DECLARE_mInt64(hive_sink_max_file_size); // 1GB
 
 #ifdef BE_TEST
 // test s3

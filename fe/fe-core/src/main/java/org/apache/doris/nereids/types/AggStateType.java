@@ -35,8 +35,6 @@ import java.util.stream.Collectors;
  */
 public class AggStateType extends DataType {
 
-    public static final AggStateType SYSTEM_DEFAULT = new AggStateType(null, ImmutableList.of(), ImmutableList.of());
-
     public static final int WIDTH = 16;
 
     private final List<DataType> subTypes;
@@ -92,11 +90,6 @@ public class AggStateType extends DataType {
     @Override
     public String simpleString() {
         return "agg_state";
-    }
-
-    @Override
-    public DataType defaultConcreteType() {
-        return SYSTEM_DEFAULT;
     }
 
     @Override

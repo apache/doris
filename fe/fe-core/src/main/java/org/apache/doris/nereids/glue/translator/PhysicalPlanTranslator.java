@@ -62,6 +62,8 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
@@ -549,6 +551,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof PaimonExternalTable) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+        } else if (table instanceof TrinoConnectorExternalTable) {
+            scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof MaxComputeExternalTable) {
             scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else {
@@ -1030,12 +1034,39 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment currentFragment = assertNumRows.child().accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(assertNumRows.child());
+
+        // we need convert all columns to nullable in AssertNumRows node
+        // create a tuple for AssertNumRowsNode
+        TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         // create assertNode
         AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
                 currentFragment.getPlanRoot(),
-                ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
+                ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()), true, tupleDescriptor);
         assertNumRowsNode.setChildrenDistributeExprLists(distributeExprLists);
         assertNumRowsNode.setNereidsId(assertNumRows.getId());
+
+        // collect all child output slots
+        List<TupleDescriptor> childTuples = context.getTupleDesc(currentFragment.getPlanRoot());
+        List<SlotDescriptor> childSlotDescriptors = childTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        // create output slot based on child output
+        Map<ExprId, SlotReference> childOutputMap = Maps.newHashMap();
+        assertNumRows.child().getOutput().stream()
+                .map(SlotReference.class::cast)
+                .forEach(s -> childOutputMap.put(s.getExprId(), s));
+        List<SlotDescriptor> slotDescriptors = Lists.newArrayList();
+        for (SlotDescriptor slot : childSlotDescriptors) {
+            SlotReference sf = childOutputMap.get(context.findExprId(slot.getId()));
+            SlotDescriptor sd = context.createSlotDesc(tupleDescriptor, sf, slot.getParent().getTable());
+            slotDescriptors.add(sd);
+        }
+
+        // set all output slot nullable
+        slotDescriptors.forEach(sd -> sd.setIsNullable(true));
+
         addPlanRoot(currentFragment, assertNumRowsNode, assertNumRows);
         return currentFragment;
     }

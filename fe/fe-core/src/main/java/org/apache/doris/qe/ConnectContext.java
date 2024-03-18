@@ -1066,6 +1066,10 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
+    public String getCloudCluster() {
+        return getCloudCluster(true);
+    }
+
     /**
      * @return Returns an available cluster in the following order
      *         1 Use an explicitly specified cluster
@@ -1073,7 +1077,11 @@ public class ConnectContext {
      *         3 If the user does not have a default cluster, select a cluster with permissions for the user
      *         Returns null when there is no available cluster
      */
-    public String getCloudCluster() {
+    public String getCloudCluster(boolean updateErr) {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+
         String cluster = null;
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
@@ -1091,11 +1099,13 @@ public class ConnectContext {
 
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
-            getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
-                    "Cant get a Valid cluster for you to use, plz connect admin");
+            if (updateErr) {
+                getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
+                        "Cant get a Valid cluster for you to use, plz connect admin");
+            }
         } else {
             this.cloudCluster = cluster;
-            LOG.info("finally set context cluster name {}", cloudCluster);
+            LOG.info("finally set context cluster name {} for user {}", cloudCluster, getCurrentUserIdentity());
         }
 
         return cluster;
@@ -1103,6 +1113,12 @@ public class ConnectContext {
 
     // TODO implement this function
     public String getDefaultCloudCluster() {
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
+        if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {
+            return defaultCluster;
+        }
+
         return null;
     }
 
