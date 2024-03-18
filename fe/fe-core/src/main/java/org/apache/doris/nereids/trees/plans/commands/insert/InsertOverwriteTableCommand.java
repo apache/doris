@@ -24,10 +24,13 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -37,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -95,8 +99,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
 
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
-        if (!(targetTableIf instanceof OlapTable)) {
-            throw new AnalysisException("insert into overwrite only support OLAP table."
+        if (!(targetTableIf instanceof OlapTable || targetTableIf instanceof HMSExternalTable)) {
+            throw new AnalysisException("insert into overwrite only support OLAP and HMS table."
                     + " But current table type is " + targetTableIf.getType());
         }
         this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
@@ -156,20 +160,40 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      */
     private void insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames)
             throws Exception {
-        UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
-        UnboundTableSink<?> copySink = new UnboundTableSink<>(
-                sink.getNameParts(),
-                sink.getColNames(),
-                sink.getHints(),
-                true,
-                tempPartitionNames,
-                sink.isPartialUpdate(),
-                sink.getDMLCommandType(),
-                (LogicalPlan) (sink.child(0)));
-        // for overwrite situation, we disable auto create partition.
-        OlapInsertCommandContext insertCtx = new OlapInsertCommandContext();
-        insertCtx.setAllowAutoPartition(false);
-        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
+        UnboundLogicalSink<?> copySink;
+        InsertCommandContext insertCtx;
+        if (logicalQuery instanceof UnboundTableSink) {
+            UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
+            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
+                    sink.getNameParts(),
+                    sink.getColNames(),
+                    sink.getHints(),
+                    true,
+                    tempPartitionNames,
+                    sink.isPartialUpdate(),
+                    sink.getDMLCommandType(),
+                    (LogicalPlan) (sink.child(0)));
+            // for overwrite situation, we disable auto create partition.
+            insertCtx = new OlapInsertCommandContext();
+            ((OlapInsertCommandContext) insertCtx).setAllowAutoPartition(false);
+        } else if (logicalQuery instanceof UnboundHiveTableSink) {
+            UnboundHiveTableSink<?> sink = (UnboundHiveTableSink<?>) logicalQuery;
+            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
+                    sink.getNameParts(),
+                    sink.getColNames(),
+                    sink.getHints(),
+                    false,
+                    sink.getPartitions(),
+                    false,
+                    sink.getDMLCommandType(),
+                    (LogicalPlan) (sink.child(0)));
+            insertCtx = new HiveInsertCommandContext();
+            ((HiveInsertCommandContext) insertCtx).setOverwrite(false);
+        } else {
+            throw new RuntimeException("Current catalog does not support insert overwrite yet.");
+        }
+        InsertIntoTableCommand insertCommand =
+                new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());

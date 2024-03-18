@@ -744,7 +744,12 @@ public class ShowExecutor {
     }
 
     // Show clusters
-    private void handleShowCluster() {
+    private void handleShowCluster() throws AnalysisException {
+        if (!Config.isCloudMode()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_CLOUD_MODE);
+            return;
+        }
+
         final ShowClusterStmt showStmt = (ShowClusterStmt) stmt;
         final List<List<String>> rows = Lists.newArrayList();
         List<String> clusterNames = null;

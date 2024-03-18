@@ -218,7 +218,8 @@ Status create_literal(const TypeDescriptor& type, const void* data, vectorized::
 }
 
 Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcode,
-                             vectorized::VExprSPtr& expr, TExprNode* tnode) {
+                             vectorized::VExprSPtr& expr, TExprNode* tnode,
+                             bool contain_null = false) {
     TExprNode node;
     TScalarType tscalar_type;
     tscalar_type.__set_type(TPrimitiveType::BOOLEAN);
@@ -232,7 +233,8 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
     node.__set_child_type(to_thrift(type.type));
     node.__set_num_children(2);
     node.__set_output_scale(type.scale);
-    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_node_type(contain_null ? TExprNodeType::NULL_AWARE_BINARY_PRED
+                                      : TExprNodeType::BINARY_PRED);
     TFunction fn;
     TFunctionName fn_name;
     fn_name.__set_db_name("");
@@ -301,10 +303,15 @@ public:
             _context.hybrid_set->set_null_aware(params->null_aware);
             break;
         }
+        // Only use in nested loop join not need set null aware
         case RuntimeFilterType::MIN_FILTER:
-        case RuntimeFilterType::MAX_FILTER:
+        case RuntimeFilterType::MAX_FILTER: {
+            _context.minmax_func.reset(create_minmax_filter(_column_return_type));
+            break;
+        }
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func.reset(create_minmax_filter(_column_return_type));
+            _context.minmax_func->set_null_aware(params->null_aware);
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
@@ -747,9 +754,15 @@ public:
 
     // used by shuffle runtime filter
     // assign this filter by protobuf
-    Status assign(const PMinMaxFilter* minmax_filter) {
+    Status assign(const PMinMaxFilter* minmax_filter, bool contain_null) {
         PrimitiveType type = to_primitive_type(minmax_filter->column_type());
         _context.minmax_func.reset(create_minmax_filter(type));
+
+        if (contain_null) {
+            _context.minmax_func->set_null_aware(true);
+            _context.minmax_func->set_contain_null();
+        }
+
         switch (type) {
         case TYPE_BOOLEAN: {
             bool min_val = minmax_filter->min_val().boolval();
@@ -899,6 +912,9 @@ public:
         if (_context.hybrid_set) {
             DCHECK(get_real_type() == RuntimeFilterType::IN_FILTER);
             return _context.hybrid_set->contain_null();
+        }
+        if (_context.minmax_func) {
+            return _context.minmax_func->contain_null();
         }
         return false;
     }
@@ -1345,7 +1361,7 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
-        return (*wrapper)->assign(&param->request->minmax_filter());
+        return (*wrapper)->assign(&param->request->minmax_filter(), param->request->contain_null());
     }
     default:
         return Status::InvalidArgument("unknown filter type");
@@ -1388,7 +1404,7 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
     case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
-        return (*wrapper)->assign(&param->request->minmax_filter());
+        return (*wrapper)->assign(&param->request->minmax_filter(), param->request->contain_null());
     }
     default:
         return Status::InvalidArgument("unknown filter type");
@@ -1773,10 +1789,9 @@ Status RuntimePredicateWrapper::get_push_exprs(
         node.in_predicate.__set_is_not_in(false);
         node.__set_opcode(TExprOpcode::FILTER_IN);
         node.__set_is_nullable(false);
-        auto in_pred = vectorized::VDirectInPredicate::create_shared(node, null_aware);
-        in_pred->set_filter(_context.hybrid_set);
+        auto in_pred = vectorized::VDirectInPredicate::create_shared(node, _context.hybrid_set);
         in_pred->add_child(probe_ctx->root());
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred);
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred, null_aware);
         container.push_back(wrapper);
         break;
     }
@@ -1815,14 +1830,14 @@ Status RuntimePredicateWrapper::get_push_exprs(
         // create max filter
         TExprNode max_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::LE, max_pred,
-                                              &max_pred_node));
+                                              &max_pred_node, null_aware));
         vectorized::VExprSPtr max_literal;
         RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(), _context.minmax_func->get_max(),
                                        max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
-        container.push_back(
-                vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node, max_pred));
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node,
+                                                                             max_pred, null_aware));
 
         vectorized::VExprContextSPtr new_probe_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
@@ -1832,14 +1847,14 @@ Status RuntimePredicateWrapper::get_push_exprs(
         vectorized::VExprSPtr min_pred;
         TExprNode min_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(new_probe_ctx->root()->type(), TExprOpcode::GE,
-                                              min_pred, &min_pred_node));
+                                              min_pred, &min_pred_node, null_aware));
         vectorized::VExprSPtr min_literal;
         RETURN_IF_ERROR(create_literal(new_probe_ctx->root()->type(),
                                        _context.minmax_func->get_min(), min_literal));
         min_pred->add_child(new_probe_ctx->root());
         min_pred->add_child(min_literal);
-        container.push_back(
-                vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node, min_pred));
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node,
+                                                                             min_pred, null_aware));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {

@@ -30,6 +30,7 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -114,6 +115,18 @@ S3ClientFactory::S3ClientFactory() {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
     Aws::InitAPI(_aws_options);
+    _ca_cert_file_path = get_valid_ca_cert_path();
+}
+
+string S3ClientFactory::get_valid_ca_cert_path() {
+    vector<std::string> vec_ca_file_path = doris::split(config::ca_cert_file_paths, ";");
+    vector<std::string>::iterator it = vec_ca_file_path.begin();
+    for (; it != vec_ca_file_path.end(); ++it) {
+        if (std::filesystem::exists(*it)) {
+            return *it;
+        }
+    }
+    return "";
 }
 
 S3ClientFactory::~S3ClientFactory() {
@@ -157,6 +170,16 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     aws_config.endpointOverride = s3_conf.endpoint;
     aws_config.region = s3_conf.region;
+    std::string ca_cert = get_valid_ca_cert_path();
+    if ("" != _ca_cert_file_path) {
+        aws_config.caFile = _ca_cert_file_path;
+    } else {
+        // config::ca_cert_file_paths is valmutable,get newest value if file path invaild
+        _ca_cert_file_path = get_valid_ca_cert_path();
+        if ("" != _ca_cert_file_path) {
+            aws_config.caFile = _ca_cert_file_path;
+        }
+    }
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
