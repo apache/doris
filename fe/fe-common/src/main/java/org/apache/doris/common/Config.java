@@ -2305,4 +2305,11 @@ public class Config extends ConfigBase {
                     + "and the deleted labels can be reused."
     })
     public static int label_num_threshold = 2000;
+
+    @ConfField(description = {
+            "是否开启 Proxy Protocol 支持",
+            "Whether to enable proxy protocol"
+    })
+    public static boolean enable_proxy_protocol = false;
+
 }
