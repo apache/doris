@@ -713,6 +713,8 @@ void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenP
     result_.status = t_status;
     result_.__set_context_id(p_context->context_id);
     result_.__set_selected_columns(selected_columns);
+    LOG(INFO) << "openScanner: context_id=" << p_context->context_id
+              << ", fragment_instance_id=" << print_id(fragment_instance_id);
 }
 
 // fetch result from polling the queue, should always maintain the context offset, otherwise inconsistent result
@@ -745,6 +747,8 @@ void BaseBackendService::get_next(TScanBatchResult& result_, const TScanNextBatc
 
         st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &record_batch, &eos);
         if (st.ok()) {
+            LOG(INFO) << "fragment_instance_id [" << print_id(fragment_instance_id)
+                      << "] fetch result status [" << st.to_string() + "]";
             result_.__set_eos(eos);
             if (!eos) {
                 std::string record_batch_str;
