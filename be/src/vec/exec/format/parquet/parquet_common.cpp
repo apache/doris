@@ -24,9 +24,9 @@
 
 namespace doris::vectorized {
 
-const uint32_t ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS = 2440588;
-const uint64_t ParquetInt96::MICROS_IN_DAY = 86400000000;
-const uint64_t ParquetInt96::NANOS_PER_MICROSECOND = 1000;
+const int32_t ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS = 2440588;
+const int64_t ParquetInt96::MICROS_IN_DAY = 86400000000;
+const int64_t ParquetInt96::NANOS_PER_MICROSECOND = 1000;
 
 ColumnSelectVector::ColumnSelectVector(const uint8_t* filter_map, size_t filter_map_size,
                                        bool filter_all) {
