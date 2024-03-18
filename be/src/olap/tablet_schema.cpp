@@ -616,6 +616,12 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     for (const auto& kv : _properties) {
         (*index->mutable_properties())[kv.first] = kv.second;
     }
+
+    // lowercase by default
+    if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
+        (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =
+                INVERTED_INDEX_PARSER_TRUE;
+    }
 }
 
 void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {

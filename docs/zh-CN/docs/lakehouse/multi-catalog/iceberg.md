@@ -78,6 +78,17 @@ CREATE CATALOG iceberg_hadoop_ha PROPERTIES (
 );
 ```
 
+```sql
+CREATE CATALOG iceberg_s3 PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 's3://bucket/dir/key',
+    's3.endpoint' = 's3.us-east-1.amazonaws.com',
+    's3.access_key' = 'ak',
+    's3.secret_key' = 'sk'
+);
+```
+
 #### Hive Metastore
 
 ```sql
@@ -106,7 +117,9 @@ CREATE CATALOG glue PROPERTIES (
 );
 ```
 
-Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+1. Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+
+2. 如果在AWS服务（如EC2）中，不填写Credentials相关信息（`glue.access_key`和`glue.secret_key`），Doris就会使用默认的DefaultAWSCredentialsProviderChain，它会读取系统环境变量或者InstanceProfile中配置的属性。
 
 #### 阿里云 DLF
 

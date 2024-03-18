@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
@@ -53,10 +54,11 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
     protected void initLocalObjectsImpl() {
         icebergCatalogType = ICEBERG_HADOOP;
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
-        hadoopCatalog.setConf(getConfiguration());
+        Configuration conf = getConfiguration();
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();
-        String warehouse = catalogProperty.getProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
+        String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
+        hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         hadoopCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = hadoopCatalog;

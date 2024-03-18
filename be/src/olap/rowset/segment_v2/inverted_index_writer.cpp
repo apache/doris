@@ -205,7 +205,7 @@ public:
                 // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
                 _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
             }
-            auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+            auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
             if (lowercase == "true") {
                 _analyzer->set_lowercase(true);
             } else if (lowercase == "false") {
@@ -234,7 +234,7 @@ public:
         }
         _field = new lucene::document::Field(_field_name.c_str(), field_config);
         if (get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
-            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+            INVERTED_INDEX_PARSER_TRUE) {
             _field->setOmitTermFreqAndPositions(false);
         } else {
             _field->setOmitTermFreqAndPositions(true);

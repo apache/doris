@@ -14,22 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#pragma once
 
-#include <cstdint>
-#include <string>
-#include <vector>
+package org.apache.doris.mysql;
 
-#include "io/fs/file_system.h"
+import java.nio.ByteBuffer;
 
-namespace doris {
-
-namespace segment_v2 {
-Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_num,
-                      std::vector<std::string> src_index_files,
-                      std::vector<std::string> dest_index_files, const io::FileSystemSPtr& fs,
-                      std::string index_writer_path, std::string tablet_path,
-                      std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec,
-                      std::vector<uint32_t> dest_segment_num_rows, bool maybe_skip);
-} // namespace segment_v2
-} // namespace doris
+public interface BytesChannel {
+    /**
+     * Read N bytes from channel to buffer, N = dstBuf.remaining()
+     * @param buffer
+     * @return number of bytes read
+     */
+    public int read(ByteBuffer buffer);
+}

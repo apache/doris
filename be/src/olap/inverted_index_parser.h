@@ -49,6 +49,9 @@ struct InvertedIndexCtx {
 
 using InvertedIndexCtxSPtr = std::shared_ptr<InvertedIndexCtx>;
 
+const std::string INVERTED_INDEX_PARSER_TRUE = "true";
+const std::string INVERTED_INDEX_PARSER_FALSE = "false";
+
 const std::string INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
 const std::string INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
 const std::string INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
@@ -62,8 +65,6 @@ const std::string INVERTED_INDEX_PARSER_ENGLISH = "english";
 const std::string INVERTED_INDEX_PARSER_CHINESE = "chinese";
 
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
-const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
-const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
 
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
@@ -91,6 +92,18 @@ CharFilterMap get_parser_char_filter_map_from_properties(
 std::string get_parser_ignore_above_value_from_properties(
         const std::map<std::string, std::string>& properties);
 
+template <bool ReturnTrue = false>
 std::string get_parser_lowercase_from_properties(
-        const std::map<std::string, std::string>& properties);
+        const std::map<std::string, std::string>& properties) {
+    if (properties.find(INVERTED_INDEX_PARSER_LOWERCASE_KEY) != properties.end()) {
+        return properties.at(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
+    } else {
+        if constexpr (ReturnTrue) {
+            return INVERTED_INDEX_PARSER_TRUE;
+        } else {
+            return "";
+        }
+    }
+}
+
 } // namespace doris
