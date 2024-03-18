@@ -71,15 +71,16 @@ Status LakeSoulJniReader::get_next_block(Block* block, size_t* read_rows, bool* 
     return Status::OK();
 }
 
-Status LakeSoulJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                                      std::unordered_set<std::string>* missing_cols) {
+static Status LakeSoulJniReader::get_columns(
+        std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+        std::unordered_set<std::string>* missing_cols) {
     for (auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
     }
     return Status::OK();
 }
 
-Status LakeSoulJniReader::init_reader(
+static Status LakeSoulJniReader::init_reader(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
