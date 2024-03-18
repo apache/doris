@@ -470,10 +470,6 @@ OK，到此就结束了，你就可以用 Mysql 客户端，JDBC 等任何连接
 
 ## Nginx TCP反向代理方式
 
-### 概述
-
-Nginx能够实现HTTP、HTTPS协议的负载均衡，也能够实现TCP协议的负载均衡。那么，问题来了，可不可以通过Nginx实现Apache Doris数据库的负载均衡呢？答案是：可以。接下来，就让我们一起探讨下如何使用Nginx实现Apache Doris的负载均衡。
-
 ### 环境准备
 
 **注意：使用Nginx实现Apache Doris数据库的负载均衡，前提是要搭建Apache Doris的环境，Apache Doris FE的IP和端口分别如下所示, 这里我是用一个FE来做演示的，多个FE只需要在配置里添加多个FE的IP地址和端口即可**
@@ -577,63 +573,70 @@ mysql> show databases;
 | test               |
 +--------------------+
 2 rows in set (0.00 sec)
-
-mysql> use test;
-Reading table information for completion of table and column names
-You can turn off this feature to get a quicker startup with -A
-
-Database changed
-mysql> show tables;
-+------------------+
-| Tables_in_test   |
-+------------------+
-| dwd_product_live |
-+------------------+
-1 row in set (0.00 sec)
-mysql> desc dwd_product_live;
-+-----------------+---------------+------+-------+---------+---------+
-| Field           | Type          | Null | Key   | Default | Extra   |
-+-----------------+---------------+------+-------+---------+---------+
-| dt              | DATE          | Yes  | true  | NULL    |         |
-| proId           | BIGINT        | Yes  | true  | NULL    |         |
-| authorId        | BIGINT        | Yes  | true  | NULL    |         |
-| roomId          | BIGINT        | Yes  | true  | NULL    |         |
-| proTitle        | VARCHAR(1024) | Yes  | false | NULL    | REPLACE |
-| proLogo         | VARCHAR(1024) | Yes  | false | NULL    | REPLACE |
-| shopId          | BIGINT        | Yes  | false | NULL    | REPLACE |
-| shopTitle       | VARCHAR(1024) | Yes  | false | NULL    | REPLACE |
-| profrom         | INT           | Yes  | false | NULL    | REPLACE |
-| proCategory     | BIGINT        | Yes  | false | NULL    | REPLACE |
-| proPrice        | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| couponPrice     | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| livePrice       | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| volume          | BIGINT        | Yes  | false | NULL    | REPLACE |
-| addedTime       | BIGINT        | Yes  | false | NULL    | REPLACE |
-| offTimeUnix     | BIGINT        | Yes  | false | NULL    | REPLACE |
-| offTime         | BIGINT        | Yes  | false | NULL    | REPLACE |
-| createTime      | BIGINT        | Yes  | false | NULL    | REPLACE |
-| createTimeUnix  | BIGINT        | Yes  | false | NULL    | REPLACE |
-| amount          | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| views           | BIGINT        | Yes  | false | NULL    | REPLACE |
-| commissionPrice | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| proCostPrice    | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| proCode         | VARCHAR(1024) | Yes  | false | NULL    | REPLACE |
-| proStatus       | INT           | Yes  | false | NULL    | REPLACE |
-| status          | INT           | Yes  | false | NULL    | REPLACE |
-| maxPrice        | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| liveView        | BIGINT        | Yes  | false | NULL    | REPLACE |
-| firstCategory   | BIGINT        | Yes  | false | NULL    | REPLACE |
-| secondCategory  | BIGINT        | Yes  | false | NULL    | REPLACE |
-| thirdCategory   | BIGINT        | Yes  | false | NULL    | REPLACE |
-| fourCategory    | BIGINT        | Yes  | false | NULL    | REPLACE |
-| minPrice        | DECIMAL(18,2) | Yes  | false | NULL    | REPLACE |
-| liveVolume      | BIGINT        | Yes  | false | NULL    | REPLACE |
-| liveClick       | BIGINT        | Yes  | false | NULL    | REPLACE |
-| extensionId     | VARCHAR(128)  | Yes  | false | NULL    | REPLACE |
-| beginTime       | BIGINT        | Yes  | false | NULL    | REPLACE |
-| roomTitle       | TEXT          | Yes  | false | NULL    | REPLACE |
-| beginTimeUnix   | BIGINT        | Yes  | false | NULL    | REPLACE |
-| nickname        | TEXT          | Yes  | false | NULL    | REPLACE |
-+-----------------+---------------+------+-------+---------+---------+
-40 rows in set (0.06 sec)
 ```
+
+## IP 透传
+
+自 2.1.1 版本开始，Doris 支持 [Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) 协议。利用这个协议，可以是实现负载均衡的 IP 透传，从而在经过负载均衡后，Doris 依然可以获取客户端的真实 IP，实现白名单等权限控制。
+
+> 注：
+>
+> 1. 仅支持 Proxy Protocol V1。
+>
+> 2. 仅支持并做用于 MySQL 协议端口，不支持和影响 HTTP、ADBC 等其他协议端口。
+>
+> 3. 开启后，必须使用 Proxy Protocol 协议进行连接，否则连接失败。
+
+下面以 Nginx 为例，介绍如何实现 IP 透传。
+
+1. Doris 开启 Proxy Protocol
+
+    在 FE 的 fe.conf 中添加：
+
+    ```
+    enable_proxy_protocol = true
+    ```
+
+2. Nginx 开启 Proxy Protocol
+
+    ```
+    events {
+    worker_connections 1024;
+    }
+    stream {
+      upstream mysqld {
+          hash $remote_addr consistent;
+          server 172.31.7.119:9030 weight=1 max_fails=2 fail_timeout=60s;
+      }
+      server {
+          listen 6030;
+          proxy_connect_timeout 300s;
+          proxy_timeout 300s;
+          proxy_pass mysqld;
+          # Enable Proxy Protocol to the upstream server
+          proxy_protocol on;
+      }
+    }
+    ```
+
+3. 通过代理连接Doris
+
+    ```
+    mysql -uroot -P6030 -h172.31.7.119 
+    ```
+
+4. 验证
+
+    ```
+    mysql> show processlist;
+    +------------------+------+------+-------------------+---------------------+----------+------+---------+------+-------+-----------------------------------+------------------+
+    | CurrentConnected | Id   | User | Host              | LoginTime           | Catalog  | Db   | Command | Time | State | QueryId                           | Info             |
+    +------------------+------+------+-------------------+---------------------+----------+------+---------+------+-------+-----------------------------------+------------------+
+    | Yes              |    1 | root | 172.21.0.32:34390 | 2024-03-17 16:32:22 | internal |      | Query   |    0 | OK    | 82edc460d93f4e28-8bbed058a068e259 | show processlist |
+    +------------------+------+------+-------------------+---------------------+----------+------+---------+------+-------+-----------------------------------+------------------+
+    1 row in set (0.00 sec)
+    ```
+
+    如果在 `Host` 列看到的真实的客户端 IP，则说明验证成功。否则，只能看到代理服务的 IP 地址。
+
+    同时，在 fe.audit.log 中也会记录真实的客户端 IP。
