@@ -312,18 +312,14 @@ public:
         case RuntimeFilterType::BLOOM_FILTER: {
             _is_bloomfilter = true;
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
-            _context.bloom_filter_func->set_length(params->bloom_filter_size);
-            _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
-            _context.bloom_filter_func->set_null_aware(params->null_aware);
+            _context.bloom_filter_func->init_params(params);
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             _context.hybrid_set.reset(create_set(_column_return_type));
             _context.hybrid_set->set_null_aware(params->null_aware);
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
-            _context.bloom_filter_func->set_length(params->bloom_filter_size);
-            _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
-            _context.bloom_filter_func->set_null_aware(params->null_aware);
+            _context.bloom_filter_func->init_params(params);
             return Status::OK();
         }
         case RuntimeFilterType::BITMAP_FILTER: {
@@ -1271,12 +1267,11 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     // 1. Only 1 join key
     // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
     // 3. Bloom filter
-    // 4. FE do not use ndv stat to predict the bf size, only the row count. BE have more
-    // exactly row count stat
-    params.build_bf_exactly = build_bf_exactly && !desc->bloom_filter_size_calculated_by_ndv &&
-                              (!_has_remote_target || _is_broadcast_join) &&
+    params.build_bf_exactly = build_bf_exactly && (!_has_remote_target || _is_broadcast_join) &&
                               (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
                                _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
+    params.bloom_filter_size_calculated_by_ndv = desc->bloom_filter_size_calculated_by_ndv;
+
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
