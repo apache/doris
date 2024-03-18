@@ -93,6 +93,8 @@ protected:
     // TODO: cast input block columns type to string.
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
+    void _collect_profile_before_close() override;
+
 protected:
     const TFileScanRangeParams* _params = nullptr;
     const std::vector<TFileRangeDesc>& _ranges;

@@ -724,6 +724,7 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
 Status VFileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
+            _cur_reader->collect_profile_before_close();
             RETURN_IF_ERROR(_cur_reader->close());
         }
         _cur_reader.reset(nullptr);
@@ -924,6 +925,7 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
 
+        COUNTER_UPDATE(_file_counter, 1);
         if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
@@ -936,7 +938,6 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
-        COUNTER_UPDATE(_file_counter, 1);
 
         _name_to_col_type.clear();
         _missing_cols.clear();
@@ -1137,11 +1138,6 @@ Status VFileScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
-        io::FileCacheProfileReporter cache_profile(_profile);
-        cache_profile.update(_file_cache_statistics.get());
-    }
-
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
@@ -1154,6 +1150,19 @@ void VFileScanner::try_stop() {
     VScanner::try_stop();
     if (_io_ctx) {
         _io_ctx->should_stop = true;
+    }
+}
+
+void VFileScanner::_collect_profile_before_close() {
+    VScanner::_collect_profile_before_close();
+    if (config::enable_file_cache && _state->query_options().enable_file_cache &&
+        _profile != nullptr) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
+    }
+
+    if (_cur_reader != nullptr) {
+        _cur_reader->collect_profile_before_close();
     }
 }
 
