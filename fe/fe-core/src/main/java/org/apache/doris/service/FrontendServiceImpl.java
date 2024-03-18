@@ -44,6 +44,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
@@ -208,6 +209,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TShowVariableRequest;
@@ -987,6 +989,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ConnectContext context = new ConnectContext(null, true);
         // Set current connected FE to the client address, so that we can know where this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
+        if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
+            context.setCloudCluster(params.getCloudCluster());
+        }
 
         ConnectProcessor processor = null;
         if (context.getConnectType().equals(ConnectType.MYSQL)) {
@@ -1062,12 +1067,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private void checkToken(String token) throws AuthenticationException {
-        if (!Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token)) {
-            throw new AuthenticationException("Un matched cluster token.");
-        }
-    }
-
     private void checkPassword(String user, String passwd, String clientIp)
             throws AuthenticationException {
         final String fullUserName = ClusterNamespace.getNameFromFullName(user);
@@ -1132,7 +1131,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         } else {
-            checkToken(request.getToken());
+            if (!checkToken(request.getToken())) {
+                throw new AuthenticationException("Invalid token: " + request.getToken());
+            }
         }
 
         // check label
@@ -1343,7 +1344,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // CHECKSTYLE IGNORE THIS LINE
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            if (!checkToken(request.getToken())) {
+                throw new AuthenticationException("Invalid token: " + request.getToken());
+            }
         } else {
             // refactoring it
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -1942,6 +1945,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         List<String> tableNames = request.getTableNames();
+
+        if (Config.isCloudMode()) {
+            try {
+                ConnectContext ctx = new ConnectContext();
+                ctx.setThreadLocalInfo();
+                ctx.setQualifiedUser(request.getUser());
+                ctx.setRemoteIP(request.getUserIp());
+                String userName = ClusterNamespace.getNameFromFullName(request.getUser());
+                if (userName != null) {
+                    List<UserIdentity> currentUser = Lists.newArrayList();
+                    try {
+                        Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
+                                request.getUserIp(), request.getPasswd(), currentUser);
+                    } catch (AuthenticationException e) {
+                        throw new UserException(e.formatErrMsg());
+                    }
+                    Preconditions.checkState(currentUser.size() == 1);
+                    ctx.setCurrentUserIdentity(currentUser.get(0));
+                }
+                LOG.info("one stream multi table load use cloud cluster {}", request.getCloudCluster());
+                //ctx.setCloudCluster();
+                if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
+                    if (Strings.isNullOrEmpty(request.getUser())) {
+                        ctx.setCloudCluster(request.getCloudCluster());
+                    } else {
+                        ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
+                    }
+                }
+            } catch (UserException e) {
+                LOG.warn("failed to set ConnectContext info: {}", e.getMessage());
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs(e.getMessage());
+            }
+        }
+
         try {
             if (CollectionUtils.isEmpty(tableNames)) {
                 throw new MetaNotFoundException("table not found");
@@ -1979,7 +2017,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
-                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
+                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR,
                             "failed to get stream load plan, " + exception.getMessage()), false);
             } catch (UserException e) {
                 LOG.warn("catch update routine load job error.", e);
@@ -2102,6 +2140,49 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
+        if (request.isSetAuthCode()) {
+            String clientAddr = getClientAddrAsString();
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.setRemoteIP(clientAddr);
+            long backendId = request.getBackendId();
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            Preconditions.checkNotNull(backend);
+            ctx.setCloudCluster(backend.getCloudClusterName());
+            LOG.info("streamLoadPutImpl set context: cluster {}", ctx.getCloudCluster());
+        } else if (Config.isCloudMode()) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.setQualifiedUser(request.getUser());
+            ctx.setRemoteIP(request.getUserIp());
+            String userName = ClusterNamespace.getNameFromFullName(request.getUser());
+            if (userName != null) {
+                List<UserIdentity> currentUser = Lists.newArrayList();
+                try {
+                    Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
+                            request.getUserIp(), request.getPasswd(), currentUser);
+                } catch (AuthenticationException e) {
+                    throw new UserException(e.formatErrMsg());
+                }
+                Preconditions.checkState(currentUser.size() == 1);
+                ctx.setCurrentUserIdentity(currentUser.get(0));
+            }
+
+            LOG.info("stream load use cloud cluster {}", request.getCloudCluster());
+            if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
+                if (Strings.isNullOrEmpty(request.getUser())) {
+                    // mysql load
+                    ctx.setCloudCluster(request.getCloudCluster());
+                } else {
+                    // stream load
+                    ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
+                }
+            }
+
+            LOG.debug("streamLoadPutImpl set context: cluster {}, setCurrentUserIdentity {}",
+                    ctx.getCloudCluster(), ctx.getCurrentUserIdentity());
+        }
+
         Env env = Env.getCurrentEnv();
         String fullDbName = request.getDb();
         Database db = env.getInternalCatalog().getDbNullable(fullDbName);
@@ -2298,13 +2379,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
-        switch (request.getSchemaTableName()) {
-            case METADATA_TABLE:
-                return MetadataGenerator.getMetadataTable(request);
-            default:
-                break;
+        if (!request.isSetSchemaTableName()) {
+            return MetadataGenerator.errorResult("Fetch schema table name is not set");
         }
-        return MetadataGenerator.errorResult("Fetch schema table name is not set");
+        // tvf queries
+        if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
+            return MetadataGenerator.getMetadataTable(request);
+        } else {
+            // database information_schema's tables
+            return MetadataGenerator.getSchemaTableData(request);
+        }
     }
 
     private TNetworkAddress getClientAddr() {
@@ -2411,6 +2495,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return result;
+    }
+
+    @Override
+    public boolean checkToken(String token) {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive check token request from client: {}", clientAddr);
+        }
+        try {
+            return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            return false;
+        }
     }
 
     @Override

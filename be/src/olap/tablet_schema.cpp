@@ -951,6 +951,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
+    // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
+    if (!schema.has_inverted_index_storage_format()) {
+        _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
+    } else {
+        _inverted_index_storage_format = schema.inverted_index_storage_format();
+    }
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -1029,8 +1035,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         _num_columns++;
     }
 
-    for (auto& index : index->indexes) {
-        _indexes.emplace_back(*index);
+    for (auto& i : index->indexes) {
+        _indexes.emplace_back(*i);
     }
 
     if (has_bf_columns) {
@@ -1138,6 +1144,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
+    tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1225,7 +1232,7 @@ const TabletColumn& TabletSchema::column(const std::string& field_name) const {
 std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
         const TabletColumn& col) const {
     std::vector<const TabletIndex*> indexes_for_column;
-    int32_t col_unique_id = col.unique_id();
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
     // TODO use more efficient impl
@@ -1253,7 +1260,7 @@ void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
 
 bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     // TODO use more efficient impl
-    int32_t col_unique_id = col.unique_id();
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
     for (size_t i = 0; i < _indexes.size(); i++) {
@@ -1310,7 +1317,7 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
 const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col) const {
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
-    int32_t col_unique_id = col.unique_id() < 0 ? col.parent_unique_id() : col.unique_id();
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
     return get_inverted_index(col_unique_id, suffix_path);

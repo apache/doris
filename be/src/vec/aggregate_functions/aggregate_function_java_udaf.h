@@ -60,7 +60,7 @@ public:
     AggregateJavaUdafData(int64_t num_args) { argument_size = num_args; }
 
     ~AggregateJavaUdafData() {
-        JNIEnv* env;
+        JNIEnv* env = nullptr;
         if (!JniUtil::GetJNIEnv(&env).ok()) {
             LOG(WARNING) << "Failed to get JNIEnv";
         }

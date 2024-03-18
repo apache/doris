@@ -41,6 +41,7 @@
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
@@ -115,6 +116,21 @@ Status Segment::_open() {
     return Status::OK();
 }
 
+Status Segment::_open_inverted_index() {
+    _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
+            _file_reader->fs(), _file_reader->path().parent_path(),
+            _file_reader->path().filename().native(),
+            _tablet_schema->get_inverted_index_storage_format());
+    bool open_idx_file_cache = true;
+    auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                open_idx_file_cache);
+    if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+        LOG(INFO) << st;
+        return Status::OK();
+    }
+    return st;
+}
+
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     read_options.stats->total_segment_number++;
@@ -152,6 +168,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     if (read_options.use_topn_opt) {
         auto* query_ctx = read_options.runtime_state->get_query_ctx();
         for (int id : read_options.topn_filter_source_node_ids) {
+            if (!query_ctx->get_runtime_predicate(id).need_update()) {
+                continue;
+            }
             auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate();
 
             int32_t uid =
@@ -177,7 +196,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
-        iter->reset(new SegmentIterator(this->shared_from_this(), schema));
+        *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
     }
 
     if (config::ignore_always_true_predicate_for_segment &&
@@ -629,7 +648,12 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        RETURN_IF_ERROR(reader->new_inverted_index_iterator(index_meta, read_options, iter));
+        if (_inverted_index_file_reader == nullptr) {
+            RETURN_IF_ERROR(
+                    _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
+        }
+        RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
+                                                            read_options, iter));
         return Status::OK();
     }
     return Status::OK();

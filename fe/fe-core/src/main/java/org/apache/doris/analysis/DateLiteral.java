@@ -648,6 +648,9 @@ public class DateLiteral extends LiteralExpr {
             int typeDiff = typeAsInt - thatTypeAsInt;
             if (typeDiff != 0) {
                 return typeDiff;
+            } else if (typeAsInt == 0) {
+                // if all is date and equals date, then return
+                return 0;
             }
 
             long hourMinuteSecond = hour * 10000 + minute * 100 + second;
@@ -678,6 +681,10 @@ public class DateLiteral extends LiteralExpr {
 
     public boolean isDateType() {
         return this.type.isDate() || this.type.isDateV2();
+    }
+
+    public boolean isDateTimeType() {
+        return this.type.isDatetime() || this.type.isDatetimeV2();
     }
 
     @Override

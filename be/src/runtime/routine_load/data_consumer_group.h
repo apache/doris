@@ -45,8 +45,10 @@ class DataConsumerGroup {
 public:
     typedef std::function<void(const Status&)> ConsumeFinishCallback;
 
-    DataConsumerGroup()
-            : _grp_id(UniqueId::gen_uid()), _thread_pool(3, 10, "data_consumer"), _counter(0) {}
+    DataConsumerGroup(size_t consumer_num)
+            : _grp_id(UniqueId::gen_uid()),
+              _thread_pool(consumer_num, consumer_num, "data_consumer"),
+              _counter(0) {}
 
     virtual ~DataConsumerGroup() { _consumers.clear(); }
 
@@ -82,7 +84,7 @@ protected:
 // for kafka
 class KafkaDataConsumerGroup : public DataConsumerGroup {
 public:
-    KafkaDataConsumerGroup() : DataConsumerGroup(), _queue(500) {}
+    KafkaDataConsumerGroup(size_t consumer_num) : DataConsumerGroup(consumer_num), _queue(500) {}
 
     virtual ~KafkaDataConsumerGroup();
 

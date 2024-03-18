@@ -30,16 +30,21 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.thrift.THivePartitionUpdate;
 
 import com.google.common.base.Preconditions;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 public class HiveMetadataOps implements ExternalMetadataOps {
     private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
@@ -48,6 +53,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private HiveConf hiveConf;
     private HMSExternalCatalog catalog;
     private HMSCachedClient client;
+    private final RemoteFileSystem fs;
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
         this.catalog = catalog;
@@ -55,6 +61,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         this.jdbcClientConfig = jdbcClientConfig;
         this.client = createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size), jdbcClientConfig);
+        this.fs = new DFSFileSystem(catalog.getProperties());
     }
 
     public HMSCachedClient getClient() {
@@ -118,17 +125,13 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             Map<String, String> props = stmt.getExtProperties();
-            String inputFormat = props.getOrDefault("input_format", Config.hive_default_input_format);
-            String outputFormat = props.getOrDefault("output_format", Config.hive_default_output_format);
-            String serDe = props.getOrDefault("serde", Config.hive_default_serde);
+            String fileFormat = props.getOrDefault("file_format", Config.hive_default_file_format);
             HiveTableMetadata catalogTable = HiveTableMetadata.of(dbName,
                     tblName,
                     stmt.getColumns(),
                     parsePartitionKeys(props),
                     props,
-                    inputFormat,
-                    outputFormat,
-                    serDe);
+                    fileFormat);
 
             client.createTable(catalogTable, stmt.isSetIfNotExists());
             db.setUnInitialized(true);
@@ -175,5 +178,36 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         return client.getAllDatabases();
+    }
+
+    public void commit(String dbName,
+                       String tableName,
+                       List<THivePartitionUpdate> hivePUs) {
+        Table table = client.getTable(dbName, tableName);
+        HMSCommitter hmsCommitter = new HMSCommitter(this, fs, table);
+        hmsCommitter.commit(hivePUs);
+    }
+
+    public void updateTableStatistics(
+            String dbName,
+            String tableName,
+            Function<HivePartitionStatistics, HivePartitionStatistics> update) {
+        client.updateTableStatistics(dbName, tableName, update);
+    }
+
+    void updatePartitionStatistics(
+            String dbName,
+            String tableName,
+            String partitionName,
+            Function<HivePartitionStatistics, HivePartitionStatistics> update) {
+        client.updatePartitionStatistics(dbName, tableName, partitionName, update);
+    }
+
+    public void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions) {
+        client.addPartitions(dbName, tableName, partitions);
+    }
+
+    public void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData) {
+        client.dropPartition(dbName, tableName, partitionValues, deleteData);
     }
 }

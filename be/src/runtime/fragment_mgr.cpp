@@ -70,10 +70,10 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/task_group/task_group.h"
-#include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
@@ -373,6 +373,24 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
 
+        if (!req.runtime_state->hive_partition_updates().empty()) {
+            params.__isset.hive_partition_updates = true;
+            params.hive_partition_updates.reserve(
+                    req.runtime_state->hive_partition_updates().size());
+            for (auto& hive_partition_update : req.runtime_state->hive_partition_updates()) {
+                params.hive_partition_updates.push_back(hive_partition_update);
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->hive_partition_updates().empty()) {
+                    params.__isset.hive_partition_updates = true;
+                    params.hive_partition_updates.insert(params.hive_partition_updates.end(),
+                                                         rs->hive_partition_updates().begin(),
+                                                         rs->hive_partition_updates().end());
+                }
+            }
+        }
+
         // Send new errors to coordinator
         req.runtime_state->get_unreported_errors(&(params.error_log));
         params.__isset.error_log = (params.error_log.size() > 0);
@@ -612,7 +630,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
-                                                params.query_options, params.coord, pipeline);
+                                                params.query_options, params.coord, pipeline,
+                                                params.is_nereids);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
         // set file scan range params
@@ -638,15 +657,15 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
-            taskgroup::TaskGroupPtr task_group_ptr =
-                    _exec_env->task_group_manager()->get_task_group_by_id(tg_id);
-            if (task_group_ptr != nullptr) {
-                RETURN_IF_ERROR(query_ctx->set_task_group(task_group_ptr));
+            WorkloadGroupPtr workload_group_ptr =
+                    _exec_env->workload_group_mgr()->get_task_group_by_id(tg_id);
+            if (workload_group_ptr != nullptr) {
+                RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << ", use task group: " << task_group_ptr->debug_string()
+                          << ", use workload group: " << workload_group_ptr->debug_string()
                           << ", is pipeline: " << ((int)is_pipeline)
                           << ", enable cgroup soft limit: "
                           << ((int)config::enable_cgroup_cpu_soft_limit);
@@ -656,7 +675,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             }
         }
         // There is some logic in query ctx's dctor, we could not check if exists and delete the
-        // temp query ctx now. For example, the query id maybe removed from task group's queryset.
+        // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
         _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
         LOG(INFO) << "Register query/load memory tracker, query/load id: "
                   << print_id(query_ctx->query_id())
@@ -687,6 +706,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     std::shared_ptr<QueryContext> query_ctx;
     bool pipeline_engine_enabled = params.query_options.__isset.enable_pipeline_engine &&
                                    params.query_options.enable_pipeline_engine;
+
     RETURN_IF_ERROR(
             _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
     {

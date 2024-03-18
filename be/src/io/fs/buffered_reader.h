@@ -28,7 +28,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "io/cache/block/cached_remote_file_reader.h"
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/file_reader.h"
@@ -179,17 +179,6 @@ public:
     Status close() override {
         if (!_closed) {
             _closed = true;
-            // the underlying buffer is closed in its own destructor
-            // return _reader->close();
-            if (_profile != nullptr) {
-                COUNTER_UPDATE(_copy_time, _statistics.copy_time);
-                COUNTER_UPDATE(_read_time, _statistics.read_time);
-                COUNTER_UPDATE(_request_io, _statistics.request_io);
-                COUNTER_UPDATE(_merged_io, _statistics.merged_io);
-                COUNTER_UPDATE(_request_bytes, _statistics.request_bytes);
-                COUNTER_UPDATE(_merged_bytes, _statistics.merged_bytes);
-                COUNTER_UPDATE(_apply_bytes, _statistics.apply_bytes);
-            }
         }
         return Status::OK();
     }
@@ -217,6 +206,21 @@ public:
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
+
+    void _collect_profile_before_close() override {
+        if (_profile != nullptr) {
+            COUNTER_UPDATE(_copy_time, _statistics.copy_time);
+            COUNTER_UPDATE(_read_time, _statistics.read_time);
+            COUNTER_UPDATE(_request_io, _statistics.request_io);
+            COUNTER_UPDATE(_merged_io, _statistics.merged_io);
+            COUNTER_UPDATE(_request_bytes, _statistics.request_bytes);
+            COUNTER_UPDATE(_merged_bytes, _statistics.merged_bytes);
+            COUNTER_UPDATE(_apply_bytes, _statistics.apply_bytes);
+            if (_reader != nullptr) {
+                _reader->collect_profile_before_close();
+            }
+        }
+    }
 
 private:
     RuntimeProfile::Counter* _copy_time = nullptr;
@@ -274,7 +278,7 @@ public:
 };
 
 class PrefetchBufferedReader;
-struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
+struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public ProfileCollector {
     enum class BufferStatus { RESET, PENDING, PREFETCHED, CLOSED };
 
     PrefetchBuffer(const PrefetchRange file_range, size_t buffer_size, size_t whole_buffer_size,
@@ -354,6 +358,10 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     int search_read_range(size_t off) const;
 
     size_t merge_small_ranges(size_t off, int range_index) const;
+
+    void _collect_profile_at_runtime() override {}
+
+    void _collect_profile_before_close() override;
 };
 
 constexpr int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
@@ -400,6 +408,8 @@ public:
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
+
+    void _collect_profile_before_close() override;
 
 private:
     Status _close_internal();
@@ -454,6 +464,8 @@ protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
+    void _collect_profile_before_close() override;
+
 private:
     Status _close_internal();
     io::FileReaderSPtr _reader;
@@ -494,7 +506,7 @@ protected:
     Statistics _statistics;
 };
 
-class BufferedFileStreamReader : public BufferedStreamReader {
+class BufferedFileStreamReader : public BufferedStreamReader, public ProfileCollector {
 public:
     BufferedFileStreamReader(io::FileReaderSPtr file, uint64_t offset, uint64_t length,
                              size_t max_buf_size);
@@ -504,6 +516,13 @@ public:
                       const IOContext* io_ctx) override;
     Status read_bytes(Slice& slice, uint64_t offset, const IOContext* io_ctx) override;
     std::string path() override { return _file->path(); }
+
+protected:
+    void _collect_profile_before_close() override {
+        if (_file != nullptr) {
+            _file->collect_profile_before_close();
+        }
+    }
 
 private:
     std::unique_ptr<uint8_t[]> _buf;

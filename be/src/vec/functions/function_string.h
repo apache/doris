@@ -1052,13 +1052,16 @@ public:
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
+        std::vector<bool> is_const_args(argument_size);
 
         for (int i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
+            const auto& [col, is_const] =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+
+            const auto* col_str = assert_cast<const ColumnString*>(col.get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
+            is_const_args[i] = is_const;
         }
 
         auto res = ColumnString::create();
@@ -1070,14 +1073,14 @@ public:
         size_t res_reserve_size = 0;
         // we could ignore null string column
         // but it's not necessary to ignore it
-        for (size_t i = 0; i < offsets_list.size(); ++i) {
-            for (size_t j = 0; j < input_rows_count; ++j) {
-                size_t append = (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
-                // check whether the concat output might overflow(unlikely)
-                if (UNLIKELY(UINT_MAX - append < res_reserve_size)) {
-                    return Status::BufferAllocFailed("concat output is too large to allocate");
+        for (size_t i = 0; i < argument_size; ++i) {
+            if (is_const_args[i]) {
+                res_reserve_size +=
+                        ((*offsets_list[i])[0] - (*offsets_list[i])[-1]) * input_rows_count;
+            } else {
+                for (size_t j = 0; j < input_rows_count; ++j) {
+                    res_reserve_size += (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
                 }
-                res_reserve_size += append;
             }
         }
         if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
@@ -1088,15 +1091,16 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             int current_length = 0;
-            for (size_t j = 0; j < offsets_list.size(); ++j) {
+            for (size_t j = 0; j < argument_size; ++j) {
                 const auto& current_offsets = *offsets_list[j];
                 const auto& current_chars = *chars_list[j];
 
-                int size = current_offsets[i] - current_offsets[i - 1];
+                auto idx = index_check_const(i, is_const_args[j]);
+                auto size = current_offsets[idx] - current_offsets[idx - 1];
                 if (size > 0) {
                     memcpy_small_allow_read_write_overflow15(
                             &res_data[res_offset[i - 1]] + current_length,
-                            &current_chars[current_offsets[i - 1]], size);
+                            &current_chars[current_offsets[idx - 1]], size);
                     current_length += size;
                 }
             }
@@ -1433,103 +1437,6 @@ class FunctionStringRepeat : public IFunction {
 public:
     static constexpr auto name = "repeat";
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 2; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
-    }
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 2);
-        auto res = ColumnString::create();
-
-        ColumnPtr argument_ptr[2];
-        argument_ptr[0] =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        argument_ptr[1] = block.get_by_position(arguments[1]).column;
-
-        if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
-            if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
-                vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
-                              res->get_chars(), res->get_offsets(),
-                              context->state()->repeat_max_num());
-                block.replace_by_position(result, std::move(res));
-                return Status::OK();
-            } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
-                DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = 0;
-                repeat = std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
-
-                if (repeat <= 0) {
-                    res->insert_many_defaults(input_rows_count);
-                } else {
-                    vector_const(col1->get_chars(), col1->get_offsets(), repeat, res->get_chars(),
-                                 res->get_offsets());
-                }
-                block.replace_by_position(result, std::move(res));
-                return Status::OK();
-            }
-        }
-
-        return Status::RuntimeError("repeat function get error param: {}, {}",
-                                    argument_ptr[0]->get_name(), argument_ptr[1]->get_name());
-    }
-
-    void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, const int repeat_max_num) const {
-        size_t input_row_size = offsets.size();
-
-        fmt::memory_buffer buffer;
-        res_offsets.resize(input_row_size);
-        for (ssize_t i = 0; i < input_row_size; ++i) {
-            buffer.clear();
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t size = offsets[i] - offsets[i - 1];
-            int repeat = 0;
-            repeat = std::min<int>(repeats[i], repeat_max_num);
-
-            if (repeat <= 0) {
-                StringOP::push_empty_string(i, res_data, res_offsets);
-            } else {
-                for (int j = 0; j < repeat; ++j) {
-                    buffer.append(raw_str, raw_str + size);
-                }
-                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                            res_data, res_offsets);
-            }
-        }
-    }
-
-    // TODO: 1. use pmr::vector<char> replace fmt_buffer may speed up the code
-    //       2. abstract the `vector_vector` and `vector_const`
-    //       3. rethink we should use `DEFAULT_MAX_STRING_SIZE` to bigger here
-    void vector_const(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                      int repeat, ColumnString::Chars& res_data,
-                      ColumnString::Offsets& res_offsets) const {
-        size_t input_row_size = offsets.size();
-
-        fmt::memory_buffer buffer;
-        res_offsets.resize(input_row_size);
-        for (ssize_t i = 0; i < input_row_size; ++i) {
-            buffer.clear();
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t size = offsets[i] - offsets[i - 1];
-
-            for (int j = 0; j < repeat; ++j) {
-                buffer.append(raw_str, raw_str + size);
-            }
-            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
-                                        res_offsets);
-        }
-    }
-};
-
-class FunctionStringRepeatOld : public IFunction {
-public:
-    static constexpr auto name = "repeat";
-    static FunctionPtr create() { return std::make_shared<FunctionStringRepeatOld>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
 

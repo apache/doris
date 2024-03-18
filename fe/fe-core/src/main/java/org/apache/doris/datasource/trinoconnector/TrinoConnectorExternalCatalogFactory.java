@@ -23,7 +23,6 @@ import org.apache.doris.datasource.ExternalCatalog;
 import java.util.Map;
 
 public class TrinoConnectorExternalCatalogFactory {
-
     public static ExternalCatalog createCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) throws DdlException {
         return new TrinoConnectorExternalCatalog(catalogId, name, resource, props, comment);

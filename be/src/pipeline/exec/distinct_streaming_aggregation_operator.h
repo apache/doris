@@ -23,7 +23,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -57,12 +56,16 @@ private:
                                               vectorized::ColumnRawPtrs& key_columns,
                                               const size_t num_rows);
     void _make_nullable_output_key(vectorized::Block* block);
+    bool _should_expand_preagg_hash_tables();
 
     std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;
     int64_t _output_distinct_rows = 0;
     size_t _input_num_rows = 0;
+    bool _should_expand_hash_table = true;
+    int64_t _cur_num_rows_returned = 0;
+    bool _stop_emplace_flag = false;
 
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     vectorized::AggregatedDataVariantsUPtr _agg_data = nullptr;

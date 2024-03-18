@@ -176,6 +176,40 @@ void RowsetMeta::_init() {
     }
 }
 
+void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size) {
+    _rowset_meta_pb.set_enable_segments_file_size(true);
+    for (auto fsize : seg_file_size) {
+        _rowset_meta_pb.add_segments_file_size(fsize);
+    }
+}
+
+int64_t RowsetMeta::segment_file_size(int seg_id) {
+    DCHECK(_rowset_meta_pb.segments_file_size().empty() ||
+           _rowset_meta_pb.segments_file_size_size() > seg_id)
+            << _rowset_meta_pb.segments_file_size_size() << ' ' << seg_id;
+    return _rowset_meta_pb.enable_segments_file_size()
+                   ? (_rowset_meta_pb.segments_file_size_size() > seg_id
+                              ? _rowset_meta_pb.segments_file_size(seg_id)
+                              : -1)
+                   : -1;
+}
+
+void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
+    set_num_segments(num_segments() + other.num_segments());
+    set_num_rows(num_rows() + other.num_rows());
+    set_data_disk_size(data_disk_size() + other.data_disk_size());
+    set_index_disk_size(index_disk_size() + other.index_disk_size());
+    for (auto&& key_bound : other.get_segments_key_bounds()) {
+        add_segment_key_bounds(key_bound);
+    }
+    if (_rowset_meta_pb.enable_segments_file_size() &&
+        other._rowset_meta_pb.enable_segments_file_size()) {
+        for (auto fsize : other.segments_file_size()) {
+            _rowset_meta_pb.add_segments_file_size(fsize);
+        }
+    }
+}
+
 bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
     if (a._rowset_id != b._rowset_id) return false;
     if (a._is_removed_from_rowset_meta != b._is_removed_from_rowset_meta) return false;

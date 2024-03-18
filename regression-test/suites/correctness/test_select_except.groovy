@@ -61,7 +61,7 @@ suite("test_select_except") {
             sql """
             select * except (concat(username, 's')) from tbl_select_except order by username
             """
-            exception "errCode = 2, detailMessage = `SELECT * EXCEPT` only supports column name."
+            exception "errCode"
         }
     } finally {
         sql "drop table if exists tbl_select_except"

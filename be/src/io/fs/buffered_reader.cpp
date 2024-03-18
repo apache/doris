@@ -611,6 +611,9 @@ void PrefetchBuffer::close() {
     }
     _buffer_status = BufferStatus::CLOSED;
     _prefetched.notify_all();
+}
+
+void PrefetchBuffer::_collect_profile_before_close() {
     if (_sync_profile != nullptr) {
         _sync_profile(*this);
     }
@@ -661,9 +664,6 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
 }
 
 PrefetchBufferedReader::~PrefetchBufferedReader() {
-    /// set `_sync_profile` to nullptr to avoid updating counter after the runtime profile has been released.
-    std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
-                  [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->_sync_profile = nullptr; });
     /// Better not to call virtual functions in a destructor.
     static_cast<void>(_close_internal());
 }
@@ -708,6 +708,17 @@ Status PrefetchBufferedReader::_close_internal() {
     return Status::OK();
 }
 
+void PrefetchBufferedReader::_collect_profile_before_close() {
+    std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
+                  [](std::shared_ptr<PrefetchBuffer>& buffer) {
+                      buffer->collect_profile_before_close();
+                  });
+    if (_reader != nullptr) {
+        _reader->collect_profile_before_close();
+    }
+}
+
+// InMemoryFileReader
 InMemoryFileReader::InMemoryFileReader(io::FileReaderSPtr reader) : _reader(std::move(reader)) {
     _size = _reader->size();
 }
@@ -744,6 +755,13 @@ Status InMemoryFileReader::read_at_impl(size_t offset, Slice result, size_t* byt
     return Status::OK();
 }
 
+void InMemoryFileReader::_collect_profile_before_close() {
+    if (_reader != nullptr) {
+        _reader->collect_profile_before_close();
+    }
+}
+
+// BufferedFileStreamReader
 BufferedFileStreamReader::BufferedFileStreamReader(io::FileReaderSPtr file, uint64_t offset,
                                                    uint64_t length, size_t max_buf_size)
         : _file(file),
