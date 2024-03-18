@@ -51,14 +51,17 @@ namespace pipeline {
 
 class PipelineFragmentContext : public TaskExecutionContext {
 public:
+    ENABLE_FACTORY_CREATOR(PipelineFragmentContext);
     // Callback to report execution status of plan fragment.
     // 'profile' is the cumulative profile, 'done' indicates whether the execution
     // is done or still continuing.
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
+    static std::shared_ptr<PipelineFragmentContext> fake_context;
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
+    PipelineFragmentContext() = default;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,

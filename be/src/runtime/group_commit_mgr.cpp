@@ -436,7 +436,10 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                                                     state->fragment_instance_id(), *status, state));
     };
     if (is_pipeline) {
-        return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
+        std::shared_ptr<QueryContext> query_ctx;
+        RETURN_IF_ERROR(_exec_env->fragment_mgr()->get_query_ctx(
+                pipeline_params, pipeline_params.query_id, query_ctx, {pipeline_params}));
+        return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, query_ctx, finish_cb);
     } else {
         return _exec_env->fragment_mgr()->exec_plan_fragment(params, finish_cb);
     }

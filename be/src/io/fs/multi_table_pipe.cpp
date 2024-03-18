@@ -221,53 +221,97 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                     put_pipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]));
             LOG(INFO) << "fragment_instance_id=" << print_id(plan.params.fragment_instance_id)
                       << " table=" << plan.table_name;
+            RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
+                    plan, [this](RuntimeState* state, Status* status) {
+                        {
+                            std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
+                            _tablet_commit_infos.insert(_tablet_commit_infos.end(),
+                                                        state->tablet_commit_infos().begin(),
+                                                        state->tablet_commit_infos().end());
+                        }
+                        _number_total_rows += state->num_rows_load_total();
+                        _number_loaded_rows += state->num_rows_load_success();
+                        _number_filtered_rows += state->num_rows_load_filtered();
+                        _number_unselected_rows += state->num_rows_load_unselected();
+
+                        // check filtered ratio for this plan fragment
+                        int64_t num_selected_rows =
+                                state->num_rows_load_total() - state->num_rows_load_unselected();
+                        if (num_selected_rows > 0 &&
+                            (double)state->num_rows_load_filtered() / num_selected_rows >
+                                    _ctx->max_filter_ratio) {
+                            *status = Status::DataQualityError("too many filtered rows");
+                        }
+                        if (_number_filtered_rows > 0 &&
+                            !state->get_error_log_file_path().empty()) {
+                            _ctx->error_url =
+                                    to_load_error_http_path(state->get_error_log_file_path());
+                        }
+
+                        // if any of the plan fragment exec failed, set the status to the first failed plan
+                        if (!status->ok()) {
+                            LOG(WARNING) << "plan fragment exec failed. errmsg=" << *status
+                                         << _ctx->brief();
+                            _status = *status;
+                        }
+
+                        auto inflight_cnt = _inflight_cnt.fetch_sub(1);
+                        if (inflight_cnt == 1 && is_consume_finished()) {
+                            _handle_consumer_finished();
+                        }
+                    }));
         } else if constexpr (std::is_same_v<ExecParam, TPipelineFragmentParams>) {
             auto pipe_id = calculate_pipe_id(plan.query_id, plan.fragment_id);
             RETURN_IF_ERROR(put_pipe(pipe_id, _planned_pipes[plan.table_name]));
             LOG(INFO) << "pipe_id=" << pipe_id << "table=" << plan.table_name;
+
+            std::shared_ptr<QueryContext> query_ctx;
+            RETURN_IF_ERROR(exec_env->fragment_mgr()->get_query_ctx(plan, plan.query_id, query_ctx,
+                                                                    params));
+            RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
+                    plan, query_ctx, [this](RuntimeState* state, Status* status) {
+                        {
+                            std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
+                            _tablet_commit_infos.insert(_tablet_commit_infos.end(),
+                                                        state->tablet_commit_infos().begin(),
+                                                        state->tablet_commit_infos().end());
+                        }
+                        _number_total_rows += state->num_rows_load_total();
+                        _number_loaded_rows += state->num_rows_load_success();
+                        _number_filtered_rows += state->num_rows_load_filtered();
+                        _number_unselected_rows += state->num_rows_load_unselected();
+
+                        // check filtered ratio for this plan fragment
+                        int64_t num_selected_rows =
+                                state->num_rows_load_total() - state->num_rows_load_unselected();
+                        if (num_selected_rows > 0 &&
+                            (double)state->num_rows_load_filtered() / num_selected_rows >
+                                    _ctx->max_filter_ratio) {
+                            *status = Status::DataQualityError("too many filtered rows");
+                        }
+                        if (_number_filtered_rows > 0 &&
+                            !state->get_error_log_file_path().empty()) {
+                            _ctx->error_url =
+                                    to_load_error_http_path(state->get_error_log_file_path());
+                        }
+
+                        // if any of the plan fragment exec failed, set the status to the first failed plan
+                        if (!status->ok()) {
+                            LOG(WARNING) << "plan fragment exec failed. errmsg=" << *status
+                                         << _ctx->brief();
+                            _status = *status;
+                        }
+
+                        auto inflight_cnt = _inflight_cnt.fetch_sub(1);
+                        if (inflight_cnt == 1 && is_consume_finished()) {
+                            _handle_consumer_finished();
+                        }
+                    }));
         } else {
             LOG(WARNING) << "illegal exec param type, need `TExecPlanFragmentParams` or "
                             "`TPipelineFragmentParams`, will crash";
             CHECK(false);
         }
-
-        RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
-                plan, [this](RuntimeState* state, Status* status) {
-                    {
-                        std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
-                        _tablet_commit_infos.insert(_tablet_commit_infos.end(),
-                                                    state->tablet_commit_infos().begin(),
-                                                    state->tablet_commit_infos().end());
-                    }
-                    _number_total_rows += state->num_rows_load_total();
-                    _number_loaded_rows += state->num_rows_load_success();
-                    _number_filtered_rows += state->num_rows_load_filtered();
-                    _number_unselected_rows += state->num_rows_load_unselected();
-
-                    // check filtered ratio for this plan fragment
-                    int64_t num_selected_rows =
-                            state->num_rows_load_total() - state->num_rows_load_unselected();
-                    if (num_selected_rows > 0 &&
-                        (double)state->num_rows_load_filtered() / num_selected_rows >
-                                _ctx->max_filter_ratio) {
-                        *status = Status::DataQualityError("too many filtered rows");
-                    }
-                    if (_number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                        _ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-                    }
-
-                    // if any of the plan fragment exec failed, set the status to the first failed plan
-                    if (!status->ok()) {
-                        LOG(WARNING)
-                                << "plan fragment exec failed. errmsg=" << *status << _ctx->brief();
-                        _status = *status;
-                    }
-
-                    auto inflight_cnt = _inflight_cnt.fetch_sub(1);
-                    if (inflight_cnt == 1 && is_consume_finished()) {
-                        _handle_consumer_finished();
-                    }
-                }));
     }
 
     return Status::OK();

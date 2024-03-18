@@ -116,6 +116,7 @@
 
 namespace doris::pipeline {
 bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
+auto PipelineFragmentContext::fake_context = PipelineFragmentContext::create_shared();
 
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, int fragment_id, int backend_num,

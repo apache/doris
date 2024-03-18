@@ -161,8 +161,12 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
     if (ctx->put_result.__isset.params) {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params, exec_fragment);
     } else {
+        std::shared_ptr<QueryContext> query_ctx;
+        RETURN_IF_ERROR(_exec_env->fragment_mgr()->get_query_ctx(
+                ctx->put_result.pipeline_params, ctx->put_result.pipeline_params.query_id,
+                query_ctx, {ctx->put_result.pipeline_params}));
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.pipeline_params,
-                                                           exec_fragment);
+                                                           query_ctx, exec_fragment);
     }
 
     if (!st.ok()) {

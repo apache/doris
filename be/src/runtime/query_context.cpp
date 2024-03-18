@@ -170,7 +170,10 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
             if (fragment_id == ctx.first) {
                 continue;
             }
-            if (auto pipeline_ctx = ctx.second.lock()) {
+            if (!ctx.second.valid) {
+                continue;
+            }
+            if (auto pipeline_ctx = ctx.second.pip_ctx.lock()) {
                 pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
             }
         }

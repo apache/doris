@@ -505,7 +505,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     }
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+                                       std::shared_ptr<QueryContext>& query_ctx) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -537,7 +538,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, empty_function);
+        return exec_plan_fragment(params, query_ctx, empty_function);
     }
 }
 
@@ -577,6 +578,18 @@ void FragmentMgr::remove_pipeline_context(
             _query_ctx_map.erase(query_id);
         }
     }
+}
+
+Status FragmentMgr::get_query_ctx(const TPipelineFragmentParams& params, TUniqueId query_id,
+                                  std::shared_ptr<QueryContext>& query_ctx,
+                                  std::vector<TPipelineFragmentParams> params_vec) {
+    RETURN_IF_ERROR(_get_query_ctx(params, query_id, true, query_ctx));
+    for (auto& p : params_vec) {
+        query_ctx->fragment_id_to_pipeline_ctx.insert(
+                {p.fragment_id, {false, pipeline::PipelineFragmentContext::fake_context}});
+    }
+
+    return Status::OK();
 }
 
 template <typename Params>
@@ -766,6 +779,7 @@ std::string FragmentMgr::dump_pipeline_tasks() {
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+                                       std::shared_ptr<QueryContext>& query_ctx,
                                        const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
@@ -773,9 +787,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
-
-    std::shared_ptr<QueryContext> query_ctx;
-    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
 
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
@@ -833,7 +844,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 _pipeline_map.insert({ins_id, context});
             }
 
-            query_ctx->fragment_id_to_pipeline_ctx.insert({params.fragment_id, context});
+            if (!query_ctx->fragment_id_to_pipeline_ctx.contains(params.fragment_id)) {
+                return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
+            }
+            query_ctx->fragment_id_to_pipeline_ctx[params.fragment_id].pip_ctx = context;
+            query_ctx->fragment_id_to_pipeline_ctx[params.fragment_id].valid = true;
         }
 
         RETURN_IF_ERROR(context->submit());
@@ -1036,8 +1051,10 @@ void FragmentMgr::cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fr
     if (auto q_ctx = _query_ctx_map.find(query_id)->second) {
         auto f_context = q_ctx->fragment_id_to_pipeline_ctx.find(fragment_id);
         if (f_context != q_ctx->fragment_id_to_pipeline_ctx.end()) {
-            if (auto pipeline_ctx = f_context->second.lock()) {
-                pipeline_ctx->cancel(reason, msg);
+            if (f_context->second.valid) {
+                if (auto pipeline_ctx = f_context->second.pip_ctx.lock()) {
+                    pipeline_ctx->cancel(reason, msg);
+                }
             }
         } else {
             LOG(WARNING) << "Could not find the pipeline query id:" << print_id(query_id)
@@ -1058,8 +1075,10 @@ bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
         const bool is_pipeline_x = ctx->second->enable_pipeline_x_exec();
         if (is_pipeline_x) {
             for (auto& [id, f_context] : ctx->second->fragment_id_to_pipeline_ctx) {
-                if (auto pipeline_ctx = f_context.lock()) {
-                    return pipeline_ctx->is_canceled();
+                if (f_context.valid) {
+                    if (auto pipeline_ctx = f_context.pip_ctx.lock()) {
+                        return pipeline_ctx->is_canceled();
+                    }
                 }
             }
         } else {

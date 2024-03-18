@@ -61,6 +61,11 @@ struct ReportStatusRequest {
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
 
+struct PipelineFragmentContextWrapper {
+    bool valid = false;
+    std::weak_ptr<pipeline::PipelineFragmentContext> pip_ctx;
+};
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -261,7 +266,7 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
-    std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
+    std::map<int, PipelineFragmentContextWrapper> fragment_id_to_pipeline_ctx;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
