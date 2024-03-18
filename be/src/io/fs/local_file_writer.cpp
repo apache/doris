@@ -36,36 +36,33 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/macros.h"
+#include "io/fs/err_utils.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "util/doris_metrics.h"
 
-namespace doris {
-namespace detail {
+namespace doris::io {
 
-Status sync_dir(const io::Path& dirname) {
+namespace {
+Status sync_dir(const Path& dirname) {
     int fd;
     RETRY_ON_EINTR(fd, ::open(dirname.c_str(), O_DIRECTORY | O_RDONLY));
     if (-1 == fd) {
-        return Status::IOError("cannot open {}: {}", dirname.native(), std::strerror(errno));
+        return localfs_error(errno, fmt::format("failed to open {}", dirname.native()));
     }
 #ifdef __APPLE__
     if (fcntl(fd, F_FULLFSYNC) < 0) {
-        return Status::IOError("cannot sync {}: {}", dirname.native(), std::strerror(errno));
-    }
 #else
     if (0 != ::fdatasync(fd)) {
-        return Status::IOError("cannot fdatasync {}: {}", dirname.native(), std::strerror(errno));
-    }
 #endif
+        return localfs_error(errno, fmt::format("failed to sync {}", dirname.native()));
+    }
     ::close(fd);
     return Status::OK();
 }
 
-} // namespace detail
-
-namespace io {
+} // namespace
 
 LocalFileWriter::LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data)
         : FileWriter(std::move(path), fs), _fd(fd), _sync_data(sync_data) {
@@ -94,7 +91,9 @@ Status LocalFileWriter::abort() {
 }
 
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    DCHECK(!_closed);
+    if (_closed) [[unlikely]] {
+        return Status::InternalError("append to closed file: {}", _path.native());
+    }
     _dirty = true;
 
     // Convert the results into the iovec vector to request
@@ -115,7 +114,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         ssize_t res;
         RETRY_ON_EINTR(res, ::writev(_fd, iov + completed_iov, iov_count));
         if (UNLIKELY(res < 0)) {
-            return Status::IOError("cannot write to {}: {}", _path.native(), std::strerror(errno));
+            return localfs_error(errno, fmt::format("failed to write {}", _path.native()));
         }
 
         if (LIKELY(res == n_left)) {
@@ -155,7 +154,7 @@ Status LocalFileWriter::write_at(size_t offset, const Slice& data) {
     while (bytes_req != 0) {
         auto res = ::pwrite(_fd, from, bytes_req, offset);
         if (-1 == res && errno != EINTR) {
-            return Status::IOError("cannot write to {}: {}", _path.native(), std::strerror(errno));
+            return localfs_error(errno, fmt::format("failed to write {}", _path.native()));
         }
         if (res > 0) {
             from += res;
@@ -171,7 +170,7 @@ Status LocalFileWriter::finalize() {
 #if defined(__linux__)
         int flags = SYNC_FILE_RANGE_WRITE;
         if (sync_file_range(_fd, 0, 0, flags) < 0) {
-            return Status::IOError("cannot sync {}: {}", _path.native(), std::strerror(errno));
+            return localfs_error(errno, fmt::format("failed to finalize {}", _path.native()));
         }
 #endif
     }
@@ -186,14 +185,12 @@ Status LocalFileWriter::_close(bool sync) {
     if (sync && _dirty) {
 #ifdef __APPLE__
         if (fcntl(_fd, F_FULLFSYNC) < 0) {
-            return Status::IOError("cannot sync {}: {}", _path.native(), std::strerror(errno));
-        }
 #else
         if (0 != ::fdatasync(_fd)) {
-            return Status::IOError("cannot fdatasync {}: {}", _path.native(), std::strerror(errno));
-        }
 #endif
-        RETURN_IF_ERROR(detail::sync_dir(_path.parent_path()));
+            return localfs_error(errno, fmt::format("failed to sync {}", _path.native()));
+        }
+        RETURN_IF_ERROR(sync_dir(_path.parent_path()));
         _dirty = false;
     }
 
@@ -202,10 +199,9 @@ Status LocalFileWriter::_close(bool sync) {
     DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
 
     if (0 != ::close(_fd)) {
-        return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
+        return localfs_error(errno, fmt::format("failed to close {}", _path.native()));
     }
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io
