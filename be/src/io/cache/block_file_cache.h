@@ -19,6 +19,7 @@
 
 #include <bvar/bvar.h>
 
+#include <concepts>
 #include <memory>
 #include <optional>
 
