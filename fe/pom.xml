@@ -349,6 +349,7 @@ under the License.
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
+        <airlift.version>202</airlift.version>
     </properties>
     <profiles>
         <profile>
@@ -1617,6 +1618,11 @@ under the License.
                 <artifactId>value</artifactId>
                 <version>${immutables.version}</version>
                 <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>concurrent</artifactId>
+                <version>${airlift.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

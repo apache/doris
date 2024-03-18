@@ -22,6 +22,10 @@ import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.apache.hadoop.hive.common.FileUtils;
+import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat;
 import org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
@@ -32,6 +36,9 @@ import org.apache.hadoop.util.ReflectionUtils;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Hive util for create or query hive table.
@@ -44,14 +51,14 @@ public final class HiveUtil {
     /**
      * get input format class from inputFormatName.
      *
-     * @param jobConf jobConf used when getInputFormatClass
+     * @param jobConf         jobConf used when getInputFormatClass
      * @param inputFormatName inputFormat class name
-     * @param symlinkTarget use target inputFormat class when inputFormat is SymlinkTextInputFormat
+     * @param symlinkTarget   use target inputFormat class when inputFormat is SymlinkTextInputFormat
      * @return a class of inputFormat.
      * @throws UserException when class not found.
      */
     public static InputFormat<?, ?> getInputFormat(JobConf jobConf,
-            String inputFormatName, boolean symlinkTarget) throws UserException {
+                                                   String inputFormatName, boolean symlinkTarget) throws UserException {
         try {
             Class<? extends InputFormat<?, ?>> inputFormatClass = getInputFormatClass(jobConf, inputFormatName);
             if (symlinkTarget && (inputFormatClass == SymlinkTextInputFormat.class)) {
@@ -98,5 +105,56 @@ public final class HiveUtil {
             // It should not be here
             throw new RuntimeException(e);
         }
+    }
+
+    // "c1=a/c2=b/c3=c" ---> List("a","b","c")
+    public static List<String> toPartitionValues(String partitionName) {
+        ImmutableList.Builder<String> resultBuilder = ImmutableList.builder();
+        int start = 0;
+        while (true) {
+            while (start < partitionName.length() && partitionName.charAt(start) != '=') {
+                start++;
+            }
+            start++;
+            int end = start;
+            while (end < partitionName.length() && partitionName.charAt(end) != '/') {
+                end++;
+            }
+            if (start > partitionName.length()) {
+                break;
+            }
+            resultBuilder.add(FileUtils.unescapePathName(partitionName.substring(start, end)));
+            start = end + 1;
+        }
+        return resultBuilder.build();
+    }
+
+    // List("c1=a/c2=b/c3=c", "c1=a/c2=b/c3=d")
+    //           |
+    //           |
+    //           v
+    // Map(
+    //      key:"c1=a/c2=b/c3=c", value:Partition(values=List(a,b,c))
+    //      key:"c1=a/c2=b/c3=d", value:Partition(values=List(a,b,d))
+    //    )
+    public static Map<String, Partition> convertToNamePartitionMap(
+            List<String> partitionNames,
+            List<Partition> partitions) {
+
+        Map<String, List<String>> partitionNameToPartitionValues =
+                partitionNames
+                    .stream()
+                    .collect(Collectors.toMap(partitionName -> partitionName, HiveUtil::toPartitionValues));
+
+        Map<List<String>, Partition> partitionValuesToPartition =
+                partitions.stream()
+                    .collect(Collectors.toMap(Partition::getValues, partition -> partition));
+
+        ImmutableMap.Builder<String, Partition> resultBuilder = ImmutableMap.builder();
+        for (Map.Entry<String, List<String>> entry : partitionNameToPartitionValues.entrySet()) {
+            Partition partition = partitionValuesToPartition.get(entry.getValue());
+            resultBuilder.put(entry.getKey(), partition);
+        }
+        return resultBuilder.build();
     }
 }
