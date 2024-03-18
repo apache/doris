@@ -17,6 +17,7 @@
 
 package org.apache.doris.regression.suite
 
+import groovy.json.JsonOutput
 import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -37,6 +38,7 @@ import org.apache.doris.regression.action.StreamLoadAction
 import org.apache.doris.regression.action.SuiteAction
 import org.apache.doris.regression.action.TestAction
 import org.apache.doris.regression.action.HttpCliAction
+import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
@@ -47,6 +49,11 @@ import org.slf4j.LoggerFactory
 import groovy.util.logging.Slf4j
 
 import java.sql.Connection
+import java.io.File
+import java.math.BigDecimal;
+import java.sql.PreparedStatement
+import java.sql.ResultSetMetaData
+import java.util.Map;
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
@@ -216,7 +223,7 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        boolean pipelineIsCloud = isCloudCluster()
+        boolean pipelineIsCloud = isCloudMode()
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             dockerIsCloud = pipelineIsCloud
@@ -543,6 +550,17 @@ class Suite implements GroovyInterceptable {
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
             quickTest("", """ SELECT * FROM ${tbName}  """)
             sql """ DROP TABLE  ${tbName} """
+        }
+    }
+
+
+    void expectException(Closure userFunction, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (e.getMessage()!= errorMessage) {
+                throw e
+            }
         }
     }
 
@@ -991,7 +1009,7 @@ class Suite implements GroovyInterceptable {
         return result.last().get(0);
     }
 
-    boolean isCloudCluster() {
+    boolean isCloudMode() {
         return !getFeConfig("cloud_unique_id").isEmpty()
     }
 
@@ -1106,5 +1124,247 @@ class Suite implements GroovyInterceptable {
             sql("${query_sql}")
             notContains("${mv_name}(${mv_name})")
         }
+    }
+
+    def token = context.config.metaServiceToken
+    def instance_id = context.config.multiClusterInstance
+    def get_be_metric = { ip, port, field ->
+        def metric_api = { request_body, check_func ->
+            httpTest {
+                endpoint ip + ":" + port
+                uri "/metrics?type=json"
+                body request_body
+                op "get"
+                check check_func
+            }
+        }
+
+        def jsonOutput = new JsonOutput()
+        def map = []
+        def js = jsonOutput.toJson(map)
+        log.info("get be metric req: ${js} ".toString())
+
+        def ret = 0;
+        metric_api.call(js) {
+            respCode, body ->
+                log.info("get be metric resp: ${respCode}".toString())
+                def json = parseJson(body)
+                for (item : json) {
+                    if (item.tags.metric == field) {
+                        ret = item.value
+                    }
+                }
+        }
+        ret
+    }
+
+    def add_cluster = { be_unique_id, ip, port, cluster_name, cluster_id ->
+        def jsonOutput = new JsonOutput()
+        def s3 = [
+                     type: "COMPUTE",
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     nodes: [
+                         [
+                             cloud_unique_id: be_unique_id,
+                             ip: ip,
+                             heartbeat_port: port
+                         ],
+                     ]
+                 ]
+        def map = [instance_id: "${instance_id}", cluster: s3]
+        def js = jsonOutput.toJson(map)
+        log.info("add cluster req: ${js} ".toString())
+
+        def add_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/add_cluster?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        add_cluster_api.call(js) {
+            respCode, body ->
+                log.info("add cluster resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def get_cluster = { be_unique_id ->
+        def jsonOutput = new JsonOutput()
+        def map = [instance_id: "${instance_id}", cloud_unique_id: "${be_unique_id}" ]
+        def js = jsonOutput.toJson(map)
+        log.info("get cluster req: ${js} ".toString())
+
+        def add_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/get_cluster?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        def json
+        add_cluster_api.call(js) {
+            respCode, body ->
+                log.info("get cluster resp: ${body} ${respCode}".toString())
+                json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+        json.result.cluster
+    }
+
+    def drop_cluster = { cluster_name, cluster_id ->
+        def jsonOutput = new JsonOutput()
+        def reqBody = [
+                     type: "COMPUTE",
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     nodes: [
+                     ]
+                 ]
+        def map = [instance_id: "${instance_id}", cluster: reqBody]
+        def js = jsonOutput.toJson(map)
+        log.info("drop cluster req: ${js} ".toString())
+
+        def drop_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/drop_cluster?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        drop_cluster_api.call(js) {
+            respCode, body ->
+                log.info("dorp cluster resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def add_node = { be_unique_id, ip, port, cluster_name, cluster_id ->
+        def jsonOutput = new JsonOutput()
+        def clusterInfo = [
+                     type: "COMPUTE",
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     nodes: [
+                         [
+                             cloud_unique_id: be_unique_id,
+                             ip: ip,
+                             heartbeat_port: port
+                         ],
+                     ]
+                 ]
+        def map = [instance_id: "${instance_id}", cluster: clusterInfo]
+        def js = jsonOutput.toJson(map)
+        log.info("add node req: ${js} ".toString())
+
+        def add_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/add_node?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        add_cluster_api.call(js) {
+            respCode, body ->
+                log.info("add node resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def d_node = { be_unique_id, ip, port, cluster_name, cluster_id ->
+        def jsonOutput = new JsonOutput()
+        def clusterInfo = [
+                     type: "COMPUTE",
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     nodes: [
+                         [
+                             cloud_unique_id: be_unique_id,
+                             ip: ip,
+                             heartbeat_port: port
+                         ],
+                     ]
+                 ]
+        def map = [instance_id: "${instance_id}", cluster: clusterInfo]
+        def js = jsonOutput.toJson(map)
+        log.info("decommission node req: ${js} ".toString())
+
+        def d_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/decommission_node?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        d_cluster_api.call(js) {
+            respCode, body ->
+                log.info("decommission node resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def checkProfile = { addrSet, fragNum ->
+        List<List<Object>> profileRes = sql " show query profile '/' "
+        for (row : profileRes) {
+            //println row
+        }
+
+        for (int i = 0; i < fragNum; ++i) {
+            String exec_sql = "show query profile '/" + profileRes[0][0] + "/" + i.toString() + "'"
+            List<List<Object>> result = sql exec_sql
+            for (row : result) {
+                println row
+            }
+
+            println result[0][1]
+            println addrSet
+            assertTrue(addrSet.contains(result[0][1]));
+        }
+    }
+
+    def rename_cloud_cluster = { cluster_name, cluster_id ->
+        def jsonOutput = new JsonOutput()
+        def reqBody = [
+                          cluster_name : cluster_name,
+                          cluster_id : cluster_id
+                      ]
+        def map = [instance_id: "${instance_id}", cluster: reqBody]
+        def js = jsonOutput.toJson(map)
+        log.info("rename cluster req: ${js} ".toString())
+
+        def rename_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/rename_cluster?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        rename_cluster_api.call(js) {
+            respCode, body ->
+                log.info("rename cluster resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK"))
+        }
+    }
+
+    public void resetConnection() {
+        context.resetConnection()
     }
 }

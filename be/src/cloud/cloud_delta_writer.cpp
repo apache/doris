@@ -64,7 +64,7 @@ Status CloudDeltaWriter::write(const vectorized::Block* block,
         return Status::OK();
     }
     std::lock_guard lock(_mtx);
-    CHECK(_is_init);
+    CHECK(_is_init || _is_cancelled);
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
         while (_memtable_writer->flush_running_count() >=
@@ -111,7 +111,7 @@ Status CloudDeltaWriter::commit_rowset() {
         RETURN_IF_ERROR(_rowset_builder->init());
         RETURN_IF_ERROR(_rowset_builder->build_rowset());
     }
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), true);
+    return _engine.meta_mgr().commit_rowset(*rowset_meta());
 }
 
 Status CloudDeltaWriter::set_txn_related_delete_bitmap() {

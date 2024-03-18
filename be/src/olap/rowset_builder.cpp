@@ -188,6 +188,12 @@ Status RowsetBuilder::init() {
 
     RETURN_IF_ERROR(prepare_txn());
 
+    DBUG_EXECUTE_IF("BaseRowsetBuilder::init.check_partial_update_column_num", {
+        if (_req.table_schema_param->partial_update_input_columns().size() !=
+            dp->param<int>("column_num")) {
+            return Status::InternalError("partial update input column num wrong!");
+        };
+    })
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                  *_tablet->tablet_schema());
@@ -366,6 +372,10 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     }
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
+    _tablet_schema->set_db_id(table_schema_param->db_id());
+    if (table_schema_param->is_partial_update()) {
+        _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
+    }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
     _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),

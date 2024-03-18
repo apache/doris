@@ -36,7 +36,7 @@
 #include "common/logging.h"
 #include "exec/olap_utils.h"
 #include "exprs/function_filter.h"
-#include "io/cache/block/block_file_cache_profile.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
@@ -95,7 +95,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
         if (it != read_columns.cbegin()) {
             read_columns_string += ", ";
         }
-        read_columns_string += tablet_schema->columns().at(*it).name();
+        read_columns_string += tablet_schema->columns().at(*it)->name();
         if (i >= col_per_line) {
             read_columns_string += "\n";
             i = 0;
@@ -391,6 +391,12 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
         // runtime predicate push down optimization for topn
         _tablet_reader_params.use_topn_opt = olap_scan_node.use_topn_opt;
+        if (olap_scan_node.__isset.topn_filter_source_node_ids) {
+            _tablet_reader_params.topn_filter_source_node_ids =
+                    olap_scan_node.topn_filter_source_node_ids;
+        } else if (_tablet_reader_params.use_topn_opt) {
+            _tablet_reader_params.topn_filter_source_node_ids = {0};
+        }
     }
 
     // If this is a Two-Phase read query, and we need to delay the release of Rowset
@@ -413,6 +419,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
 Status NewOlapScanner::_init_variant_columns() {
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    if (tablet_schema->num_variant_columns() == 0) {
+        return Status::OK();
+    }
     // Parent column has path info to distinction from each other
     for (auto slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -427,12 +436,12 @@ Status NewOlapScanner::_init_variant_columns() {
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id());
-            if (tablet_schema->field_index(subcol.path_info()) < 0) {
+            if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
         }
-        schema_util::inherit_tablet_index(tablet_schema);
     }
+    schema_util::inherit_tablet_index(tablet_schema);
     return Status::OK();
 }
 
@@ -545,14 +554,14 @@ void NewOlapScanner::_update_realtime_counters() {
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 
-void NewOlapScanner::_update_counters_before_close() {
+void NewOlapScanner::_collect_profile_before_close() {
     //  Please don't directly enable the profile here, we need to set QueryStatistics using the counter inside.
     if (_has_updated_counter) {
         return;
     }
     _has_updated_counter = true;
 
-    VScanner::_update_counters_before_close();
+    VScanner::_collect_profile_before_close();
 
 #ifndef INCR_COUNTER
 #define INCR_COUNTER(Parent)                                                                      \

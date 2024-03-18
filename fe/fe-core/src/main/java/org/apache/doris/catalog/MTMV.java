@@ -38,6 +38,7 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -217,7 +218,7 @@ public class MTMV extends OlapTable {
     public long getGracePeriod() {
         readMvLock();
         try {
-            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
+            if (!StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD))) {
                 return Long.parseLong(mvProperties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) * 1000;
             } else {
                 return 0L;
@@ -243,7 +244,7 @@ public class MTMV extends OlapTable {
     public int getRefreshPartitionNum() {
         readMvLock();
         try {
-            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
+            if (!StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM))) {
                 int value = Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
                 return value < 1 ? MTMVTask.DEFAULT_REFRESH_PARTITION_NUM : value;
             } else {
@@ -257,7 +258,7 @@ public class MTMV extends OlapTable {
     public Set<String> getExcludedTriggerTables() {
         readMvLock();
         try {
-            if (!mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
+            if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
                 return Sets.newHashSet();
             }
             String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
@@ -326,8 +327,10 @@ public class MTMV extends OlapTable {
             return Maps.newHashMap();
         }
         Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
-        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems();
         int relatedColPos = mvPartitionInfo.getRelatedColPos();
+        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable()
+                .getPartitionItemsByTimeFilter(relatedColPos,
+                        MTMVUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties));
         for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
             PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
             if (res.containsKey(partitionKeyDesc)) {

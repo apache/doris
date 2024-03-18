@@ -24,7 +24,7 @@ suite("test_analyze_with_agg_complex_type") {
             device_id bitmap BITMAP_UNION NULL,
                     hll_test hll hll_union,
                     qs QUANTILE_STATE QUANTILE_UNION,
-                    agg_st_1 agg_state max_by(int ,int)
+                    agg_st_1 agg_state<max_by(int, int)> GENERIC
     )
     aggregate key (datekey)
     distributed by hash(datekey) buckets 1

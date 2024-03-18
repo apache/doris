@@ -81,6 +81,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
+import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
@@ -104,7 +105,6 @@ import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
@@ -120,7 +120,6 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
-import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -170,51 +169,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // after doing NormalizeAggregate in analysis job
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
-                    topDown(
-                            /*
-                             * for subquery unnest, we need hand sql like
-                             *
-                             * SELECT *
-                             *     FROM table1 AS t1
-                             * WHERE EXISTS
-                             *     (SELECT `pk`
-                             *         FROM table2 AS t2
-                             *     WHERE t1.pk = t2 .pk
-                             *     GROUP BY  t2.pk
-                             *     HAVING t2.pk > 0) ;
-                             *
-                             * before:
-                             *              apply
-                             *            /       \
-                             *          child    Filter(t2.pk > 0)
-                             *                     |
-                             *                  Project(t2.pk)
-                             *                     |
-                             *                    agg
-                             *                     |
-                             *                  Project(t2.pk)
-                             *                     |
-                             *              Filter(t1.pk=t2.pk)
-                             *                     |
-                             *                    child
-                             *
-                             * after:
-                             *              apply
-                             *            /       \
-                             *          child     agg
-                             *                      |
-                             *                  Project(t2.pk)
-                             *                      |
-                             *              Filter(t1.pk=t2.pk and t2.pk >0)
-                             *                      |
-                             *                     child
-                             *
-                             * then PullUpCorrelatedFilterUnderApplyAggregateProject rule can match the node pattern
-                             */
-                            new PushDownFilterThroughAggregation(),
-                            new PushDownFilterThroughProject(),
-                            new MergeFilters()
-                    ),
+                    topDown(new PushDownFilterThroughProject()),
                     custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
                             AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
@@ -261,7 +216,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
             // resulting in inconsistent output results and results in apply
             topDown(
-                    new SimplifyAggGroupBy(),
                     new NormalizeAggregate(),
                     new CountLiteralRewrite(),
                     new NormalizeSort()
@@ -341,7 +295,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             topic("Eliminate GroupBy",
-                    topDown(new EliminateGroupBy())
+                    topDown(new EliminateGroupBy(),
+                            new MergeAggregate())
             ),
 
             topic("Eager aggregation",
@@ -373,7 +328,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
             ),
 
-            // this rule should invoke after topic "Join pull up"
+            // this rule should be invoked after topic "Join pull up"
             topic("eliminate group by keys according to fd items",
                     topDown(new EliminateGroupByKey())
             ),

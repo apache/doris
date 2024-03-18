@@ -372,9 +372,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(
 
             if (pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                static_cast<void>(_normalize_compound_predicate(
-                        cur_expr, context, &pdt, _is_runtime_filter_predicate, in_predicate_checker,
-                        eq_predicate_checker));
+                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
+                                              in_predicate_checker, eq_predicate_checker);
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -805,7 +804,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
 
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
-        if (!is_fixed_range && state->null_in_set) {
+        if (!is_fixed_range && state->hybrid_set->contain_null()) {
             _eos = true;
             _scan_dependency->set_ready();
         }
@@ -1011,7 +1010,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_compound_predicate(
+void ScanLocalState<Derived>::_normalize_compound_predicate(
         vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
         vectorized::VScanNode::PushDownType* pdt, bool _is_runtime_filter_predicate,
         const std::function<bool(const vectorized::VExprSPtrs&,
@@ -1070,14 +1069,12 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                static_cast<void>(_normalize_compound_predicate(
-                        child_expr, expr_ctx, pdt, _is_runtime_filter_predicate,
-                        in_predicate_checker, eq_predicate_checker));
+                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
+                                              _is_runtime_filter_predicate, in_predicate_checker,
+                                              eq_predicate_checker);
             }
         }
     }
-
-    return Status::OK();
 }
 
 template <typename Derived>
@@ -1090,7 +1087,7 @@ Status ScanLocalState<Derived>::_normalize_binary_in_compound_predicate(
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
         auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
         auto noneq_checker = [](const std::string& fn_name) {
-            return fn_name != "ne" && fn_name != "eq";
+            return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
         };
 
         StringRef value;
@@ -1416,6 +1413,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     if (_scanner_ctx) {
         _scanner_ctx->stop_scanners(state);
     }
+    std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, _filter_dependency->watcher_elapse_time());
 

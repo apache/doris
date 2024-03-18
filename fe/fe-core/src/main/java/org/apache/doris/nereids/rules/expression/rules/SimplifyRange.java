@@ -417,7 +417,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             // They are same processes, so must change synchronously.
             if (values.size() == 1) {
                 return new EqualTo(reference, values.iterator().next());
-            } else if (values.size() == 2) {
+            } else if (values.size() <= OrToIn.REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
                 Iterator<Literal> iterator = values.iterator();
                 return new Or(new EqualTo(reference, iterator.next()), new EqualTo(reference, iterator.next()));
             } else {

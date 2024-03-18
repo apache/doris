@@ -41,6 +41,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -101,6 +102,8 @@ public class PropertyAnalyzer {
      */
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
 
+    public static final String PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT = "inverted_index_storage_format";
+
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
@@ -152,6 +155,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD =
             "time_series_compaction_empty_rowsets_threshold";
 
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD =
+            "time_series_compaction_level_threshold";
+
     public static final String PROPERTIES_MUTABLE = "mutable";
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
@@ -169,6 +175,12 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
+    public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
+    public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
+    public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
+    public static final String PROPERTIES_STORAGE_VAULT = "storage_vault";
+    public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
+    public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -196,6 +208,7 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
+    public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
 
     public enum RewriteType {
         PUT,      // always put property
@@ -212,6 +225,10 @@ public class PropertyAnalyzer {
             this.rewriteType = rewriteType;
             this.key = key;
             this.value = value;
+        }
+
+        public String key() {
+            return this.key;
         }
 
         public static RewriteProperty put(String key, String value) {
@@ -831,6 +848,30 @@ public class PropertyAnalyzer {
         return emptyRowsetsThreshold;
     }
 
+    public static long analyzeTimeSeriesCompactionLevelThreshold(Map<String, String> properties)
+            throws AnalysisException {
+        long levelThreshold = TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return levelThreshold;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+            String levelThresholdStr = properties
+                                    .get(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+            try {
+                levelThreshold = Long.parseLong(levelThresholdStr);
+                if (levelThreshold < 1 || levelThreshold > 2) {
+                    throw new AnalysisException("time_series_compaction_level_threshold can not"
+                            + " less than 1 or greater than 2: " + levelThreshold);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_level_threshold: "
+                        + levelThreshold);
+            }
+        }
+        return levelThreshold;
+    }
+
     public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties)
             throws AnalysisException {
         long fileCountThreshold = TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
@@ -956,6 +997,35 @@ public class PropertyAnalyzer {
         }
     }
 
+    public static TInvertedIndexStorageFormat analyzeInvertedIndexStorageFormat(Map<String, String> properties)
+            throws AnalysisException {
+        String invertedIndexStorageFormat = "";
+        if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
+            invertedIndexStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+        } else {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+                return TInvertedIndexStorageFormat.V1;
+            } else {
+                return TInvertedIndexStorageFormat.V2;
+            }
+        }
+
+        if (invertedIndexStorageFormat.equalsIgnoreCase("v1")) {
+            return TInvertedIndexStorageFormat.V1;
+        } else if (invertedIndexStorageFormat.equalsIgnoreCase("v2")) {
+            return TInvertedIndexStorageFormat.V2;
+        } else if (invertedIndexStorageFormat.equalsIgnoreCase("default")) {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+                return TInvertedIndexStorageFormat.V1;
+            } else {
+                return TInvertedIndexStorageFormat.V2;
+            }
+        } else {
+            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexStorageFormat);
+        }
+    }
+
     // analyze common boolean properties, such as "in_memory" = "false"
     public static boolean analyzeBooleanProp(Map<String, String> properties, String propKey, boolean defaultVal) {
         if (properties != null && properties.containsKey(propKey)) {
@@ -982,6 +1052,16 @@ public class PropertyAnalyzer {
         }
 
         return storagePolicy;
+    }
+
+    public static String analyzeStorageVault(Map<String, String> properties) {
+        String storageVault = null;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT)) {
+            storageVault = properties.get(PROPERTIES_STORAGE_VAULT);
+            properties.remove(PROPERTIES_STORAGE_VAULT);
+        }
+
+        return storageVault;
     }
 
     // analyze property like : "type" = "xxx";
@@ -1362,8 +1442,12 @@ public class PropertyAnalyzer {
         return properties;
     }
 
-    private void rewriteForceProperties(Map<String, String> properties) {
+    public void rewriteForceProperties(Map<String, String> properties) {
         forceProperties.forEach(property -> property.rewrite(properties));
+    }
+
+    public ImmutableList<RewriteProperty> getForceProperties() {
+        return forceProperties;
     }
 
     private static Map<String, String> rewriteReplicaAllocationProperties(
@@ -1438,10 +1522,6 @@ public class PropertyAnalyzer {
     // due to backward compatibility, we just explicitly set the value of this property to `true` if
     // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
-        if (Config.isCloudMode()) {
-            // the default value of enable_unique_key_merge_on_write is false for cloud mode yet.
-            return properties;
-        }
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         }

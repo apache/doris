@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
@@ -1247,8 +1248,8 @@ public class NativeInsertStmt extends InsertStmt {
                 this.analyzer = analyzerTmp;
             }
             analyzeSubquery(analyzer, true);
-            groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId,
-                    ConnectContext.get().getSessionVariable().getGroupCommit());
+            groupCommitPlanner = EnvFactory.getInstance().createGroupCommitPlanner((Database) db, olapTable,
+                    targetColumnNames, queryId, ConnectContext.get().getSessionVariable().getGroupCommit());
             // save plan message to be reused for prepare stmt
             loadId = queryId;
             baseSchemaVersion = olapTable.getBaseSchemaVersion();

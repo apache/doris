@@ -132,17 +132,28 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         // message when we encounter an error.
         RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(seg_path),
                                        strings::Substitute("Failed to delete file=$0", seg_path));
+        if (schema->has_inverted_index() &&
+            schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
+            auto idx_path = InvertedIndexDescriptor::get_index_file_name(seg_path);
+            VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    fs->delete_file(idx_path),
+                    strings::Substitute("Failed to delete file=$0", idx_path));
+        }
         // Delete inverted index files
         for (auto column : schema->columns()) {
-            if (schema->has_inverted_index(column)) {
-                auto index_info = schema->get_inverted_index(column);
+            if (schema->has_inverted_index(*column)) {
+                auto index_info = schema->get_inverted_index(*column);
                 auto index_id = index_info->index_id();
                 auto idx_path = InvertedIndexDescriptor::inverted_index_file_path(
                         ctx.rowset_dir, ctx.rowset_id, i, index_id, index_info->get_index_suffix());
                 VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
-                RETURN_NOT_OK_STATUS_WITH_WARN(
-                        fs->delete_file(idx_path),
-                        strings::Substitute("Failed to delete file=$0", idx_path));
+                if (schema->get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    RETURN_NOT_OK_STATUS_WITH_WARN(
+                            fs->delete_file(idx_path),
+                            strings::Substitute("Failed to delete file=$0", idx_path));
+                }
                 // Erase the origin index file cache
                 RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(idx_path));
             }

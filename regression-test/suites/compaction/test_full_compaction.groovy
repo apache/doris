@@ -19,6 +19,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_full_compaction") {
     def tableName = "test_full_compaction"
+    def isCloudMode = {
+        def ret = sql_return_maparray  """show backends"""
+        ret.Tag[0].contains("cloud_cluster_name")
+    }
 
     try {
         String backend_id;
@@ -166,7 +170,12 @@ suite("test_full_compaction") {
             assert tabletJson.rowsets instanceof List
             rowsetCount +=((List<String>) tabletJson.rowsets).size()
         }
-        assert (rowsetCount == 1 * replicaNum)
+        def cloudMode = isCloudMode.call()
+        if (cloudMode) {
+            assert (rowsetCount == 2)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         // make sure all hidden data has been deleted
         // (1,100)(2,200)

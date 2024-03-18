@@ -527,7 +527,10 @@ public:
 
     void set_index(const std::string& key, int next_idx);
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE) {}
+
         int idx = 0;
     };
 

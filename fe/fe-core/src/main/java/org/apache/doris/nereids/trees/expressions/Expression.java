@@ -39,19 +39,19 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Abstract class for all Expression in Nereids.
@@ -64,41 +64,56 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final int width;
     // Mark this expression is from predicate infer or something else infer
     private final boolean inferred;
+    private final boolean hasUnbound;
+    private final boolean compareWidthAndDepth;
+    private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(() -> collect(Slot.class::isInstance));
 
     protected Expression(Expression... children) {
         super(children);
-        depth = Arrays.stream(children)
-                .mapToInt(e -> e.depth)
-                .max().orElse(0) + 1;
-        width = Arrays.stream(children)
-                .mapToInt(e -> e.width)
-                .sum() + (children.length == 0 ? 1 : 0);
+        int maxChildDepth = 0;
+        int sumChildWidth = 0;
+        boolean hasUnbound = false;
+        boolean compareWidthAndDepth = true;
+        for (int i = 0; i < children.length; ++i) {
+            Expression child = children[i];
+            maxChildDepth = Math.max(child.depth, maxChildDepth);
+            sumChildWidth += child.width;
+            hasUnbound |= child.hasUnbound;
+            compareWidthAndDepth &= (child.compareWidthAndDepth & child.supportCompareWidthAndDepth());
+        }
+        this.depth = maxChildDepth + 1;
+        this.width = sumChildWidth + ((children.length == 0) ? 1 : 0);
+        this.compareWidthAndDepth = compareWidthAndDepth;
+
         checkLimit();
         this.inferred = false;
+        this.hasUnbound = hasUnbound || this instanceof Unbound;
     }
 
     protected Expression(List<Expression> children) {
-        super(children);
-        depth = children.stream()
-                .mapToInt(e -> e.depth)
-                .max().orElse(0) + 1;
-        width = children.stream()
-                .mapToInt(e -> e.width)
-                .sum() + (children.isEmpty() ? 1 : 0);
-        checkLimit();
-        this.inferred = false;
+        this(children, false);
     }
 
     protected Expression(List<Expression> children, boolean inferred) {
         super(children);
-        depth = children.stream()
-                .mapToInt(e -> e.depth)
-                .max().orElse(0) + 1;
-        width = children.stream()
-                .mapToInt(e -> e.width)
-                .sum() + (children.isEmpty() ? 1 : 0);
+        int maxChildDepth = 0;
+        int sumChildWidth = 0;
+        boolean hasUnbound = false;
+        boolean compareWidthAndDepth = true;
+        for (int i = 0; i < children.size(); ++i) {
+            Expression child = children.get(i);
+            maxChildDepth = Math.max(child.depth, maxChildDepth);
+            sumChildWidth += child.width;
+            hasUnbound |= child.hasUnbound;
+            compareWidthAndDepth &= (child.compareWidthAndDepth & child.supportCompareWidthAndDepth());
+        }
+        this.depth = maxChildDepth + 1;
+        this.width = sumChildWidth + ((children.isEmpty()) ? 1 : 0);
+        this.compareWidthAndDepth = compareWidthAndDepth;
+
         checkLimit();
         this.inferred = inferred;
+        this.hasUnbound = hasUnbound || this instanceof Unbound;
     }
 
     private void checkLimit() {
@@ -130,8 +145,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      */
     public TypeCheckResult checkInputDataTypes() {
         // check all of its children recursively.
-        for (Expression expression : this.children) {
-            TypeCheckResult childResult = expression.checkInputDataTypes();
+        for (Expression child : this.children) {
+            TypeCheckResult childResult = child.checkInputDataTypes();
             if (childResult.failed()) {
                 return childResult;
             }
@@ -180,21 +195,20 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     }
 
     private boolean checkPrimitiveInputDataTypesWithExpectType(DataType input, DataType expected) {
-        // These type will throw exception when invoke toCatalogDataType()
-        if (expected instanceof AnyDataType) {
-            return expected.acceptsType(input);
+        // support fast check the case: input=TinyIntType, expected=NumericType, for example: `1 + 1`.
+        // if no this check, there will have an exception when invoke NumericType.toCatalogDataType,
+        // when there has lots of expression, the exception become the bottleneck, because an exception
+        // need to record the whole StackFrame.
+        if (expected.acceptsType(input)) {
+            return true;
         }
+
         // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
-        boolean legacyCastCompatible = false;
         try {
-            legacyCastCompatible = input.toCatalogDataType().matchesType(expected.toCatalogDataType());
+            return input.toCatalogDataType().matchesType(expected.toCatalogDataType());
         } catch (Throwable t) {
-            // ignore.
-        }
-        if (!legacyCastCompatible && !expected.acceptsType(input)) {
             return false;
         }
-        return true;
     }
 
     private TypeCheckResult checkInputDataTypesWithExpectTypes(
@@ -296,7 +310,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Note that the input slots of subquery's inner plan is not included.
      */
     public final Set<Slot> getInputSlots() {
-        return collect(Slot.class::isInstance);
+        return inputSlots.get();
     }
 
     /**
@@ -305,13 +319,12 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Note that the input slots of subquery's inner plan is not included.
      */
     public final Set<ExprId> getInputSlotExprIds() {
-        ImmutableSet.Builder<ExprId> result = ImmutableSet.builder();
-        foreach(node -> {
-            if (node instanceof Slot) {
-                result.add(((Slot) node).getExprId());
-            }
-        });
-        return result.build();
+        Set<Slot> inputSlots = getInputSlots();
+        Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(inputSlots.size());
+        for (Slot inputSlot : inputSlots) {
+            exprIds.add(inputSlot.getExprId());
+        }
+        return exprIds.build();
     }
 
     public boolean isLiteral() {
@@ -339,7 +352,26 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             return false;
         }
         Expression that = (Expression) o;
-        return Objects.equals(children(), that.children());
+        if ((compareWidthAndDepth && (this.width != that.width || this.depth != that.depth))
+                || arity() != that.arity() || !extraEquals(that)) {
+            return false;
+        }
+        return equalsChildren(that);
+    }
+
+    protected boolean equalsChildren(Expression that) {
+        List<Expression> children = children();
+        List<Expression> thatChildren = that.children();
+        for (int i = 0; i < children.size(); i++) {
+            if (!children.get(i).equals(thatChildren.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    protected boolean extraEquals(Expression that) {
+        return true;
     }
 
     @Override
@@ -351,18 +383,14 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * This expression has unbound symbols or not.
      */
     public boolean hasUnbound() {
-        if (this instanceof Unbound) {
-            return true;
-        }
-        for (Expression child : children) {
-            if (child.hasUnbound()) {
-                return true;
-            }
-        }
-        return false;
+        return this.hasUnbound;
     }
 
     public String shapeInfo() {
         return toSql();
+    }
+
+    protected boolean supportCompareWidthAndDepth() {
+        return true;
     }
 }

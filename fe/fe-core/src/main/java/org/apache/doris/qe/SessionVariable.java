@@ -45,6 +45,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TConfiguration;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
@@ -115,6 +116,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
+    public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
@@ -252,6 +254,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
 
+    public static final String CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD = "enable_multi_cluster_sync_load";
+
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
@@ -362,14 +366,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
-    public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
-    public static final String EXTERNAL_AGG_BYTES_THRESHOLD = "external_agg_bytes_threshold";
-    public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
-
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+    public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+
+    public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
@@ -479,6 +482,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
 
+    // for spill to disk
+    public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
+    public static final String EXTERNAL_AGG_BYTES_THRESHOLD = "external_agg_bytes_threshold";
+    public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
+    public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
+    public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
+    public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
+    public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
+
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
@@ -495,6 +507,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
             = "materialized_view_rewrite_enable_contain_external_table";
+
+    public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
+            = "materialized_view_rewrite_success_candidate_num";
 
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
@@ -514,6 +529,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
+
+    public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -733,6 +750,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
+    public boolean enableDistinctStreamingAggregation = true;
+
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
 
@@ -754,6 +774,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FRAGMENT_TRANSMISSION_COMPRESSION_CODEC)
     public String fragmentTransmissionCompressionCodec = "none";
+
+    // whether sync load to other cluster
+    @VariableMgr.VarAttr(name = CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD, needForward = true)
+    public static boolean cloudEnableMultiClusterSyncLoad = false;
 
     /*
      * the parallel exec instance num for one Fragment in one BE
@@ -845,7 +869,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML_WITH_PIPELINE, needForward = true,
             varType = VariableAnnotation.EXPERIMENTAL,
             description = {"在新优化器中，使用pipeline引擎执行DML", "execute DML with pipeline engine in Nereids"})
-    public boolean enableNereidsDmlWithPipeline = false;
+    public boolean enableNereidsDmlWithPipeline = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = false;
@@ -1260,25 +1284,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
 
-    // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
-    // Set to 0 to disable; min: 128M
-    public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 134217728;
-    @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
-            checker = "checkExternalSortBytesThreshold", fuzzy = true)
-    public long externalSortBytesThreshold = 0;
-
-    // Set to 0 to disable; min: 128M
-    public static final long MIN_EXTERNAL_AGG_BYTES_THRESHOLD = 134217728;
-    @VariableMgr.VarAttr(name = EXTERNAL_AGG_BYTES_THRESHOLD,
-            checker = "checkExternalAggBytesThreshold", fuzzy = true)
-    public long externalAggBytesThreshold = 0;
-
-    public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
-    public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 8;
-    @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
-            checker = "checkExternalAggPartitionBits", fuzzy = true)
-    public int externalAggPartitionBits = 8; // means that the hash table will be partitioned into 256 blocks.
-
     // Whether enable two phase read optimization
     // 1. read related rowids along with necessary column data
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
@@ -1286,11 +1291,18 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableTwoPhaseReadOpt = true;
     @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
     public long topnOptLimitThreshold = 1024;
+    @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
+    public boolean enableSnapshotPointQuery = true;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
     public boolean groupByAndHavingUseAliasFirst = false;
+
+    // Whether disable block file cache. Block cache only works when FE's query options sets disableFileCache false
+    // along with BE's config `enable_file_cache` true
+    @VariableMgr.VarAttr(name = DISABLE_FILE_CACHE, needForward = true)
+    public boolean disableFileCache = false;
 
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = {
@@ -1443,7 +1455,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean truncateCharOrVarcharColumns = false;
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
-    public boolean enableMemtableOnSinkNode = false;
+    public boolean enableMemtableOnSinkNode = true;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 2;
@@ -1575,9 +1587,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
-                    "whether to use a materialized view that contains the foreign table "
+                    "Whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
     public boolean materializedViewRewriteEnableContainExternalTable = false;
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
+            description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
+                    "The max candidate num which participate in CBO when using asynchronous materialized views"})
+    public int materializedViewRewriteSuccessCandidateNum = 3;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
@@ -1636,12 +1652,78 @@ public class SessionVariable implements Serializable, Writable {
                     "当变量为true时，show processlist命令展示所有fe的连接"})
     public boolean showAllFeConnection = false;
 
+    @VariableMgr.VarAttr(name = MAX_MSG_SIZE_OF_RESULT_RECEIVER,
+            description = {"Max message size during result deserialization, change this if you meet error"
+                    + " like \"MaxMessageSize reached\"",
+                    "用于控制结果反序列化时 thrift 字段的最大值，当遇到类似\"MaxMessageSize reached\"这样的错误时可以考虑修改该参数"})
+    public int maxMsgSizeOfResultReceiver = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
+
+
     // CLOUD_VARIABLES_BEGIN
     @VariableMgr.VarAttr(name = CLOUD_CLUSTER)
     public String cloudCluster = "";
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
     // CLOUD_VARIABLES_END
+
+    // for spill to disk
+    @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)
+    public long minRevocableMem = 32 * 1024 * 1024;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_JOIN_SPILL,
+            description = {"控制是否启用join算子落盘。默认为 false。",
+                    "Controls whether to enable spill to disk of join operation. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean enableJoinSpill = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_SORT_SPILL,
+            description = {"控制是否启用排序算子落盘。默认为 false。",
+                    "Controls whether to enable spill to disk of sort operation. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean enableSortSpill = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_AGG_SPILL,
+            description = {"控制是否启用聚合算子落盘。默认为 false。",
+                    "Controls whether to enable spill to disk of aggregation operation. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean enableAggSpill = false;
+
+    // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
+    // Set to 0 to disable; min: 128M
+    public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 2097152;
+    @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
+            checker = "checkExternalSortBytesThreshold", fuzzy = true)
+    public long externalSortBytesThreshold = 0;
+
+    // Set to 0 to disable; min: 128M
+    public static final long MIN_EXTERNAL_AGG_BYTES_THRESHOLD = 134217728;
+    @VariableMgr.VarAttr(name = EXTERNAL_AGG_BYTES_THRESHOLD,
+            checker = "checkExternalAggBytesThreshold", fuzzy = true)
+    public long externalAggBytesThreshold = 0;
+
+    public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
+    public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
+    @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
+            checker = "checkExternalAggPartitionBits", fuzzy = true)
+    public int externalAggPartitionBits = 8; // means that the hash table will be partitioned into 256 blocks.
+
+    public boolean isEnableJoinSpill() {
+        return enableJoinSpill;
+    }
+
+    public void setEnableJoinSpill(boolean enableJoinSpill) {
+        this.enableJoinSpill = enableJoinSpill;
+    }
+
+    public boolean isEnableSortSpill() {
+        return enableSortSpill;
+    }
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1893,6 +1975,14 @@ public class SessionVariable implements Serializable, Writable {
         return autoCommit;
     }
 
+    public boolean enableMultiClusterSyncLoad() {
+        return cloudEnableMultiClusterSyncLoad;
+    }
+
+    public void setEnableMultiClusterSyncLoad(boolean cloudEnableMultiClusterSyncLoad) {
+        this.cloudEnableMultiClusterSyncLoad = cloudEnableMultiClusterSyncLoad;
+    }
+
     public boolean isTxReadonly() {
         return txReadonly;
     }
@@ -2105,6 +2195,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setResourceGroup(String resourceGroup) {
         this.resourceGroup = resourceGroup;
+    }
+
+    public boolean isDisableFileCache() {
+        return Config.isCloudMode() ? disableFileCache : false;
+    }
+
+    public void setDisableFileCache(boolean disableFileCache) {
+        this.disableFileCache = disableFileCache;
     }
 
     public boolean isDisableColocatePlan() {
@@ -2879,6 +2977,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
+        tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
 
         if (maxScanKeyNum > -1) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
@@ -2917,7 +3016,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRepeatMaxNum(repeatMaxNum);
 
-        tResult.setExternalSortBytesThreshold(0); // disable for now
+        tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setExternalAggBytesThreshold(0); // disable for now
 
@@ -2957,6 +3056,11 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setSkipBadTablet(skipBadTablet);
+        tResult.setDisableFileCache(disableFileCache);
+        tResult.setEnableJoinSpill(enableJoinSpill);
+        tResult.setEnableSortSpill(enableSortSpill);
+        tResult.setEnableAggSpill(enableAggSpill);
+        tResult.setMinRevocableMem(minRevocableMem);
 
         return tResult;
     }
@@ -3417,6 +3521,10 @@ public class SessionVariable implements Serializable, Writable {
         return materializedViewRewriteEnableContainExternalTable;
     }
 
+    public int getMaterializedViewRewriteSuccessCandidateNum() {
+        return materializedViewRewriteSuccessCandidateNum;
+    }
+
     public int getCreateTablePartitionMaxNum() {
         return createTablePartitionMaxNum;
     }
@@ -3466,6 +3574,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getShowAllFeConnection() {
         return this.showAllFeConnection;
+    }
+
+    public int getMaxMsgSizeOfResultReceiver() {
+        return this.maxMsgSizeOfResultReceiver;
     }
 
 }

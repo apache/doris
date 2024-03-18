@@ -433,7 +433,7 @@ public class NereidsPlanner extends Planner {
                         + "\n\n========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString()
                         + "\n\n========== MATERIALIZATIONS ==========\n"
-                        + MaterializationContext.toString(cascadesContext.getMaterializationContexts());
+                        + MaterializationContext.toDetailString(cascadesContext.getMaterializationContexts());
                 break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN "

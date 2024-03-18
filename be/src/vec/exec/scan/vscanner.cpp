@@ -257,7 +257,7 @@ Status VScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void VScanner::_update_counters_before_close() {
+void VScanner::_collect_profile_before_close() {
     if (_parent) {
         COUNTER_UPDATE(_parent->_scan_cpu_timer, _scan_cpu_timer);
         COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);

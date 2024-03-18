@@ -131,6 +131,7 @@ struct RuntimeFilterParams {
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
+    bool null_aware = false;
 };
 
 struct RuntimeFilterFuncBase {
@@ -145,8 +146,11 @@ public:
 
     bool is_runtime_filter() const { return _filter_id != -1; }
 
-private:
+    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
+
+protected:
     int _filter_id = -1;
+    bool _null_aware = false;
 };
 
 struct UpdateRuntimeFilterParams {
@@ -229,7 +233,8 @@ public:
     PrimitiveType column_type() const;
 
     Status get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                              std::vector<vectorized::VExprSPtr>& push_exprs, bool is_late_arrival);
+                              std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
+                              bool is_late_arrival);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 

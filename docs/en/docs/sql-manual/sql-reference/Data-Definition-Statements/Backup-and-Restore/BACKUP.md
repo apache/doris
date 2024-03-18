@@ -88,6 +88,13 @@ TO example_repo
 EXCLUDE (example_tbl);
 ```
 
+4. Fully back up tables under example_db to the repository example_repo:
+
+```sql
+BACKUP SNAPSHOT example_db.snapshot_label3
+TO example_repo;
+```
+
 ### Keywords
 
 BACKUP

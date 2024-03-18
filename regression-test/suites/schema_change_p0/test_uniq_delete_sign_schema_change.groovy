@@ -34,7 +34,9 @@ suite("test_uniq_delete_sign_schema_change", "schema_change") {
     qt_sql "select * from ${tbName1} order by k1;"
 
     // alter and test light schema change
-    sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+    if (!isCloudMode()) {
+        sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+    }
 
     sql "insert into ${tbName1} values(2,2,2,2);"
     sql "insert into ${tbName1} values(3,3,3,3);"

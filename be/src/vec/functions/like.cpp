@@ -206,12 +206,10 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
 
 Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
                                           const StringRef& pattern, unsigned char* result) {
-    std::string re_pattern(pattern.data, pattern.size);
-
     RE2::Options opts;
     opts.set_never_nl(false);
     opts.set_dot_nl(true);
-    re2::RE2 re(re_pattern, opts);
+    re2::RE2 re(re2::StringPiece(pattern.data, pattern.size), opts);
     if (re.ok()) {
         *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), re);
     } else {

@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/compiler_util.h"
 #include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -279,7 +280,7 @@ public:
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& window =
                 assert_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];

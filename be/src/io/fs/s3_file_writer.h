@@ -72,17 +72,16 @@ private:
     std::mutex _completed_lock;
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
-    IFileCache::Key _cache_key;
-    IFileCache* _cache = nullptr;
+    UInt128Wrapper _cache_hash;
+    BlockFileCache* _cache;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
     std::atomic_bool _failed = false;
     Status _st;
-    size_t _bytes_written = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
-    int64_t _expiration_time;
+    uint64_t _expiration_time;
     bool _is_cold_data;
     bool _write_file_cache;
 };
