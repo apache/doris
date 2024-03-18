@@ -22,6 +22,7 @@
 #include <gflags/gflags.h>
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <roaring/roaring.hh>

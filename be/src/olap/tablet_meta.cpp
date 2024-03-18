@@ -91,7 +91,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int64_t time_series_compaction_file_count_threshold,
                        int64_t time_series_compaction_time_threshold_seconds,
                        int64_t time_series_compaction_empty_rowsets_threshold,
-                       int64_t time_series_compaction_level_threshold,
                        TInvertedIndexStorageFormat::type inverted_index_storage_format)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
