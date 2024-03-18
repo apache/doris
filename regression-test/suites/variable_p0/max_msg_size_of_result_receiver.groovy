@@ -27,7 +27,9 @@ suite("max_msg_size_of_result_receiver") {
         ENGINE=OLAP DISTRIBUTED BY HASH(id)
         PROPERTIES("replication_num"="1")
     """
-
+    sql """
+        set repeat_max_num = 1000*1000*105;
+    """
     sql """
         INSERT INTO ${table_name} VALUES (104, repeat("a", ${MESSAGE_SIZE_BASE * 104}))
     """
