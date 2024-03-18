@@ -62,7 +62,7 @@ suite("test_mysql_mtmv", "p0,external,hive,external_docker,external_docker_hive"
             """
         def jobName = getJobName(dbName, mvName);
         waitingMTMVTaskFinished(jobName)
-        order_qt_mtmv "SELECT * FROM ${mvName} order by k1"
+        order_qt_mtmv "SELECT * FROM ${mvName} order by id"
 
         sql """drop materialized view if exists ${mvName};"""
         sql """ drop catalog if exists ${catalog_name} """
