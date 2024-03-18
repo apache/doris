@@ -273,12 +273,12 @@ public:
         return _time_series_compaction_level_threshold;
     }
 
-    uint64_t ttl_seconds() const {
+    int64_t ttl_seconds() const {
         std::shared_lock rlock(_meta_lock);
         return _ttl_seconds;
     }
 
-    void set_ttl_seconds(uint64_t ttl_seconds) {
+    void set_ttl_seconds(int64_t ttl_seconds) {
         std::lock_guard wlock(_meta_lock);
         _ttl_seconds = ttl_seconds;
     }
