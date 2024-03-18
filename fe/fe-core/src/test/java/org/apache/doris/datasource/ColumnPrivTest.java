@@ -33,7 +33,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog.TestCatalogProvider;
@@ -333,7 +332,7 @@ public class ColumnPrivTest extends TestWithFeService {
 
             @Override
             public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl,
-                    String db, String tbl) throws AnalysisException {
+                    String db, String tbl) {
                 return null;
             }
         }
