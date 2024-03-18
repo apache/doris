@@ -34,7 +34,8 @@ public enum InternalErrorCode {
     MANUAL_STOP_ERR(101),
     TOO_MANY_FAILURE_ROWS_ERR(102),
     CREATE_TASKS_ERR(103),
-    TASKS_ABORT_ERR(104);
+    TASKS_ABORT_ERR(104),
+    CANNOT_RESUME_ERR(105);
 
     private long errCode;
 
