@@ -29,6 +29,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
@@ -42,12 +46,13 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Save policy for filtering data.
  **/
 @Data
-public class RowPolicy extends Policy {
+public class RowPolicy extends Policy implements RowFilterPolicy {
 
     public static final ShowResultSetMetaData ROW_META_DATA =
             ShowResultSetMetaData.builder()
@@ -186,4 +191,22 @@ public class RowPolicy extends Policy {
     public boolean isInvalid() {
         return (wherePredicate == null);
     }
+
+    @Override
+    public Expression getFilterExpression() throws AnalysisException {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = getOriginStmt();
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        Optional<Expression> wherePredicate = command.getWherePredicate();
+        if (!wherePredicate.isPresent()) {
+            throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + sql);
+        }
+        return wherePredicate.get();
+    }
+
+    @Override
+    public String getPolicyIdent() {
+        return getPolicyName();
+    }
+
 }
