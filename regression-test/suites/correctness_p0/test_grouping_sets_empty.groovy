@@ -29,11 +29,6 @@ suite("test_grouping_sets_empty") {
         insert into test_grouping_sets_empty values (1),(2),(3);
     """
 
-
-    sql """ 
-        set experimental_enable_pipeline_x_engine=true;
-    """
-
     qt_select1 """
         select count(a) from test_grouping_sets_empty group by grouping sets (());
     """
@@ -49,11 +44,6 @@ suite("test_grouping_sets_empty") {
 
     qt_select4 """
         select a from test_grouping_sets_empty group by grouping sets ((),(),(),(a)) order by a;
-    """
-
-
-    sql """ 
-        set experimental_enable_pipeline_x_engine=false;
     """
 
 
