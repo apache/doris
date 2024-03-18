@@ -456,4 +456,41 @@ PROPERTIES
     """
     sql "set experimental_enable_nereids_planner = false;"
     sql "delete from test3 where statistic_date >= date_sub('2024-01-16',INTERVAL 1 day);"
+
+    sql "drop table if exists test_table"
+    sql """
+            CREATE TABLE `test_table` (
+            `column_a` bigint(20) NULL,
+            `column_b` varchar(400) NULL,
+            `column_c` datetime NULL,
+            `column_d` datetime NULL,
+            `column_e` datetime NULL,
+            `column_f` datetime NULL,
+            `column_h` datetime NULL,
+            `column_i` varchar(200) NULL,
+            `column_j` varchar(200) NULL,
+            `column_k` datetime NULL,
+            `column_l` bigint(20) NULL,
+            `column_m` varchar(50) NULL,
+            `column_n` bigint(20) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`column_a`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`column_a`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false"
+            );
+    """
+    sql """INSERT INTO test_table (column_a,column_b,column_c,column_d,column_e,column_f,column_h,column_i,column_j,column_k,column_l,column_m,column_n) VALUES
+            (4508,'AAAA','2023-05-30 00:00:00','2024-03-07 00:00:00','2023-06-01 00:00:00','2023-08-15 00:00:00','2024-01-31 00:00:00','4509','4509','2023-08-27 00:00:00',5,'plan',4);
+        """
+
+    sql "set experimental_enable_nereids_planner = false;"
+    sql "set @column_h='2024-01-31 00:00:00';"
+    sql "delete  from test_table where column_h =@column_h; "
 }
