@@ -382,7 +382,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         });
     }
 
-    //@Disabled //ISSUE #18263
+    @Disabled //ISSUE #18263
     @Test
     public void testOnlyValueColumn1() throws Exception {
         singleTableTest("select sum(v1) from t", "r1", true);

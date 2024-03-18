@@ -941,7 +941,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     @Test
     void testCountDistinctToBitmap() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-                + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+                + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " where tag_id is not null group by user_id;";
         createMv(createUserTagMVSql);
         String query = "select count(distinct tag_id) from " + USER_TAG_TABLE_NAME + ";";
         PlanChecker.from(connectContext)
@@ -1043,7 +1043,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     @Test
     void testCountFieldInQuery() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-                + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+                + "count(tag_id) from " + USER_TAG_TABLE_NAME + " where tag_id is not null group by user_id;";
         createMv(createUserTagMVSql);
         String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + ";";
         PlanChecker.from(connectContext)
@@ -1077,14 +1077,14 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     @Test
     void testSelectMVWithTableAlias() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-                + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+                + "count(tag_id) from " + USER_TAG_TABLE_NAME + " where tag_id is not null group by user_id;";
         createMv(createUserTagMVSql);
         String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + " t ;";
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
                 .matches(logicalAggregate().when(agg -> {
-                    assertOneAggFuncType(agg, Count.class);
+                    assertOneAggFuncType(agg, Sum.class);
                     return true;
                 }));
         testMv(query, USER_TAG_MV_NAME);
