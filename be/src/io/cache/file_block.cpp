@@ -54,7 +54,13 @@ FileBlock::State FileBlock::state() const {
 }
 
 uint64_t FileBlock::get_caller_id() {
-    uint64_t id = static_cast<uint64_t>(pthread_self());
+    uint64_t id;
+#if defined(__APPLE__)
+    // On macOS, use pthread_threadid_np to get the thread ID
+    pthread_threadid_np(nullptr, &id);
+#else
+    id = static_cast<uint64_t>(pthread_self());
+#endif
     DCHECK(id != 0);
     return id;
 }
