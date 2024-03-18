@@ -54,9 +54,4 @@ public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnar
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
     }
-
-    public PhysicalProperties getRequirePhysicalProperties() {
-        // olap and hive sink
-        return PhysicalProperties.GATHER;
-    }
 }
