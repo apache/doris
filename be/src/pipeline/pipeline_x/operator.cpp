@@ -449,7 +449,8 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
                                                     bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
-        local_state._child_block->clear_column_data();
+        local_state._child_block->clear_column_data(
+                OperatorX<LocalStateType>::_child_x->row_desc().num_materialized_slots());
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
                 state, local_state._child_block.get(), &local_state._child_eos));
         *eos = local_state._child_eos;
