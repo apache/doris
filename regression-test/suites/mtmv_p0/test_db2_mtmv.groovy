@@ -36,7 +36,12 @@ suite("test_db2_mtmv", "p0,external,hive,external_docker,external_docker_hive") 
         logger.info("DROP TABLE")
         db2_docker "DROP TABLE IF EXISTS ${db2_database}.${db2_table};"
         logger.info("DROP SCHEMA")
-        db2_docker "DROP SCHEMA ${db2_database} restrict;"
+        try {
+            db2_docker "DROP SCHEMA ${db2_database} restrict;"
+        } catch (Exception e) {
+          logger.info("drop schema failed.")
+        }
+
         logger.info("CREATE SCHEMA")
         db2_docker "CREATE SCHEMA ${db2_database};"
         logger.info("CREATE TABLE")
