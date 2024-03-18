@@ -311,6 +311,10 @@ void DorisMetrics::_update() {
 // get num of thread of doris_be process
 // from /proc/self/task
 void DorisMetrics::_update_process_thread_num() {
+#ifdef __APPLE__
+    process_fd_num_used->set_value(0);
+    process_thread_num->set_value(0);
+#else
     std::error_code ec;
     std::filesystem::directory_iterator dict_iter("/proc/self/task/", ec);
     if (ec) {
@@ -325,10 +329,16 @@ void DorisMetrics::_update_process_thread_num() {
             });
 
     process_thread_num->set_value(count);
+#endif
 }
 
 // get num of file descriptor of doris_be process
 void DorisMetrics::_update_process_fd_num() {
+#ifdef __APPLE__
+    process_fd_num_used->set_value(0);
+    process_fd_num_limit_soft->set_value(0);
+    process_fd_num_limit_hard->set_value(0);
+#else
     // fd used
     std::error_code ec;
     std::filesystem::directory_iterator dict_iter("/proc/self/fd/", ec);
@@ -379,6 +389,7 @@ void DorisMetrics::_update_process_fd_num() {
                      << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
+#endif
 }
 
 } // namespace doris
