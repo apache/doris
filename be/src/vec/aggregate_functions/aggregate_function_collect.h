@@ -383,12 +383,10 @@ struct AggregateFunctionArrayAggData {
         DCHECK(null_map->empty());
         size_t size = 0;
         read_binary(size, buf);
-        null_map->reserve(size);
+        null_map->resize(size);
         nested_column->reserve(size);
-        NullMap::value_type null_value;
         for (size_t i = 0; i < size; i++) {
-            read_binary(null_value, buf);
-            null_map->push_back(null_value);
+            read_binary(null_map->data()[i], buf);
         }
 
         ElementType data_value;
@@ -400,12 +398,12 @@ struct AggregateFunctionArrayAggData {
 
     void merge(const Self& rhs) {
         const auto size = rhs.null_map->size();
-        null_map->reserve(size);
+        null_map->resize(size);
         nested_column->reserve(size);
         for (size_t i = 0; i < size; i++) {
             const auto null_value = rhs.null_map->data()[i];
             const auto data_value = rhs.nested_column->get_data()[i];
-            null_map->push_back(null_value);
+            null_map->data()[i] = null_value;
             nested_column->get_data().push_back(data_value);
         }
     }
@@ -481,30 +479,27 @@ struct AggregateFunctionArrayAggData<StringRef> {
         DCHECK(null_map->empty());
         size_t size = 0;
         read_binary(size, buf);
-        null_map->reserve(size);
+        null_map->resize(size);
         nested_column->reserve(size);
-
-        NullMap::value_type null_value;
         for (size_t i = 0; i < size; i++) {
-            read_binary(null_value, buf);
-            null_map->push_back(null_value);
+            read_binary(null_map->data()[i], buf);
         }
 
-        std::string s;
+        StringRef s;
         for (size_t i = 0; i < size; i++) {
             read_string_binary(s, buf);
-            nested_column->insert_data(s.data(), s.size());
+            nested_column->insert_data(s.data, s.size);
         }
     }
 
     void merge(const Self& rhs) {
         const auto size = rhs.null_map->size();
-        null_map->reserve(size);
+        null_map->resize(size);
         nested_column->reserve(size);
         for (size_t i = 0; i < size; i++) {
             const auto null_value = rhs.null_map->data()[i];
             auto s = rhs.nested_column->get_data_at(i);
-            null_map->push_back(null_value);
+            null_map->data()[i] = null_value;
             nested_column->insert_data(s.data, s.size);
         }
     }

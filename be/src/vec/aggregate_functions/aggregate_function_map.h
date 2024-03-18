@@ -156,20 +156,19 @@ struct AggregateFunctionMapAggData {
     void read(BufferReadable& buf) {
         size_t size = 0;
         read_binary(size, buf);
-        std::string keys;
+        StringRef key;
         for (size_t i = 0; i < size; i++) {
-            read_binary(keys, buf);
-            StringRef key {keys};
+            read_binary(key, buf);
             if (_map.find(key) != _map.cend()) {
                 continue;
             }
             key.data = _arena.insert(key.data, key.size);
             assert_cast<KeyColumnType&>(*_key_column).insert_data(key.data, key.size);
         }
-        std::string val;
+        StringRef val;
         for (size_t i = 0; i < size; i++) {
             read_binary(val, buf);
-            _value_column->insert_data(val.data(), val.size());
+            _value_column->insert_data(val.data, val.size);
         }
     }
 
