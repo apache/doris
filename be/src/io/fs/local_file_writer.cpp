@@ -105,6 +105,8 @@ void LocalFileWriter::_abort() {
 }
 
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::appendv",
+                                      Status::IOError("inject io error"));
     if (_closed) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
@@ -161,6 +163,8 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
 }
 
 Status LocalFileWriter::finalize() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
+                                      Status::IOError("inject io error"));
     if (_closed) [[unlikely]] {
         return Status::InternalError("finalize closed file: ", _path.native());
     }
@@ -180,7 +184,6 @@ Status LocalFileWriter::_close(bool sync) {
     if (_closed) {
         return Status::OK();
     }
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     if (sync) {
         if (_dirty) {
 #ifdef __APPLE__
@@ -209,6 +212,7 @@ Status LocalFileWriter::_close(bool sync) {
         }
     });
 
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     return Status::OK();
 }
 

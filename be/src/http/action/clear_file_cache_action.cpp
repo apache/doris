@@ -14,23 +14,27 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCache_fwd.h
-// and modified by Doris
 
-#pragma once
-#include <memory>
+#include "http/action/clear_file_cache_action.h"
 
-#include "vec/common/uint128.h"
+#include <fmt/core.h>
 
-static constexpr size_t GB = 1 * 1024 * 1024 * 1024;
-static constexpr size_t KB = 1024;
+#include "http/http_channel.h"
+#include "http/http_request.h"
+#include "io/cache/block_file_cache_factory.h"
+
 namespace doris {
-namespace io {
 
-using uint128_t = vectorized::UInt128;
-using UInt128Hash = vectorized::UInt128Hash;
-static constexpr size_t REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS = 100 * 1024;
+const std::string SYNC = "sync";
 
-} // namespace io
+void ClearFileCacheAction::handle(HttpRequest* req) {
+    std::string sync = req->param(SYNC);
+    if (sync == "TRUE") {
+        io::FileCacheFactory::instance()->clear_file_caches(true);
+    } else {
+        io::FileCacheFactory::instance()->clear_file_caches(false);
+    }
+    HttpChannel::send_reply(req, HttpStatus::OK, Status::OK().to_json());
+}
+
 } // namespace doris

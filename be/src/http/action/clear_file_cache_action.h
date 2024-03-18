@@ -14,30 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCacheSettings.h
-// and modified by Doris
 
 #pragma once
 
-#include <array>
-
-#include "io/cache/block/block_file_cache_fwd.h"
+#include "http/http_handler.h"
 
 namespace doris {
-namespace io {
+class ExecEnv;
+class ClearFileCacheAction : public HttpHandler {
+public:
+    ClearFileCacheAction() = default;
 
-struct FileCacheSettings {
-    size_t total_size {0};
-    size_t disposable_queue_size {0};
-    size_t disposable_queue_elements {0};
-    size_t index_queue_size {0};
-    size_t index_queue_elements {0};
-    size_t query_queue_size {0};
-    size_t query_queue_elements {0};
-    size_t max_file_segment_size {0};
-    size_t max_query_cache_size {0};
+    ~ClearFileCacheAction() override = default;
+
+    void handle(HttpRequest* req) override;
 };
-
-} // namespace io
 } // namespace doris

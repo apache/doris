@@ -36,7 +36,7 @@
 #include "common/logging.h"
 #include "exec/olap_utils.h"
 #include "exprs/function_filter.h"
-#include "io/cache/block/block_file_cache_profile.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"

@@ -90,7 +90,7 @@ struct RowsetWriterContext {
     /// begin file cache opts
     bool write_file_cache = false;
     bool is_hot_data = false;
-    int64_t file_cache_ttl_sec = 0;
+    uint64_t file_cache_ttl_sec = 0;
     /// end file cache opts
 
     // segcompaction for this RowsetWriter, disable it for some transient writers

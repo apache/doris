@@ -1034,12 +1034,11 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
-DECLARE_Int64(file_cache_min_file_segment_size);
-DECLARE_Int64(file_cache_max_file_segment_size);
+DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
-// only for debug, will be removed after finding out the root cause
-DECLARE_mInt32(file_cache_wait_sec_after_fail); // zero for no waiting and retrying
+DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
+DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1086,7 +1085,7 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 // Page size of row column, default 4KB
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
-DECLARE_mInt32(s3_write_buffer_size);
+DECLARE_mInt64(s3_write_buffer_size);
 // The timeout config for S3 buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
