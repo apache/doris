@@ -34,19 +34,19 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** EliminateAggregateSum
+/** ReduceAggregateChildOutputRows
  * with group by:
  * select max(1) from t1 group by c1; -> select 1 from (select c1 from t1 group by c1);
  * without group by:
  * select max(1) from t1; -> select max(1) from (select 1 from t1 limit 1) tmp;
  * */
-public class EliminateAggregateConstant extends OneRewriteRuleFactory {
+public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate().then(agg -> {
             Set<AggregateFunction> aggFunctions = agg.getAggregateFunctions();
             // check whether we have aggregate(constant) in all aggregateFunctions
-            if (!agg.isRewritten() || aggFunctions.isEmpty() || !aggFunctions.stream().allMatch(
+            if (!agg.isRewrittenByAggregateConstant() || aggFunctions.isEmpty() || !aggFunctions.stream().allMatch(
                     f -> (f instanceof Min || f instanceof Max)
                             && (f.arity() == 1 && f.child(0).isConstant()))) {
                 return null;
@@ -69,13 +69,11 @@ public class EliminateAggregateConstant extends OneRewriteRuleFactory {
                 LogicalAggregate newAgg = new LogicalAggregate<>(agg.getGroupByExpressions(),
                         agg.getOutputExpressions(), new LogicalLimit(1, 0, LimitPhase.ORIGIN,
                                 new LogicalProject<>(newOutput, agg.child())));
-                newAgg.setRewritten(true);
+                newAgg.setRewrittenByAggregateConstant(true);
                 return newAgg;
             } else {
-                List<NamedExpression> childOutput = agg.getOutputExpressions().stream().filter(ne ->
-                        !(ne instanceof Alias && ne.child(0) instanceof AggregateFunction
-                            && (ne.child(0) instanceof Max || ne.child(0) instanceof Min)))
-                            .collect(Collectors.toList());
+                List<NamedExpression> childOutput = agg.getGroupByExpressions().stream().map(expr ->
+                        (NamedExpression) expr).collect(Collectors.toList());
                 return new LogicalProject<>(newOutput,
                                 new LogicalAggregate<>(agg.getGroupByExpressions(), childOutput, agg.child()));
             }
