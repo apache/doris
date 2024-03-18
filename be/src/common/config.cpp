@@ -268,6 +268,7 @@ DEFINE_mInt32(doris_max_scan_key_num, "48");
 DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
+DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
 
 DEFINE_mInt64(column_dictionary_key_ratio_threshold, "0");
 DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
@@ -1198,6 +1199,27 @@ DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 DEFINE_mInt32(max_s3_client_retry, "10");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+DEFINE_mString(ca_cert_file_paths,
+               "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+               "/etc/ssl/ca-bundle.pem");
+
+/** Table sink configurations(currently contains only external table types) **/
+// Minimum data processed to scale writers when non partition writing
+DEFINE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold,
+              "125829120"); // 120MB
+// Minimum data processed to start rebalancing in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_data_processed_threshold, "209715200"); // 200MB
+// Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold,
+              "209715200"); // 200MB
+// Maximum processed partition nums of per writer when partition writing
+DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
+
+/** Hive sink configurations **/
+DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
 // clang-format off
 #ifdef BE_TEST

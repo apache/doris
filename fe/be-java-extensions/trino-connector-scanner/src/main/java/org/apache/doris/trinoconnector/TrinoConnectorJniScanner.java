@@ -19,7 +19,6 @@ package org.apache.doris.trinoconnector;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheKey;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheValue;
@@ -128,7 +127,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
         catalogNameString = params.get("catalog_name");
         super.batchSize = batchSize;
         super.fields = params.get("required_fields").split(",");
-        super.predicates = new ScanPredicate[0];
 
         connectorSplitString = params.get("trino_connector_split");
         connectorTableHandleString = params.get("trino_connector_table_handle");

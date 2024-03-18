@@ -19,6 +19,7 @@
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <numeric>
@@ -291,8 +292,8 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
         } else if constexpr (std::is_same_v<std::decay_t<decltype(last)>, std::string>) {
             value = last;
         }
-        auto [_, ec] = std::from_chars(value.data(), value.data() + value.size(), last_id);
-        if (ec == std::errc {}) {
+        if (auto [_, ec] = std::from_chars(value.data(), value.data() + value.size(), last_id);
+            ec != std::errc {}) [[unlikely]] {
             LOG_WARNING("Invalid resource id format: {}", value);
             last_id = 0;
             DCHECK(false);
@@ -306,9 +307,14 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
     return std::to_string(prev + 1);
 }
 
-static int add_hdfs_storage_valut(InstanceInfoPB& instance, Transaction* txn,
+static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
+    if (!hdfs_param.has_hdfs_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("vault_name={} passed invalid argument", hdfs_param.name());
+        return -1;
+    }
     if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [&hdfs_param](const auto& name) { return name == hdfs_param.name(); }) !=
         instance.storage_vault_names().end()) {
@@ -322,16 +328,32 @@ static int add_hdfs_storage_valut(InstanceInfoPB& instance, Transaction* txn,
     hdfs_param.set_id(vault_id);
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
-    LOG_INFO("try to put storage vault_id={}, vault_name={}, err={}", vault_id, hdfs_param.name());
+    LOG_INFO("try to put storage vault_id={}, vault_name={}", vault_id, hdfs_param.name());
     instance.mutable_resource_ids()->Add(std::move(vault_id));
     *instance.mutable_storage_vault_names()->Add() = hdfs_param.name();
     return 0;
 }
 
-// TODO(ByteYue): Implement drop storage vault.
-[[maybe_unused]] static int remove_hdfs_storage_valut(std::string_view vault_key, Transaction* txn,
-                                                      MetaServiceCode& code, std::string& msg) {
+static int remove_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
+                                     const StorageVaultPB& hdfs_info, MetaServiceCode& code,
+                                     std::string& msg) {
+    std::string_view vault_name = hdfs_info.name();
+    auto name_iter = std::find_if(instance.storage_vault_names().begin(),
+                                  instance.storage_vault_names().end(),
+                                  [&](const auto& name) { return vault_name == name; });
+    if (name_iter == instance.storage_vault_names().end()) {
+        code = MetaServiceCode::STORAGE_VAULT_NOT_FOUND;
+        msg = fmt::format("vault_name={} not found", vault_name);
+        return -1;
+    }
+    auto vault_idx = name_iter - instance.storage_vault_names().begin();
+    auto vault_id_iter = instance.resource_ids().begin() + vault_idx;
+    std::string_view vault_id = *vault_id_iter;
+    std::string vault_key = storage_vault_key({instance.instance_id(), vault_id});
+
     txn->remove(vault_key);
+    instance.mutable_storage_vault_names()->DeleteSubrange(vault_idx, 1);
+    instance.mutable_resource_ids()->DeleteSubrange(vault_idx, 1);
     LOG(INFO) << "remove storage_vault_key=" << hex(vault_key);
 
     return 0;
@@ -379,8 +401,9 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         };
     } break;
-    case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
-        if (!request->has_hdfs()) {
+    case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
+    case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
+        if (!request->has_hdfs() || !request->hdfs().has_name()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "hdfs info is not found " + proto_to_json(*request);
             return;
@@ -533,7 +556,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
-        if (auto ret = add_hdfs_storage_valut(instance, txn.get(), request->hdfs(), code, msg);
+        if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
+            ret != 0) {
+            return;
+        }
+        break;
+    }
+    case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
+        if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
             ret != 0) {
             return;
         }
@@ -889,12 +919,11 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         LOG(WARNING) << msg << " err=" << err;
         return;
     }
-    // TODO(ByteYue): Reclaim the vault if the following procedure failed
     if (request->has_hdfs_info()) {
         StorageVaultPB hdfs_param;
         hdfs_param.set_name("Default");
         hdfs_param.mutable_hdfs_info()->MergeFrom(request->hdfs_info());
-        if (0 != add_hdfs_storage_valut(instance, txn.get(), std::move(hdfs_param), code, msg)) {
+        if (0 != add_hdfs_storage_vault(instance, txn.get(), std::move(hdfs_param), code, msg)) {
             return;
         }
     }

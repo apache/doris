@@ -153,6 +153,7 @@ public class RoutineLoadManager implements Writable {
 
     }
 
+    // cloud override
     public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
             throws UserException {
         // check load auth
@@ -184,7 +185,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
-                    throws DdlException {
+                    throws UserException {
         writeLock();
         try {
             // check if db.routineLoadName has been used
@@ -542,7 +543,7 @@ public class RoutineLoadManager implements Writable {
      * @return
      * @throws LoadException
      */
-    private List<Long> getAvailableBackendIds(long jobId) throws LoadException {
+    protected List<Long> getAvailableBackendIds(long jobId) throws LoadException {
         RoutineLoadJob job = getJob(jobId);
         if (job == null) {
             throw new LoadException("job " + jobId + " does not exist");

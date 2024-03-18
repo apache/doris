@@ -34,6 +34,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * A hive metastore client pool for a specific catalog with hive configuration.
@@ -92,4 +93,19 @@ public interface HMSCachedClient {
     void dropTable(String dbName, String tableName);
 
     void createTable(TableMetadata catalogTable, boolean ignoreIfExists);
+
+    void updateTableStatistics(
+            String dbName,
+            String tableName,
+            Function<HivePartitionStatistics, HivePartitionStatistics> update);
+
+    void updatePartitionStatistics(
+            String dbName,
+            String tableName,
+            String partitionName,
+            Function<HivePartitionStatistics, HivePartitionStatistics> update);
+
+    void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions);
+
+    void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
 }

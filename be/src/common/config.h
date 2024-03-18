@@ -310,6 +310,7 @@ DECLARE_mInt32(doris_max_scan_key_num);
 DECLARE_mInt32(max_pushdown_conditions_per_column);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
+DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
 
 DECLARE_mInt64(column_dictionary_key_ratio_threshold);
 DECLARE_mInt64(column_dictionary_key_size_threshold);
@@ -1276,6 +1277,22 @@ DECLARE_String(tmp_file_dir);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
+
+// the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
+DECLARE_mString(ca_cert_file_paths);
+
+/** Table sink configurations(currently contains only external table types) **/
+// Minimum data processed to scale writers when non partition writing
+DECLARE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold);
+// Minimum data processed to start rebalancing in exchange when partition writing
+DECLARE_mInt64(table_sink_partition_write_data_processed_threshold);
+// Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
+DECLARE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold);
+// Maximum processed partition nums of per writer when partition writing
+DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
+
+/** Hive sink configurations **/
+DECLARE_mInt64(hive_sink_max_file_size); // 1GB
 
 #ifdef BE_TEST
 // test s3
