@@ -30,19 +30,22 @@ suite("test_mysql_mtmv", "p0,external,hive,external_docker,external_docker_hive"
     logger.info("driver_url: " + driver_url)
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "mysql_mtmv_catalog";
+        String mvName = "test_mysql_mtmv"
+        String dbName = "regression_test_mtmv_p0"
+        String mysqlDb = "doris_test"
+        String mysqlTable = "ex_tb2"
         sql """drop catalog if exists ${catalog_name} """
 
         sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/${mysqlDb}?useSSL=false&zeroDateTimeBehavior=convertToNull",
             "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        qt_catalog """select * from ${catalog_name}.doris_test.ex_tb2 order by id"""
-
+        qt_catalog """select * from ${catalog_name}.${mysqlDb}.${mysqlTable} order by id"""
         sql """drop materialized view if exists ${mvName};"""
 
         sql """
@@ -51,7 +54,7 @@ suite("test_mysql_mtmv", "p0,external,hive,external_docker,external_docker_hive"
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT * FROM ${catalog_name}.doris_test.ex_tb2;
+                SELECT * FROM ${catalog_name}.${mysqlDb}.${mysqlTable};
             """
 
         sql """
