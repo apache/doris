@@ -303,10 +303,15 @@ public:
             _context.hybrid_set->set_null_aware(params->null_aware);
             break;
         }
+        // Only use in nested loop join not need set null aware
         case RuntimeFilterType::MIN_FILTER:
-        case RuntimeFilterType::MAX_FILTER:
+        case RuntimeFilterType::MAX_FILTER: {
+            _context.minmax_func.reset(create_minmax_filter(_column_return_type));
+            break;
+        }
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func.reset(create_minmax_filter(_column_return_type));
+            _context.minmax_func->set_null_aware(params->null_aware);
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
@@ -1825,7 +1830,7 @@ Status RuntimePredicateWrapper::get_push_exprs(
         // create max filter
         TExprNode max_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::LE, max_pred,
-                                              &max_pred_node));
+                                              &max_pred_node, null_aware));
         vectorized::VExprSPtr max_literal;
         RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(), _context.minmax_func->get_max(),
                                        max_literal));
@@ -1842,7 +1847,7 @@ Status RuntimePredicateWrapper::get_push_exprs(
         vectorized::VExprSPtr min_pred;
         TExprNode min_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(new_probe_ctx->root()->type(), TExprOpcode::GE,
-                                              min_pred, &min_pred_node));
+                                              min_pred, &min_pred_node, null_aware));
         vectorized::VExprSPtr min_literal;
         RETURN_IF_ERROR(create_literal(new_probe_ctx->root()->type(),
                                        _context.minmax_func->get_min(), min_literal));
