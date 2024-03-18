@@ -19,6 +19,7 @@ package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.util.TimeUtils;
@@ -153,7 +154,13 @@ public class InsertTask extends AbstractTask {
         TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
         ctx.getSessionVariable().enableNereidsDML = true;
-        ctx.getSessionVariable().enableFoldConstantByBe = false;
+        // in test_base_insert_job.groovy, have a case of insert values('2023-07-19',
+        // sleep(10000), 1001);
+        // when enableFoldConstantByBe=true, the execute of sleep function will cause
+        // timeout, so set it to false when it's test case of insert task.
+        if (Config.enable_job_schedule_second_for_test) {
+            ctx.getSessionVariable().enableFoldConstantByBe = false;
+        }
         stmtExecutor = new StmtExecutor(ctx, (String) null);
         ctx.setQueryId(queryId);
         if (StringUtils.isNotEmpty(sql)) {
