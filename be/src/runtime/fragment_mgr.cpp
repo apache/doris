@@ -505,8 +505,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     }
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
-                                       std::shared_ptr<QueryContext>& query_ctx) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -538,7 +537,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, query_ctx, empty_function);
+        return exec_plan_fragment(params, empty_function);
     }
 }
 
@@ -578,14 +577,6 @@ void FragmentMgr::remove_pipeline_context(
             _query_ctx_map.erase(query_id);
         }
     }
-}
-
-Status FragmentMgr::get_query_ctx(const TPipelineFragmentParams& params, TUniqueId query_id,
-                                  std::shared_ptr<QueryContext>& query_ctx,
-                                  std::vector<TPipelineFragmentParams> params_vec) {
-    RETURN_IF_ERROR(_get_query_ctx(params, query_id, true, query_ctx));
-    query_ctx->build_pipeline_context_map(params_vec);
-    return Status::OK();
 }
 
 template <typename Params>
@@ -775,7 +766,6 @@ std::string FragmentMgr::dump_pipeline_tasks() {
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
-                                       std::shared_ptr<QueryContext>& query_ctx,
                                        const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
@@ -784,6 +774,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
+    std::shared_ptr<QueryContext> query_ctx;
+    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
     if (enable_pipeline_x) {
@@ -840,12 +832,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 _pipeline_map.insert({ins_id, context});
             }
         }
-        RETURN_IF_ERROR(query_ctx->map_pipeline_context(
-                [&](PipelineFragmentContextWrapper& ctx) -> void {
-                    ctx.pip_ctx = context;
-                    ctx.valid = true;
-                },
-                params.fragment_id));
+        query_ctx->set_pipeline_context(params.fragment_id, context);
 
         RETURN_IF_ERROR(context->submit());
         return Status::OK();
@@ -985,15 +972,7 @@ void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id,
         return;
     }
     if (ctx->second->enable_pipeline_x_exec()) {
-        ctx->second->for_each_pipeline_context(
-                [&](const int f_id, PipelineFragmentContextWrapper& f_context) -> void {
-                    if (!f_context.valid) {
-                        return;
-                    }
-                    if (auto pipeline_ctx = f_context.pip_ctx.lock()) {
-                        pipeline_ctx->cancel(reason, msg);
-                    }
-                });
+        ctx->second->cancel_all_pipeline_context(reason, msg);
     } else {
         for (auto it : ctx->second->fragment_instance_ids) {
             cancel_instance_unlocked(it, reason, state_lock, msg);
@@ -1042,15 +1021,7 @@ void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
 void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                                   const PPlanFragmentCancelReason& reason, const std::string& msg) {
     if (auto q_ctx = _query_ctx_map.find(query_id)->second) {
-        WARN_IF_ERROR(q_ctx->map_pipeline_context(
-                              [&](PipelineFragmentContextWrapper& ctx) -> void {
-                                  if (ctx.valid) {
-                                      if (auto pipeline_ctx = ctx.pip_ctx.lock()) {
-                                          pipeline_ctx->cancel(reason, msg);
-                                      }
-                                  }
-                              },
-                              fragment_id),
+        WARN_IF_ERROR(q_ctx->cancel_pipeline_context(fragment_id, reason, msg),
                       "fail to cancel fragment");
     } else {
         LOG(WARNING) << "Could not find the query id:" << print_id(query_id)

@@ -81,8 +81,7 @@ public:
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params,
-                              std::shared_ptr<QueryContext>& query_ctx);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params);
 
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
@@ -90,8 +89,7 @@ public:
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params,
-                              std::shared_ptr<QueryContext>& query_ctx, const FinishCallback& cb);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -153,10 +151,6 @@ public:
     std::string dump_pipeline_tasks();
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
-
-    Status get_query_ctx(const TPipelineFragmentParams& params, TUniqueId query_id,
-                         std::shared_ptr<QueryContext>& query_ctx,
-                         std::vector<TPipelineFragmentParams> params_vec);
 
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,

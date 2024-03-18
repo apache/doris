@@ -537,15 +537,11 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
         MonotonicStopWatch timer;
         timer.start();
-        std::shared_ptr<QueryContext> query_ctx;
-        RETURN_IF_ERROR(_exec_env->fragment_mgr()->get_query_ctx(
-                fragment_list[0], fragment_list[0].query_id, query_ctx, fragment_list));
         for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
-                RETURN_IF_ERROR(
-                        _exec_env->fragment_mgr()->exec_plan_fragment(fragment, query_ctx, cb));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment, cb));
             } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment, query_ctx));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment));
             }
         }
         timer.stop();

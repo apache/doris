@@ -61,11 +61,6 @@ struct ReportStatusRequest {
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
 
-struct PipelineFragmentContextWrapper {
-    bool valid = false;
-    std::weak_ptr<pipeline::PipelineFragmentContext> pip_ctx;
-};
-
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -113,10 +108,12 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
 
-    using ForEachFunc = std::function<void(const int, PipelineFragmentContextWrapper&)>;
-    void for_each_pipeline_context(ForEachFunc for_each_func);
-    using MaphFunc = std::function<void(PipelineFragmentContextWrapper&)>;
-    Status map_pipeline_context(MaphFunc map_func, const int fragment_id);
+    void cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
+                                     const std::string& msg);
+    Status cancel_pipeline_context(const int fragment_id, const PPlanFragmentCancelReason& reason,
+                                   const std::string& msg);
+    void set_pipeline_context(const int fragment_id,
+                                std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
     bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
@@ -250,8 +247,6 @@ public:
 
     bool is_nereids() const { return _is_nereids; }
 
-    void build_pipeline_context_map(std::vector<TPipelineFragmentParams>& params_vec);
-
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -324,7 +319,7 @@ private:
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
-    std::map<int, PipelineFragmentContextWrapper> _fragment_id_to_pipeline_ctx;
+    std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 };
 
