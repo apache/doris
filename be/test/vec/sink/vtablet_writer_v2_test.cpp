@@ -26,10 +26,9 @@ namespace doris {
 
 class TestVTabletWriterV2 : public ::testing::Test {
 public:
-    TestVTabletWriterV2() {}
-    ~TestVTabletWriterV2() {}
+    TestVTabletWriterV2() = default;
+    ~TestVTabletWriterV2() = default;
     static void SetUpTestSuite() {}
-
     static void TearDownTestSuite() {}
 };
 
