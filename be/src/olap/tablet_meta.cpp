@@ -71,7 +71,7 @@ TabletMetaSharedPtr TabletMeta::create(
             request.time_series_compaction_file_count_threshold,
             request.time_series_compaction_time_threshold_seconds,
             request.time_series_compaction_empty_rowsets_threshold,
-            request.time_series_compaction_level_threshold, request.inverted_index_storage_format);
+            request.inverted_index_storage_format);
 }
 
 TabletMeta::TabletMeta()

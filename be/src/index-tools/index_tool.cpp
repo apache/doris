@@ -223,8 +223,8 @@ int main(int argc, char** argv) {
         std::unique_ptr<DorisCompoundReader> reader;
         try {
             reader = std::make_unique<DorisCompoundReader>(
-                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()),
-                    file_str.c_str(), 4096);
+                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
+                    4096);
             std::vector<std::string> files;
             std::cout << "Nested files for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
@@ -258,8 +258,8 @@ int main(int argc, char** argv) {
         std::unique_ptr<DorisCompoundReader> reader;
         try {
             reader = std::make_unique<DorisCompoundReader>(
-                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()),
-                    file_str.c_str(), 4096);
+                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
+                    4096);
             std::cout << "Term statistics for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
             check_terms_stats(reader.get());
