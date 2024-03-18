@@ -2511,6 +2511,12 @@ public class Config extends ConfigBase {
     })
     public static String inverted_index_storage_format = "V1";
 
+    @ConfField(description = {
+            "是否开启 Proxy Protocol 支持",
+            "Whether to enable proxy protocol"
+    })
+    public static boolean enable_proxy_protocol = false;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
