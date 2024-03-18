@@ -94,6 +94,7 @@ suite("test_db2_mtmv", "p0,external,hive,external_docker,external_docker_hive") 
         waitingMTMVTaskFinished(jobName)
         order_qt_mtmv_2 "SELECT * FROM ${mvName} order by k1"
 
+        sql """drop materialized view if exists ${mvName};"""
         sql """ drop catalog if exists ${catalog_name} """
         db2_docker "DROP TABLE IF EXISTS ${db2_database}.${db2_table};"
         db2_docker "DROP SCHEMA ${db2_database} restrict;"
