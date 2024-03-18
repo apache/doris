@@ -1213,7 +1213,10 @@ public enum ErrorCode {
     ERR_CLOUD_CLUSTER_ERROR(5098, new byte[]{'4', '2', '0', '0', '0'},
             "Cluster %s not exist, use SQL 'SHOW CLUSTERS' to get a valid cluster"),
 
-    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No cluster selected");
+    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No cluster selected"),
+
+    ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
+            "Command only support in cloud mode.");
 
     // This is error code
     private final int code;

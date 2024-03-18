@@ -53,6 +53,7 @@ import java.sql.ResultSet;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
@@ -517,6 +518,31 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     public void createTable(TableMetadata hiveTable, boolean ignoreIfExists) {
         throw new NotImplementedException("PostgreSQL createTable not implemented");
+    }
+
+    @Override
+    public void updateTableStatistics(String dbName,
+                                      String tableName,
+                                      Function<HivePartitionStatistics, HivePartitionStatistics> update) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+
+    @Override
+    public void updatePartitionStatistics(String dbName,
+                                          String tableName,
+                                          String partitionName,
+                                          Function<HivePartitionStatistics, HivePartitionStatistics> update) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+
+    @Override
+    public void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+
+    @Override
+    public void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     public void dropTable(String dbName, String tblName) {

@@ -61,7 +61,7 @@ public class CloudCoordinator extends Coordinator {
     }
 
     @Override
-    protected void prepare() throws Exception {
+    protected void prepare() throws UserException {
         String cluster = null;
         ConnectContext context = ConnectContext.get();
         if (context != null) {
@@ -96,7 +96,7 @@ public class CloudCoordinator extends Coordinator {
             LOG.warn("no available backends, idToBackend {}", idToBackend);
             String clusterName = ConnectContext.get() != null
                     ? ConnectContext.get().getCloudCluster() : "ctx empty cant get clusterName";
-            throw new Exception("no available backends, the cluster maybe not be set or been dropped clusterName = "
+            throw new UserException("no available backends, the cluster maybe not be set or been dropped clusterName = "
                 + clusterName);
         }
     }
