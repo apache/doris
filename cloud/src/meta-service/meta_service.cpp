@@ -498,7 +498,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
-    if (request->has_storage_vault_name()) {
+    if (request->has_storage_vault_name() && !request->storage_vault_name().empty()) {
         InstanceInfoPB instance;
         std::unique_ptr<Transaction> txn0;
         TxnErrorCode err = txn_kv_->create_txn(&txn0);
