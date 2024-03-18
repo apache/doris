@@ -130,7 +130,7 @@ QueryContext::~QueryContext() {
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
-    _execution_dependency->set_ready();
+    set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
         if (!_is_cancelled) {
@@ -145,12 +145,16 @@ void QueryContext::set_ready_to_execute(bool is_cancelled) {
 }
 
 void QueryContext::set_ready_to_execute_only() {
-    _execution_dependency->set_ready();
+    set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
         _ready_to_execute = true;
     }
     _start_cond.notify_all();
+}
+
+void QueryContext::set_execution_dependency_ready() {
+    _execution_dependency->set_ready();
 }
 
 bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragment_id) {

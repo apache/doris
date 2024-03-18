@@ -125,6 +125,8 @@ public:
         return _exec_status;
     }
 
+    void set_execution_dependency_ready();
+
     void set_ready_to_execute_only();
 
     bool is_ready_to_execute() {

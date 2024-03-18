@@ -793,6 +793,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             auto prepare_st = context->prepare(params);
             if (!prepare_st.ok()) {
                 context->close_if_prepare_failed();
+                query_ctx->set_execution_dependency_ready();
                 return prepare_st;
             }
         }
