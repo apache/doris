@@ -90,7 +90,9 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
     // Should set to false here, to
     _writer_thread_closed = false;
-    _finish_dependency->block();
+    if (_finish_dependency) {
+        _finish_dependency->block();
+    }
     // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
