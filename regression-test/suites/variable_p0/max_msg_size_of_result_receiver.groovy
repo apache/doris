@@ -45,11 +45,9 @@ suite("max_msg_size_of_result_receiver") {
     }
     assertEquals(with_exception, false)
     
-    try {
-        sql "SELECT * FROM ${table_name} WHERE id = 105"
-    } catch (Exception e) {
-        log.info("error msg: " + e.getMessage())
-        assertTrue(e.getMessage().contains('MaxMessageSize reached, try increase max_msg_size_of_result_receiver'))
+    test {
+        sql """SELECT * FROM ${table_name} WHERE id = 105;"""
+        exception "MaxMessageSize reached, try increase max_msg_size_of_result_receiver"
     }
 
     try {
