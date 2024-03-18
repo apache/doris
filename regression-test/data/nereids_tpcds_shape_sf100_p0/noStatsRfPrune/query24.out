@@ -16,21 +16,24 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF6
+--------------------------------filter(( not ss_customer_sk IS NULL) and ( not ss_store_sk IS NULL))
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF6
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[store_returns]
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[customer] apply RFs: RF3
+----------------------------filter(( not c_birth_country IS NULL) and ( not c_current_addr_sk IS NULL))
+------------------------------PhysicalOlapScan[customer] apply RFs: RF3
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer_address] apply RFs: RF5
+--------------------------filter(( not ca_country IS NULL) and ( not ca_zip IS NULL))
+----------------------------PhysicalOlapScan[customer_address] apply RFs: RF5
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[item]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
---------------------filter((store.s_market_id = 8))
+--------------------filter(( not s_zip IS NULL) and (store.s_market_id = 8))
 ----------------------PhysicalOlapScan[store]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
@@ -38,19 +41,22 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) as DOUBLE))
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((ssales.i_color = 'beige'))
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------filter(( not paid IS NULL))
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalProject
+--------------------------filter((ssales.i_color = 'beige'))
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute[DistributionSpecGather]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------filter(( not (0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) IS NULL))
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute[DistributionSpecGather]
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------------PhysicalProject
+------------------------------filter(( not netpaid IS NULL))
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

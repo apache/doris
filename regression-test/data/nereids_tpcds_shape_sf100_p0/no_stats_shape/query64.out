@@ -37,7 +37,8 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF2 sr_item_sk->[ss_item_sk];RF3 sr_ticket_number->[ss_ticket_number]
 ------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4 RF5 RF6 RF7 RF9 RF12 RF13 RF16 RF19
+--------------------------------------------------------------------------filter(( not ss_addr_sk IS NULL) and ( not ss_cdemo_sk IS NULL) and ( not ss_customer_sk IS NULL) and ( not ss_hdemo_sk IS NULL) and ( not ss_promo_sk IS NULL) and ( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+----------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4 RF5 RF6 RF7 RF9 RF12 RF13 RF16 RF19
 ------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF4 RF19
 --------------------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
@@ -54,17 +55,20 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF19
 --------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF8 RF10 RF11 RF14 RF15
+------------------------------------------------------------------filter(( not c_current_addr_sk IS NULL) and ( not c_current_cdemo_sk IS NULL) and ( not c_current_hdemo_sk IS NULL) and ( not c_first_sales_date_sk IS NULL) and ( not c_first_shipto_date_sk IS NULL))
+--------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF8 RF10 RF11 RF14 RF15
 ----------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------------------------------------filter(( not cd_marital_status IS NULL))
+----------------------------------------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------filter(d_year IN (2001, 2002))
 --------------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[customer_demographics]
+------------------------------------------------------filter(( not cd_marital_status IS NULL))
+--------------------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------PhysicalOlapScan[customer_address]
@@ -76,7 +80,8 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF17
+------------------------------------------filter(( not hd_income_band_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF17
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[promotion]
@@ -85,10 +90,12 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF18
+----------------------------------filter(( not hd_income_band_sk IS NULL))
+------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF18
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[store]
+------------------------------filter(( not s_store_name IS NULL) and ( not s_zip IS NULL))
+--------------------------------PhysicalOlapScan[store]
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[income_band]
@@ -107,10 +114,10 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------hashJoin[INNER_JOIN] hashCondition=((cs1.item_sk = cs2.item_sk) and (cs1.store_name = cs2.store_name) and (cs1.store_zip = cs2.store_zip)) otherCondition=((cs2.cnt <= cs1.cnt))
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
-------------------filter((cs1.syear = 2001))
+------------------filter(( not store_name IS NULL) and ( not store_zip IS NULL) and (cs1.syear = 2001))
 --------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
-------------------filter((cs2.syear = 2002))
+------------------filter(( not store_name IS NULL) and ( not store_zip IS NULL) and (cs2.syear = 2002))
 --------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 

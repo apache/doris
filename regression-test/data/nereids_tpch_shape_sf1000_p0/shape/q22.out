@@ -18,10 +18,11 @@ PhysicalResultSink
 ------------------------filter(substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
 --------------------------PhysicalOlapScan[customer]
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------hashAgg[GLOBAL]
---------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------hashAgg[LOCAL]
-------------------------------PhysicalProject
---------------------------------filter((customer.c_acctbal > 0.00) and substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
-----------------------------------PhysicalOlapScan[customer]
+------------------------filter(( not avg(cast(c_acctbal as DECIMALV3(17, 4))) IS NULL))
+--------------------------hashAgg[GLOBAL]
+----------------------------PhysicalDistribute[DistributionSpecGather]
+------------------------------hashAgg[LOCAL]
+--------------------------------PhysicalProject
+----------------------------------filter((customer.c_acctbal > 0.00) and substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
+------------------------------------PhysicalOlapScan[customer]
 

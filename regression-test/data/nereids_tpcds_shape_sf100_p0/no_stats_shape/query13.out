@@ -14,7 +14,7 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = store_sales.ss_cdemo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[ss_cdemo_sk]
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
-----------------------------filter((store_sales.ss_net_profit <= 300.00) and (store_sales.ss_net_profit >= 50.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
+----------------------------filter(( not ss_addr_sk IS NULL) and ( not ss_cdemo_sk IS NULL) and ( not ss_hdemo_sk IS NULL) and ( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL) and (store_sales.ss_net_profit <= 300.00) and (store_sales.ss_net_profit >= 50.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
 ------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject

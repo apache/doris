@@ -21,10 +21,12 @@ PhysicalResultSink
 ------------------------------------PhysicalUnion
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
+------------------------------------------filter(( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
+------------------------------------------filter(( not sr_returned_date_sk IS NULL) and ( not sr_store_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
@@ -43,10 +45,12 @@ PhysicalResultSink
 ------------------------------------PhysicalUnion
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2
+------------------------------------------filter(( not cs_catalog_page_sk IS NULL) and ( not cs_sold_date_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF2
+------------------------------------------filter(( not cr_catalog_page_sk IS NULL) and ( not cr_returned_date_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF2
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
@@ -65,14 +69,17 @@ PhysicalResultSink
 ------------------------------------PhysicalUnion
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF6
+------------------------------------------filter(( not ws_sold_date_sk IS NULL) and ( not ws_web_site_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF6
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_item_sk = web_sales.ws_item_sk) and (web_returns.wr_order_number = web_sales.ws_order_number)) otherCondition=() build RFs:RF4 wr_item_sk->[ws_item_sk];RF5 wr_order_number->[ws_order_number]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
+----------------------------------------------filter(( not ws_web_site_sk IS NULL))
+------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
+----------------------------------------------filter(( not wr_returned_date_sk IS NULL))
+------------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))

@@ -19,7 +19,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
-------------------------------filter(ss_hdemo_sk IS NULL)
+------------------------------filter(( not ss_sold_date_sk IS NULL) and ss_hdemo_sk IS NULL)
 --------------------------------PhysicalOlapScan[store_sales]
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
@@ -32,7 +32,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[date_dim] apply RFs: RF2
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
-------------------------------filter(ws_bill_addr_sk IS NULL)
+------------------------------filter(( not ws_sold_date_sk IS NULL) and ws_bill_addr_sk IS NULL)
 --------------------------------PhysicalOlapScan[web_sales]
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
@@ -45,6 +45,6 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
-------------------------------filter(cs_warehouse_sk IS NULL)
+------------------------------filter(( not cs_sold_date_sk IS NULL) and cs_warehouse_sk IS NULL)
 --------------------------------PhysicalOlapScan[catalog_sales]
 

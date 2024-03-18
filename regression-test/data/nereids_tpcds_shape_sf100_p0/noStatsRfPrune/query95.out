@@ -6,10 +6,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------PhysicalProject
-------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF7
+------------filter(( not ws_warehouse_sk IS NULL))
+--------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF7
 --------PhysicalDistribute[DistributionSpecHash]
 ----------PhysicalProject
-------------PhysicalOlapScan[web_sales] apply RFs: RF7
+------------filter(( not ws_warehouse_sk IS NULL))
+--------------PhysicalOlapScan[web_sales] apply RFs: RF7
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalTopN[LOCAL_SORT]
@@ -37,7 +39,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF2
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF3 RF4 RF5
+----------------------------------filter(( not ws_ship_addr_sk IS NULL) and ( not ws_ship_date_sk IS NULL) and ( not ws_web_site_sk IS NULL))
+------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF3 RF4 RF5
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------PhysicalProject
 --------------------------------filter((date_dim.d_date <= '1999-04-02') and (date_dim.d_date >= '1999-02-01'))

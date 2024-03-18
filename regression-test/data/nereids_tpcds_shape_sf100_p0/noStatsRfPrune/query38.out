@@ -17,7 +17,8 @@ PhysicalResultSink
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
+----------------------------------filter(( not ss_customer_sk IS NULL) and ( not ss_sold_date_sk IS NULL))
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[customer]
@@ -34,7 +35,8 @@ PhysicalResultSink
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=()
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3
+----------------------------------filter(( not cs_bill_customer_sk IS NULL) and ( not cs_sold_date_sk IS NULL))
+------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[customer]
@@ -51,7 +53,8 @@ PhysicalResultSink
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_bill_customer_sk = customer.c_customer_sk)) otherCondition=()
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF5
+----------------------------------filter(( not ws_bill_customer_sk IS NULL) and ( not ws_sold_date_sk IS NULL))
+------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF5
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[customer]

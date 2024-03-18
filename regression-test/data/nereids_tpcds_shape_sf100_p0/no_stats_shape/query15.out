@@ -16,10 +16,12 @@ PhysicalResultSink
 --------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF0 c_customer_sk->[cs_bill_customer_sk]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF2
+--------------------------------filter(( not cs_bill_customer_sk IS NULL) and ( not cs_sold_date_sk IS NULL))
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF2
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer] apply RFs: RF1
+--------------------------------filter(( not c_current_addr_sk IS NULL))
+----------------------------------PhysicalOlapScan[customer] apply RFs: RF1
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_address]

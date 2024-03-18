@@ -32,7 +32,7 @@ PhysicalResultSink
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((ws.ws_item_sk = wr.wr_item_sk) and (ws.ws_order_number = wr.wr_order_number)) otherCondition=() build RFs:RF0 wr_order_number->[ws_order_number];RF1 wr_item_sk->[ws_item_sk]
 --------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------filter((ws.ws_net_paid > 0.00) and (ws.ws_net_profit > 1.00) and (ws.ws_quantity > 0))
+----------------------------------------------------------------filter(( not ws_sold_date_sk IS NULL) and (ws.ws_net_paid > 0.00) and (ws.ws_net_profit > 1.00) and (ws.ws_quantity > 0))
 ------------------------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
 --------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------filter((wr.wr_return_amt > 10000.00))
@@ -65,7 +65,7 @@ PhysicalResultSink
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((cs.cs_item_sk = cr.cr_item_sk) and (cs.cs_order_number = cr.cr_order_number)) otherCondition=() build RFs:RF3 cr_order_number->[cs_order_number];RF4 cr_item_sk->[cs_item_sk]
 --------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------filter((cs.cs_net_paid > 0.00) and (cs.cs_net_profit > 1.00) and (cs.cs_quantity > 0))
+----------------------------------------------------------------filter(( not cs_sold_date_sk IS NULL) and (cs.cs_net_paid > 0.00) and (cs.cs_net_profit > 1.00) and (cs.cs_quantity > 0))
 ------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3 RF4 RF5
 --------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------filter((cr.cr_return_amount > 10000.00))
@@ -98,7 +98,7 @@ PhysicalResultSink
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((sts.ss_item_sk = sr.sr_item_sk) and (sts.ss_ticket_number = sr.sr_ticket_number)) otherCondition=() build RFs:RF6 sr_ticket_number->[ss_ticket_number];RF7 sr_item_sk->[ss_item_sk]
 --------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------filter((sts.ss_net_paid > 0.00) and (sts.ss_net_profit > 1.00) and (sts.ss_quantity > 0))
+----------------------------------------------------------------filter(( not ss_sold_date_sk IS NULL) and (sts.ss_net_paid > 0.00) and (sts.ss_net_profit > 1.00) and (sts.ss_quantity > 0))
 ------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF6 RF7 RF8
 --------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------filter((sr.sr_return_amt > 10000.00))

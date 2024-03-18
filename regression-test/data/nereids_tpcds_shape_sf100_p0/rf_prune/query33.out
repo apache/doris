@@ -18,7 +18,7 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ss_addr_sk]
@@ -26,7 +26,8 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
+--------------------------------------------filter(( not ss_addr_sk IS NULL) and ( not ss_sold_date_sk IS NULL))
+----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((date_dim.d_moy = 1) and (date_dim.d_year = 2002))
@@ -37,7 +38,8 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[item]
+----------------------------------filter(( not i_manufact_id IS NULL))
+------------------------------------PhysicalOlapScan[item]
 ----------------PhysicalProject
 ------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF7 i_manufact_id->[i_manufact_id]
 --------------------PhysicalDistribute[DistributionSpecHash]
@@ -48,7 +50,7 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF6 i_item_sk->[cs_item_sk]
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF5 ca_address_sk->[cs_bill_addr_sk]
@@ -56,7 +58,8 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[cs_sold_date_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5
+--------------------------------------------filter(( not cs_bill_addr_sk IS NULL) and ( not cs_sold_date_sk IS NULL))
+----------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF6
 ------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((date_dim.d_moy = 1) and (date_dim.d_year = 2002))
@@ -67,7 +70,8 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[item]
+----------------------------------filter(( not i_manufact_id IS NULL))
+------------------------------------PhysicalOlapScan[item]
 ----------------PhysicalProject
 ------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF11 i_manufact_id->[i_manufact_id]
 --------------------PhysicalDistribute[DistributionSpecHash]
@@ -80,7 +84,8 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF10 ws_item_sk->[i_item_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item] apply RFs: RF10
+--------------------------------filter(( not i_manufact_id IS NULL))
+----------------------------------PhysicalOlapScan[item] apply RFs: RF10
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF9 ca_address_sk->[ws_bill_addr_sk]
@@ -88,7 +93,8 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ws_sold_date_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8 RF9
+--------------------------------------------filter(( not ws_bill_addr_sk IS NULL) and ( not ws_sold_date_sk IS NULL))
+----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8 RF9
 ------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((date_dim.d_moy = 1) and (date_dim.d_year = 2002))

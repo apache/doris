@@ -19,7 +19,8 @@ PhysicalResultSink
 --------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ws_ship_addr_sk]
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_ship_date_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF3
+--------------------------------filter(( not ws_ship_addr_sk IS NULL) and ( not ws_ship_date_sk IS NULL) and ( not ws_warehouse_sk IS NULL) and ( not ws_web_site_sk IS NULL))
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF3
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_date <= '2000-04-01') and (date_dim.d_date >= '2000-02-01'))

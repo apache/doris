@@ -6,17 +6,20 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk)) otherCondition=()
+------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk,cs_sold_date_sk]
 --------------PhysicalUnion
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[web_sales]
+--------------------filter(( not ws_sold_date_sk IS NULL))
+----------------------PhysicalOlapScan[web_sales] apply RFs: RF0
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[catalog_sales]
+--------------------filter(( not cs_sold_date_sk IS NULL))
+----------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
 --------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[date_dim]
+------------------filter(( not d_week_seq IS NULL))
+--------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
@@ -29,16 +32,18 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
 ----------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF1
+--------------------------filter(( not d_week_seq IS NULL))
+----------------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF1
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
---------------------------filter((date_dim.d_year = 1998))
+--------------------------filter(( not d_week_seq IS NULL) and (date_dim.d_year = 1998))
 ----------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF2
+--------------------filter(( not d_week_seq IS NULL))
+----------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF2
 --------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
-------------------filter((date_dim.d_year = 1999))
+------------------filter(( not d_week_seq IS NULL) and (date_dim.d_year = 1999))
 --------------------PhysicalOlapScan[date_dim]
 

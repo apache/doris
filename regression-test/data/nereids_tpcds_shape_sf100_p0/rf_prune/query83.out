@@ -18,17 +18,20 @@ PhysicalResultSink
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF11 d_date_sk->[cr_returned_date_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF11
+--------------------------------filter(( not cr_returned_date_sk IS NULL))
+----------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF11
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF10 d_date->[d_date]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF10
+--------------------------------------filter(( not d_date IS NULL))
+----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF10
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF9 d_week_seq->[d_week_seq]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF9
+--------------------------------------------filter(( not d_week_seq IS NULL))
+----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF9
 ------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter(d_date IN ('2001-06-06', '2001-09-02', '2001-11-11'))
@@ -43,17 +46,20 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[sr_returned_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_returns] apply RFs: RF6 RF7
+----------------------------------filter(( not sr_returned_date_sk IS NULL))
+------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF6 RF7
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF5 d_date->[d_date]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
+----------------------------------------filter(( not d_date IS NULL))
+------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
 --------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF4 d_week_seq->[d_week_seq]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
+----------------------------------------------filter(( not d_week_seq IS NULL))
+------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
 --------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter(d_date IN ('2001-06-06', '2001-09-02', '2001-11-11'))
@@ -72,17 +78,20 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[wr_returned_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_returns] apply RFs: RF2
+----------------------------------filter(( not wr_returned_date_sk IS NULL))
+------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF2
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF1 d_date->[d_date]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
+----------------------------------------filter(( not d_date IS NULL))
+------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
 --------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF0 d_week_seq->[d_week_seq]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
+----------------------------------------------filter(( not d_week_seq IS NULL))
+------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
 --------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter(d_date IN ('2001-06-06', '2001-09-02', '2001-11-11'))

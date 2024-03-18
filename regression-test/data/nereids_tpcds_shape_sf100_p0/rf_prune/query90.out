@@ -14,7 +14,8 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF4 t_time_sk->[ws_sold_time_sk]
 ------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF3 wp_web_page_sk->[ws_web_page_sk]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[web_sales] apply RFs: RF3 RF4 RF5
+----------------------------filter(( not ws_ship_hdemo_sk IS NULL) and ( not ws_sold_time_sk IS NULL) and ( not ws_web_page_sk IS NULL))
+------------------------------PhysicalOlapScan[web_sales] apply RFs: RF3 RF4 RF5
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------filter((web_page.wp_char_count <= 5200) and (web_page.wp_char_count >= 5000))
@@ -37,7 +38,8 @@ PhysicalResultSink
 ------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF1 t_time_sk->[ws_sold_time_sk]
 --------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF0 wp_web_page_sk->[ws_web_page_sk]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
+------------------------------filter(( not ws_ship_hdemo_sk IS NULL) and ( not ws_sold_time_sk IS NULL) and ( not ws_web_page_sk IS NULL))
+--------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------PhysicalProject
 --------------------------------filter((web_page.wp_char_count <= 5200) and (web_page.wp_char_count >= 5000))

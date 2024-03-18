@@ -34,7 +34,7 @@ PhysicalResultSink
 --------------------------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF1 RF2
 ----------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((ws.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------filter((ws.ws_net_paid > 0.00) and (ws.ws_net_profit > 1.00) and (ws.ws_quantity > 0))
+--------------------------------------------------------------filter(( not ws_sold_date_sk IS NULL) and (ws.ws_net_paid > 0.00) and (ws.ws_net_profit > 1.00) and (ws.ws_quantity > 0))
 ----------------------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
 ------------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------------------------PhysicalProject
@@ -66,7 +66,7 @@ PhysicalResultSink
 --------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF4 RF5
 ----------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((cs.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[cs_sold_date_sk]
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------filter((cs.cs_net_paid > 0.00) and (cs.cs_net_profit > 1.00) and (cs.cs_quantity > 0))
+--------------------------------------------------------------filter(( not cs_sold_date_sk IS NULL) and (cs.cs_net_paid > 0.00) and (cs.cs_net_profit > 1.00) and (cs.cs_quantity > 0))
 ----------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3
 ------------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------------------------PhysicalProject
@@ -98,7 +98,7 @@ PhysicalResultSink
 --------------------------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF7 RF8
 ----------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((sts.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[ss_sold_date_sk]
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------filter((sts.ss_net_paid > 0.00) and (sts.ss_net_profit > 1.00) and (sts.ss_quantity > 0))
+--------------------------------------------------------------filter(( not ss_sold_date_sk IS NULL) and (sts.ss_net_paid > 0.00) and (sts.ss_net_profit > 1.00) and (sts.ss_quantity > 0))
 ----------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF6
 ------------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------------------------PhysicalProject

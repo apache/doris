@@ -7,12 +7,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
+--------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[store_sales]
+------------------filter(( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+--------------------PhysicalOlapScan[store_sales] apply RFs: RF0
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[date_dim]
+--------------------filter(( not d_week_seq IS NULL))
+----------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalProject
 ------PhysicalTopN[MERGE_SORT]
@@ -28,13 +30,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52))) otherCondition=()
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF5
+--------------------------------filter(( not d_week_seq IS NULL) and ( not ss_store_sk IS NULL))
+----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF5
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1
+--------------------------------filter(( not d_week_seq IS NULL) and ( not ss_store_sk IS NULL))
+----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
-------------------------------filter((d.d_month_seq <= 1219) and (d.d_month_seq >= 1208))
+------------------------------filter(( not d_week_seq IS NULL) and (d.d_month_seq <= 1219) and (d.d_month_seq >= 1208))
 --------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
@@ -44,6 +48,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[store]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
---------------------filter((d.d_month_seq <= 1207) and (d.d_month_seq >= 1196))
+--------------------filter(( not d_week_seq IS NULL) and (d.d_month_seq <= 1207) and (d.d_month_seq >= 1196))
 ----------------------PhysicalOlapScan[date_dim]
 
