@@ -17,22 +17,29 @@
 
 #pragma once
 
-#include "common/factory_creator.h"
-#include "common/status.h"
-#include "util/profile_collector.h"
+#include <atomic>
 
 namespace doris {
-namespace io {
-struct IOContext;
-}
-// This class is used to read content line by line
-class LineReader : public ProfileCollector {
-public:
-    virtual ~LineReader() = default;
-    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
-                             const io::IOContext* io_ctx) = 0;
 
-    virtual void close() = 0;
+class ProfileCollector {
+public:
+    void collect_profile_at_runtime() { _collect_profile_at_runtime(); }
+
+    void collect_profile_before_close() {
+        bool expected = false;
+        if (_collected.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            _collect_profile_before_close();
+        }
+    }
+
+    virtual ~ProfileCollector() {}
+
+protected:
+    virtual void _collect_profile_at_runtime() {}
+    virtual void _collect_profile_before_close() {}
+
+private:
+    std::atomic<bool> _collected = false;
 };
 
 } // namespace doris
