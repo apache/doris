@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -70,28 +71,14 @@ public class FollowerColumnSender extends MasterDaemon {
         if (analysisManager.highPriorityColumns.isEmpty() && analysisManager.midPriorityColumns.isEmpty()) {
             return;
         }
-        Set<TQueryColumn> highPriorityColumns
-                = analysisManager.highPriorityColumns
-                .stream()
-                .filter(c -> StatisticsUtil.needAnalyzeColumn(c))
-                .map(QueryColumn::toThrift)
-                .collect(Collectors.toSet());
-        Set<TQueryColumn> midPriorityColumns
-                = analysisManager.midPriorityColumns
-                .stream()
-                .filter(c -> StatisticsUtil.needAnalyzeColumn(c))
-                .filter(c -> !highPriorityColumns.contains(c))
-                .map(QueryColumn::toThrift)
-                .collect(Collectors.toSet());
+        Set<TQueryColumn> highs = getNeedAnalyzeColumns(analysisManager.highPriorityColumns);
+        Set<TQueryColumn> mids = getNeedAnalyzeColumns(analysisManager.midPriorityColumns);
+        mids.removeAll(highs);
         analysisManager.highPriorityColumns.clear();
         analysisManager.midPriorityColumns.clear();
         TSyncQueryColumns queryColumns = new TSyncQueryColumns();
-        List<TQueryColumn> highs = new ArrayList<>();
-        highs.addAll(highPriorityColumns);
-        queryColumns.highPriorityColumns = highs;
-        List<TQueryColumn> mids = new ArrayList<>();
-        mids.addAll(midPriorityColumns);
-        queryColumns.midPriorityColumns = mids;
+        queryColumns.highPriorityColumns = convertSetToList(highs);
+        queryColumns.midPriorityColumns = convertSetToList(mids);
         Frontend master = null;
         try {
             InetSocketAddress masterAddress = currentEnv.getHaProtocol().getLeader();
@@ -117,7 +104,7 @@ public class FollowerColumnSender extends MasterDaemon {
             client = ClientPool.frontendPool.borrowObject(address);
             client.syncQueryColumns(queryColumns);
             LOG.info("Send {} high priority columns and {} mid priority columns to master.",
-                    highPriorityColumns.size(), midPriorityColumns.size());
+                    highs.size(), mids.size());
         } catch (Throwable t) {
             LOG.warn("Failed to sync stats to master: {}", address, t);
         } finally {
@@ -125,5 +112,18 @@ public class FollowerColumnSender extends MasterDaemon {
                 ClientPool.frontendPool.returnObject(address, client);
             }
         }
+    }
+
+    protected Set<TQueryColumn> getNeedAnalyzeColumns(Queue<QueryColumn> columnQueue) {
+        return columnQueue.stream()
+                .filter(c -> StatisticsUtil.needAnalyzeColumn(c))
+                .map(QueryColumn::toThrift)
+                .collect(Collectors.toSet());
+    }
+
+    protected List<TQueryColumn> convertSetToList(Set<TQueryColumn> set) {
+        List<TQueryColumn> list = new ArrayList<>();
+        list.addAll(set);
+        return list;
     }
 }

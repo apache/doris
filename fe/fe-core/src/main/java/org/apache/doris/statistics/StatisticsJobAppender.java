@@ -154,7 +154,7 @@ public class StatisticsJobAppender extends MasterDaemon {
                     }
                 }
                 currentTableId = olapTable.getId();
-                if (++processed > TABLE_BATCH_SIZE) {
+                if (++processed >= TABLE_BATCH_SIZE) {
                     return;
                 }
             }
@@ -167,4 +167,10 @@ public class StatisticsJobAppender extends MasterDaemon {
         currentTableId = 0;
         lastRoundFinishTime = System.currentTimeMillis();
     }
+
+    // For unit test only.
+    public void setLastRoundFinishTime(long value) {
+        lastRoundFinishTime = value;
+    }
+
 }
