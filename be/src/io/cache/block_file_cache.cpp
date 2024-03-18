@@ -20,7 +20,11 @@
 
 #include "io/cache/block_file_cache.h"
 
+#if defined(__APPLE__)
+#include <sys/mount.h>
+#else
 #include <sys/statfs.h>
+#endif
 
 #include <chrono> // IWYU pragma: keep
 

@@ -21,7 +21,11 @@
 #include "io/cache/block_file_cache_factory.h"
 
 #include <glog/logging.h>
+#if defined(__APPLE__)
+#include <sys/mount.h>
+#else
 #include <sys/statfs.h>
+#endif
 
 #include <algorithm>
 #include <ostream>
