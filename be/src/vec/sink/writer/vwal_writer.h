@@ -33,7 +33,7 @@ public:
                WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
                int be_exe_version);
     ~VWalWriter();
-    Status init(uint32_t version);
+    Status init();
     Status write_wal(vectorized::Block* block);
     Status close();
 

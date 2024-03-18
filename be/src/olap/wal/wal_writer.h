@@ -36,7 +36,7 @@ public:
     Status finalize();
 
     Status append_blocks(const PBlockArray& blocks);
-    Status append_header(uint32_t version, std::string col_ids);
+    Status append_header(std::string col_ids);
 
     std::string file_name() { return _file_name; };
 
@@ -48,6 +48,9 @@ public:
 private:
     std::string _file_name;
     io::FileWriterPtr _file_writer;
+    // In doris 2.1.0, wal version is 0, now need to upgrade it to 1 to solve compatibility issues.
+    // see https://github.com/apache/doris/pull/32299
+    uint32_t _version = 1;
 };
 
 } // namespace doris
