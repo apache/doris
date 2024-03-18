@@ -69,15 +69,15 @@ public class JdbcMySQLClient extends JdbcClient {
 
     @Override
     protected List<String> getSpecifiedDatabase(Connection conn) {
-        List<String> databaseNames = Lists.newArrayList();
+        List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            databaseNames.add(conn.getCatalog());
+            remoteDatabaseNames.add(conn.getCatalog());
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get specified database name from jdbc", e);
         } finally {
             close(conn);
         }
-        return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(databaseNames);
+        return remoteDatabaseNames;
     }
 
     @Override

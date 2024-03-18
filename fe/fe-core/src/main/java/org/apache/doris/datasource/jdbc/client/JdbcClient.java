@@ -221,7 +221,7 @@ public abstract class JdbcClient {
         Statement stmt = null;
         ResultSet rs = null;
         if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
+            return filterDatabaseNames(getSpecifiedDatabase(conn));
         }
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
@@ -355,15 +355,15 @@ public abstract class JdbcClient {
     protected abstract String getDatabaseQuery();
 
     protected List<String> getSpecifiedDatabase(Connection conn) {
-        List<String> databaseNames = Lists.newArrayList();
+        List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            databaseNames.add(conn.getSchema());
+            remoteDatabaseNames.add(conn.getSchema());
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get specified database name from jdbc", e);
         } finally {
             close(conn);
         }
-        return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(databaseNames);
+        return remoteDatabaseNames;
     }
 
     protected String[] getTableTypes() {
