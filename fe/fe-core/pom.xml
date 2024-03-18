@@ -955,7 +955,7 @@ under the License.
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>
-                    <execution>
+                    <!--execution>
                         <id>doc</id>
                         <phase>process-classes</phase>
                         <goals>
@@ -975,7 +975,7 @@ under the License.
                             </arguments>
                             <skip>${skip.doc}</skip>
                         </configuration>
-                    </execution>
+                    </execution-->
                 </executions>
             </plugin>
 
