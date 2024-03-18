@@ -145,7 +145,7 @@ WITH BROKER broker_name
 
     - <version since="dev" type="inline"> enclose </version>
     
-        When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field.
+        When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field. Note: when the bracket is `"`, trim\_double\_quotes must be set to true.
 
     - <version since="dev" type="inline"> escape </version>
 

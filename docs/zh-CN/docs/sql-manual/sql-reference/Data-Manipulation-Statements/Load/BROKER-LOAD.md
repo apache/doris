@@ -146,6 +146,7 @@ WITH BROKER broker_name
     - <version since="dev" type="inline"> enclose </version>
   
       包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。
+      注意：当enclose设置为`"`时，trim_double_quotes一定要设置为true。
 
     - <version since="dev" type="inline"> escape </version>
 
