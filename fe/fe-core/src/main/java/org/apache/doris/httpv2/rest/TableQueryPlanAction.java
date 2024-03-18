@@ -258,7 +258,7 @@ public class TableQueryPlanAction extends RestBaseController {
             tabletInfo.put(tablet, new TTabletVersionInfo(tablet, node.version, 0L /*version hash*/, node.schemaHash));
         });
         tQueryPlanInfo.tablet_info = tabletInfo;
-
+        LOG.info("tablet info: {}", tabletInfo);
         // serialize TQueryPlanInfo and encode plan with Base64 to string in order to translate by json format
         TSerializer serializer;
         String opaquedQueryPlan;
