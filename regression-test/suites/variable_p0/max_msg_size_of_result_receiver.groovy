@@ -27,15 +27,14 @@ suite("max_msg_size_of_result_receiver") {
         ENGINE=OLAP DISTRIBUTED BY HASH(id)
         PROPERTIES("replication_num"="1")
     """
+    sql """set repeat_max_num=100000;"""
+    sql """set max_msg_size_of_result_receiver=90000;""" // so the test of repeat("a", 80000) could pass, and repeat("a", 100000) will be failed
     sql """
-        set repeat_max_num = 1000*1000*105;
-    """
-    sql """
-        INSERT INTO ${table_name} VALUES (104, repeat("a", ${MESSAGE_SIZE_BASE * 104}))
+        INSERT INTO ${table_name} VALUES (104, repeat("a", 80000))
     """
 
     sql """
-        INSERT INTO ${table_name} VALUES (105, repeat("a", ${MESSAGE_SIZE_BASE * 105}))
+        INSERT INTO ${table_name} VALUES (105, repeat("a", 100000))
     """
 
     def with_exception = false
@@ -49,6 +48,7 @@ suite("max_msg_size_of_result_receiver") {
     try {
         sql "SELECT * FROM ${table_name} WHERE id = 105"
     } catch (Exception e) {
+        log.info("error msg: " + e.getMessage())
         assertTrue(e.getMessage().contains('MaxMessageSize reached, try increase max_msg_size_of_result_receiver'))
     }
 
