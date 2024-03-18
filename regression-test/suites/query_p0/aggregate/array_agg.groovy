@@ -27,7 +27,7 @@ suite("array_agg") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`id`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    DISTRIBUTED BY HASH(`id`) BUCKETS 10
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
@@ -46,7 +46,7 @@ suite("array_agg") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`id`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    DISTRIBUTED BY HASH(`id`) BUCKETS 10
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
@@ -67,7 +67,7 @@ suite("array_agg") {
     )ENGINE=OLAP
     DUPLICATE KEY(`id`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    DISTRIBUTED BY HASH(`id`) BUCKETS 10
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
@@ -158,10 +158,10 @@ suite("array_agg") {
     """ 
 
     qt_sql1 """
-    SELECT array_agg(`label_name`) FROM `test_array_agg` GROUP BY `id` order by id;
+    SELECT count(id), array_agg(`label_name`) FROM `test_array_agg` GROUP BY `id` order by id;
     """
     qt_sql2 """
-    SELECT array_agg(label_name) FROM `test_array_agg` GROUP BY value_field order by value_field;
+    SELECT count(value_field), array_agg(label_name) FROM `test_array_agg` GROUP BY value_field order by value_field;
     """
     qt_sql3 """
     SELECT array_agg(`label_name`) FROM `test_array_agg`;
@@ -175,6 +175,10 @@ suite("array_agg") {
 
     qt_sql6 """
     select array_agg(label_name) from test_array_agg_decimal where id=7;
+    """
+
+    qt_sql6_1 """
+    select sum(o_totalprice), array_agg(label_name) from test_array_agg_decimal where id=7;
     """
 
     qt_sql7 """
