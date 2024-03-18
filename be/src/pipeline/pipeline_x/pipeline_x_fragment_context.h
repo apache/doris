@@ -96,7 +96,7 @@ public:
 
     Status submit() override;
 
-    void close_if_prepare_failed() override;
+    void close_if_prepare_failed(Status st) override;
     void close_sink() override;
 
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
