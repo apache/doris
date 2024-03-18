@@ -195,22 +195,9 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         msg.nested_loop_join_node.setIsMark(isMarkJoin());
 
         if (ConnectContext.get() != null && !ConnectContext.get().getState().isNereids()) {
-            if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null
-                    && outputTupleDesc != null) {
-                List<Expr> lhs = vSrcToOutputSMap.getLhs();
-                if (outputTupleDesc.getSlots().size() == outputTupleDesc.getSlots().size()) {
-                    boolean match = true;
-                    for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                        if (!outputTupleDesc.getSlots().get(i).getType().equals(lhs.get(i).getType())) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    if (match) {
-                        for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                            msg.nested_loop_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                        }
-                    }
+            if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null) {
+                for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
+                    msg.nested_loop_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
                 }
             }
             if (outputTupleDesc != null) {
