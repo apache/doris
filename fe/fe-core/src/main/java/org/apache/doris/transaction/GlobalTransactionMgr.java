@@ -402,9 +402,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
      * @param transactionId
      * @return
      */
-    public void finishTransaction(long dbId, long transactionId) throws UserException {
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.finishTransaction(transactionId);
+        dbTransactionMgr.finishTransaction(transactionId, partitionVisibleVersions, backendPartitions);
     }
 
     /**

@@ -574,15 +574,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         Replica chosenReplica = null;
         long maxVersionCount = Integer.MIN_VALUE;
         for (Replica replica : tablet.getReplicas()) {
-            if (replica.getVersionCount() > maxVersionCount) {
-                maxVersionCount = replica.getVersionCount();
+            if (replica.getVisibleVersionCount() > maxVersionCount) {
+                maxVersionCount = replica.getVisibleVersionCount();
                 chosenReplica = replica;
             }
         }
         boolean recovered = false;
         for (Replica replica : tablet.getReplicas()) {
             if (replica.isAlive() && replica.tooSlow() && (!replica.equals(chosenReplica)
-                    || replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow)) {
+                    || !replica.tooBigVersionCount())) {
                 if (chosenReplica != null) {
                     chosenReplica.setState(ReplicaState.NORMAL);
                     recovered = true;
@@ -1177,8 +1177,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         "replica does not exist. backend id: " + destBackendId);
             }
 
-            replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getDataSize(),
-                    reportedTablet.getDataSize(), reportedTablet.getRowCount());
+            replica.updateWithReport(reportedTablet);
             if (replica.getLastFailedVersion() > partition.getCommittedVersion()
                     && reportedTablet.getVersion() >= partition.getCommittedVersion()
                     //&& !(reportedTablet.isSetVersionMiss() && reportedTablet.isVersionMiss()
@@ -1365,8 +1364,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public static class VersionCountComparator implements Comparator<Replica> {
         @Override
         public int compare(Replica r1, Replica r2) {
-            long verCount1 = r1.getVersionCount() == -1 ? Long.MAX_VALUE : r1.getVersionCount();
-            long verCount2 = r2.getVersionCount() == -1 ? Long.MAX_VALUE : r2.getVersionCount();
+            long verCount1 = r1.getVisibleVersionCount() == -1 ? Long.MAX_VALUE : r1.getVisibleVersionCount();
+            long verCount2 = r2.getVisibleVersionCount() == -1 ? Long.MAX_VALUE : r2.getVisibleVersionCount();
             if (verCount1 < verCount2) {
                 return -1;
             } else if (verCount1 > verCount2) {
