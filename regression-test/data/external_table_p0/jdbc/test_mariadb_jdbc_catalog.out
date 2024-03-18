@@ -23,6 +23,7 @@ mariadb_jdbc_catalog
 115	abg
 
 -- !information_schema --
+active_queries
 backend_active_tasks
 character_sets
 collations
@@ -51,6 +52,7 @@ tables
 triggers
 user_privileges
 views
+workload_groups
 
 -- !auto_default_t --
 0

@@ -270,7 +270,7 @@ public:
         }
     }
 
-    auto& get_segments_key_bounds() { return _rowset_meta_pb.segments_key_bounds(); }
+    auto& get_segments_key_bounds() const { return _rowset_meta_pb.segments_key_bounds(); }
 
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
@@ -296,8 +296,8 @@ public:
         }
     }
 
-    void add_segment_key_bounds(const KeyBoundsPB& segments_key_bounds) {
-        *_rowset_meta_pb.add_segments_key_bounds() = segments_key_bounds;
+    void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
+        *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);
         set_segments_overlap(OVERLAPPING);
     }
 
@@ -319,6 +319,17 @@ public:
     }
 
     int64_t compaction_level() { return _rowset_meta_pb.compaction_level(); }
+
+    // `seg_file_size` MUST ordered by segment id
+    void add_segments_file_size(const std::vector<size_t>& seg_file_size);
+
+    // Return -1 if segment file size is unknown
+    int64_t segment_file_size(int seg_id);
+
+    const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
+
+    // Used for partial update, when publish, partial update may add a new rowset and we should update rowset meta
+    void merge_rowset_meta(const RowsetMeta& other);
 
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;

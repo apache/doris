@@ -38,6 +38,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import org.json.JSONObject;
 
@@ -94,7 +95,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this.projects = projects.isEmpty()
                 ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.get(0).getOutput()))
                 : projects;
-        this.excepts = ImmutableList.copyOf(excepts);
+        this.excepts = Utils.fastToImmutableList(excepts);
         this.isDistinct = isDistinct;
         this.canEliminate = canEliminate;
     }
@@ -119,9 +120,11 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public List<Slot> computeOutput() {
-        return projects.stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+        Builder<Slot> slots = ImmutableList.builderWithExpectedSize(projects.size());
+        for (NamedExpression project : projects) {
+            slots.add(project.toSlot());
+        }
+        return slots.build();
     }
 
     @Override
@@ -170,7 +173,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, ImmutableList.copyOf(children));
+        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, Utils.fastToImmutableList(children));
     }
 
     @Override

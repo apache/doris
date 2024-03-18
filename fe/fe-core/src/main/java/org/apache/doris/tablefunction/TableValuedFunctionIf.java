@@ -62,8 +62,6 @@ public abstract class TableValuedFunctionIf {
                 return new FrontendsTableValuedFunction(params);
             case FrontendsDisksTableValuedFunction.NAME:
                 return new FrontendsDisksTableValuedFunction(params);
-            case WorkloadGroupsTableValuedFunction.NAME:
-                return new WorkloadGroupsTableValuedFunction(params);
             case CatalogsTableValuedFunction.NAME:
                 return new CatalogsTableValuedFunction(params);
             case MvInfosTableValuedFunction.NAME:
@@ -74,8 +72,6 @@ public abstract class TableValuedFunctionIf {
                 return new TasksTableValuedFunction(params);
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
-            case ActiveQueriesTableValuedFunction.NAME:
-                return new ActiveQueriesTableValuedFunction(params);
             case WorkloadSchedPolicyTableValuedFunction.NAME:
                 return new WorkloadSchedPolicyTableValuedFunction(params);
             default:

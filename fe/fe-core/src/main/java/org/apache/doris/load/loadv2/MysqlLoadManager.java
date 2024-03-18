@@ -41,6 +41,7 @@ import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.EvictingQueue;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -428,6 +429,16 @@ public class MysqlLoadManager {
                 httpPut.addHeader(LoadStmt.KEY_IN_PARAM_PARTITIONS, pNames);
             }
         }
+
+        // cloud cluster
+        if (Config.isCloudMode()) {
+            String clusterName = ConnectContext.get().getCloudCluster();
+            if (Strings.isNullOrEmpty(clusterName)) {
+                throw new LoadException("cloud cluster is empty");
+            }
+            httpPut.addHeader(LoadStmt.KEY_CLOUD_CLUSTER, clusterName);
+        }
+
         httpPut.setEntity(entity);
         return httpPut;
     }

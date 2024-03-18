@@ -71,7 +71,7 @@ import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
     private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
-    private final List<Backend> backends = Lists.newArrayList();
+    protected final List<Backend> backends = Lists.newArrayList();
     private final Map<String, List<Backend>> backendMap = Maps.newHashMap();
 
     public Map<Backend, Long> getAssignedWeightPerBackend() {
@@ -80,7 +80,7 @@ public class FederationBackendPolicy {
 
     private Map<Backend, Long> assignedWeightPerBackend = Maps.newHashMap();
 
-    private ConsistentHash<Split, Backend> consistentHash;
+    protected ConsistentHash<Split, Backend> consistentHash;
 
     private int nextBe = 0;
     private boolean initialized = false;
@@ -184,7 +184,7 @@ public class FederationBackendPolicy {
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getIdToBackend().values()));
+        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getBackendsByCurrentCluster()));
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
         }

@@ -64,6 +64,7 @@ class FileWriter;
 } // namespace io
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
@@ -184,6 +185,7 @@ private:
 
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
+    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;

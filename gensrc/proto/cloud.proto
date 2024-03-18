@@ -458,6 +458,8 @@ message TabletMetaInfoPB { // For update tablet meta
     optional bool is_in_memory = 2; // deprecated
     optional bool is_persistent = 3; // deprecated
     optional int64 ttl_seconds = 4;
+    optional int64 group_commit_interval_ms = 5;
+    optional int64 group_commit_data_bytes = 6;
 }
 
 message TabletCompactionJobPB {
@@ -733,6 +735,7 @@ message AlterObjStoreInfoRequest {
         LEGACY_UPDATE_AK_SK = 3;
 
         ADD_HDFS_INFO = 100;
+        DROP_HDFS_INFO = 101;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
@@ -758,16 +761,18 @@ message UpdateAkSkResponse {
 message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
-    repeated HdfsVaultInfo hdfs_info = 3;
+    repeated StorageVaultPB storage_vault = 3;
 };
 
 message CreateTabletsRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
+    optional string storage_vault_name = 3;
 }
 
 message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional string storage_vault_id = 2;
 }
 
 message UpdateTabletRequest {
@@ -1186,6 +1191,8 @@ enum MetaServiceCode {
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;
     CLUSTER_ENDPOINT_MISSING = 3003;
+
+    STORAGE_VAULT_NOT_FOUND = 3004;
 
     // Stage
     STAGE_NOT_FOUND = 4001;

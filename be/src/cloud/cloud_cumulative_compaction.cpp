@@ -167,6 +167,9 @@ PREPARE_TRY_AGAIN:
 Status CloudCumulativeCompaction::execute_compact() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudCumulativeCompaction::execute_compact_impl",
                                       Status::OK(), this);
+
+    SCOPED_ATTACH_TASK(_mem_tracker);
+
     using namespace std::chrono;
     auto start = steady_clock::now();
     RETURN_IF_ERROR(CloudCompactionMixin::execute_compact());

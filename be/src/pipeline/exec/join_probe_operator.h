@@ -18,7 +18,6 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/join/vjoin_node_base.h"
 
