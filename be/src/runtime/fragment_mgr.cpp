@@ -584,6 +584,7 @@ Status FragmentMgr::get_query_ctx(const TPipelineFragmentParams& params, TUnique
                                   std::shared_ptr<QueryContext>& query_ctx,
                                   std::vector<TPipelineFragmentParams> params_vec) {
     RETURN_IF_ERROR(_get_query_ctx(params, query_id, true, query_ctx));
+    std::lock_guard<std::mutex> lock(_lock);
     for (auto& p : params_vec) {
         query_ctx->fragment_id_to_pipeline_ctx.insert(
                 {p.fragment_id, {false, pipeline::PipelineFragmentContext::fake_context}});
