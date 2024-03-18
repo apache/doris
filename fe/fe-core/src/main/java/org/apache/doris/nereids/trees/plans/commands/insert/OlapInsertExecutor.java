@@ -212,7 +212,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         labelName, queryId, txnId, abortTxnException);
             }
         }
-
+        // retry insert into from select when meet E-230 in cloud
+        if (Config.isCloudMode() && t.getMessage().contains("E-230")) {
+            return;
+        }
         StringBuilder sb = new StringBuilder(t.getMessage());
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());

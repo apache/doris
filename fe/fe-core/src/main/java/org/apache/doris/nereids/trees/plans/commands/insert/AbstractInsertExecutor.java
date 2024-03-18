@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -174,7 +175,7 @@ public abstract class AbstractInsertExecutor {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeSingleInsert(StmtExecutor executor, long jobId) {
+    public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
         beforeExec();
         try {
             execImpl(executor, jobId);
@@ -184,6 +185,10 @@ public abstract class AbstractInsertExecutor {
             onComplete();
         } catch (Throwable t) {
             onFail(t);
+            // retry insert into from select when meet E-230 in cloud
+            if (Config.isCloudMode() && t.getMessage().contains("E-230")) {
+                throw t;
+            }
             return;
         } finally {
             executor.updateProfile(true);
