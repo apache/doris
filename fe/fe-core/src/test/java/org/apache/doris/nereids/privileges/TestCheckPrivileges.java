@@ -29,7 +29,9 @@ import org.apache.doris.datasource.test.TestExternalCatalog.TestCatalogProvider;
 import org.apache.doris.mysql.privilege.AccessControllerFactory;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
+import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -46,6 +48,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class TestCheckPrivileges extends TestWithFeService {
@@ -304,6 +307,18 @@ public class TestCheckPrivileges extends TestWithFeService {
         public boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted,
                 ResourceTypeEnum type) {
             return true;
+        }
+
+        @Override
+        public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+                String col) {
+            return Optional.empty();
+        }
+
+        @Override
+        public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+                String tbl) throws org.apache.doris.common.AnalysisException {
+            return Lists.newArrayList();
         }
     }
 
