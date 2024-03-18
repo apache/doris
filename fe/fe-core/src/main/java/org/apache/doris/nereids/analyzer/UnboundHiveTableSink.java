@@ -41,41 +41,36 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Represent an olap table sink plan node that has not been bound.
+ * Represent an hive table sink plan node that has not been bound.
  */
-public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSink<CHILD_TYPE>
+public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSink<CHILD_TYPE>
         implements Unbound, Sink, BlockFuncDepsPropagation {
     private final List<String> hints;
-    private final boolean temporaryPartition;
     private final List<String> partitions;
-    private final boolean isPartialUpdate;
-    private final DMLCommandType dmlCommandType;
 
-    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, false, partitions,
-                false, DMLCommandType.NONE, Optional.empty(), Optional.empty(), child);
+    public UnboundHiveTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+                                List<String> partitions, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
+                Optional.empty(), Optional.empty(), child);
     }
 
     /**
      * constructor
      */
-    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            boolean temporaryPartition, List<String> partitions,
-            boolean isPartialUpdate, DMLCommandType dmlCommandType,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            CHILD_TYPE child) {
-        super(nameParts, PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression,
+    public UnboundHiveTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+                                List<String> partitions,
+                                DMLCommandType dmlCommandType,
+                                Optional<GroupExpression> groupExpression,
+                                Optional<LogicalProperties> logicalProperties,
+                                CHILD_TYPE child) {
+        super(nameParts, PlanType.LOGICAL_UNBOUND_HIVE_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child);
         this.hints = Utils.copyRequiredList(hints);
-        this.temporaryPartition = temporaryPartition;
         this.partitions = Utils.copyRequiredList(partitions);
-        this.isPartialUpdate = isPartialUpdate;
-        this.dmlCommandType = dmlCommandType;
     }
 
-    public boolean isTemporaryPartition() {
-        return temporaryPartition;
+    public List<String> getColNames() {
+        return colNames;
     }
 
     public List<String> getPartitions() {
@@ -86,25 +81,22 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
         return hints;
     }
 
-    public boolean isPartialUpdate() {
-        return isPartialUpdate;
-    }
-
     @Override
     public Plan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1, "UnboundOlapTableSink only accepts one child");
-        return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate,
+        Preconditions.checkArgument(children.size() == 1,
+                "UnboundHiveTableSink only accepts one child");
+        return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.empty(), children.get(0));
     }
 
     @Override
-    public UnboundTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        throw new UnboundException("could not call withOutputExprs on UnboundTableSink");
+    public UnboundHiveTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        throw new UnboundException("could not call withOutputExprs on UnboundHiveTableSink");
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundTableSink(this, context);
+        return visitor.visitUnboundHiveTableSink(this, context);
     }
 
     @Override
@@ -120,7 +112,7 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        UnboundTableSink<?> that = (UnboundTableSink<?>) o;
+        UnboundHiveTableSink<?> that = (UnboundHiveTableSink<?>) o;
         return Objects.equals(nameParts, that.nameParts)
                 && Objects.equals(colNames, that.colNames)
                 && Objects.equals(hints, that.hints)
@@ -134,15 +126,15 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate,
+        return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
-                isPartialUpdate, dmlCommandType, groupExpression, logicalProperties, children.get(0));
+        return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
+                dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override

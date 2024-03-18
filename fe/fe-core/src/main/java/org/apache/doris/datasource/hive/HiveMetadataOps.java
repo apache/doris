@@ -125,17 +125,13 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             Map<String, String> props = stmt.getExtProperties();
-            String inputFormat = props.getOrDefault("input_format", Config.hive_default_input_format);
-            String outputFormat = props.getOrDefault("output_format", Config.hive_default_output_format);
-            String serDe = props.getOrDefault("serde", Config.hive_default_serde);
+            String fileFormat = props.getOrDefault("file_format", Config.hive_default_file_format);
             HiveTableMetadata catalogTable = HiveTableMetadata.of(dbName,
                     tblName,
                     stmt.getColumns(),
                     parsePartitionKeys(props),
                     props,
-                    inputFormat,
-                    outputFormat,
-                    serDe);
+                    fileFormat);
 
             client.createTable(catalogTable, stmt.isSetIfNotExists());
             db.setUnInitialized(true);
