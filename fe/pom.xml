@@ -252,7 +252,7 @@ under the License.
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
-        <je.version>18.3.12</je.version>
+        <je.version>18.3.14-doris-SNAPSHOT</je.version>
         <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
         <commons-io.version>2.7</commons-io.version>
@@ -754,7 +754,7 @@ under the License.
                 <version>${javax.servlet-api.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.sleepycat</groupId>
+                <groupId>org.apache.doris</groupId>
                 <artifactId>je</artifactId>
                 <version>${je.version}</version>
             </dependency>

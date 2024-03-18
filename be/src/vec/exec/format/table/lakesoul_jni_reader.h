@@ -47,7 +47,7 @@ class LakeSoulJniReader : public ::doris::vectorized::GenericReader {
 
 public:
     LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
-                      const std::vector<SlotDescriptor *>& file_slot_descs, RuntimeState* state,
+                      const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
                       RuntimeProfile* profile);
 
     ~LakeSoulJniReader() override = default;
@@ -58,11 +58,11 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
 
     Status init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
     const TLakeSoulFileDesc& _lakesoul_params;
-    const std::vector<SlotDescriptor *>& _file_slot_descs;
+    const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state;
     RuntimeProfile* _profile;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
