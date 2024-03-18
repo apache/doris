@@ -191,8 +191,6 @@ private:
     // call _lock, so that there is dead lock.
     std::mutex _lock;
 
-    std::condition_variable _cv;
-
     // Make sure that remove this before no data reference PlanFragmentExecutor
     std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_instance_map;
 
