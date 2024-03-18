@@ -133,13 +133,8 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         String ctlName = catalogRelation.getDatabase().getCatalog().getName();
         String dbName = catalogRelation.getDatabase().getFullName();
         String tableName = catalogRelation.getTable().getName();
-        List<? extends RowFilterPolicy> policies = null;
-        try {
-            policies = accessManager.evalRowFilterPolicies(currentUserIdentity, ctlName,
-                    dbName, tableName);
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
+        List<? extends RowFilterPolicy> policies = accessManager.evalRowFilterPolicies(currentUserIdentity, ctlName,
+                dbName, tableName);
         if (policies.isEmpty()) {
             return Optional.empty();
         }

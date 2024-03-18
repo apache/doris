@@ -310,7 +310,7 @@ public class TestCheckPrivileges extends TestWithFeService {
 
         @Override
         public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
-                String tbl) throws org.apache.doris.common.AnalysisException {
+                String tbl) {
             return Lists.newArrayList();
         }
     }
