@@ -38,6 +38,7 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
@@ -50,6 +51,7 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -595,6 +597,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
             auto* query_ctx = _opts.runtime_state->get_query_ctx();
             for (int id : _opts.topn_filter_source_node_ids) {
+                if (!query_ctx->get_runtime_predicate(id).need_update()) {
+                    continue;
+                }
+
                 std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
                         query_ctx->get_runtime_predicate(id).get_predicate();
                 if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
@@ -858,7 +864,7 @@ Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
 }
 
 Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
-    for (auto pred : _col_preds_except_leafnode_of_andnode) {
+    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
         auto pred_type = pred->type();
         bool is_support = pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                           pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
@@ -893,11 +899,10 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
 
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
-        _rowid_result_for_index.emplace(
-                std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
+        _rowid_result_for_index.emplace(pred_result_sign, std::make_pair(true, std::move(bitmap)));
     }
 
-    for (auto pred : _col_preds_except_leafnode_of_andnode) {
+    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
         auto column_name = _schema->column(pred->column_id())->name();
         if (!_remaining_conjunct_roots.empty() &&
             _check_column_pred_all_push_down(column_name, true,
@@ -986,10 +991,9 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     } else {
         bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
-        roaring::Roaring bitmap = _row_bitmap;
         Status res = pred->evaluate(_storage_name_and_type[pred->column_id()],
                                     _inverted_index_iterators[pred->column_id()].get(), num_rows(),
-                                    &bitmap);
+                                    &_row_bitmap);
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
@@ -1005,11 +1009,9 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         auto pred_type = pred->type();
         if (pred_type == PredicateType::MATCH) {
             std::string pred_result_sign = _gen_predicate_result_sign(pred);
-            _rowid_result_for_index.emplace(
-                    std::make_pair(pred_result_sign, std::make_pair(false, bitmap)));
+            _rowid_result_for_index.emplace(pred_result_sign, std::make_pair(false, _row_bitmap));
         }
 
-        _row_bitmap &= bitmap;
         if (_row_bitmap.isEmpty()) {
             // all rows have been pruned, no need to process further predicates
             *continue_apply = false;
@@ -1054,7 +1056,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         std::string column_name = _schema->column(column_id)->name();
 
         auto res = pred->evaluate(column_name, _inverted_index_iterators[column_id].get(),
-                                  num_rows(), &output_result);
+                                  num_rows(), &_row_bitmap);
 
         if (res.ok()) {
             if (_check_column_pred_all_push_down(column_name) &&
@@ -1064,7 +1066,6 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
                 }
             }
             no_need_to_pass_column_predicate_set.insert(predicate_set.begin(), predicate_set.end());
-            _row_bitmap &= output_result;
             if (_row_bitmap.isEmpty()) {
                 // all rows have been pruned, no need to process further predicates
                 *continue_apply = false;
@@ -1223,12 +1224,12 @@ Status SegmentIterator::_init_return_column_iterators() {
         std::vector<bool> tmp_is_pred_column;
         tmp_is_pred_column.resize(_schema->columns().size(), false);
         for (auto predicate : _col_predicates) {
-            auto cid = predicate->column_id();
-            tmp_is_pred_column[cid] = true;
+            auto p_cid = predicate->column_id();
+            tmp_is_pred_column[p_cid] = true;
         }
         // handle delete_condition
-        for (auto cid : del_cond_id_set) {
-            tmp_is_pred_column[cid] = true;
+        for (auto d_cid : del_cond_id_set) {
+            tmp_is_pred_column[d_cid] = true;
         }
 
         if (_column_iterators[cid] == nullptr) {
@@ -1510,6 +1511,10 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     if (_opts.use_topn_opt &&
         (_opts.read_orderby_key_columns == nullptr || _opts.read_orderby_key_columns->empty())) {
         for (int id : _opts.topn_filter_source_node_ids) {
+            if (!_opts.runtime_state->get_query_ctx()->get_runtime_predicate(id).need_update()) {
+                continue;
+            }
+
             auto& runtime_predicate =
                     _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
             _col_predicates.push_back(runtime_predicate.get_predicate().get());

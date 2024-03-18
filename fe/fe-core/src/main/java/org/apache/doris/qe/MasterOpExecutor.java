@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
@@ -28,6 +29,7 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -158,6 +160,10 @@ public class MasterOpExecutor {
         params.setUserIp(ctx.getRemoteIP());
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+
+        if (Config.isCloudMode() && !Strings.isNullOrEmpty(ctx.getCloudCluster())) {
+            params.setCloudCluster(ctx.getCloudCluster());
+        }
 
         // query options
         params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());

@@ -48,8 +48,14 @@ class VExprContext;
 
 namespace doris::vectorized {
 
-VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl)
-        : VExpr(node), _impl(impl), _always_true(false), _filtered_rows(0), _scan_rows(0) {}
+VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl,
+                                             bool null_aware)
+        : VExpr(node),
+          _impl(impl),
+          _always_true(false),
+          _filtered_rows(0),
+          _scan_rows(0),
+          _null_aware(null_aware) {}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
@@ -104,31 +110,75 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         if (_getting_const_col) {
             _impl->set_getting_const_col(true);
         }
-        RETURN_IF_ERROR(_impl->execute(context, block, result_column_id));
+        std::vector<size_t> args;
+        RETURN_IF_ERROR(_impl->execute_runtime_fitler(context, block, result_column_id, args));
         if (_getting_const_col) {
             _impl->set_getting_const_col(false);
         }
 
-        uint8_t* data = nullptr;
-        const ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
+        const auto rows = block->rows();
+        ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
         if (is_column_const(*result_column.column)) {
             auto* constant_val = const_cast<char*>(result_column.column->get_data_at(0).data);
-            if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
-                filter_rows += block->rows();
+            auto filter = constant_val == nullptr && reinterpret_cast<const int8_t*>(constant_val);
+            // if _null_aware is true, we should check the first args column is nullable. if value in
+            // column is null. we should set it to true
+            if (_null_aware) {
+                DCHECK(!args.empty());
+                DCHECK(is_column_const(*block->get_by_position(args[0]).column));
+                if (filter &&
+                    block->get_by_position(args[0]).column->get_data_at(0).data == nullptr) {
+                    auto res_col = ColumnVector<uint8_t>::create(1, 1);
+                    if (result_column.type->is_nullable()) {
+                        result_column.column = make_nullable(std::move(res_col), false);
+                    } else {
+                        result_column.column = std::move(res_col);
+                    }
+                    filter = false;
+                }
             }
-        } else if (const auto* nullable =
-                           check_and_get_column<ColumnNullable>(*result_column.column)) {
-            data = ((ColumnVector<UInt8>*)nullable->get_nested_column_ptr().get())
-                           ->get_data()
-                           .data();
-            filter_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
-                                                       nullable->get_null_map_data().data(),
-                                                       block->rows());
+            if (filter) {
+                filter_rows += rows;
+            }
+        } else if (auto* nullable = check_and_get_column<ColumnNullable>(*result_column.column)) {
+            auto* __restrict data = ((ColumnVector<UInt8>*)nullable->get_nested_column_ptr().get())
+                                            ->get_data()
+                                            .data();
+            auto* __restrict null_map = const_cast<uint8_t*>(nullable->get_null_map_data().data());
+
+            if (_null_aware && block->get_by_position(args[0]).column->is_nullable()) {
+                auto* __restrict null_map_args =
+                        ((ColumnNullable*)block->get_by_position(args[0]).column.get())
+                                ->get_null_map_data()
+                                .data();
+                // TODO: try to simd the code
+                for (int i = 0; i < rows; ++i) {
+                    if (null_map_args[i]) {
+                        null_map[i] = 0;
+                        data[i] = 1;
+                    }
+                    filter_rows += (!null_map[i]) && (data[i] == 1);
+                }
+            } else {
+                filter_rows += doris::simd::count_zero_num(
+                        reinterpret_cast<const int8_t* __restrict>(data), null_map, rows);
+            }
         } else if (const auto* res_col =
                            check_and_get_column<ColumnVector<UInt8>>(*result_column.column)) {
-            data = const_cast<uint8_t*>(res_col->get_data().data());
-            filter_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
-                                                       block->rows());
+            auto* __restrict data = const_cast<uint8_t*>(res_col->get_data().data());
+            if (_null_aware && block->get_by_position(args[0]).column->is_nullable()) {
+                auto* __restrict null_map_args =
+                        ((ColumnNullable*)block->get_by_position(args[0]).column.get())
+                                ->get_null_map_data()
+                                .data();
+                for (int i = 0; i < rows; ++i) {
+                    data[i] |= null_map_args[i];
+                    filter_rows += data[i];
+                }
+            } else {
+                filter_rows +=
+                        doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data), rows);
+            }
         } else {
             return Status::InternalError(
                     "Invalid type for runtime filters!, and _expr_name is: {}. _data_type is: {}. "

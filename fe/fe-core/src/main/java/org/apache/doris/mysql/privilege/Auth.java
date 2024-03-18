@@ -1818,7 +1818,7 @@ public class Auth implements Writable {
         return sb.toString();
     }
 
-    // ====== CLOUD ======
+    // ====== BEGIN CLOUD ======
     public List<String> getCloudClusterUsers(String clusterName) {
         return propertyMgr.getCloudClusterUsers(userManager.getAllUsers(), clusterName);
     }
@@ -1844,5 +1844,5 @@ public class Auth implements Writable {
         }
         return cluster;
     }
-    // ====== CLOUD ======
+    // ====== END CLOUD ======
 }

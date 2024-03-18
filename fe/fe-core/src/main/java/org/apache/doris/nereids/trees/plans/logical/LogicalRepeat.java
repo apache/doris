@@ -158,6 +158,10 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 children.get(0));
     }
 
+    public LogicalRepeat<CHILD_TYPE> withGroupSets(List<List<Expression>> groupingSets) {
+        return new LogicalRepeat<>(groupingSets, outputExpressions, child());
+    }
+
     public LogicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList) {
         return new LogicalRepeat<>(groupingSets, outputExpressionList, child());

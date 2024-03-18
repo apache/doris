@@ -352,6 +352,7 @@ under the License.
         <trino.version>435</trino.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
+        <airlift.version>202</airlift.version>
     </properties>
     <profiles>
         <profile>
@@ -470,6 +471,12 @@ under the License.
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-starter-jetty</artifactId>
                 <version>${spring.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.tomcat</groupId>
+                        <artifactId>tomcat-embed-el</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -481,6 +488,10 @@ under the License.
                 <artifactId>spring-boot-starter-web</artifactId>
                 <version>${spring.version}</version>
                 <exclusions>
+                    <exclusion>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-tomcat</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>validator</groupId>
                         <artifactId>hibernate-validator</artifactId>
@@ -1670,6 +1681,11 @@ under the License.
                 <artifactId>asm</artifactId>
                 <groupId>org.ow2.asm</groupId>
                 <version>${asm.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>concurrent</artifactId>
+                <version>${airlift.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

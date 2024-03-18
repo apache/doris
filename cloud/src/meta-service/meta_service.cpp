@@ -21,6 +21,7 @@
 #include <brpc/closure_guard.h>
 #include <brpc/controller.h>
 #include <bthread/bthread.h>
+#include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <google/protobuf/util/json_util.h>
@@ -497,6 +498,36 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
+    if (request->has_storage_vault_name() && !request->storage_vault_name().empty()) {
+        InstanceInfoPB instance;
+        std::unique_ptr<Transaction> txn0;
+        TxnErrorCode err = txn_kv_->create_txn(&txn0);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to create txn");
+            return;
+        }
+
+        std::shared_ptr<Transaction> txn(txn0.release());
+        auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
+        if (c0 != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get instance, info={}", m0);
+        }
+
+        auto vault_name = std::find_if(
+                instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+                [&](const auto& name) { return name == request->storage_vault_name(); });
+        if (vault_name != instance.storage_vault_names().end()) {
+            auto idx = vault_name - instance.storage_vault_names().begin();
+            response->set_storage_vault_id(instance.resource_ids().at(idx));
+        } else {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get vault id, vault name={}",
+                              request->storage_vault_name());
+            return;
+        }
+    }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
     for (auto& tablet_meta : request->tablet_metas()) {
@@ -771,10 +802,7 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
 }
 
 /**
- * 0. Construct the corresponding rowset commit_key according to the info in request
- * 1. Check whether this rowset has already been committed through commit_key
- *     a. if has been committed, abort prepare_rowset 
- *     b. else, goto 2
+ * 1. Check and confirm tmp rowset kv does not exist
  * 2. Construct recycle rowset kv which contains object path
  * 3. Put recycle rowset kv
  */
@@ -801,26 +829,12 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         msg = "rowset_meta must have either schema or schema_version";
         return;
     }
+
     RPC_RATE_LIMIT(prepare_rowset)
-    // temporary == true is for load txn, schema change, compaction
-    // temporary == false currently no such situation
-    bool temporary = request->has_temporary() ? request->temporary() : false;
+
     int64_t tablet_id = rowset_meta.tablet_id();
-    int64_t end_version = rowset_meta.end_version();
     const auto& rowset_id = rowset_meta.rowset_id_v2();
-
-    std::string commit_key;
-    std::string commit_val;
-
-    if (temporary) { // load txn, schema change, compaction
-        int64_t txn_id = rowset_meta.txn_id();
-        MetaRowsetTmpKeyInfo key_info {instance_id, txn_id, tablet_id};
-        meta_rowset_tmp_key(key_info, &commit_key);
-    } else { // ?
-        MetaRowsetKeyInfo key_info {instance_id, tablet_id, end_version};
-        meta_rowset_key(key_info, &commit_key);
-    }
-
+    auto tmp_rs_key = meta_rowset_tmp_key({instance_id, rowset_meta.txn_id(), tablet_id});
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -830,12 +844,13 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     }
 
     // Check if commit key already exists.
-    err = txn->get(commit_key, &commit_val);
+    std::string val;
+    err = txn->get(tmp_rs_key, &val);
     if (err == TxnErrorCode::TXN_OK) {
         auto existed_rowset_meta = response->mutable_existed_rowset_meta();
-        if (!existed_rowset_meta->ParseFromString(commit_val)) {
+        if (!existed_rowset_meta->ParseFromString(val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = fmt::format("malformed rowset meta value. key={}", hex(commit_key));
+            msg = fmt::format("malformed rowset meta value. key={}", hex(tmp_rs_key));
             return;
         }
         if (!existed_rowset_meta->has_index_id()) {
@@ -843,8 +858,7 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
                 existed_rowset_meta->set_index_id(rowset_meta.index_id());
             } else {
                 TabletIndexPB tablet_idx;
-                get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(),
-                               tablet_idx);
+                get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
                 if (code != MetaServiceCode::OK) return;
                 existed_rowset_meta->set_index_id(tablet_idx.index_id());
                 rowset_meta.set_index_id(tablet_idx.index_id());
@@ -868,10 +882,7 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         return;
     }
 
-    std::string prepare_key;
-    std::string prepare_val;
-    RecycleRowsetKeyInfo prepare_key_info {instance_id, tablet_id, rowset_id};
-    recycle_rowset_key(prepare_key_info, &prepare_key);
+    auto prepare_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
     RecycleRowsetPB prepare_rowset;
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
@@ -881,32 +892,26 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     rowset_meta.set_allocated_tablet_schema(nullptr);
     prepare_rowset.mutable_rowset_meta()->CopyFrom(rowset_meta);
     prepare_rowset.set_type(RecycleRowsetPB::PREPARE);
-    prepare_rowset.SerializeToString(&prepare_val);
+    prepare_rowset.SerializeToString(&val);
     DCHECK_GT(prepare_rowset.expiration(), 0);
-    txn->put(prepare_key, prepare_val);
-    LOG(INFO) << "xxx put" << (temporary ? " tmp " : " ") << "prepare_rowset_key "
-              << hex(prepare_key) << " associated commit_rowset_key " << hex(commit_key)
-              << " value_size " << prepare_val.size();
+    txn->put(prepare_rs_key, val);
+    LOG(INFO) << "xxx put prepare_rs_key " << hex(prepare_rs_key) << " value_size " << val.size();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to save recycle rowset, err=" << err;
-        msg = ss.str();
+        msg = fmt::format("failed to save recycle rowset, err={}", err);
         return;
     }
 }
 
 /**
- * 0. Construct the corresponding rowset commit_key and commit_value according
- *    to the info in request
- * 1. Check whether this rowset has already been committed through commit_key
- *     a. if has been committed
- *         1. if committed value is same with commit_value, it may be a redundant
+ * 1. Check and confirm tmp rowset kv does not exist
+ *     a. if exist
+ *         1. if tmp rowset is same with self, it may be a redundant
  *            retry request, return ok
- *         2. else, abort commit_rowset 
+ *         2. else, abort commit_rowset
  *     b. else, goto 2
- * 2. Construct the corresponding rowset prepare_key(recycle rowset)
- * 3. Remove prepare_key and put commit rowset kv
+ * 2. Remove recycle rowset kv and put tmp rowset kv
  */
 void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controller,
                                     const CreateRowsetRequest* request,
@@ -932,24 +937,11 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         return;
     }
     RPC_RATE_LIMIT(commit_rowset)
-    // temporary == true is for load txn, schema change, compaction
-    // temporary == false currently no such situation
-    bool temporary = request->has_temporary() ? request->temporary() : false;
+
     int64_t tablet_id = rowset_meta.tablet_id();
-    int64_t end_version = rowset_meta.end_version();
     const auto& rowset_id = rowset_meta.rowset_id_v2();
 
-    std::string commit_key;
-    std::string commit_val;
-
-    if (temporary) { // load txn, schema change, compaction
-        int64_t txn_id = rowset_meta.txn_id();
-        MetaRowsetTmpKeyInfo key_info {instance_id, txn_id, tablet_id};
-        meta_rowset_tmp_key(key_info, &commit_key);
-    } else { // ?
-        MetaRowsetKeyInfo key_info {instance_id, tablet_id, end_version};
-        meta_rowset_key(key_info, &commit_key);
-    }
+    auto tmp_rs_key = meta_rowset_tmp_key({instance_id, rowset_meta.txn_id(), tablet_id});
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -961,12 +953,12 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
 
     // Check if commit key already exists.
     std::string existed_commit_val;
-    err = txn->get(commit_key, &existed_commit_val);
+    err = txn->get(tmp_rs_key, &existed_commit_val);
     if (err == TxnErrorCode::TXN_OK) {
         auto existed_rowset_meta = response->mutable_existed_rowset_meta();
         if (!existed_rowset_meta->ParseFromString(existed_commit_val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = fmt::format("malformed rowset meta value. key={}", hex(commit_key));
+            msg = fmt::format("malformed rowset meta value. key={}", hex(tmp_rs_key));
             return;
         }
         if (existed_rowset_meta->rowset_id_v2() == rowset_meta.rowset_id_v2()) {
@@ -1027,21 +1019,14 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         rowset_meta.set_allocated_tablet_schema(nullptr);
     }
 
-    std::string prepare_key;
-    RecycleRowsetKeyInfo prepare_key_info {instance_id, tablet_id, rowset_id};
-    recycle_rowset_key(prepare_key_info, &prepare_key);
-    DCHECK_GT(rowset_meta.txn_expiration(), 0);
-    if (!rowset_meta.SerializeToString(&commit_val)) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "failed to serialize rowset meta";
-        return;
-    }
+    auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
+    txn->remove(recycle_rs_key);
 
-    txn->remove(prepare_key);
-    txn->put(commit_key, commit_val);
-    LOG(INFO) << "xxx put" << (temporary ? " tmp " : " ") << "commit_rowset_key " << hex(commit_key)
-              << " delete prepare_rowset_key " << hex(prepare_key) << " value_size "
-              << commit_val.size();
+    DCHECK_GT(rowset_meta.txn_expiration(), 0);
+    auto tmp_rs_val = rowset_meta.SerializeAsString();
+    txn->put(tmp_rs_key, tmp_rs_val);
+    LOG(INFO) << "xxx put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
+              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1342,9 +1327,6 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     int64_t req_end = request->end_version();
     req_end = req_end < 0 ? std::numeric_limits<int64_t>::max() - 1 : req_end;
 
-    LOG(INFO) << "req_bc_cnt=" << req_bc_cnt << ", bc_cnt=" << bc_cnt
-              << ", req_cc_cnt=" << req_cc_cnt << ", cc_cnt=" << cc_cnt << ", req_cp=" << req_cp
-              << ", cp=" << cp;
     //==========================================================================
     //      Find version ranges to be synchronized due to compaction
     //==========================================================================

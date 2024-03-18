@@ -252,7 +252,7 @@ public abstract class JdbcClient {
                     remoteTablesNames.add(rs.getString("TABLE_NAME"));
                 }
             } catch (SQLException e) {
-                throw new JdbcClientException("failed to get all tables for remote database %s", e, remoteDbName);
+                throw new JdbcClientException("failed to get all tables for remote database: `%s`", e, remoteDbName);
             }
         });
         return filterTableNames(remoteDbName, remoteTablesNames);
@@ -313,8 +313,8 @@ public abstract class JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
-                    e, localDbName, localTableName, Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
@@ -415,8 +415,8 @@ public abstract class JdbcClient {
         return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(filteredDatabaseNames);
     }
 
-    protected List<String> filterTableNames(String remoteDbName, List<String> localTableNames) {
-        return jdbcLowerCaseMetaMatching.setTableNameMapping(remoteDbName, localTableNames);
+    protected List<String> filterTableNames(String remoteDbName, List<String> remoteTableNames) {
+        return jdbcLowerCaseMetaMatching.setTableNameMapping(remoteDbName, remoteTableNames);
     }
 
     protected List<Column> filterColumnName(String remoteDbName, String remoteTableName, List<Column> remoteColumns) {
@@ -452,5 +452,23 @@ public abstract class JdbcClient {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();
+    }
+
+    public void testConnection() {
+        String testQuery = getTestQuery();
+        try (Connection conn = getConnection();
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(testQuery)) {
+            if (!rs.next()) {
+                throw new JdbcClientException(
+                        "Failed to test connection in FE: query executed but returned no results.");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to test connection in FE: " + e.getMessage(), e);
+        }
+    }
+
+    public String getTestQuery() {
+        return "select 1";
     }
 }

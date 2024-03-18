@@ -28,7 +28,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
@@ -379,7 +379,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.rowset_dir = remote_tablet_path(tablet_id());
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
-    context.fs = _engine.latest_fs();
+    context.fs = rowset.rowset_meta()->fs();
     return RowsetFactory::create_rowset_writer(_engine, context, false)
             .transform([&](auto&& writer) {
                 writer->set_segment_start_id(rowset.num_segments());

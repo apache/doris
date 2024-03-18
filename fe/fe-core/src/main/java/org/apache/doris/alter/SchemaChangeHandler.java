@@ -94,6 +94,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
@@ -1314,6 +1315,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
+        TInvertedIndexStorageFormat invertedIndexStorageFormat =
+                PropertyAnalyzer.analyzeInvertedIndexStorageFormat(propertyMap);
+
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop
         long tableId = olapTable.getId();
@@ -1377,6 +1381,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 needAlter = true;
             } else if (storageFormat == TStorageFormat.V2) {
                 if (olapTable.getStorageFormat() != TStorageFormat.V2) {
+                    needAlter = true;
+                }
+            } else if (invertedIndexStorageFormat == TInvertedIndexStorageFormat.V2) {
+                if (olapTable.getInvertedIndexStorageFormat() != TInvertedIndexStorageFormat.V2) {
                     needAlter = true;
                 }
             }
@@ -2047,14 +2055,16 @@ public class SchemaChangeHandler extends AlterHandler {
                 //for schema change add/drop value column optimize, direct modify table meta.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              null, isDropIndex, jobId, false);
-            } else if (lightIndexChange) {
+            } else if (Config.enable_light_index_change && lightIndexChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop inverted index optimize, direct modify table meta firstly.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              alterIndexes, isDropIndex, jobId, false);
             } else if (buildIndexChange) {
-                buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                                                  alterIndexes, invertedIndexOnPartitions, false);
+                if (Config.enable_light_index_change) {
+                    buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                                                      alterIndexes, invertedIndexOnPartitions, false);
+                }
             } else {
                 createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
             }

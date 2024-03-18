@@ -19,6 +19,7 @@ package org.apache.doris.cloud.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
@@ -30,6 +31,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -310,6 +312,33 @@ public class CloudSystemInfoService extends SystemInfoService {
         return clusterNameToId.containsKey(clusterName);
     }
 
+    @Override
+    public List<Backend> getBackendsByCurrentCluster() throws UserException {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            throw new UserException("connect context is null");
+        }
+
+        String cluster = ctx.getCurrentCloudCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            throw new UserException("cluster name is empty");
+        }
+
+        ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
+
+        return getBackendsByClusterName(cluster);
+    }
+
+    @Override
+    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws UserException {
+        List<Backend> backends = getBackendsByCurrentCluster();
+        Map<Long, Backend> idToBackend = Maps.newHashMap();
+        for (Backend be : backends) {
+            idToBackend.put(be.getId(), be);
+        }
+        return ImmutableMap.copyOf(idToBackend);
+    }
+
     public List<Backend> getBackendsByClusterName(final String clusterName) {
         String clusterId = clusterNameToId.getOrDefault(clusterName, "");
         if (clusterId.isEmpty()) {
@@ -540,9 +569,19 @@ public class CloudSystemInfoService extends SystemInfoService {
         this.instanceStatus = instanceStatus;
     }
 
+    public static void waitForAutoStartCurrentCluster() throws DdlException {
+        ConnectContext context = ConnectContext.get();
+        if (context != null) {
+            String cloudCluster = context.getCloudCluster();
+            if (!Strings.isNullOrEmpty(cloudCluster)) {
+                waitForAutoStart(cloudCluster);
+            }
+        }
+    }
+
     public static void waitForAutoStart(final String clusterName) throws DdlException {
-        // TODO: merge from cloud.
-        throw new DdlException("Env.waitForAutoStart unimplemented");
+        // TODO(merge-cloud): merge from cloud.
+        // throw new DdlException("Env.waitForAutoStart unimplemented");
     }
 
 

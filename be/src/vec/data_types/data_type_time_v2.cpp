@@ -151,9 +151,9 @@ void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
 }
 
 Status DataTypeDateTimeV2::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnUInt64*>(column);
+    auto* column_data = assert_cast<ColumnUInt64*>(column);
     UInt64 val = 0;
-    if (!read_datetime_v2_text_impl<UInt64>(val, rb)) {
+    if (!read_datetime_v2_text_impl<UInt64>(val, rb, _scale)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }

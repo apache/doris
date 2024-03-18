@@ -171,7 +171,7 @@ public:
 
     // used for partial update, when publish, partial update may add a new rowset
     // and we should update rowset meta
-    void merge_rowset_meta(const RowsetMetaSharedPtr& other);
+    Status merge_rowset_meta(const RowsetMeta& other);
 
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on

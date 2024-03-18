@@ -134,7 +134,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 // in mysql-jdbc-connector-5.1.*, TYPE_NAME of BITMAP column in doris will be "BITMAP"
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 if (isDoris) {
-                    mapFieldtoType = getColumnsDataTypeUseQuery(localDbName, localTableName);
+                    mapFieldtoType = getColumnsDataTypeUseQuery(remoteDbName, remoteTableName);
                     field.setDataTypeName(mapFieldtoType.get(rs.getString("COLUMN_NAME")));
                 }
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
@@ -152,8 +152,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
-                    e, localDbName, localTableName, Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
@@ -282,15 +282,15 @@ public class JdbcMySQLClient extends JdbcClient {
     /**
      * get all columns like DatabaseMetaData.getColumns in mysql-jdbc-connector
      */
-    private Map<String, String> getColumnsDataTypeUseQuery(String dbName, String tableName) {
+    private Map<String, String> getColumnsDataTypeUseQuery(String remoteDbName, String remoteTableName) {
         Connection conn = getConnection();
         ResultSet resultSet = null;
         Map<String, String> fieldtoType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(tableName);
+        queryBuf.append(remoteTableName);
         queryBuf.append(" FROM ");
-        queryBuf.append(dbName);
+        queryBuf.append(remoteDbName);
         try (Statement stmt = conn.createStatement()) {
             resultSet = stmt.executeQuery(queryBuf.toString());
             while (resultSet.next()) {
@@ -301,8 +301,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 fieldtoType.put(fieldName, typeName);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get column list from jdbc for table %s:%s", tableName,
-                Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
             close(resultSet, conn);
         }

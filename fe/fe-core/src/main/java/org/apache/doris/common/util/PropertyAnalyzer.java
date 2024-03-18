@@ -41,6 +41,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -100,6 +101,8 @@ public class PropertyAnalyzer {
      * v2: beta rowset
      */
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
+
+    public static final String PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT = "inverted_index_storage_format";
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
@@ -994,6 +997,35 @@ public class PropertyAnalyzer {
         }
     }
 
+    public static TInvertedIndexStorageFormat analyzeInvertedIndexStorageFormat(Map<String, String> properties)
+            throws AnalysisException {
+        String invertedIndexStorageFormat = "";
+        if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
+            invertedIndexStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+        } else {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+                return TInvertedIndexStorageFormat.V1;
+            } else {
+                return TInvertedIndexStorageFormat.V2;
+            }
+        }
+
+        if (invertedIndexStorageFormat.equalsIgnoreCase("v1")) {
+            return TInvertedIndexStorageFormat.V1;
+        } else if (invertedIndexStorageFormat.equalsIgnoreCase("v2")) {
+            return TInvertedIndexStorageFormat.V2;
+        } else if (invertedIndexStorageFormat.equalsIgnoreCase("default")) {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+                return TInvertedIndexStorageFormat.V1;
+            } else {
+                return TInvertedIndexStorageFormat.V2;
+            }
+        } else {
+            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexStorageFormat);
+        }
+    }
+
     // analyze common boolean properties, such as "in_memory" = "false"
     public static boolean analyzeBooleanProp(Map<String, String> properties, String propKey, boolean defaultVal) {
         if (properties != null && properties.containsKey(propKey)) {
@@ -1026,6 +1058,7 @@ public class PropertyAnalyzer {
         String storageVault = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT)) {
             storageVault = properties.get(PROPERTIES_STORAGE_VAULT);
+            properties.remove(PROPERTIES_STORAGE_VAULT);
         }
 
         return storageVault;
@@ -1489,10 +1522,6 @@ public class PropertyAnalyzer {
     // due to backward compatibility, we just explicitly set the value of this property to `true` if
     // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
-        if (Config.isCloudMode()) {
-            // the default value of enable_unique_key_merge_on_write is false for cloud mode yet.
-            return properties;
-        }
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         }

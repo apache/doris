@@ -357,9 +357,10 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_eos(false);
 
     // add block closure
+    // Has to using value to capture _task_exec_ctx because tablet writer may destroyed during callback.
     _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
-    _send_block_callback->addFailedHandler([this](bool is_last_rpc) {
-        auto ctx_lock = _task_exec_ctx.lock();
+    _send_block_callback->addFailedHandler([&, task_exec_ctx = _task_exec_ctx](bool is_last_rpc) {
+        auto ctx_lock = task_exec_ctx.lock();
         if (ctx_lock == nullptr) {
             return;
         }
@@ -367,8 +368,9 @@ Status VNodeChannel::init(RuntimeState* state) {
     });
 
     _send_block_callback->addSuccessHandler(
-            [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
-                auto ctx_lock = _task_exec_ctx.lock();
+            [&, task_exec_ctx = _task_exec_ctx](const PTabletWriterAddBlockResult& result,
+                                                bool is_last_rpc) {
+                auto ctx_lock = task_exec_ctx.lock();
                 if (ctx_lock == nullptr) {
                     return;
                 }
@@ -919,7 +921,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_cancelled || state->is_cancelled()) {
-        _cancel_with_msg(state->cancel_reason());
+        cancel(state->cancel_reason());
     }
 
     if (_add_batches_finished) {
