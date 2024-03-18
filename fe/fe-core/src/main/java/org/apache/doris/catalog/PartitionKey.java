@@ -120,7 +120,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         } else if (type.isDatetimeV2()) {
             return new DateTimeV2Literal(value);
         }
-        throw new AnalysisException("date convert to datetime failed, value is [" + value + "], type is [" + type + "].");
+        throw new AnalysisException("date convert to datetime failed, "
+                + "value is [" + value + "], type is [" + type + "].");
     }
 
     public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types,
