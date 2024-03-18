@@ -81,15 +81,8 @@ PhysicalResultSink
 
 -- !groupby_negative_case3 --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=() otherCondition=() markCondition=((T3.len = T3.len))
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[T3]
---------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalProject
-------------PhysicalOlapScan[T3]
-
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=() otherCondition=() markCondition=((T3.len = T3.len))
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[T3]
+----PhysicalOlapScan[T3]
