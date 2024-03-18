@@ -584,12 +584,7 @@ Status FragmentMgr::get_query_ctx(const TPipelineFragmentParams& params, TUnique
                                   std::shared_ptr<QueryContext>& query_ctx,
                                   std::vector<TPipelineFragmentParams> params_vec) {
     RETURN_IF_ERROR(_get_query_ctx(params, query_id, true, query_ctx));
-    std::lock_guard<std::mutex> lock(_lock);
-    for (auto& p : params_vec) {
-        query_ctx->fragment_id_to_pipeline_ctx.insert(
-                {p.fragment_id, {false, pipeline::PipelineFragmentContext::fake_context}});
-    }
-
+    query_ctx->build_pipeline_context_map(params_vec);
     return Status::OK();
 }
 
@@ -804,7 +799,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);
             if (!prepare_st.ok()) {
-                context->close_if_prepare_failed();
+                context->close_if_prepare_failed(prepare_st);
                 query_ctx->set_execution_dependency_ready();
                 return prepare_st;
             }
@@ -844,13 +839,13 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             for (const auto& ins_id : ins_ids) {
                 _pipeline_map.insert({ins_id, context});
             }
-
-            if (!query_ctx->fragment_id_to_pipeline_ctx.contains(params.fragment_id)) {
-                return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
-            }
-            query_ctx->fragment_id_to_pipeline_ctx[params.fragment_id].pip_ctx = context;
-            query_ctx->fragment_id_to_pipeline_ctx[params.fragment_id].valid = true;
         }
+        RETURN_IF_ERROR(query_ctx->map_pipeline_context(
+                [&](PipelineFragmentContextWrapper& ctx) -> void {
+                    ctx.pip_ctx = context;
+                    ctx.valid = true;
+                },
+                params.fragment_id));
 
         RETURN_IF_ERROR(context->submit());
         return Status::OK();
@@ -887,7 +882,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 auto prepare_st = context->prepare(params, i);
                 if (!prepare_st.ok()) {
                     LOG(WARNING) << "Prepare failed: " << prepare_st.to_string();
-                    context->close_if_prepare_failed();
+                    context->close_if_prepare_failed(prepare_st);
                     static_cast<void>(context->update_status(prepare_st));
                     return prepare_st;
                 }
@@ -990,10 +985,15 @@ void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id,
         return;
     }
     if (ctx->second->enable_pipeline_x_exec()) {
-        for (auto& [f_id, f_context] : ctx->second->fragment_id_to_pipeline_ctx) {
-            cancel_fragment_unlocked(query_id, f_id, reason, state_lock, msg);
-        }
-
+        ctx->second->for_each_pipeline_context(
+                [&](const int f_id, PipelineFragmentContextWrapper& f_context) -> void {
+                    if (!f_context.valid) {
+                        return;
+                    }
+                    if (auto pipeline_ctx = f_context.pip_ctx.lock()) {
+                        pipeline_ctx->cancel(reason, msg);
+                    }
+                });
     } else {
         for (auto it : ctx->second->fragment_instance_ids) {
             cancel_instance_unlocked(it, reason, state_lock, msg);
@@ -1041,26 +1041,17 @@ void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
 
 void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                                   const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock(_lock);
-    return cancel_fragment_unlocked(query_id, fragment_id, reason, state_lock, msg);
-}
-
-void FragmentMgr::cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fragment_id,
-                                           const PPlanFragmentCancelReason& reason,
-                                           const std::unique_lock<std::mutex>& state_lock,
-                                           const std::string& msg) {
     if (auto q_ctx = _query_ctx_map.find(query_id)->second) {
-        auto f_context = q_ctx->fragment_id_to_pipeline_ctx.find(fragment_id);
-        if (f_context != q_ctx->fragment_id_to_pipeline_ctx.end()) {
-            if (f_context->second.valid) {
-                if (auto pipeline_ctx = f_context->second.pip_ctx.lock()) {
-                    pipeline_ctx->cancel(reason, msg);
-                }
-            }
-        } else {
-            LOG(WARNING) << "Could not find the pipeline query id:" << print_id(query_id)
-                         << " fragment id:" << fragment_id << " to cancel";
-        }
+        WARN_IF_ERROR(q_ctx->map_pipeline_context(
+                              [&](PipelineFragmentContextWrapper& ctx) -> void {
+                                  if (ctx.valid) {
+                                      if (auto pipeline_ctx = ctx.pip_ctx.lock()) {
+                                          pipeline_ctx->cancel(reason, msg);
+                                      }
+                                  }
+                              },
+                              fragment_id),
+                      "fail to cancel fragment");
     } else {
         LOG(WARNING) << "Could not find the query id:" << print_id(query_id)
                      << " fragment id:" << fragment_id << " to cancel";
@@ -1075,13 +1066,7 @@ bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
         const bool is_pipeline_version = ctx->second->enable_pipeline_exec();
         const bool is_pipeline_x = ctx->second->enable_pipeline_x_exec();
         if (is_pipeline_x) {
-            for (auto& [id, f_context] : ctx->second->fragment_id_to_pipeline_ctx) {
-                if (f_context.valid) {
-                    if (auto pipeline_ctx = f_context.pip_ctx.lock()) {
-                        return pipeline_ctx->is_canceled();
-                    }
-                }
-            }
+            return ctx->second->is_cancelled();
         } else {
             for (auto itr : ctx->second->fragment_instance_ids) {
                 if (is_pipeline_version) {

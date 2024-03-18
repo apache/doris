@@ -98,7 +98,7 @@ public:
 
     virtual Status submit();
 
-    virtual void close_if_prepare_failed();
+    virtual void close_if_prepare_failed(Status st);
     virtual void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }

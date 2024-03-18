@@ -165,20 +165,42 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
     _is_cancelled.store(v);
 
     set_ready_to_execute(true);
-    {
-        for (auto& ctx : fragment_id_to_pipeline_ctx) {
-            if (fragment_id == ctx.first) {
-                continue;
-            }
-            if (!ctx.second.valid) {
-                continue;
-            }
-            if (auto pipeline_ctx = ctx.second.pip_ctx.lock()) {
-                pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
-            }
+    for_each_pipeline_context([&](const int f_id, PipelineFragmentContextWrapper& ctx) -> void {
+        if (fragment_id == f_id) {
+            return;
         }
-    }
+        if (!ctx.valid) {
+            return;
+        }
+        if (auto pipeline_ctx = ctx.pip_ctx.lock()) {
+            pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
+        }
+    });
     return true;
+}
+
+void QueryContext::for_each_pipeline_context(ForEachFunc for_each_func) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+        for_each_func(f_id, f_context);
+    }
+}
+
+Status QueryContext::map_pipeline_context(MaphFunc map_func, const int fragment_id) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    if (!_fragment_id_to_pipeline_ctx.contains(fragment_id)) {
+        return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
+    }
+    map_func(_fragment_id_to_pipeline_ctx[fragment_id]);
+    return Status::OK();
+}
+
+void QueryContext::build_pipeline_context_map(std::vector<TPipelineFragmentParams>& params_vec) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    for (auto& p : params_vec) {
+        _fragment_id_to_pipeline_ctx.insert(
+                {p.fragment_id, {false, pipeline::PipelineFragmentContext::fake_context}});
+    }
 }
 
 void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {

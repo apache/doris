@@ -112,6 +112,11 @@ public:
     void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
+
+    using ForEachFunc = std::function<void(const int, PipelineFragmentContextWrapper&)>;
+    void for_each_pipeline_context(ForEachFunc for_each_func);
+    using MaphFunc = std::function<void(PipelineFragmentContextWrapper&)>;
+    Status map_pipeline_context(MaphFunc map_func, const int fragment_id);
     bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
@@ -245,6 +250,8 @@ public:
 
     bool is_nereids() const { return _is_nereids; }
 
+    void build_pipeline_context_map(std::vector<TPipelineFragmentParams>& params_vec);
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -266,7 +273,6 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
-    std::map<int, PipelineFragmentContextWrapper> fragment_id_to_pipeline_ctx;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -317,6 +323,9 @@ private:
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+
+    std::map<int, PipelineFragmentContextWrapper> _fragment_id_to_pipeline_ctx;
+    std::mutex _pipeline_map_write_lock;
 };
 
 } // namespace doris
