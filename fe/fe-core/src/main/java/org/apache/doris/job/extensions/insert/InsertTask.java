@@ -19,9 +19,9 @@ package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.Config;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
