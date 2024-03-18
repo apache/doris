@@ -130,6 +130,7 @@ struct LikeState {
 
 struct VectorPatternSearchState {
     MutableColumnPtr _search_strings;
+    std::string _search_string;
     VectorLikeFn _vector_function;
     bool _pattern_matched;
 
