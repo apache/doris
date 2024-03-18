@@ -567,7 +567,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         }
 
         std::vector<TTabletCommitInfo> tablet_commit_infos;
-        RETURN_IF_ERROR(_generate_commit_info(tablet_commit_infos, _streams_for_node, _num_replicas));
+        RETURN_IF_ERROR(_create_commit_info(tablet_commit_infos, _streams_for_node, _num_replicas));
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
                                              std::make_move_iterator(tablet_commit_infos.end()));
@@ -592,7 +592,7 @@ Status VTabletWriterV2::close(Status exec_status) {
     return status;
 }
 
-Status VTabletWriterV2::_generate_commit_info(
+Status VTabletWriterV2::_create_commit_info(
         std::vector<TTabletCommitInfo>& tablet_commit_infos,
         std::unordered_map<int64_t, std::shared_ptr<LoadStreams>> streams_for_node,
         int num_replicas) {

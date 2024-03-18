@@ -57,8 +57,8 @@ TEST_F(TestVTabletWriterV2, one_replica) {
     std::unordered_map<int64_t, std::shared_ptr<LoadStreams>> streams_for_node;
     const int num_replicas = 1;
     add_stream(streams_for_node, 1001, {1, 2}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 2);
 }
@@ -68,8 +68,8 @@ TEST_F(TestVTabletWriterV2, one_replica_fail) {
     std::unordered_map<int64_t, std::shared_ptr<LoadStreams>> streams_for_node;
     const int num_replicas = 1;
     add_stream(streams_for_node, 1001, {1}, {{2, Status::InternalError("test")}});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_EQ(st, Status::InternalError("test"));
 }
 
@@ -79,8 +79,8 @@ TEST_F(TestVTabletWriterV2, two_replica) {
     const int num_replicas = 2;
     add_stream(streams_for_node, 1001, {1, 2}, {});
     add_stream(streams_for_node, 1002, {1, 2}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 4);
 }
@@ -91,8 +91,8 @@ TEST_F(TestVTabletWriterV2, two_replica_fail) {
     const int num_replicas = 2;
     add_stream(streams_for_node, 1001, {1}, {{2, Status::InternalError("test")}});
     add_stream(streams_for_node, 1002, {1, 2}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_EQ(st, Status::InternalError("test"));
 }
 
@@ -103,8 +103,8 @@ TEST_F(TestVTabletWriterV2, normal) {
     add_stream(streams_for_node, 1001, {1, 2}, {});
     add_stream(streams_for_node, 1002, {1, 2}, {});
     add_stream(streams_for_node, 1003, {1, 2}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 6);
 }
@@ -116,8 +116,8 @@ TEST_F(TestVTabletWriterV2, miss_one) {
     add_stream(streams_for_node, 1001, {1, 2}, {});
     add_stream(streams_for_node, 1002, {1}, {});
     add_stream(streams_for_node, 1003, {1, 2}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 5);
 }
@@ -129,8 +129,8 @@ TEST_F(TestVTabletWriterV2, miss_two) {
     add_stream(streams_for_node, 1001, {1, 2}, {});
     add_stream(streams_for_node, 1002, {1}, {});
     add_stream(streams_for_node, 1003, {1}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     // BE will report commit info, and FE should detect tablet 2 is under-replicated
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 4);
@@ -143,8 +143,8 @@ TEST_F(TestVTabletWriterV2, fail_one) {
     add_stream(streams_for_node, 1001, {1, 2}, {});
     add_stream(streams_for_node, 1002, {1}, {{2, Status::InternalError("test")}});
     add_stream(streams_for_node, 1003, {1, 2}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 5);
 }
@@ -157,8 +157,8 @@ TEST_F(TestVTabletWriterV2, fail_one_duplicate) {
     add_stream(streams_for_node, 1002, {1}, {{2, Status::InternalError("test")}});
     add_stream(streams_for_node, 1002, {1}, {{2, Status::InternalError("test")}});
     add_stream(streams_for_node, 1003, {1, 2}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     // Duplicate tablets from same node should be ignored
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 5);
@@ -172,8 +172,8 @@ TEST_F(TestVTabletWriterV2, fail_two_diff_tablet_same_node) {
     add_stream(streams_for_node, 1002, {},
                {{1, Status::InternalError("test")}, {2, Status::InternalError("test")}});
     add_stream(streams_for_node, 1003, {1, 2}, {});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 4);
 }
@@ -185,8 +185,8 @@ TEST_F(TestVTabletWriterV2, fail_two_diff_tablet_diff_node) {
     add_stream(streams_for_node, 1001, {1, 2}, {});
     add_stream(streams_for_node, 1002, {1}, {{2, Status::InternalError("test")}});
     add_stream(streams_for_node, 1003, {2}, {{1, Status::InternalError("test")}});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 4);
 }
@@ -198,8 +198,8 @@ TEST_F(TestVTabletWriterV2, fail_two_same_tablet) {
     add_stream(streams_for_node, 1001, {1, 2}, {});
     add_stream(streams_for_node, 1002, {1}, {{2, Status::InternalError("test")}});
     add_stream(streams_for_node, 1003, {1}, {{2, Status::InternalError("test")}});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     // BE should detect and abort commit if majority of replicas failed
     ASSERT_EQ(st, Status::InternalError("test"));
 }
@@ -211,8 +211,8 @@ TEST_F(TestVTabletWriterV2, fail_two_miss_one_same_tablet) {
     add_stream(streams_for_node, 1001, {1}, {});
     add_stream(streams_for_node, 1002, {1}, {{2, Status::InternalError("test")}});
     add_stream(streams_for_node, 1003, {1}, {{2, Status::InternalError("test")}});
-    auto st = vectorized::VTabletWriterV2::_generate_commit_info(tablet_commit_infos,
-                                                                 streams_for_node, num_replicas);
+    auto st = vectorized::VTabletWriterV2::_create_commit_info(tablet_commit_infos,
+                                                               streams_for_node, num_replicas);
     // BE should detect and abort commit if majority of replicas failed
     ASSERT_EQ(st, Status::InternalError("test"));
 }
