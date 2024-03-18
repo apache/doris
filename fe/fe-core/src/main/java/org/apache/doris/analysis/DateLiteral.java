@@ -193,6 +193,14 @@ public class DateLiteral extends LiteralExpr {
 
     private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
 
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof DateLiteral) {
+            return compareLiteral((LiteralExpr) o) == 0;
+        }
+        return super.equals(o);
+    }
+
     // Date Literal persist type in meta
     private enum DateLiteralType {
         DATETIME(0),
@@ -626,6 +634,34 @@ public class DateLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
+        if (expr instanceof DateLiteral) {
+            DateLiteral other = (DateLiteral) expr;
+            long yearMonthDay = year * 10000 + month * 100 + day;
+            long otherYearMonthDay = other.year * 10000 + other.month * 100 + other.day;
+            long diffDay = yearMonthDay - otherYearMonthDay;
+            if (diffDay != 0) {
+                return diffDay < 0 ? -1 : 1;
+            }
+
+            int typeAsInt = isDateType() ? 0 : 1;
+            int thatTypeAsInt = other.isDateType() ? 0 : 1;
+            int typeDiff = typeAsInt - thatTypeAsInt;
+            if (typeDiff != 0) {
+                return typeDiff;
+            } else if (typeAsInt == 0) {
+                // if all is date and equals date, then return
+                return 0;
+            }
+
+            long hourMinuteSecond = hour * 10000 + minute * 100 + second;
+            long otherHourMinuteSecond = other.hour * 10000 + other.minute * 100 + other.second;
+            long diffSecond = hourMinuteSecond - otherHourMinuteSecond;
+            if (diffSecond != 0) {
+                return diffSecond < 0 ? -1 : 1;
+            }
+            long diff = getMicroPartWithinScale() - other.getMicroPartWithinScale();
+            return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
+        }
         // date time will not overflow when doing addition and subtraction
         return getStringValue().compareTo(expr.getStringValue());
     }
@@ -645,6 +681,10 @@ public class DateLiteral extends LiteralExpr {
 
     public boolean isDateType() {
         return this.type.isDate() || this.type.isDateV2();
+    }
+
+    public boolean isDateTimeType() {
+        return this.type.isDatetime() || this.type.isDatetimeV2();
     }
 
     @Override
@@ -1729,6 +1769,15 @@ public class DateLiteral extends LiteralExpr {
             return i;
         }
         throw new InvalidFormatException("'" + value + "' is invalid");
+    }
+
+    private long getMicroPartWithinScale() {
+        if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
+            return (long) (microsecond / SCALE_FACTORS[scale]);
+        } else {
+            return 0;
+        }
     }
 
     public void setMinValue() {

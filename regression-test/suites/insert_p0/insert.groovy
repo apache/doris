@@ -83,20 +83,4 @@ suite("insert") {
     sql "sync"
     qt_insert """ select * from mutable_datatype order by c_bigint, c_double, c_string, c_date, c_timestamp, c_boolean, c_short_decimal"""
 
-    def table = "insert_with_quote"
-    sql """ DROP TABLE IF EXISTS ${table} """
-    sql """
-        CREATE TABLE ${table} (
-            `id` int(11) NULL,
-            `dim1` string NULL
-        ) ENGINE=OLAP
-        UNIQUE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
-        );
-    """
-    sql """insert into ${table}(id,dim1) values(3,\'replace(cdate,\\\'-\\\',\\\'\\\')\')"""
-    qt_select """ select * from ${table} """
-
 }

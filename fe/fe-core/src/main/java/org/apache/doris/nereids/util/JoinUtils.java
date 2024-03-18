@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
@@ -44,6 +45,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -289,8 +291,11 @@ public class JoinUtils {
     }
 
     private static List<Slot> applyNullable(List<Slot> slots, boolean nullable) {
-        return slots.stream().map(o -> o.withNullable(nullable))
-                .collect(ImmutableList.toImmutableList());
+        Builder<Slot> newSlots = ImmutableList.builderWithExpectedSize(slots.size());
+        for (Slot slot : slots) {
+            newSlots.add(slot.withNullable(nullable));
+        }
+        return newSlots.build();
     }
 
     private static Map<Slot, Slot> mapPrimaryToForeign(ImmutableEqualSet<Slot> equivalenceSet,
@@ -391,5 +396,16 @@ public class JoinUtils {
         // if mark join's hash conjuncts is empty, we use mark conjuncts as hash conjuncts
         // and translate join type to NULL_AWARE_LEFT_SEMI_JOIN or NULL_AWARE_LEFT_ANTI_JOIN
         return join.getHashJoinConjuncts().isEmpty() && !join.getMarkJoinConjuncts().isEmpty();
+    }
+
+    /**
+     * forbid join reorder if top join's condition use mark join slot produced by bottom join
+     */
+    public static boolean checkReorderPrecondition(LogicalJoin<?, ?> top, LogicalJoin<?, ?> bottom) {
+        Set<Slot> markSlots = top.getConditionSlot().stream()
+                .filter(MarkJoinSlotReference.class::isInstance)
+                .collect(Collectors.toSet());
+        markSlots.retainAll(bottom.getOutputSet());
+        return markSlots.isEmpty();
     }
 }

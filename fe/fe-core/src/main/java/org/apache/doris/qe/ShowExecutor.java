@@ -744,7 +744,12 @@ public class ShowExecutor {
     }
 
     // Show clusters
-    private void handleShowCluster() {
+    private void handleShowCluster() throws AnalysisException {
+        if (!Config.isCloudMode()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_CLOUD_MODE);
+            return;
+        }
+
         final ShowClusterStmt showStmt = (ShowClusterStmt) stmt;
         final List<List<String>> rows = Lists.newArrayList();
         List<String> clusterNames = null;
@@ -921,10 +926,13 @@ public class ShowExecutor {
             }
             if (showTableStmt.isVerbose()) {
                 String storageFormat = "NONE";
+                String invertedIndexStorageFormat = "NONE";
                 if (tbl instanceof OlapTable) {
                     storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
+                    invertedIndexStorageFormat = ((OlapTable) tbl).getInvertedIndexStorageFormat().toString();
                 }
-                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat));
+                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
+                        invertedIndexStorageFormat));
             } else {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }

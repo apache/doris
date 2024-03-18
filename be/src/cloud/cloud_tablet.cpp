@@ -28,7 +28,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
@@ -379,7 +379,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.rowset_dir = remote_tablet_path(tablet_id());
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
-    context.fs = _engine.latest_fs();
+    context.fs = rowset.rowset_meta()->fs();
     return RowsetFactory::create_rowset_writer(_engine, context, false)
             .transform([&](auto&& writer) {
                 writer->set_segment_start_id(rowset.num_segments());
@@ -509,7 +509,18 @@ std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_single_repli
 }
 
 std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compaction() {
-    return pick_candidate_rowsets_to_single_replica_compaction();
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            // MUST NOT compact rowset [0-1] for some historical reasons (see cloud_schema_change)
+            if (v.first != 0) {
+                candidate_rowsets.push_back(rs);
+            }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
 }
 
 CalcDeleteBitmapExecutor* CloudTablet::calc_delete_bitmap_executor() {

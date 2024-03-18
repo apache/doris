@@ -1260,7 +1260,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
         RETURN_IF_ERROR(rowset_writer->flush());
         RowsetSharedPtr transient_rowset;
         RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
-        rowset->merge_rowset_meta(transient_rowset->rowset_meta());
+        rowset->rowset_meta()->merge_rowset_meta(*transient_rowset->rowset_meta());
 
         // erase segment cache cause we will add a segment to rowset
         SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());

@@ -150,6 +150,26 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return false;
     }
 
+    public void cleanDataSource() {
+        if (druidDataSource != null) {
+            druidDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+            druidDataSource = null;
+        }
+    }
+
+    public void testConnection() throws UdfRuntimeException {
+        try {
+            resultSet = ((PreparedStatement) stmt).executeQuery();
+            if (!resultSet.next()) {
+                throw new UdfRuntimeException(
+                        "Failed to test connection in BE: query executed but returned no results.");
+            }
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("Failed to test connection in BE: ", e);
+        }
+    }
+
     public int read() throws UdfRuntimeException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
@@ -209,6 +229,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
             throw new UdfRuntimeException("jdbc get block address: ", e);
+        } finally {
+            block.clear();
         }
         return outputTable.getMetaAddress();
     }

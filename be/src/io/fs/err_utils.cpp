@@ -89,7 +89,7 @@ Status localfs_error(const std::error_code& ec, std::string_view msg) {
     } else if (ec == std::errc::permission_denied) {
         return Status::Error<PERMISSION_DENIED, false>(msg);
     } else {
-        return Status::Error<doris::INTERNAL_ERROR, false>("{}: {}", msg, ec.message());
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("{}: {}", msg, ec.message());
     }
 }
 
@@ -106,8 +106,8 @@ Status localfs_error(int posix_errno, std::string_view msg) {
     case EACCES:
         return Status::Error<PERMISSION_DENIED, false>(msg);
     default:
-        return Status::Error<doris::INTERNAL_ERROR, false>("{}: {}", msg,
-                                                           std::strerror(posix_errno));
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("{}: {}", msg,
+                                                               std::strerror(posix_errno));
     }
 }
 
@@ -122,7 +122,7 @@ Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
                                                        err.GetExceptionName(), err.GetMessage(),
                                                        err.GetErrorType());
     default:
-        return Status::Error<doris::INTERNAL_ERROR, false>(
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                 "{}: {} {} code={} type={}", msg, err.GetExceptionName(), err.GetMessage(),
                 err.GetResponseCode(), err.GetErrorType());
     }

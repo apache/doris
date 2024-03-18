@@ -50,12 +50,13 @@ public abstract class AbstractInsertExecutor {
     protected long jobId;
     protected final ConnectContext ctx;
     protected final Coordinator coordinator;
-    protected final String labelName;
+    protected String labelName;
     protected final DatabaseIf database;
     protected final TableIf table;
     protected final long createTime = System.currentTimeMillis();
     protected long loadedRows = 0;
     protected int filteredRows = 0;
+
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
 
@@ -74,6 +75,18 @@ public abstract class AbstractInsertExecutor {
 
     public Coordinator getCoordinator() {
         return coordinator;
+    }
+
+    public DatabaseIf getDatabase() {
+        return database;
+    }
+
+    public TableIf getTable() {
+        return table;
+    }
+
+    public String getLabelName() {
+        return labelName;
     }
 
     /**
@@ -110,7 +123,7 @@ public abstract class AbstractInsertExecutor {
         String queryId = DebugUtil.printId(ctx.queryId());
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
-        executor.getProfile().setExecutionProfile(coordinator.getExecutionProfile());
+        executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
         coordinator.exec();

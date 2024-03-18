@@ -1415,6 +1415,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             dataProperty.write(out);
             replicaAlloc.write(out);
             out.writeBoolean(isInMemory);
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     out.writeBoolean(isPersistent);
+                //
+                // keep the compatibility here.
+                out.writeBoolean(false);
+            }
             out.writeBoolean(isMutable);
         }
 
@@ -1432,6 +1440,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 replicaAlloc = ReplicaAllocation.read(in);
             }
             isInMemory = in.readBoolean();
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     isPersistent = in.readBoolean();
+                //
+                // keep the compatibility here.
+                in.readBoolean();
+            }
             if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
                 isMutable = in.readBoolean();
             }

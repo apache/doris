@@ -133,6 +133,9 @@ public class OlapTableSink extends DataSink {
         tSink.setBaseSchemaVersion(dstTable.getBaseSchemaVersion());
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
+        tSink.setWriteFileCache(ConnectContext.get() != null
+                ? !ConnectContext.get().getSessionVariable().isDisableFileCache()
+                : false);
         this.isStrictMode = isStrictMode;
         this.txnId = txnId;
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
@@ -141,6 +144,10 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
+        String storageVaultId = dstTable.getTableProperty().getStorageVaultId();
+        if (storageVaultId != null && !storageVaultId.isEmpty()) {
+            tSink.setStorageVaultId(storageVaultId);
+        }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
 
@@ -511,11 +518,13 @@ public class OlapTableSink extends DataSink {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
                         String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                + " < quorum replica num " + loadRequiredReplicaNum
-                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
-                        errMsg += " or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null && Config.isCloudMode()) {
-                            errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
+                                        + " < load required replica num " + loadRequiredReplicaNum
+                                        + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
+                        if (Config.isCloudMode()) {
+                            errMsg += ", or you may not have permission to access the current cluster";
+                            if (ConnectContext.get() != null) {
+                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
+                            }
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }

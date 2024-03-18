@@ -23,7 +23,6 @@
 
 #include "beta_rowset.h"
 #include "cloud/cloud_rowset_writer.h"
-#include "cloud/cloud_vertical_rowset_writer.h"
 #include "cloud/config.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/rowset/beta_rowset_writer.h"
@@ -58,7 +57,7 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
     if (context.rowset_type == BETA_ROWSET) {
         std::unique_ptr<RowsetWriter> writer;
         if (is_vertical) {
-            writer = std::make_unique<VerticalBetaRowsetWriter>(engine);
+            writer = std::make_unique<VerticalBetaRowsetWriter<BetaRowsetWriter>>(engine);
         } else {
             writer = std::make_unique<BetaRowsetWriter>(engine);
         }
@@ -75,7 +74,7 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
     // TODO(plat1ko): cloud vertical rowset writer
     std::unique_ptr<RowsetWriter> writer;
     if (is_vertical) {
-        writer = std::make_unique<CloudVerticalRowsetWriter>();
+        writer = std::make_unique<VerticalBetaRowsetWriter<CloudRowsetWriter>>();
     } else {
         writer = std::make_unique<CloudRowsetWriter>();
     }

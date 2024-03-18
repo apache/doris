@@ -26,6 +26,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.JdbcIdentifierMapping;
 
 import com.alibaba.druid.pool.DruidDataSource;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import lombok.Data;
 import lombok.Getter;
@@ -44,6 +45,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 @Getter
@@ -169,8 +171,8 @@ public abstract class JdbcClient {
         try {
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s", e,
-                    this.getCatalogName());
+            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s",
+                    e.getMessage(), this.getCatalogName());
             throw new JdbcClientException(errorMessage, e);
         }
         return conn;
@@ -252,7 +254,7 @@ public abstract class JdbcClient {
                     remoteTablesNames.add(rs.getString("TABLE_NAME"));
                 }
             } catch (SQLException e) {
-                throw new JdbcClientException("failed to get all tables for remote database %s", e, remoteDbName);
+                throw new JdbcClientException("failed to get all tables for remote database: `%s`", e, remoteDbName);
             }
         });
         return filterTableNames(remoteDbName, remoteTablesNames);
@@ -313,8 +315,8 @@ public abstract class JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
-                    e, localDbName, localTableName, Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
@@ -400,6 +402,7 @@ public abstract class JdbcClient {
     }
 
     protected List<String> filterDatabaseNames(List<String> remoteDbNames) {
+        Set<String> filterInternalDatabases = getFilterInternalDatabases();
         List<String> filteredDatabaseNames = Lists.newArrayList();
         for (String databaseName : remoteDbNames) {
             if (isOnlySpecifiedDatabase) {
@@ -410,13 +413,22 @@ public abstract class JdbcClient {
                     continue;
                 }
             }
+            if (filterInternalDatabases.contains(databaseName.toLowerCase())) {
+                continue;
+            }
             filteredDatabaseNames.add(databaseName);
         }
         return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(filteredDatabaseNames);
     }
 
-    protected List<String> filterTableNames(String remoteDbName, List<String> localTableNames) {
-        return jdbcLowerCaseMetaMatching.setTableNameMapping(remoteDbName, localTableNames);
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("information_schema")
+                .build();
+    }
+
+    protected List<String> filterTableNames(String remoteDbName, List<String> remoteTableNames) {
+        return jdbcLowerCaseMetaMatching.setTableNameMapping(remoteDbName, remoteTableNames);
     }
 
     protected List<Column> filterColumnName(String remoteDbName, String remoteTableName, List<Column> remoteColumns) {
@@ -452,5 +464,23 @@ public abstract class JdbcClient {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();
+    }
+
+    public void testConnection() {
+        String testQuery = getTestQuery();
+        try (Connection conn = getConnection();
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(testQuery)) {
+            if (!rs.next()) {
+                throw new JdbcClientException(
+                        "Failed to test connection in FE: query executed but returned no results.");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to test connection in FE: " + e.getMessage(), e);
+        }
+    }
+
+    public String getTestQuery() {
+        return "select 1";
     }
 }

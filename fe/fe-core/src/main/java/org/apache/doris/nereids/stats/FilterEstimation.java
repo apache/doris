@@ -65,13 +65,20 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
+    public static final double DEFAULT_ISNULL_SELECTIVITY = 0.001;
     private Set<Slot> aggSlots;
+
+    private boolean isOnBaseTable = false;
 
     public FilterEstimation() {
     }
 
     public FilterEstimation(Set<Slot> aggSlots) {
         this.aggSlots = aggSlots;
+    }
+
+    public FilterEstimation(boolean isOnBaseTable) {
+        this.isOnBaseTable = isOnBaseTable;
     }
 
     /**
@@ -411,12 +418,20 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     @Override
     public Statistics visitIsNull(IsNull isNull, EstimationContext context) {
-        ColumnStatistic childStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
-        if (childStats.isUnKnown()) {
+        ColumnStatistic childColStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
+        if (childColStats.isUnKnown()) {
             return new StatisticsBuilder(context.statistics).build();
         }
-        double outputRowCount = childStats.numNulls;
-        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childStats);
+        double outputRowCount = childColStats.numNulls;
+        if (!isOnBaseTable) {
+            // for is null on base table, use the numNulls, otherwise
+            // nulls will be generated such as outer join and then we do a protection
+            Expression child = isNull.child();
+            Statistics childStats = child.accept(this, context);
+            outputRowCount = Math.max(childStats.getRowCount() * DEFAULT_ISNULL_SELECTIVITY, outputRowCount);
+            outputRowCount = Math.max(outputRowCount, 1);
+        }
+        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childColStats);
         colBuilder.setCount(outputRowCount).setNumNulls(outputRowCount)
                 .setMaxValue(Double.POSITIVE_INFINITY)
                 .setMinValue(Double.NEGATIVE_INFINITY)
@@ -607,12 +622,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         //if (numNulls > rowCount - ndv) {
         //    numNulls = rowCount - ndv > 0 ? rowCount - ndv : 0;
         //}
-        double notNullSel = rowCount <= 1.0 ? 1.0 : 1 - getValidSelectivity(numNulls / rowCount);
+        double notNullSel = rowCount <= 1.0 ? 1.0 : 1 - Statistics.getValidSelectivity(numNulls / rowCount);
         double validSel = origSel * notNullSel;
-        return getValidSelectivity(validSel);
-    }
-
-    private static double getValidSelectivity(double nullSel) {
-        return nullSel < 0 ? 0 : (nullSel > 1 ? 1 : nullSel);
+        return Statistics.getValidSelectivity(validSel);
     }
 }

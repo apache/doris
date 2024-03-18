@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -43,11 +43,8 @@ import java.util.Optional;
 /**
  * Represent an olap table sink plan node that has not been bound.
  */
-public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSink<CHILD_TYPE>
         implements Unbound, Sink, BlockFuncDepsPropagation {
-
-    private final List<String> nameParts;
-    private final List<String> colNames;
     private final List<String> hints;
     private final boolean temporaryPartition;
     private final List<String> partitions;
@@ -60,31 +57,6 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
                 false, DMLCommandType.NONE, Optional.empty(), Optional.empty(), child);
     }
 
-    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            boolean temporaryPartition, List<String> partitions, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, temporaryPartition, partitions,
-                false, DMLCommandType.NONE, Optional.empty(), Optional.empty(), child);
-    }
-
-    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, false, partitions, isPartialUpdate, DMLCommandType.NONE,
-                Optional.empty(), Optional.empty(), child);
-    }
-
-    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            boolean temporaryPartition, List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate, DMLCommandType.NONE,
-                Optional.empty(), Optional.empty(), child);
-    }
-
-    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            boolean temporaryPartition, List<String> partitions,
-            boolean isPartialUpdate, DMLCommandType dmlCommandType, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate, dmlCommandType,
-                Optional.empty(), Optional.empty(), child);
-    }
-
     /**
      * constructor
      */
@@ -93,22 +65,13 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
             boolean isPartialUpdate, DMLCommandType dmlCommandType,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression, logicalProperties, child);
-        this.nameParts = Utils.copyRequiredList(nameParts);
-        this.colNames = Utils.copyRequiredList(colNames);
+        super(nameParts, PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression,
+                logicalProperties, colNames, dmlCommandType, child);
         this.hints = Utils.copyRequiredList(hints);
         this.temporaryPartition = temporaryPartition;
         this.partitions = Utils.copyRequiredList(partitions);
         this.isPartialUpdate = isPartialUpdate;
         this.dmlCommandType = dmlCommandType;
-    }
-
-    public List<String> getColNames() {
-        return colNames;
-    }
-
-    public List<String> getNameParts() {
-        return nameParts;
     }
 
     public boolean isTemporaryPartition() {
@@ -125,10 +88,6 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
 
     public boolean isPartialUpdate() {
         return isPartialUpdate;
-    }
-
-    public DMLCommandType getDMLCommandType() {
-        return dmlCommandType;
     }
 
     @Override

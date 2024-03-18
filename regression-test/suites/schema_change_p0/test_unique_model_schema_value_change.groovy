@@ -49,9 +49,10 @@ suite("test_unique_model_schema_value_change","p0") {
      //Test the unique model by adding a value column with VARCHAR
      sql initTable
      sql initTableData
+     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
+     def errorMessage=""
      sql """ alter  table ${tbName} add  column province VARCHAR(20)  DEFAULT "广东省" AFTER username """
      def insertSql = "insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
-     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -130,29 +131,36 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
      //TODO Test the unique model by adding a value column with FLOAT
-     //java.sql.SQLException: errCode = 2, detailMessage = Default value will loose precision: 166.68f
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} add  column phone FLOAT  DEFAULT "166.68" AFTER username """
-     insertSql = " insert into ${tbName} values(123456689, 'Alice', 189.98, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     errorMessage="errCode = 2, detailMessage = Default value will loose precision: 166.68"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} add  column phone FLOAT  DEFAULT "166.68" AFTER username """
+          insertSql = " insert into ${tbName} values(123456689, 'Alice', 189.98, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
 
 
 
 
      //TODO Test the unique model by adding a value column with DOUBLE
-     //java.sql.SQLException: errCode = 2, detailMessage = Default value will loose precision: 166.689
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} add  column watch DOUBLE  DEFAULT "166.689" AFTER username """
-     insertSql = " insert into ${tbName} values(123456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     //java.sql.SQLException:
+     errorMessage="errCode = 2, detailMessage = Default value will loose precision: 166.689"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} add  column watch DOUBLE  DEFAULT "166.689" AFTER username """
+          insertSql = " insert into ${tbName} values(123456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
 
 
 
@@ -219,33 +227,36 @@ suite("test_unique_model_schema_value_change","p0") {
      }, insertSql, true,"${tbName}")
 
      //TODO Test the unique model by adding a value column with HLL
-     //java.sql.SQLException: errCode = 2, detailMessage = Can not assign aggregation method on column in Unique data model table: comment
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} add  column comment HLL HLL_UNION   AFTER username """
-     insertSql = " insert into ${tbName} values(123456689, 'Alice', '2', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     errorMessage="errCode = 2, detailMessage = Can not assign aggregation method on column in Unique data model table: comment"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} add  column comment HLL HLL_UNION   AFTER username """
+          insertSql = " insert into ${tbName} values(123456689, 'Alice', '2', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
 
      //TODO Test the unique model by adding a value column with bitmap
-     //java.sql.SQLException: errCode = 2, detailMessage = Can not assign aggregation method on column in Unique data model table: device_id
-/*
-     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} add  column device_id   bitmap BITMAP_UNION  AFTER username """
-     insertSql = " insert into ${tbName} values(123456689, 'Alice', to_bitmap(243), 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")
-*/
+     errorMessage="errCode = 2, detailMessage = Can not assign aggregation method on column in Unique data model table: device_id"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} add  column device_id   bitmap BITMAP_UNION  AFTER username """
+          insertSql = " insert into ${tbName} values(123456689, 'Alice', to_bitmap(243), 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+
+     },errorMessage)
 
 
 
      //Test the unique model by adding a value column with Map
-     //java.sql.SQLException: errCode = 2, detailMessage = Map can only be used in the non-key column of the duplicate table at present.
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column m   Map<STRING, INT>   AFTER username """
@@ -272,7 +283,7 @@ suite("test_unique_model_schema_value_change","p0") {
       *  Test the unique model by modify a value type
       */
 
-
+     sql """ DROP TABLE IF EXISTS ${tbName} """
      initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
              "          (\n" +
              "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
@@ -300,124 +311,154 @@ suite("test_unique_model_schema_value_change","p0") {
              "               (678901234, 'Frank', 1, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
              "               (789012345, 'Grace', 0, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
-     //Test the unique model by modify a value type from BOOLEAN to TINYINT
-     //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to TINYINT
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher TINYINT  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
-
-     //Test the unique model by modify a value type from BOOLEAN to SMALLINT
-     //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to SMALLINT
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher SMALLINT  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
-
-     //Test the unique model by modify a value type from BOOLEAN to INT
-     //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to INT
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher INT  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     //TODO Test the unique model by modify a value type from BOOLEAN to TINYINT
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to TINYINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher TINYINT  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
 
 
-     //Test the unique model by modify a value type from BOOLEAN to BIGINT
-     //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to BIGINT
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher BIGINT  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     //TODO Test the unique model by modify a value type from BOOLEAN to SMALLINT
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to SMALLINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher SMALLINT  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
 
 
-     //Test the unique model by modify a value type from BOOLEAN to FLOAT
-     //TODO  java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to FLOAT
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher FLOAT  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     //TODO Test the unique model by modify a value type from BOOLEAN to INT
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to INT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher INT  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
 
-     //Test the unique model by modify a value type from BOOLEAN to DOUBLE
-     //TODO  java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to DOUBLE
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher DOUBLE  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
 
-     //Test the unique model by modify a value type from BOOLEAN to DECIMAL
-     //TODO  java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL32
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher DECIMAL  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
 
-     //Test the unique model by modify a value type from BOOLEAN to CHAR
-     //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to CHAR
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher CHAR  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     //TODO Test the unique model by modify a value type from BOOLEAN to BIGINT
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to BIGINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher BIGINT  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
 
-     //Test the unique model by modify a value type from BOOLEAN to STRING
-     //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change BOOLEAN to STRING
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher STRING  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
 
-     //Test the unique model by modify a value type from BOOLEAN to VARCHAR
-     //TODO java.sql.SQLException: errCode = 2, detailMessage = String Type should not be used in key column[is_teacher].
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_teacher VARCHAR(32)  DEFAULT "0"  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+
+     //TODO Test the unique model by modify a value type from BOOLEAN to FLOAT
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to FLOAT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher FLOAT  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from BOOLEAN to DOUBLE
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to DOUBLE"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher DOUBLE  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from BOOLEAN to DECIMAL
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL32"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher DECIMAL  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from BOOLEAN to CHAR
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to CHAR"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher CHAR  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from BOOLEAN to STRING
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to STRING"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher STRING  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
+
+     //TODO Test the unique model by modify a value type from BOOLEAN to VARCHAR
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to VARCHAR"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_teacher VARCHAR(32)  DEFAULT "0"  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
 
 
 
      /**
       *  Test the unique model by modify a value type from TINYINT to other type
       */
-
+     sql """ DROP TABLE IF EXISTS ${tbName} """
      initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
              "          (\n" +
              "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
@@ -445,16 +486,19 @@ suite("test_unique_model_schema_value_change","p0") {
              "               (678901234, 'Frank', 0, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
              "               (789012345, 'Grace', 1, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
-     //Test the unique model by modify a value type from TINYINT  to BOOLEAN
-     //TODO java.sql.SQLException: errCode = 2, detailMessage = Can not change TINYINT to BOOLEAN
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_student BOOLEAN  DEFAULT "true" """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     //TODO Test the unique model by modify a value type from TINYINT  to BOOLEAN
+     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to BOOLEAN"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_student BOOLEAN  DEFAULT "true" """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
 
 
 
@@ -523,26 +567,32 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
      //TODO Test the unique model by modify a value type from TINYINT  to DECIMAL32
-     //java.sql.SQLException: errCode = 2, detailMessage = Can not change TINYINT to DECIMAL32
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_student DECIMAL32  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL32"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_student DECIMAL  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+
+     },errorMessage)
 
      //TODO Test the unique model by modify a value type from TINYINT  to CHAR
-     //java.sql.SQLException: errCode = 2, detailMessage = Can not change TINYINT to CHAR
-/*     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} MODIFY  column is_student CHAR(15)  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")*/
+     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to CHAR"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column is_student CHAR(15)  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
+
 
 
 
