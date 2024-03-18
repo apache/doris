@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -49,6 +50,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
@@ -244,6 +246,20 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // create a parent project node
         LogicalProject<Plan> project = new LogicalProject<>(upperProjects, newAggregate);
+        // verify project used slots are all coming from agg's output
+        List<Slot> slots = collectAllUsedSlots(upperProjects);
+        if (!slots.isEmpty()) {
+            Set<ExprId> aggOutput = normalizedAggOutput.stream()
+                    .map(NamedExpression::getExprId)
+                    .collect(Collectors.toSet());
+            slots = slots.stream()
+                    .filter(s -> !aggOutput.contains(s.getExprId()))
+                    .collect(Collectors.toList());
+            if (!slots.isEmpty()) {
+                throw new AnalysisException(String.format("%s not in aggregate's output", slots
+                        .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
+            }
+        }
         if (having.isPresent()) {
             if (upperProjects.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance))) {
                 // when project contains window functions, in order to get the correct result
@@ -286,5 +302,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             builder.add(e);
         }
         return builder.build();
+    }
+
+    private List<Slot> collectAllUsedSlots(List<NamedExpression> expressions) {
+        return Stream.concat(
+                ExpressionUtils.collectAll(expressions, SubqueryExpr.class::isInstance).stream()
+                        .flatMap(expr -> ((SubqueryExpr) expr).getCorrelateSlots().stream()),
+                ExpressionUtils.getInputSlotSet(expressions).stream()).collect(Collectors.toList());
     }
 }
