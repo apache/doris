@@ -490,7 +490,6 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
-    _finish_dependency->block();
     return Status::OK();
 }
 
