@@ -61,7 +61,6 @@ import java.util.stream.Collectors
 import java.util.stream.LongStream
 import static org.apache.doris.regression.util.DataUtils.sortByToString
 
-import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
@@ -344,7 +343,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def sql_return_maparray(String sqlStr, Connection conn = null) {        
+    def sql_return_maparray_impl(String sqlStr, Connection conn = null) {        
         logger.info("Execute sql: ${sqlStr}".toString())
         if (conn == null) {
             conn = context.getConnection()
