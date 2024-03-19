@@ -242,7 +242,7 @@ protected:
 
     Status _init_conditions_param(const ReaderParams& read_params);
 
-    void _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
+    Status _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);

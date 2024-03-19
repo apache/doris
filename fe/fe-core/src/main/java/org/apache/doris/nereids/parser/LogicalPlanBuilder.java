@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
@@ -205,7 +206,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -421,6 +422,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -511,10 +513,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isOverwrite = ctx.INTO() == null;
         ImmutableList.Builder<String> tableName = ImmutableList.builder();
         if (null != ctx.tableName) {
-            tableName.addAll(visitMultipartIdentifier(ctx.tableName));
+            List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
+            tableName.addAll(nameParts);
         } else if (null != ctx.tableId) {
             // process group commit insert table command send by be
-            TableName name = Env.getCurrentEnv().getInternalCatalog()
+            TableName name = Env.getCurrentEnv().getCurrentCatalog()
                     .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
             tableName.add(name.getDb());
             tableName.add(name.getTbl());
@@ -526,7 +529,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // TODO visit partitionSpecCtx
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
         LogicalPlan plan = visitQuery(ctx.query());
-        UnboundTableSink<?> sink = new UnboundTableSink<>(
+        LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSink(
                 tableName.build(),
                 colNames,
                 ImmutableList.of(),
@@ -1310,11 +1313,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             relationHints = ImmutableList.of();
         }
 
+        TableScanParams scanParams = null;
+        if (ctx.optScanParams() != null) {
+            Map<String, String> map = visitPropertyItemList(ctx.optScanParams().properties);
+            scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map);
+        }
+
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample), indexName));
+                        Optional.ofNullable(tableSample), indexName, scanParams));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -2543,7 +2552,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
             } else if (ctx.nullValue != null) {
                 defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
-            } else if (ctx.CURRENT_TIMESTAMP() != null) {
+            } else if (ctx.defaultTimestamp != null) {
                 if (ctx.defaultValuePrecision == null) {
                     defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
                 } else {
@@ -2551,6 +2560,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             .currentTimeStampDefaultValueWithPrecision(
                                     Long.valueOf(ctx.defaultValuePrecision.getText())));
                 }
+            } else if (ctx.CURRENT_DATE() != null) {
+                defaultValue = Optional.of(DefaultValue.CURRENT_DATE_DEFAULT_VALUE);
             }
         }
         if (ctx.UPDATE() != null) {

@@ -103,6 +103,8 @@ public:
 
     void erase(const ObjKey& key);
 
+    bool exceed_prune_limit() override;
+
 private:
     bool _enabled;
 };

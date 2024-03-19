@@ -508,7 +508,7 @@ public class Coordinator implements CoordInterface {
     }
 
     // Initialize
-    protected void prepare() throws Exception {
+    protected void prepare() throws UserException {
         for (PlanFragment fragment : fragments) {
             fragmentExecParamsMap.put(fragment.getFragmentId(), new FragmentExecParams(fragment));
         }
@@ -524,7 +524,8 @@ public class Coordinator implements CoordInterface {
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
 
-        this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
+        this.idToBackend = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+
         if (LOG.isDebugEnabled()) {
             int backendNum = idToBackend.size();
             StringBuilder backendInfos = new StringBuilder("backends info:");
@@ -3904,6 +3905,10 @@ public class Coordinator implements CoordInterface {
             sb.append("]"); // end of instances
             sb.append("}");
         }
+    }
+
+    public QueueToken getQueueToken() {
+        return queueToken;
     }
 
     // fragment instance exec param, it is used to assemble

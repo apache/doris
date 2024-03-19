@@ -41,6 +41,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
@@ -257,10 +258,10 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
-                                                 const StorageReadOptions& read_options,
-                                                 std::unique_ptr<InvertedIndexIterator>* iterator) {
-    RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
+Status ColumnReader::new_inverted_index_iterator(
+        std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta,
+        const StorageReadOptions& read_options, std::unique_ptr<InvertedIndexIterator>* iterator) {
+    RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_file_reader, index_meta));
     if (_inverted_index) {
         RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
                                                       read_options.runtime_state, iterator));
@@ -533,7 +534,8 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
     return Status::OK();
 }
 
-Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
+Status ColumnReader::_load_inverted_index_index(
+        std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta) {
     std::lock_guard<std::mutex> wlock(_load_index_lock);
 
     if (_inverted_index && index_meta &&
@@ -553,16 +555,15 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
             try {
-                _inverted_index = FullTextIndexReader::create_shared(
-                        _file_reader->fs(), _file_reader->path().native(), index_meta);
+                _inverted_index = FullTextIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-                _inverted_index = StringTypeInvertedIndexReader::create_shared(
-                        _file_reader->fs(), _file_reader->path().native(), index_meta);
+                _inverted_index =
+                        StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create StringTypeInvertedIndexReader error: {}", e.what());
@@ -570,8 +571,7 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
         }
     } else if (is_numeric_type(type)) {
         try {
-            _inverted_index = BkdIndexReader::create_shared(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta);
+            _inverted_index = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "create BkdIndexReader error: {}", e.what());
@@ -579,6 +579,10 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     } else {
         _inverted_index.reset();
     }
+    // TODO: move has null to inverted_index_reader's query function
+    //bool has_null = true;
+    //RETURN_IF_ERROR(index_file_reader->has_null(index_meta, &has_null));
+    //_inverted_index->set_has_null(has_null);
     return Status::OK();
 }
 
@@ -1285,7 +1289,7 @@ Status FileColumnIterator::_read_dict_data() {
     auto* pd_decoder =
             (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
     _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
-    pd_decoder->get_dict_word_info(_dict_word_info.get());
+    RETURN_IF_ERROR(pd_decoder->get_dict_word_info(_dict_word_info.get()));
     return Status::OK();
 }
 
@@ -1504,8 +1508,7 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
         }
     }
     // fill nullmap
-    if (root_column->is_nullable()) {
-        DCHECK(dst->is_nullable());
+    if (root_column->is_nullable() && dst->is_nullable()) {
         vectorized::ColumnUInt8& dst_null_map =
                 assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
         vectorized::ColumnUInt8& src_null_map =
@@ -1538,8 +1541,7 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
         }
     }
     // fill nullmap
-    if (root_column->is_nullable()) {
-        DCHECK(dst->is_nullable());
+    if (root_column->is_nullable() && dst->is_nullable()) {
         vectorized::ColumnUInt8& dst_null_map =
                 assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
         vectorized::ColumnUInt8& src_null_map =

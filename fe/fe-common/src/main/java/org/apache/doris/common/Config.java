@@ -911,7 +911,7 @@ public class Config extends ConfigBase {
      * You may reduce this number to avoid Avalanche disaster.
      */
     @ConfField(mutable = true)
-    public static int max_query_retry_time = 1;
+    public static int max_query_retry_time = 3;
 
     /**
      * The number of point query retries in executor.
@@ -2216,21 +2216,10 @@ public class Config extends ConfigBase {
             "Enable external table DDL"})
     public static boolean enable_external_ddl = false;
 
-
     @ConfField(mutable = true, masterOnly = true, description = {
-            "Hive创建外部表默认指定的input format",
-            "Default hive input format for creating table."})
-    public static String hive_default_input_format = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Hive创建外部表默认指定的output format",
-            "Default hive output format for creating table."})
-    public static String hive_default_output_format = "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat";
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Hive创建外部表默认指定的SerDe类",
-            "Default hive serde class for creating table."})
-    public static String hive_default_serde = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
+            "Hive创建外部表默认指定的文件格式",
+            "Default hive file format for creating table."})
+    public static String hive_default_file_format = "orc";
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
@@ -2525,6 +2514,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "倒排索引默认存储格式",
+            "Default storage format of inverted index, the default value is V1."
+    })
+    public static String inverted_index_storage_format = "V1";
+
+    @ConfField(description = {
+            "是否开启 Proxy Protocol 支持",
+            "Whether to enable proxy protocol"
+    })
+    public static boolean enable_proxy_protocol = false;
 
     //==========================================================================
     //                    begin of cloud config

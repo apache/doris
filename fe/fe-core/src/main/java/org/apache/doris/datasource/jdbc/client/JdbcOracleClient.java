@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.sql.Connection;
@@ -28,6 +29,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Set;
 
 public class JdbcOracleClient extends JdbcClient {
 
@@ -137,6 +139,20 @@ public class JdbcOracleClient extends JdbcClient {
     @Override
     protected boolean isTableModified(String modifiedTableName, String actualTableName) {
         return !modifiedTableName.equals(actualTableName);
+    }
+
+    @Override
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("ctxsys")
+                .add("flows_files")
+                .add("mdsys")
+                .add("outln")
+                .add("sys")
+                .add("system")
+                .add("xdb")
+                .add("xs$null")
+                .build();
     }
 
     @Override

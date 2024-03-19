@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -158,6 +159,11 @@ public class MasterOpExecutor {
         params.setUserIp(ctx.getRemoteIP());
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+
+        String cluster = ctx.getCloudCluster(false);
+        if (!Strings.isNullOrEmpty(cluster)) {
+            params.setCloudCluster(cluster);
+        }
 
         // query options
         params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
