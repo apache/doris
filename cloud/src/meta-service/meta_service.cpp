@@ -631,7 +631,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         } else if (tablet_meta_info.has_group_commit_interval_ms()) {
             tablet_meta.set_group_commit_interval_ms(tablet_meta_info.group_commit_interval_ms());
         } else if (tablet_meta_info.has_group_commit_data_bytes()) {
-            tablet_meta.set_group_commit_data_bytes(tablet_meta_info.has_group_commit_data_bytes());
+            tablet_meta.set_group_commit_data_bytes(tablet_meta_info.group_commit_data_bytes());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();

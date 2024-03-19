@@ -29,10 +29,8 @@
 namespace doris::io {
 
 template <class Lock>
-concept IsXLock = requires {
-    std::same_as<Lock, std::lock_guard<std::mutex>> ||
-            std::same_as<Lock, std::unique_lock<std::mutex>>;
-};
+concept IsXLock = std::same_as<Lock, std::lock_guard<std::mutex>> ||
+                  std::same_as<Lock, std::unique_lock<std::mutex>>;
 
 class FSFileCacheStorage;
 
