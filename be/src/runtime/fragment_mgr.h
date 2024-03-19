@@ -148,7 +148,7 @@ public:
         return _query_ctx_map.size();
     }
 
-    std::string dump_pipeline_tasks();
+    std::string dump_pipeline_tasks(int64_t duration = 0);
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
