@@ -17,11 +17,14 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.THdfsConf;
 import org.apache.doris.thrift.THdfsParams;
@@ -73,21 +76,21 @@ public class HdfsResource extends Resource {
 
     private static void pingHdfs(String hdfsUri, Map<String, String> properties) throws DdlException {
         String testFile = hdfsUri + "/test_hdfs_valid.txt";
+        RemoteFileSystem dfsRemote = FileSystemFactory.get("", StorageBackend.StorageType.HDFS, properties);
         Map<String, String> propertiesPing = new HashMap<>();
         propertiesPing.put(HADOOP_FS_NAME, hdfsUri);
         properties.putAll(propertiesPing);
-        DFSFileSystem dfsSystem = new DFSFileSystem(properties);
         String content = "doris hdfs valid";
         Status status = Status.OK;
         try {
-            status = dfsSystem.directUpload(content, testFile);
+            status = dfsRemote.directUpload(content, testFile);
             if (status != Status.OK) {
                 throw new DdlException("ping hdfs failed(upload), status: " + status + new PrintableMap<>(
                     propertiesPing, "=", true, false, true, false));
             }
         } finally {
             if (status.ok()) {
-                Status delete = dfsSystem.delete(testFile);
+                Status delete = dfsRemote.delete(testFile);
                 if (delete != Status.OK) {
                     LOG.warn("delete test file failed, status: {}, properties: {}", delete, new PrintableMap<>(
                             propertiesPing, "=", true, false, true, false));
