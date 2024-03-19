@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.audit;
+package org.apache.doris.plugin.audit.ext;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
@@ -46,7 +46,6 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
