@@ -814,7 +814,7 @@ public class StmtExecutor {
                                 String deadCloudClusterClusterName = abnormalBe.getCloudClusterName();
                                 LOG.info("need retry cluster {} status {}", deadCloudClusterClusterName,
                                         deadCloudClusterStatus);
-                                if (deadCloudClusterStatus == null || deadCloudClusterStatus == ""
+                                if (Strings.isNullOrEmpty(deadCloudClusterStatus)
                                         || ClusterStatus.valueOf(deadCloudClusterStatus) != ClusterStatus.NORMAL) {
                                     CloudSystemInfoService.waitForAutoStart(deadCloudClusterClusterName);
                                 }
@@ -822,7 +822,7 @@ public class StmtExecutor {
                         }
                     }
                 }
-                if (i != retryTime -1 && isNeedRetry
+                if (i != retryTime - 1 && isNeedRetry
                         && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
                 } else {
