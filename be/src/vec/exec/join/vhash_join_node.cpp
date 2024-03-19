@@ -553,7 +553,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 
 void HashJoinNode::_add_tuple_is_null_column(Block* block) {
     DCHECK(_is_outer_join);
-    if (_is_nereids) {
+    if (!_use_specific_projections) {
         return;
     }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();

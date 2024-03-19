@@ -383,7 +383,7 @@ void VNestedLoopJoinNode::_resize_fill_tuple_is_null_column(size_t new_size, int
 }
 
 void VNestedLoopJoinNode::_add_tuple_is_null_column(Block* block) {
-    if (_is_nereids) {
+    if (!_use_specific_projections) {
         return;
     }
     if (_is_outer_join) {

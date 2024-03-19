@@ -199,7 +199,17 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                         : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
                                                                : false),
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
-                                                !_is_mark_join) {
+                                                !_is_mark_join),
+          _use_specific_projections(
+                  tnode.__isset.hash_join_node
+                          ? (tnode.hash_join_node.__isset.use_specific_projections
+                                     ? tnode.hash_join_node.use_specific_projections
+                                     : true)
+                          : (tnode.nested_loop_join_node.__isset.use_specific_projections
+                                     ? tnode.nested_loop_join_node.use_specific_projections
+                                     : true)
+
+          ) {
     if (tnode.__isset.hash_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,
@@ -225,7 +235,6 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
 template <typename LocalStateType>
 Status JoinProbeOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
-    _is_nereids = state->is_nereids();
     if (tnode.__isset.hash_join_node || tnode.__isset.nested_loop_join_node) {
         const auto& output_exprs = tnode.__isset.hash_join_node
                                            ? tnode.hash_join_node.srcExprList

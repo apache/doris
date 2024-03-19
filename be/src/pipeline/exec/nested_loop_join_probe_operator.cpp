@@ -111,7 +111,7 @@ void NestedLoopJoinProbeLocalState::_reset_with_next_probe_row() {
 
 void NestedLoopJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    if (p._is_nereids) {
+    if (!p._use_specific_projections) {
         return;
     }
     if (p._is_outer_join) {

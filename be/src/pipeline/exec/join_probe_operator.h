@@ -122,7 +122,8 @@ protected:
     // In the Old planner, there is a plan for two columns of tuple is null,
     // but in the Nereids planner, this logic does not exist.
     // Therefore, we should not insert these two columns under the Nereids optimizer.
-    bool _is_nereids = false;
+    // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+    const bool _use_specific_projections;
 };
 
 } // namespace pipeline
