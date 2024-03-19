@@ -124,12 +124,13 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
         }
         try {
-            Map<String, String> props = stmt.getExtProperties();
+            Map<String, String> props = stmt.getProperties();
             String fileFormat = props.getOrDefault("file_format", Config.hive_default_file_format);
+            List<String> partitionColNames = stmt.getPartitionDesc().getPartitionColNames();
             HiveTableMetadata catalogTable = HiveTableMetadata.of(dbName,
                     tblName,
                     stmt.getColumns(),
-                    parsePartitionKeys(props),
+                    partitionColNames,
                     props,
                     fileFormat);
 

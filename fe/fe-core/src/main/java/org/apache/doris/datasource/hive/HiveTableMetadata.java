@@ -20,8 +20,6 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.TableMetadata;
 
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
-
 import java.util.List;
 import java.util.Map;
 
@@ -29,7 +27,7 @@ public class HiveTableMetadata implements TableMetadata {
     private String dbName;
     private String tableName;
     private List<Column> columns;
-    private List<FieldSchema> partitionKeys;
+    private List<String> partitionKeys;
     private String fileFormat;
     private Map<String, String> properties;
     // private String viewSql;
@@ -37,7 +35,7 @@ public class HiveTableMetadata implements TableMetadata {
     public HiveTableMetadata(String dbName,
                              String tblName,
                              List<Column> columns,
-                             List<FieldSchema> partitionKeys,
+                             List<String> partitionKeys,
                              Map<String, String> props,
                              String fileFormat) {
         this.dbName = dbName;
@@ -67,7 +65,7 @@ public class HiveTableMetadata implements TableMetadata {
         return columns;
     }
 
-    public List<FieldSchema> getPartitionKeys() {
+    public List<String> getPartitionKeys() {
         return partitionKeys;
     }
 
@@ -78,7 +76,7 @@ public class HiveTableMetadata implements TableMetadata {
     public static HiveTableMetadata of(String dbName,
                                        String tblName,
                                        List<Column> columns,
-                                       List<FieldSchema> partitionKeys,
+                                       List<String> partitionKeys,
                                        Map<String, String> props,
                                        String fileFormat) {
         return new HiveTableMetadata(dbName, tblName, columns, partitionKeys, props, fileFormat);

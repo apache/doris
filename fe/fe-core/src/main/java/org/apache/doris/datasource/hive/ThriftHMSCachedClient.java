@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -71,12 +72,14 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -200,10 +203,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         table.setLastAccessTime(createTime);
         // table.setRetention(0);
         String location = hiveTable.getProperties().get("external_location");
-        table.setSd(toHiveStorageDesc(hiveTable.getColumns(),
-                hiveTable.getFileFormat(),
-                location));
-        table.setPartitionKeys(hiveTable.getPartitionKeys());
+        Set<String> partitionSet = new HashSet<>(hiveTable.getPartitionKeys());
+        Pair<List<FieldSchema>, List<FieldSchema>> hiveSchema = toHiveSchema(hiveTable.getColumns(), partitionSet);
+        table.setSd(toHiveStorageDesc(hiveSchema.first, hiveTable.getFileFormat(), location));
+        table.setPartitionKeys(hiveSchema.second);
+
         // table.setViewOriginalText(hiveTable.getViewSql());
         // table.setViewExpandedText(hiveTable.getViewSql());
         table.setTableType("MANAGED_TABLE");
@@ -211,9 +215,9 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return table;
     }
 
-    private static StorageDescriptor toHiveStorageDesc(List<Column> columns, String fileFormat, String location) {
+    private static StorageDescriptor toHiveStorageDesc(List<FieldSchema> columns, String fileFormat, String location) {
         StorageDescriptor sd = new StorageDescriptor();
-        sd.setCols(toHiveColumns(columns));
+        sd.setCols(columns);
         setFileFormat(fileFormat, sd);
         if (StringUtils.isNotEmpty(location)) {
             sd.setLocation(location);
@@ -246,17 +250,23 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         sd.setOutputFormat(outputFormat);
     }
 
-    private static List<FieldSchema> toHiveColumns(List<Column> columns) {
-        List<FieldSchema> result = new ArrayList<>();
+    private static Pair<List<FieldSchema>, List<FieldSchema>> toHiveSchema(List<Column> columns,
+                Set<String> partitionSet) {
+        List<FieldSchema> hiveCols = new ArrayList<>();
+        List<FieldSchema> hiveParts = new ArrayList<>();
         for (Column column : columns) {
             FieldSchema hiveFieldSchema = new FieldSchema();
             // TODO: add doc, just support doris type
             hiveFieldSchema.setType(HiveMetaStoreClientHelper.dorisTypeToHiveType(column.getType()));
             hiveFieldSchema.setName(column.getName());
             hiveFieldSchema.setComment(column.getComment());
-            result.add(hiveFieldSchema);
+            if (partitionSet.contains(column.getName())) {
+                hiveParts.add(hiveFieldSchema);
+            } else {
+                hiveCols.add(hiveFieldSchema);
+            }
         }
-        return result;
+        return Pair.of(hiveCols, hiveParts);
     }
 
     @Override
