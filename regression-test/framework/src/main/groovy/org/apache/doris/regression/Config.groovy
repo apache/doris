@@ -84,14 +84,16 @@ class Config {
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
+    public String caseNamePrefix
 
     Config() {}
 
-    Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
+    Config(String caseNamePrefix, String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath) {
+        this.caseNamePrefix = caseNamePrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -209,11 +211,13 @@ class Config {
         config.randomOrder = cmd.hasOption(randomOrderOpt)
         config.stopWhenFail = cmd.hasOption(stopWhenFailOpt)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
+        config.caseNamePrefix = cmd.getOptionValue(caseNamePrefixOpt, config.caseNamePrefix)
         config.dryRun = cmd.hasOption(dryRunOpt)
 
         log.info("randomOrder is ${config.randomOrder}".toString())
         log.info("stopWhenFail is ${config.stopWhenFail}".toString())
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
+        log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
 
         Properties props = cmd.getOptionProperties("conf")
@@ -227,6 +231,7 @@ class Config {
 
     static Config fromConfigObject(ConfigObject obj) {
         def config = new Config(
+            configToString(obj.caseNamePrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
             configToString(obj.jdbcUser),
@@ -262,6 +267,11 @@ class Config {
     }
 
     static void fillDefaultConfig(Config config) {
+        if (config.caseNamePrefix == null) {
+            config.caseNamePrefix = ""
+            log.info("set caseNamePrefix to '' because not specify.".toString())
+        }
+
         if (config.defaultDb == null) {
             config.defaultDb = "regression_test"
             log.info("Set defaultDb to '${config.defaultDb}' because not specify.".toString())
