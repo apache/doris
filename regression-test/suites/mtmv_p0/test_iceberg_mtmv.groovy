@@ -43,7 +43,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
             "s3.region" = "us-east-1"
         );"""
 
-        order_qt_catalog """select * from ${catalog_name}.${icebergDb}.${icebergTable}"""
+        order_qt_catalog """select id from ${catalog_name}.${icebergDb}.${icebergTable}"""
         sql """drop materialized view if exists ${mvName};"""
 
         sql """
@@ -52,7 +52,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT * FROM ${catalog_name}.${icebergDb}.${icebergTable};
+                SELECT id FROM ${catalog_name}.${icebergDb}.${icebergTable};
             """
 
         sql """
