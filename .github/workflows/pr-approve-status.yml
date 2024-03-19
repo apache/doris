@@ -38,6 +38,6 @@ jobs:
           pip install requests
       - name: Run Python script
         run: |
-          python tools/maintainers/check_reviews.py  ${{ github.event.pull_request.number }} ${{secrets.GITHUB_TOKEN}}
+          python tools/maintainers/check_review.py  ${{ github.event.pull_request.number }} ${{secrets.GITHUB_TOKEN}}
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
