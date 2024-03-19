@@ -22,7 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-// deprecated stmt, use will be guided to a specific url to get profile from 
+// deprecated stmt, use will be guided to a specific url to get profile from
 // web browser
 public class ShowLoadProfileStmt extends ShowStmt {
     private String loadIdPath;
