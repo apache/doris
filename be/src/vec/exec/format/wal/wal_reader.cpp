@@ -53,7 +53,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     // it should upgrade the be_exec_version to 4 to use the new way to deserialize pblock to solve
     // compatibility issues.see https://github.com/apache/doris/pull/32299
     if (_version == 0 && pblock.has_be_exec_version() && pblock.be_exec_version() == 3) {
-        LOG(INFO) << "need to set be_exec_version to 4 to solve compatibility issues";
+        VLOG_DEBUG << "need to set be_exec_version to 4 to solve compatibility issues";
         pblock.set_be_exec_version(4);
     }
     if (st.is<ErrorCode::END_OF_FILE>()) {

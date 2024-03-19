@@ -144,7 +144,6 @@ private:
     std::shared_mutex _wal_queue_lock;
     std::unordered_map<int64_t, std::set<int64_t>> _wal_queues;
 
-    int64_t _wal_version = 0;
     std::atomic<bool> _first_replay;
 
     // for test relay
@@ -154,4 +153,8 @@ private:
     std::shared_mutex _wal_cv_lock;
     std::unordered_map<int64_t, WalCvInfo> _wal_cv_map;
 };
+
+// In doris 2.1.0, wal version is 0, now need to upgrade it to 1 to solve compatibility issues.
+// see https://github.com/apache/doris/pull/32299
+constexpr inline uint32_t WAL_VERSION = 1;
 } // namespace doris

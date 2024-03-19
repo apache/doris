@@ -48,9 +48,6 @@ public:
 private:
     std::string _file_name;
     io::FileWriterPtr _file_writer;
-    // In doris 2.1.0, wal version is 0, now need to upgrade it to 1 to solve compatibility issues.
-    // see https://github.com/apache/doris/pull/32299
-    uint32_t _version = 1;
 };
 
 } // namespace doris
