@@ -1527,10 +1527,7 @@ void batch_copy(PInFilter* filter, HybridSetBase::IteratorBase* it,
 
 template <class T>
 Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
-    auto real_runtime_filter_type = _runtime_filter_type;
-    if (real_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-        real_runtime_filter_type = _wrapper->get_real_type();
-    }
+    auto real_runtime_filter_type = _wrapper->get_real_type();
 
     request->set_filter_type(get_type(real_runtime_filter_type));
     request->set_contain_null(_wrapper->contain_null());

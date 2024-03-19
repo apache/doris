@@ -91,16 +91,6 @@ public:
     }
 
     Status ignore_filters(RuntimeState* state, uint64_t hash_table_size) {
-        // process IN_OR_BLOOM_FILTER's real type
-        for (auto* runtime_filter : _runtime_filters) {
-            if (runtime_filter->type() != RuntimeFilterType::IN_OR_BLOOM_FILTER ||
-                get_real_size(runtime_filter, hash_table_size) <=
-                        state->runtime_filter_max_in_num()) {
-                continue;
-            }
-            RETURN_IF_ERROR(runtime_filter->change_to_bloom_filter());
-        }
-
         // process ignore duplicate IN_FILTER
         std::unordered_set<int> has_in_filter;
         for (auto* filter : _runtime_filters) {
@@ -126,14 +116,18 @@ public:
     }
 
     Status init_filters(RuntimeState* state, uint64_t hash_table_size) {
+        // process IN_OR_BLOOM_FILTER's real type
         for (auto* runtime_filter : _runtime_filters) {
-            if (runtime_filter->get_real_type() != RuntimeFilterType::BLOOM_FILTER ||
-                runtime_filter->get_ignored()) {
-                continue;
+            if (runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
+                get_real_size(runtime_filter, hash_table_size) >
+                        state->runtime_filter_max_in_num()) {
+                RETURN_IF_ERROR(runtime_filter->change_to_bloom_filter());
             }
 
-            RETURN_IF_ERROR(runtime_filter->init_bloom_filter(
-                    get_real_size(runtime_filter, hash_table_size)));
+            if (runtime_filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
+                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(
+                        get_real_size(runtime_filter, hash_table_size)));
+            }
         }
         return Status::OK();
     }

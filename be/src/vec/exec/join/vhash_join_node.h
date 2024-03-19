@@ -91,8 +91,8 @@ Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* p
     }
     {
         SCOPED_TIMER(parent->_runtime_filter_init_timer);
-        RETURN_IF_ERROR(parent->_runtime_filter_slots->ignore_filters(state, block->rows()));
         RETURN_IF_ERROR(parent->_runtime_filter_slots->init_filters(state, block->rows()));
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->ignore_filters(state, block->rows()));
     }
 
     if (!parent->_runtime_filter_slots->empty() && block->rows() > 1) {
