@@ -231,6 +231,7 @@ public class Coordinator implements CoordInterface {
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
+    // TODO moved to ExternalTransactionManager
     private final List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
 
     // Input parameter
