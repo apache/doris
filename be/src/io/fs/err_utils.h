@@ -20,6 +20,8 @@
 #include <string>
 #include <system_error>
 
+#include "common/status.h"
+
 namespace doris {
 namespace io {
 
@@ -27,6 +29,9 @@ std::string errno_to_str();
 std::string errcode_to_str(const std::error_code& ec);
 std::string hdfs_error();
 std::string glob_err_to_str(int code);
+
+Status localfs_error(const std::error_code& ec, std::string_view msg);
+Status localfs_error(int posix_errno, std::string_view msg);
 
 } // namespace io
 } // namespace doris
