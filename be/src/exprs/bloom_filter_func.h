@@ -193,14 +193,16 @@ public:
     }
 
     void get_data(char** data, int* len) {
+        if (!_bloom_filter) {
+            *data = nullptr;
+            *len = 0;
+            return;
+        }
         *data = _bloom_filter->data();
         *len = _bloom_filter->size();
     }
 
-    bool contain_null() const {
-        DCHECK(_bloom_filter);
-        return _bloom_filter->contain_null();
-    }
+    bool contain_null() const { return _bloom_filter && _bloom_filter->contain_null(); }
 
     void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
 

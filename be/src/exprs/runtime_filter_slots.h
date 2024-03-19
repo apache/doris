@@ -105,28 +105,26 @@ public:
         }
 
         // process ignore filter when it has IN_FILTER on same expr, and init bloom filter size
-        for (auto* runtime_filter : _runtime_filters) {
-            if (runtime_filter->get_real_type() == RuntimeFilterType::IN_FILTER ||
-                !has_in_filter.contains(runtime_filter->expr_order())) {
+        for (auto* filter : _runtime_filters) {
+            if (filter->get_real_type() == RuntimeFilterType::IN_FILTER ||
+                !has_in_filter.contains(filter->expr_order())) {
                 continue;
             }
-            RETURN_IF_ERROR(ignore_filter(state, runtime_filter, "has IN_FILTER on same expr"));
+            RETURN_IF_ERROR(ignore_filter(state, filter, "has IN_FILTER on same expr"));
         }
         return Status::OK();
     }
 
     Status init_filters(RuntimeState* state, uint64_t hash_table_size) {
         // process IN_OR_BLOOM_FILTER's real type
-        for (auto* runtime_filter : _runtime_filters) {
-            if (runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-                get_real_size(runtime_filter, hash_table_size) >
-                        state->runtime_filter_max_in_num()) {
-                RETURN_IF_ERROR(runtime_filter->change_to_bloom_filter());
+        for (auto* filter : _runtime_filters) {
+            if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
+                get_real_size(filter, hash_table_size) > state->runtime_filter_max_in_num()) {
+                RETURN_IF_ERROR(filter->change_to_bloom_filter());
             }
 
-            if (runtime_filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(
-                        get_real_size(runtime_filter, hash_table_size)));
+            if (filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
+                RETURN_IF_ERROR(filter->init_bloom_filter(get_real_size(filter, hash_table_size)));
             }
         }
         return Status::OK();

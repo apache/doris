@@ -1508,10 +1508,9 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
     if (wrapper->is_ignored()) {
         set_ignored(wrapper->ignored_msg());
-    } else if (!_wrapper->is_ignored()) {
-        return _wrapper->merge(wrapper);
+        return Status::OK();
     }
-    return Status::OK();
+    return _wrapper->merge(wrapper);
 }
 
 template <typename T>
