@@ -80,7 +80,17 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                                           tnode.hash_join_node.is_mark),
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                                                 !_is_mark_join),
-          _runtime_filter_descs(tnode.runtime_filters) {
+          _runtime_filter_descs(tnode.runtime_filters),
+          _use_specific_projections(
+                  tnode.__isset.hash_join_node
+                          ? (tnode.hash_join_node.__isset.use_specific_projections
+                                     ? tnode.hash_join_node.use_specific_projections
+                                     : true)
+                          : (tnode.nested_loop_join_node.__isset.use_specific_projections
+                                     ? tnode.nested_loop_join_node.use_specific_projections
+                                     : true)
+
+          ) {
     _runtime_filters.resize(_runtime_filter_descs.size());
     _init_join_op();
     if (_is_mark_join) {
@@ -242,7 +252,6 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
 }
 
 Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
-    _is_nereids = state->is_nereids();
     if (tnode.__isset.hash_join_node || tnode.__isset.nested_loop_join_node) {
         const auto& output_exprs = tnode.__isset.hash_join_node
                                            ? tnode.hash_join_node.srcExprList
