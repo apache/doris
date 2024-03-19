@@ -1,0 +1,12 @@
+{
+  "paths":[
+    {
+      "path":"be/src/io/*",
+       "maintainers": [
+         "platoneko", 
+         "gavinchou",
+         "dataroaring"
+       ]
+    }
+  ] 
+}
