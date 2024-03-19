@@ -18,8 +18,6 @@
 #include <CLucene.h>
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/index/IndexReader.h>
-#include "olap/rowset/segment_v2/zone_map_index.h"
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <string.h>
@@ -29,23 +27,23 @@
 #include <string>
 
 #include "gtest/gtest_pred_impl.h"
-
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "util/slice.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/common/pod_array_fwd.h"
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
@@ -60,12 +58,11 @@ public:
     void check_terms_stats(string dir_str, string file_str) {
         auto fs = io::global_local_filesystem();
         std::unique_ptr<DorisCompoundReader> reader = std::make_unique<DorisCompoundReader>(
-                DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()),
-                file_str.c_str(), 4096);
+                DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
+                4096);
         std::cout << "Term statistics for " << file_str << std::endl;
         std::cout << "==================================" << std::endl;
         lucene::store::Directory* dir = reader.get();
-
 
         IndexReader* r = IndexReader::open(dir);
 
@@ -99,14 +96,13 @@ public:
         config::enable_write_index_searcher_cache = false;
     }
     void TearDown() override {
-//        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
+        //        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
     void test_string(std::string testname, Field* field) {
-        EXPECT_TRUE(field->type()==FieldType::OLAP_FIELD_TYPE_ARRAY);
+        EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string filename = kTestDir + "/" + testname;
         auto fs = io::global_local_filesystem();
-
 
         io::FileWriterPtr file_writer;
         EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
@@ -120,67 +116,70 @@ public:
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                          file_writer->path().filename().native(),
-                                                          file_writer->path().parent_path().native(),
-                                                    &idx_meta, file_writer->fs()), Status::OK());
+        EXPECT_EQ(InvertedIndexColumnWriter::create(
+                          field, &_inverted_index_builder, file_writer->path().filename().native(),
+                          file_writer->path().parent_path().native(), &idx_meta, file_writer->fs()),
+                  Status::OK());
         vectorized::PaddedPODArray<Slice> _slice;
         _slice.resize(5);
 
-       vectorized::Array a1, a2;
-       a1.push_back("amory");
-       a1.push_back("doris");
-       a2.push_back(vectorized::Null());
-       a2.push_back("amory");
-       a2.push_back("commiter");
+        vectorized::Array a1, a2;
+        a1.push_back("amory");
+        a1.push_back("doris");
+        a2.push_back(vectorized::Null());
+        a2.push_back("amory");
+        a2.push_back("commiter");
 
-       vectorized::DataTypePtr s1 = std::make_shared<vectorized::DataTypeNullable>(std::make_shared<vectorized::DataTypeString>());
-       vectorized::DataTypePtr au = std::make_shared<vectorized::DataTypeArray>(s1);
-       vectorized::MutableColumnPtr col = au->create_column();
-       col->insert(a1);
-       col->insert(a2);
-       vectorized::ColumnPtr column_array = std::move(col);
-       vectorized::ColumnWithTypeAndName type_and_name(column_array, au, "arr1");
+        vectorized::DataTypePtr s1 = std::make_shared<vectorized::DataTypeNullable>(
+                std::make_shared<vectorized::DataTypeString>());
+        vectorized::DataTypePtr au = std::make_shared<vectorized::DataTypeArray>(s1);
+        vectorized::MutableColumnPtr col = au->create_column();
+        col->insert(a1);
+        col->insert(a2);
+        vectorized::ColumnPtr column_array = std::move(col);
+        vectorized::ColumnWithTypeAndName type_and_name(column_array, au, "arr1");
 
-       vectorized::PaddedPODArray<vectorized::UInt64> _offsets;
-       _offsets.reserve(3);
-       _offsets.emplace_back(0);
-       _offsets.emplace_back(2);
-       _offsets.emplace_back(5);
-       const uint8_t* offsets_ptr = (const uint8_t*)(_offsets.data());
+        vectorized::PaddedPODArray<vectorized::UInt64> _offsets;
+        _offsets.reserve(3);
+        _offsets.emplace_back(0);
+        _offsets.emplace_back(2);
+        _offsets.emplace_back(5);
+        const uint8_t* offsets_ptr = (const uint8_t*)(_offsets.data());
 
-       auto* col_arr = assert_cast<const vectorized::ColumnArray*>(column_array.get());
-       const vectorized::UInt8* nested_null_map = assert_cast<const vectorized::ColumnNullable*>(
-                                                          col_arr->get_data_ptr().get())->get_null_map_data().data();
-       auto* col_arr_str = assert_cast<const vectorized::ColumnString*>(
-                                                    assert_cast<const vectorized::ColumnNullable*>(
-                                                          col_arr->get_data_ptr().get())->get_nested_column_ptr().get());
-       const char* char_data = (const char*)(col_arr_str->get_chars().data());
-       const vectorized::ColumnString::Offset* offset_cur = col_arr_str->get_offsets().data();
-       const vectorized::ColumnString::Offset* offset_end = offset_cur + 5;
+        auto* col_arr = assert_cast<const vectorized::ColumnArray*>(column_array.get());
+        const vectorized::UInt8* nested_null_map =
+                assert_cast<const vectorized::ColumnNullable*>(col_arr->get_data_ptr().get())
+                        ->get_null_map_data()
+                        .data();
+        auto* col_arr_str = assert_cast<const vectorized::ColumnString*>(
+                assert_cast<const vectorized::ColumnNullable*>(col_arr->get_data_ptr().get())
+                        ->get_nested_column_ptr()
+                        .get());
+        const char* char_data = (const char*)(col_arr_str->get_chars().data());
+        const vectorized::ColumnString::Offset* offset_cur = col_arr_str->get_offsets().data();
+        const vectorized::ColumnString::Offset* offset_end = offset_cur + 5;
 
-       Slice* slice = _slice.data();
-       size_t string_offset = *(offset_cur - 1);
-       const vectorized::UInt8* nullmap_cur = nested_null_map;
-       while (offset_cur != offset_end) {
-           if (!*nullmap_cur) {
-               slice->data = const_cast<char*>(char_data + string_offset);
-               slice->size = *offset_cur - string_offset;
-           } else {
-               slice->data = nullptr;
-               slice->size = 0;
-           }
-           string_offset = *offset_cur;
-           ++nullmap_cur;
-           ++slice;
-           ++offset_cur;
-       }
+        Slice* slice = _slice.data();
+        size_t string_offset = *(offset_cur - 1);
+        const vectorized::UInt8* nullmap_cur = nested_null_map;
+        while (offset_cur != offset_end) {
+            if (!*nullmap_cur) {
+                slice->data = const_cast<char*>(char_data + string_offset);
+                slice->size = *offset_cur - string_offset;
+            } else {
+                slice->data = nullptr;
+                slice->size = 0;
+            }
+            string_offset = *offset_cur;
+            ++nullmap_cur;
+            ++slice;
+            ++offset_cur;
+        }
 
         auto field_size = field->get_sub_field(0)->size();
-        Status st = _inverted_index_builder->add_array_values(field_size,
-                                                  reinterpret_cast<const void*>(_slice.data()),
-                                                  reinterpret_cast<const uint8_t*>(nested_null_map),
-                                                              offsets_ptr, 2);
+        Status st = _inverted_index_builder->add_array_values(
+                field_size, reinterpret_cast<const void*>(_slice.data()),
+                reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, 2);
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
 
@@ -190,11 +189,8 @@ public:
             std::cout << "file: " << file_writer->path().filename().string() << std::endl;
             check_terms_stats(file_writer->path().parent_path().string(), idx_file_name);
         }
-
     }
-
 };
-
 
 TEST_F(InvertedIndexArrayTest, ArrayString) {
     TabletColumn arrayTabletColumn;

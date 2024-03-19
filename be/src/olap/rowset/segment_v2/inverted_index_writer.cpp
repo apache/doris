@@ -80,9 +80,11 @@ public:
 
     explicit InvertedIndexColumnWriterImpl(const std::string& field_name,
                                            InvertedIndexFileWriter* index_file_writer,
-                                           const TabletIndex* index_meta, const bool single_field = true)
+                                           const TabletIndex* index_meta,
+                                           const bool single_field = true)
             : _single_field(single_field),
-              _index_meta(index_meta), _index_file_writer(index_file_writer) {
+              _index_meta(index_meta),
+              _index_file_writer(index_file_writer) {
         _parser_type = get_inverted_index_parser_type_from_string(
                 get_parser_string_from_properties(_index_meta->properties()));
         _value_key_coder = get_key_coder(field_type);
@@ -320,7 +322,8 @@ public:
         }
     }
 
-    void new_fulltext_field(const char* field_value_data, size_t field_value_size, lucene::document::Field* field) {
+    void new_fulltext_field(const char* field_value_data, size_t field_value_size,
+                            lucene::document::Field* field) {
         if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
             _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
             _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
@@ -407,9 +410,9 @@ public:
                     }
                     // now we temp create field . later make a pool
                     if (Status st = create_field(&new_field); st != Status::OK()) {
-                        LOG(ERROR) << "create field "
-                                   << string(_field_name.begin(), _field_name.end())
-                                   << " error:" << st;
+                        LOG(ERROR)
+                                << "create field " << string(_field_name.begin(), _field_name.end())
+                                << " error:" << st;
                         return st;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
@@ -657,10 +660,10 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     }
 
     switch (type) {
-#define M(TYPE)                                                       \
-    case TYPE:                                                        \
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>( \
-                field_name, index_file_writer, index_meta, single_field);           \
+#define M(TYPE)                                                           \
+    case TYPE:                                                            \
+        *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>(     \
+                field_name, index_file_writer, index_meta, single_field); \
         break;
         M(FieldType::OLAP_FIELD_TYPE_TINYINT)
         M(FieldType::OLAP_FIELD_TYPE_SMALLINT)
