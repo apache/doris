@@ -548,6 +548,7 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_sql_json_length """SELECT json_length('{"k1":"v31","k2":300}')"""
     qt_sql_json_length """SELECT json_length('{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
     qt_sql_json_length """SELECT json_length('{"a":{"k1.a1":"v31", "k2": 300},"b":"niu"}','\$.a')"""
+    qt_sql_json_length """SELECT json_length('abc','\$.k1')"""
 
     qt_select_length """SELECT id, j, json_length(j) FROM ${testTable} ORDER BY id"""
     qt_select_length """SELECT id, j, json_length(j, '\$[1]') FROM ${testTable} ORDER BY id"""
