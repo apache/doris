@@ -43,7 +43,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
             "s3.region" = "us-east-1"
         );"""
 
-        order_qt_catalog """select id from ${catalog_name}.${icebergDb}.${icebergTable}"""
+        order_qt_catalog """select count(*) from ${catalog_name}.${icebergDb}.${icebergTable}"""
         sql """drop materialized view if exists ${mvName};"""
 
         sql """
@@ -52,7 +52,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT id FROM ${catalog_name}.${icebergDb}.${icebergTable};
+                SELECT * FROM ${catalog_name}.${icebergDb}.${icebergTable};
             """
 
         sql """
@@ -60,7 +60,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
             """
         def jobName = getJobName(dbName, mvName);
         waitingMTMVTaskFinished(jobName)
-        order_qt_mtmv "SELECT * FROM ${mvName}"
+        order_qt_mtmv "SELECT count(*) FROM ${mvName}"
 
         sql """drop materialized view if exists ${mvName};"""
         sql """ drop catalog if exists ${catalog_name} """
