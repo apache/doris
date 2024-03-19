@@ -37,20 +37,22 @@ public class DorisWriterManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(DorisWriterManager.class);
 
-    private final DorisStreamLoadObserver visitor;
+    private final DorisStreamLoadObserver streamLoadObserver;
+    private final DorisCopyIntoObserver copyIntoObserver;
     private final Keys options;
-    private final List<byte[]> buffer = new ArrayList<> ();
+    private final List<byte[]> buffer = new ArrayList<>();
     private int batchCount = 0;
     private long batchSize = 0;
     private volatile boolean closed = false;
     private volatile Exception flushException;
-    private final LinkedBlockingDeque< WriterTuple > flushQueue;
+    private final LinkedBlockingDeque<WriterTuple> flushQueue;
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> scheduledFuture;
 
-    public DorisWriterManager( Keys options) {
+    public DorisWriterManager(Keys options) {
         this.options = options;
-        this.visitor = new DorisStreamLoadObserver (options);
+        this.streamLoadObserver = new DorisStreamLoadObserver(options);
+        this.copyIntoObserver = new DorisCopyIntoObserver(options);
         flushQueue = new LinkedBlockingDeque<>(options.getFlushQueueLength());
         this.startScheduler();
         this.startAsyncFlushing();
@@ -109,7 +111,7 @@ public class DorisWriterManager {
             }
             return;
         }
-        flushQueue.put(new WriterTuple (label, batchSize,  new ArrayList<>(buffer)));
+        flushQueue.put(new WriterTuple(label, batchSize, new ArrayList<>(buffer)));
         if (waitUtilDone) {
             // wait the last flush
             waitAsyncFlushingDone();
@@ -135,18 +137,18 @@ public class DorisWriterManager {
 
     public String createBatchLabel() {
         StringBuilder sb = new StringBuilder();
-        if (! Strings.isNullOrEmpty(options.getLabelPrefix())) {
+        if (!Strings.isNullOrEmpty(options.getLabelPrefix())) {
             sb.append(options.getLabelPrefix());
         }
         return sb.append(UUID.randomUUID().toString())
-                .toString();
+            .toString();
     }
 
     private void startAsyncFlushing() {
         // start flush thread
-        Thread flushThread = new Thread(new Runnable(){
+        Thread flushThread = new Thread(new Runnable() {
             public void run() {
-                while(true) {
+                while (true) {
                     try {
                         asyncFlush();
                     } catch (Exception e) {
@@ -162,7 +164,7 @@ public class DorisWriterManager {
     private void waitAsyncFlushingDone() throws InterruptedException {
         // wait previous flushings
         for (int i = 0; i <= options.getFlushQueueLength(); i++) {
-            flushQueue.put(new WriterTuple ("", 0l, null));
+            flushQueue.put(new WriterTuple("", 0l, null));
         }
         checkFlushException();
     }
@@ -177,7 +179,11 @@ public class DorisWriterManager {
         for (int i = 0; i <= options.getMaxRetries(); i++) {
             try {
                 // flush to Doris with stream load
-                visitor.streamLoad(flushData);
+                if (DorisUtil.checkIsStreamLoad(options)) {
+                    streamLoadObserver.streamLoad(flushData);
+                } else {
+                    copyIntoObserver.streamLoad(flushData);
+                }
                 LOG.info(String.format("Async stream load finished: label[%s].", flushData.getLabel()));
                 startScheduler();
                 break;
@@ -186,7 +192,7 @@ public class DorisWriterManager {
                 if (i >= options.getMaxRetries()) {
                     throw new IOException(e);
                 }
-                if (e instanceof DorisWriterExcetion && (( DorisWriterExcetion )e).needReCreateLabel()) {
+                if (e instanceof DorisWriterExcetion && ((DorisWriterExcetion) e).needReCreateLabel()) {
                     String newLabel = createBatchLabel();
                     LOG.warn(String.format("Batch label changed from [%s] to [%s]", flushData.getLabel(), newLabel));
                     flushData.setLabel(newLabel);

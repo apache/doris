@@ -34,6 +34,7 @@ public class Keys implements Serializable {
     private static final long DEFAULT_FLUSH_INTERVAL = 30000;
 
     private static final String LOAD_PROPS_FORMAT = "format";
+
     public enum StreamLoadFormat {
         CSV, JSON;
     }
@@ -53,6 +54,7 @@ public class Keys implements Serializable {
     private static final String LOAD_URL = "loadUrl";
     private static final String FLUSH_QUEUE_LENGTH = "flushQueueLength";
     private static final String LOAD_PROPS = "loadProps";
+    private static final String CLUSTER_NAME = "clusterName";
 
     private static final String DEFAULT_LABEL_PREFIX = "datax_doris_writer_";
 
@@ -64,7 +66,7 @@ public class Keys implements Serializable {
     private List<String> userSetColumns;
     private boolean isWildcardColumn;
 
-    public Keys ( Configuration options) {
+    public Keys(Configuration options) {
         this.options = options;
         this.userSetColumns = options.getList(COLUMN, String.class).stream().map(str -> str.replace("`", "")).collect(Collectors.toList());
         if (1 == options.getList(COLUMN, String.class).size() && "*".trim().equals(options.getList(COLUMN, String.class).get(0))) {
@@ -104,6 +106,10 @@ public class Keys implements Serializable {
 
     public List<String> getLoadUrlList() {
         return options.getList(LOAD_URL, String.class);
+    }
+
+    public String getClusterName() {
+        return options.getString(CLUSTER_NAME);
     }
 
     public List<String> getColumns() {
@@ -163,7 +169,7 @@ public class Keys implements Serializable {
             return StreamLoadFormat.CSV;
         }
         if (loadProps.containsKey(LOAD_PROPS_FORMAT)
-                && StreamLoadFormat.JSON.name().equalsIgnoreCase(String.valueOf(loadProps.get(LOAD_PROPS_FORMAT)))) {
+            && StreamLoadFormat.JSON.name().equalsIgnoreCase(String.valueOf(loadProps.get(LOAD_PROPS_FORMAT)))) {
             return StreamLoadFormat.JSON;
         }
         return StreamLoadFormat.CSV;
@@ -174,18 +180,18 @@ public class Keys implements Serializable {
         for (String host : urlList) {
             if (host.split(":").length < 2) {
                 throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR,
-                        "The format of loadUrl is not correct, please enter:[`fe_ip:fe_http_ip;fe_ip:fe_http_ip`].");
+                    "The format of loadUrl is not correct, please enter:[`fe_ip:fe_http_ip;fe_ip:fe_http_ip`].");
             }
         }
     }
 
     private void validateRequired() {
         final String[] requiredOptionKeys = new String[]{
-                USERNAME,
-                DATABASE,
-                TABLE,
-                COLUMN,
-                LOAD_URL
+            USERNAME,
+            DATABASE,
+            TABLE,
+            COLUMN,
+            LOAD_URL
         };
         for (String optionKey : requiredOptionKeys) {
             options.getNecessaryValue(optionKey, DBUtilErrorCode.REQUIRED_VALUE);
