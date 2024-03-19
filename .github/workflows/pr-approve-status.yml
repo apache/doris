@@ -28,9 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install Python dependencies
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.1.0'  # Adjust if needed
+          python-version: '3.10'  # Adjust if needed
       - name: Install fnmatch library
         run: pip install fnmatch
       - name: Run Python script
