@@ -29,8 +29,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
@@ -46,7 +46,6 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/olap/olap_data_convertor.h"
-#include "runtime/exec_env.h"
 
 using namespace lucene::index;
 using doris::segment_v2::InvertedIndexFileWriter;
@@ -107,7 +106,7 @@ public:
         ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
     }
     void TearDown() override {
-        //        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
     void test_string(std::string testname, Field* field) {
