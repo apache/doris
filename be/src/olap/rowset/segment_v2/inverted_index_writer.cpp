@@ -419,7 +419,8 @@ public:
                          v->get_size() > ignore_above) ||
                         (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
                         // is here a null value?
-                        RETURN_IF_ERROR(add_null_document());
+                        // TODO. Maybe here has performance problem for large size string.
+                        continue;
                     } else {
                         new_fulltext_field(v->get_data(), v->get_size(), new_field);
                         _doc->add(*new_field);
