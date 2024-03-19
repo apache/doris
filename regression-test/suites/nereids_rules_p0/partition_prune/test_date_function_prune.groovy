@@ -74,4 +74,9 @@ suite("test_date_function_prune") {
         sql "select * from dp where Date(date_time) in ('2020-01-01', '2020-01-03')"
         contains("partitions=2/3 (p1,p3)")
     }
+
+    explain {
+        sql "select * from dp where date_time > str_to_date('2020-01-02','%Y-%m-%d')"
+        contains("partitions=2/3 (p2,p3)")
+    }
 }
