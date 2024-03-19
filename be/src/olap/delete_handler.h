@@ -65,6 +65,15 @@ public:
     // construct sub condition from TCondition
     static std::string construct_sub_predicates(const TCondition& condition);
 
+    /**
+     * Use regular expression to extract 'column_name', 'op' and 'operands'
+     *
+     * @param condition_str input predicate string in form of `X OP Y`
+     * @param condition output param
+     * @return true if matched and extracted correctly otherwise false
+     */
+    static bool parse_delete_condition(const std::string& condition_str, TCondition* condition);
+
 private:
     // Validate the condition on the schema.
     static Status check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
@@ -106,9 +115,6 @@ public:
                     del_predicates_for_zone_map) const;
 
 private:
-    // Use regular expression to extract 'column_name', 'op' and 'operands'
-    bool _parse_condition(const std::string& condition_str, TCondition* condition);
-
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship
     std::vector<DeleteConditions> _del_conds;
