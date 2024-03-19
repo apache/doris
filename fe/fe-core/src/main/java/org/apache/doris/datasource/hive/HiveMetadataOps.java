@@ -19,8 +19,10 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.Config;
@@ -127,13 +129,29 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             Map<String, String> props = stmt.getProperties();
             String fileFormat = props.getOrDefault("file_format", Config.hive_default_file_format);
             List<String> partitionColNames = stmt.getPartitionDesc().getPartitionColNames();
-            HiveTableMetadata catalogTable = HiveTableMetadata.of(dbName,
-                    tblName,
-                    stmt.getColumns(),
-                    partitionColNames,
-                    props,
-                    fileFormat);
-
+            HiveTableMetadata catalogTable;
+            DistributionDesc bucketInfo = stmt.getDistributionDesc();
+            if (bucketInfo == null) {
+                catalogTable = HiveTableMetadata.of(dbName,
+                        tblName,
+                        stmt.getColumns(),
+                        partitionColNames,
+                        props,
+                        fileFormat);
+            } else {
+                if (bucketInfo instanceof HashDistributionDesc) {
+                    catalogTable = HiveTableMetadata.of(dbName,
+                            tblName,
+                            stmt.getColumns(),
+                            partitionColNames,
+                            ((HashDistributionDesc) bucketInfo).getDistributionColumnNames(),
+                            bucketInfo.getBuckets(),
+                            props,
+                            fileFormat);
+                } else {
+                    throw new UserException("External hive table only supports hash bucketing");
+                }
+            }
             client.createTable(catalogTable, stmt.isSetIfNotExists());
             db.setUnInitialized(true);
         } catch (Exception e) {

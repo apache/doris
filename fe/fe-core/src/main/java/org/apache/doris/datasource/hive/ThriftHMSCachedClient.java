@@ -205,7 +205,9 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         String location = hiveTable.getProperties().get("external_location");
         Set<String> partitionSet = new HashSet<>(hiveTable.getPartitionKeys());
         Pair<List<FieldSchema>, List<FieldSchema>> hiveSchema = toHiveSchema(hiveTable.getColumns(), partitionSet);
-        table.setSd(toHiveStorageDesc(hiveSchema.first, hiveTable.getFileFormat(), location));
+
+        table.setSd(toHiveStorageDesc(hiveSchema.first, hiveTable.getBucketCols(), hiveTable.getNumBuckets(),
+                hiveTable.getFileFormat(), location));
         table.setPartitionKeys(hiveSchema.second);
 
         // table.setViewOriginalText(hiveTable.getViewSql());
@@ -215,13 +217,19 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return table;
     }
 
-    private static StorageDescriptor toHiveStorageDesc(List<FieldSchema> columns, String fileFormat, String location) {
+    private static StorageDescriptor toHiveStorageDesc(List<FieldSchema> columns,
+                                                       List<String> bucketCols,
+                                                       int numBuckets,
+                                                       String fileFormat,
+                                                       String location) {
         StorageDescriptor sd = new StorageDescriptor();
         sd.setCols(columns);
         setFileFormat(fileFormat, sd);
         if (StringUtils.isNotEmpty(location)) {
             sd.setLocation(location);
         }
+        sd.setBucketCols(bucketCols);
+        sd.setNumBuckets(numBuckets);
         Map<String, String> parameters = new HashMap<>();
         parameters.put("tag", "doris external hive talbe");
         sd.setParameters(parameters);
