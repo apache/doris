@@ -21,6 +21,8 @@
 #include <memory>
 #include <string>
 
+#include "util/debug_points.h"
+
 namespace lucene {
 namespace analysis {
 class Analyzer;
@@ -98,6 +100,9 @@ std::string get_parser_lowercase_from_properties(
     if (properties.find(INVERTED_INDEX_PARSER_LOWERCASE_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
     } else {
+        DBUG_EXECUTE_IF("inverted_index_parser.get_parser_lowercase_from_properties",
+                        { return ""; })
+
         if constexpr (ReturnTrue) {
             return INVERTED_INDEX_PARSER_TRUE;
         } else {

@@ -617,6 +617,8 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
         (*index->mutable_properties())[kv.first] = kv.second;
     }
 
+    DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", { return; })
+
     // lowercase by default
     if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
         (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =

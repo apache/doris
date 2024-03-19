@@ -29,7 +29,7 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
                       std::vector<std::string> dest_index_files, const io::FileSystemSPtr& fs,
                       std::string index_writer_path, std::string tablet_path,
                       std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec,
-                      std::vector<uint32_t> dest_segment_num_rows, bool maybe_skip) {
+                      std::vector<uint32_t> dest_segment_num_rows) {
     DBUG_EXECUTE_IF("index_compaction_compact_column_throw_error", {
         if (index_id % 2 == 0) {
             _CLTHROWA(CL_ERR_IO, "debug point: test throw error in index compaction");
@@ -68,8 +68,8 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
     }
 
     DCHECK_EQ(src_index_dirs.size(), trans_vec.size());
-    index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec, dest_segment_num_rows,
-                                  maybe_skip);
+    index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec,
+                                  dest_segment_num_rows);
 
     index_writer->close();
     _CLDELETE(index_writer);
