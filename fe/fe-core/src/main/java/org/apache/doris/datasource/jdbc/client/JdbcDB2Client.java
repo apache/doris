@@ -36,25 +36,21 @@ public class JdbcDB2Client extends JdbcClient {
     }
 
     @Override
-    public List<String> getDatabaseNameList() {
+    protected List<String> getJdbcDatabaseNameList() {
         Connection conn = getConnection();
-        Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
-        }
-        List<String> remoteDatabaseNames = Lists.newArrayList();
+        List<String> databaseNames = Lists.newArrayList();
         try {
             rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
             while (rs.next()) {
-                remoteDatabaseNames.add(rs.getString("TABLE_SCHEM").trim());
+                databaseNames.add(rs.getString("TABLE_SCHEM").trim());
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
-            close(rs, stmt, conn);
+            close(rs, conn);
         }
-        return filterDatabaseNames(remoteDatabaseNames);
+        return databaseNames;
     }
 
     @Override

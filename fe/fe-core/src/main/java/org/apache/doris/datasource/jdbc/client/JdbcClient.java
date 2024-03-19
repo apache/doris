@@ -217,25 +217,13 @@ public abstract class JdbcClient {
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
-        Statement stmt = null;
-        ResultSet rs = null;
+        List<String> remoteDatabaseNames;
         if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return filterDatabaseNames(getSpecifiedDatabase(conn));
+            Connection conn = getConnection();
+            remoteDatabaseNames = getSpecifiedDatabase(conn);
+            return filterDatabaseNames(remoteDatabaseNames);
         }
-        List<String> remoteDatabaseNames = Lists.newArrayList();
-        try {
-            stmt = conn.createStatement();
-            String sql = getDatabaseQuery();
-            rs = stmt.executeQuery(sql);
-            while (rs.next()) {
-                remoteDatabaseNames.add(rs.getString(1));
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
-        } finally {
-            close(rs, stmt, conn);
-        }
+        remoteDatabaseNames = getJdbcDatabaseNameList();
         return filterDatabaseNames(remoteDatabaseNames);
     }
 
@@ -355,15 +343,35 @@ public abstract class JdbcClient {
     protected abstract String getDatabaseQuery();
 
     protected List<String> getSpecifiedDatabase(Connection conn) {
-        List<String> remoteDatabaseNames = Lists.newArrayList();
+        List<String> databaseNames = Lists.newArrayList();
         try {
-            remoteDatabaseNames.add(conn.getSchema());
+            databaseNames.add(conn.getSchema());
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get specified database name from jdbc", e);
         } finally {
             close(conn);
         }
-        return remoteDatabaseNames;
+        return databaseNames;
+    }
+
+    protected List<String> getJdbcDatabaseNameList() {
+        Connection conn = getConnection();
+        Statement stmt = null;
+        ResultSet rs = null;
+        List<String> databaseNames = Lists.newArrayList();
+        try {
+            stmt = conn.createStatement();
+            String sql = getDatabaseQuery();
+            rs = stmt.executeQuery(sql);
+            while (rs.next()) {
+                databaseNames.add(rs.getString(1));
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get database name list from jdbc", e);
+        } finally {
+            close(rs, stmt, conn);
+        }
+        return databaseNames;
     }
 
     protected String[] getTableTypes() {
