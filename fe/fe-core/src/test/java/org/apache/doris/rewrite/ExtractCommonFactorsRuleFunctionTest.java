@@ -259,8 +259,8 @@ public class ExtractCommonFactorsRuleFunctionTest {
         Assert.assertTrue(planString.contains("`l_partkey` = `p_partkey`"));
         Assert.assertTrue(planString.contains("`l_shipmode` IN ('AIR', 'AIR REG')"));
         Assert.assertTrue(planString.contains("`l_shipinstruct` = 'DELIVER IN PERSON'"));
-        Assert.assertTrue(planString.contains("(`l_quantity` >= 9) AND (`l_quantity` <= 19) "
-                + "OR (`l_quantity` >= 20) AND (`l_quantity` <= 36)"));
+        Assert.assertTrue(planString.contains("(`l_quantity` >= 9.00) AND (`l_quantity` <= 19.00) "
+                + "OR (`l_quantity` >= 20.00) AND (`l_quantity` <= 36.00)"));
         Assert.assertTrue(planString.contains("`p_size` >= 1"));
         Assert.assertTrue(planString.contains("`p_brand` IN ('Brand#11', 'Brand#21', 'Brand#32')"));
         Assert.assertTrue(planString.contains("`p_size` <= 15"));
