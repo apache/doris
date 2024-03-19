@@ -53,6 +53,7 @@ import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
 import org.apache.doris.planner.external.FileSplit;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.cache.CacheBuilder;
@@ -66,7 +67,6 @@ import com.google.common.collect.RangeMap;
 import com.google.common.collect.Streams;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
@@ -1060,19 +1060,33 @@ public class HiveMetaStoreCache {
             this.acidInfo = acidInfo;
         }
 
-        private boolean isFileVisible(Path path) {
-            if (path == null || StringUtils.isEmpty(path.toString())) {
+        @VisibleForTesting
+        public static boolean isFileVisible(Path path) {
+            if (path == null) {
                 return false;
             }
-            if (path.getName().startsWith(".") || path.getName().startsWith("_")) {
+            String pathStr = path.toUri().toString();
+            if (containsHiddenPath(pathStr) || path.getName().startsWith("_")) {
                 return false;
             }
-            for (String name : path.toString().split("/")) {
+            for (String name : pathStr.split("/")) {
                 if (isGeneratedPath(name)) {
                     return false;
                 }
             }
             return true;
+        }
+
+        private static boolean containsHiddenPath(String path) {
+            if (path.startsWith(".")) {
+                return true;
+            }
+            for (int i = 0; i < path.length() - 1; i++) {
+                if (path.charAt(i) == '/' && path.charAt(i + 1) == '.') {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static boolean isGeneratedPath(String name) {
