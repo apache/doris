@@ -17,41 +17,113 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.junit.jupiter.api.BeforeAll;
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.DatabaseMetadata;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.TableMetadata;
+
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class HiveMetadataOpsTest {
 
-    @BeforeAll
-    public void initHMSClient() {
+    private HiveMetadataOps metadataOps;
+    private String mockedDbName = "mockedDb";
 
+    @Mocked
+    private HMSCachedClient mockedClient;
+    @Mocked
+    private HMSExternalCatalog mockedCatalog;
+
+    @BeforeEach
+    public void init() {
+        metadataOps = new HiveMetadataOps(mockedCatalog, mockedClient);
+        new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
+            @Mock
+            public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+                return new HMSExternalDatabase(mockedCatalog, 0L, mockedDbName);
+            }
+
+            @Mock
+            public void onRefresh(boolean invalidCache) {
+                // mocked
+            }
+        };
+        new MockUp<HMSCachedClient>(HMSCachedClient.class) {
+            @Mock
+            public void createDatabase(DatabaseMetadata catalogDatabase) {
+                // mocked
+            }
+
+            @Mock
+            public void dropDatabase(String dbName) {
+                // mocked
+            }
+
+            @Mock
+            public void dropTable(String dbName, String tableName) {
+                // mocked
+            }
+
+            @Mock
+            public void createTable(TableMetadata catalogTable, boolean ignoreIfExists) {
+                // mocked
+            }
+        };
     }
 
     @Test
-    public void createDb() {
+    public void createDb() throws DdlException {
+        Map<String, String> props = new HashMap<>();
+        CreateDbStmt createDbStmt = new CreateDbStmt(true, mockedDbName, props);
+        metadataOps.createDb(createDbStmt);
     }
 
     @Test
-    public void dropDb() {
+    public void createTable() throws UserException {
+        TableName tableName = new TableName();
+        tableName.setCtl("mockedCtl");
+        tableName.setDb("mockedDb");
+        tableName.setCtl("mockedTbl");
+        List<ColumnDef> cols = new ArrayList<>();
+        List<String> colsName = new ArrayList<>();
+        Map<String, String> props = new HashMap<>();
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tableName, cols, "hive",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null, null, props, null, "");
+        metadataOps.createTable(stmt);
     }
 
     @Test
-    public void createTable() {
+    public void dropTable() throws DdlException {
+        TableName tableName = new TableName();
+        tableName.setCtl("mockedCtl");
+        tableName.setDb("mockedDb");
+        tableName.setCtl("mockedTbl");
+        DropTableStmt dropTblStmt = new DropTableStmt(true, tableName, true);
+        metadataOps.dropTable(dropTblStmt);
     }
 
     @Test
-    public void dropTable() {
-    }
-
-    @Test
-    public void listTableNames() {
-    }
-
-    @Test
-    public void tableExist() {
-    }
-
-    @Test
-    public void listDatabaseNames() {
+    public void dropDb() throws DdlException {
+        DropDbStmt dropDbStmt = new DropDbStmt(true, mockedDbName, true);
+        metadataOps.dropDb(dropDbStmt);
     }
 }
