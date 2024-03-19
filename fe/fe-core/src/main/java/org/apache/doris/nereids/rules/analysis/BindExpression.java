@@ -508,6 +508,7 @@ public class BindExpression implements AnalysisRuleFactory {
                                     ).bind(expr);
 
                                     expr = bindSlot(expr, childPlan, ctx.cascadesContext, false);
+                                    expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
                                 }
                                 return expr;
                             })
