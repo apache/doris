@@ -32,6 +32,8 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
@@ -131,6 +133,12 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             // skip literal expr
             if (expr.isLiteral()) {
                 return;
+            }
+            // if sleep(5) will cause rpc timeout
+            if (expr instanceof Sleep) {
+                if (((IntegerLiteral) expr.child(0)).getValue() >= 5) {
+                    return;
+                }
             }
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
