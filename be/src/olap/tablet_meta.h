@@ -112,7 +112,8 @@ public:
                int64_t time_series_compaction_time_threshold_seconds = 3600,
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
                TInvertedIndexStorageFormat::type inverted_index_storage_format =
-                       TInvertedIndexStorageFormat::V1);
+                       TInvertedIndexStorageFormat::V1,
+               int64_t time_series_compaction_level_threshold = 1);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -260,6 +261,12 @@ public:
     int64_t time_series_compaction_empty_rowsets_threshold() const {
         return _time_series_compaction_empty_rowsets_threshold;
     }
+    void set_time_series_compaction_level_threshold(int64_t level_threshold) {
+        _time_series_compaction_level_threshold = level_threshold;
+    }
+    int64_t time_series_compaction_level_threshold() const {
+        return _time_series_compaction_level_threshold;
+    }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -313,6 +320,7 @@ private:
     int64_t _time_series_compaction_file_count_threshold = 0;
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
+    int64_t _time_series_compaction_level_threshold = 0;
 
     mutable std::shared_mutex _meta_lock;
 };
