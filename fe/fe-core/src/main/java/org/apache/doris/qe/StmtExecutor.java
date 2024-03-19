@@ -791,38 +791,39 @@ public class StmtExecutor {
                 // cloud mode retry
                 LOG.debug("due to exception {} retry {} rpc {} user {}",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
-                // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
-                List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
-                            .map(id -> Long.toString(id)).collect(Collectors.toList());
                 String msg = e.getMessage();
                 boolean isNeedRetry = true;
-                if (e instanceof UserException
-                        && msg.contains(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG)) {
+                if (Config.isCloudMode()) {
                     isNeedRetry = false;
-                    Matcher matcher = beIpPattern.matcher(msg);
-                    // here retry planner not be recreated, so
-                    // in cloud mode drop node, be id invalid, so need not retry
-                    // such as be ids [11000, 11001] -> after drop node 11001
-                    // don't need to retry 11001's request
-                    if (matcher.find()) {
-                        String notAliveBe = matcher.group(1);
-                        isNeedRetry = bes.contains(notAliveBe);
-                        if (isNeedRetry) {
-                            Backend abnormalBe = Env.getCurrentSystemInfo().getBackend(Long.parseLong(notAliveBe));
-                            String deadCloudClusterStatus = abnormalBe.getCloudClusterStatus();
-                            String deadCloudClusterClusterName = abnormalBe.getCloudClusterName();
-                            LOG.info("need retry cluster {} status {}-{}", deadCloudClusterClusterName,
-                                    deadCloudClusterStatus, ClusterStatus.valueOf(deadCloudClusterStatus));
-                            if (ClusterStatus.valueOf(deadCloudClusterStatus) != ClusterStatus.NORMAL) {
-                                CloudSystemInfoService.waitForAutoStart(deadCloudClusterClusterName);
+                    // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
+                    List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
+                                .map(id -> Long.toString(id)).collect(Collectors.toList());
+                    if (e instanceof UserException
+                            && msg.contains(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG)) {
+                        Matcher matcher = beIpPattern.matcher(msg);
+                        // here retry planner not be recreated, so
+                        // in cloud mode drop node, be id invalid, so need not retry
+                        // such as be ids [11000, 11001] -> after drop node 11001
+                        // don't need to retry 11001's request
+                        if (matcher.find()) {
+                            String notAliveBe = matcher.group(1);
+                            isNeedRetry = bes.contains(notAliveBe);
+                            if (isNeedRetry) {
+                                Backend abnormalBe = Env.getCurrentSystemInfo().getBackend(Long.parseLong(notAliveBe));
+                                String deadCloudClusterStatus = abnormalBe.getCloudClusterStatus();
+                                String deadCloudClusterClusterName = abnormalBe.getCloudClusterName();
+                                LOG.info("need retry cluster {} status {}", deadCloudClusterClusterName,
+                                        deadCloudClusterStatus);
+                                if (deadCloudClusterStatus == null || deadCloudClusterStatus == ""
+                                        || ClusterStatus.valueOf(deadCloudClusterStatus) != ClusterStatus.NORMAL) {
+                                    CloudSystemInfoService.waitForAutoStart(deadCloudClusterClusterName);
+                                }
                             }
                         }
                     }
                 }
-                if (i == retryTime - 1 || !isNeedRetry) {
-                    throw e;
-                }
-                if (context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
+                if (i != retryTime -1 && isNeedRetry
+                        && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
                 } else {
                     throw e;

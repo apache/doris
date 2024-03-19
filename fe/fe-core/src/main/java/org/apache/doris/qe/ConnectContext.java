@@ -1071,6 +1071,8 @@ public class ConnectContext {
     }
 
     /**
+     * @param updateErr whether set this connect state to error when the returned cluster is null or empty.
+     *
      * @return Returns an available cluster in the following order
      *         1 Use an explicitly specified cluster
      *         2 If no cluster is specified, the user's default cluster is used
