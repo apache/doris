@@ -1592,7 +1592,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             NestedLoopJoinNode nestedLoopJoinNode = new NestedLoopJoinNode(context.nextPlanNodeId(),
                     leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds, JoinType.toJoinOperator(joinType),
                     null, null, null, nestedLoopJoin.isMarkJoin());
-            nestedLoopJoinNode.setUseSpecificProjections(true);
+            nestedLoopJoinNode.setUseSpecificProjections(false);
             nestedLoopJoinNode.setNereidsId(nestedLoopJoin.getId());
             nestedLoopJoinNode.setChildrenDistributeExprLists(distributeExprLists);
             if (nestedLoopJoin.getStats() != null) {
