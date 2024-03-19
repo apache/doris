@@ -764,7 +764,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     return Status::OK();
 }
 
-std::string FragmentMgr::dump_pipeline_tasks() {
+std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     fmt::memory_buffer debug_string_buffer;
     auto t = MonotonicNanos();
     size_t i = 0;
@@ -773,9 +773,13 @@ std::string FragmentMgr::dump_pipeline_tasks() {
         fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
                        _pipeline_map.size());
         for (auto& it : _pipeline_map) {
-            fmt::format_to(
-                    debug_string_buffer, "No.{} (elapse time = {}ns, InstanceId = {}) : {}\n", i,
-                    t - it.second->create_time(), print_id(it.first), it.second->debug_string());
+            auto elapsed = (t - it.second->create_time()) / 1000000000.0;
+            if (elapsed < duration) {
+                // Only display tasks which has been running for more than {duration} seconds.
+                continue;
+            }
+            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}s, InstanceId = {}) : {}\n",
+                           i, elapsed, print_id(it.first), it.second->debug_string());
             i++;
         }
     }
