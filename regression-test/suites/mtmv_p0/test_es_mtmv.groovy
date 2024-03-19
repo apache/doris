@@ -15,37 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive") {
-    String enabled = context.config.otherConfigs.get("enableJdbcTest")
+suite("test_es_mtmv", "p0,external,es,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableEsTest")
     logger.info("enabled: " + enabled)
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     logger.info("externalEnvIp: " + externalEnvIp)
-    String mysql_port = context.config.otherConfigs.get("mysql_57_port");
+    String es_7_port = context.config.otherConfigs.get("es_7_port")
     logger.info("mysql_port: " + mysql_port)
-    String s3_endpoint = getS3Endpoint()
-    logger.info("s3_endpoint: " + s3_endpoint)
-    String bucket = getS3BucketName()
-    logger.info("bucket: " + bucket)
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-    logger.info("driver_url: " + driver_url)
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "mysql_mtmv_catalog";
-        String mvName = "test_mysql_mtmv"
+        String catalog_name = "es_mtmv_catalog";
+        String mvName = "test_es_mtmv"
         String dbName = "regression_test_mtmv_p0"
-        String mysqlDb = "doris_test"
-        String mysqlTable = "ex_tb2"
+        String esDb = "default_db"
+        String esTable = "test1"
         sql """drop catalog if exists ${catalog_name} """
 
         sql """create catalog if not exists ${catalog_name} properties(
-            "type"="jdbc",
-            "user"="root",
-            "password"="123456",
-            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/${mysqlDb}?useSSL=false&zeroDateTimeBehavior=convertToNull",
-            "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "type"="es",
+            "hosts"="http://${externalEnvIp}:$es_7_port",
+            "nodes_discovery"="false",
+            "enable_keyword_sniff"="true"
         );"""
 
-        qt_catalog """select * from ${catalog_name}.${mysqlDb}.${mysqlTable} order by id"""
+        order_qt_catalog """select * from ${catalog_name}.${esDb}.${esTable}"""
         sql """drop materialized view if exists ${mvName};"""
 
         sql """
@@ -54,7 +46,7 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT * FROM ${catalog_name}.${mysqlDb}.${mysqlTable};
+                SELECT * FROM ${catalog_name}.${esDb}.${esTable};
             """
 
         sql """
@@ -62,7 +54,7 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
             """
         def jobName = getJobName(dbName, mvName);
         waitingMTMVTaskFinished(jobName)
-        order_qt_mtmv "SELECT * FROM ${mvName} order by id"
+        order_qt_mtmv "SELECT * FROM ${mvName}"
 
         sql """drop materialized view if exists ${mvName};"""
         sql """ drop catalog if exists ${catalog_name} """
