@@ -88,14 +88,6 @@ suite("test_insert_from_tvf_with_common_user", "p0") {
     sql """create user ${common_user} identified by '12345'"""
     sql """GRANT SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV ON *.*.* TO '${common_user}'@'%';"""
 
-     //cloud-mode
-    if (isCloudMode()) {
-        def clusters = sql " SHOW CLUSTERS; "
-        assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${common_user}""";
-    }
-
     connect(user = "${common_user}", password = '12345', url = context.config.jdbcUrl) {
         sql """ use regression_test_external_table_p0_tvf """
 
