@@ -41,7 +41,7 @@ public class HiveTableMetadata implements TableMetadata {
                              List<String> partitionKeys,
                              Map<String, String> props,
                              String fileFormat) {
-        this(dbName, tblName, columns, partitionKeys, new ArrayList<>(), 0, fileFormat, props);
+        this(dbName, tblName, columns, partitionKeys, new ArrayList<>(), 0, props, fileFormat);
     }
 
     public HiveTableMetadata(String dbName, String tableName,

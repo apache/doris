@@ -41,7 +41,7 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
         }
         // data type test
         def q02 = {
-            qt_q2 """ select * from web_site where web_site_id='2' order by web_site_id """ // test char,date,varchar,double,decimal
+            qt_q2 """ select * from web_site where web_site_id=2 order by web_site_id """ // test char,date,varchar,double,decimal
             qt_q3 """ select * from int_types order by mc_boolean limit 2 """ // test bool,tinyint,int,bigint
         }
         // test partition table filter
