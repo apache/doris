@@ -37,7 +37,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
