@@ -196,7 +196,7 @@ class SuiteContext implements Closeable {
     }
 
     private String getDownstreamJdbcNetInfo() {
-        String subJdbc = config.downstreamUrl.substring(config.downstreamUrl.indexOf("://") + 3)
+        String subJdbc = config.ccrDownstreamUrl.substring(config.ccrDownstreamUrl.indexOf("://") + 3)
         return subJdbc.substring(0, subJdbc.indexOf("/"))
     }
 
