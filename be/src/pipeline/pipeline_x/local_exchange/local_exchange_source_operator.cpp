@@ -40,13 +40,13 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
 }
 
 std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) const {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}",
-                   Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
-                   _exchanger->_num_senders, _exchanger->_num_sources,
-                   _exchanger->_running_sink_operators);
-    return fmt::to_string(debug_string_buffer);
+    std::string debug_string;
+    debug_string = fmt::format(
+            "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}",
+            Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
+            _exchanger->_num_senders, _exchanger->_num_sources,
+            _exchanger->_running_sink_operators);
+    return debug_string;
 }
 
 Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
