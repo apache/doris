@@ -389,9 +389,8 @@ public:
         const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
         if constexpr (field_is_slice_type(field_type)) {
             if (_index_writer == nullptr) {
-                LOG(ERROR) << "field or index writer is null in inverted index writer.";
-                return Status::InternalError(
-                        "field or index writer is null in inverted index writer");
+                LOG(ERROR) << "index writer is null in inverted index writer.";
+                return Status::InternalError("index writer is null in inverted index writer");
             }
             auto ignore_above_value =
                     get_parser_ignore_above_value_from_properties(_index_meta->properties());
