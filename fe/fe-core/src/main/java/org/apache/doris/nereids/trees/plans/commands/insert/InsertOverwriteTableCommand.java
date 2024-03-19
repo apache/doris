@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -54,6 +55,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -114,27 +116,34 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
 
         Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
-                .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
+                .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalTableSink)).stream().findAny();
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
-        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
-        OlapTable targetTable = physicalOlapTableSink.getTargetTable();
-        InternalDatabaseUtil
-                .checkDatabase(targetTable.getQualifiedDbName(), ConnectContext.get());
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
-                        PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    targetTable.getQualifiedDbName() + ": " + targetTable.getName());
+        PhysicalTableSink<?> physicalTableSink = ((PhysicalTableSink<?>) plan.get());
+        TableIf targetTable = physicalTableSink.getTargetTable();
+        List<String> partitionNames;
+        List<String> tempPartitionNames;
+        if (physicalTableSink instanceof PhysicalOlapTableSink) {
+            InternalDatabaseUtil
+                    .checkDatabase(((OlapTable) targetTable).getQualifiedDbName(), ConnectContext.get());
+            // check auth
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), ((OlapTable) targetTable).getQualifiedDbName(),
+                            targetTable.getName(), PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                        ((OlapTable) targetTable).getQualifiedDbName() + ": " + targetTable.getName());
+            }
+            ConnectContext.get().setSkipAuth(true);
+            partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
+            if (CollectionUtils.isEmpty(partitionNames)) {
+                partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+            }
+            tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
+        } else {
+            partitionNames = new ArrayList<>();
+            tempPartitionNames = new ArrayList<>();
         }
 
-        ConnectContext.get().setSkipAuth(true);
-        List<String> partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
-        if (CollectionUtils.isEmpty(partitionNames)) {
-            partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
-        }
-        List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
         long taskId = Env.getCurrentEnv().getInsertOverwriteManager()
                 .registerTask(targetTable.getDatabase().getId(), targetTable.getId(), tempPartitionNames);
         try {
