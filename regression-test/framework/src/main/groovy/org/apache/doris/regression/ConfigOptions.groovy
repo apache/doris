@@ -63,6 +63,7 @@ class ConfigOptions {
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option caseNamePrefixOpt
     static Option dryRunOpt
 
     static CommandLine initCommands(String[] args) {
@@ -358,6 +359,13 @@ class ConfigOptions {
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
                 .build()
+        caseNamePrefixOpt = Option.builder("cnp")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("caseNamePrefix")
+                .desc("add prefix to each case name")
+                .build()
         dryRunOpt = Option.builder("dryRun")
                 .required(false)
                 .hasArg(false)
@@ -399,6 +407,7 @@ class ConfigOptions {
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(caseNamePrefixOpt)
                 .addOption(dryRunOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)
