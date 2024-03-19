@@ -255,6 +255,7 @@ l_comment) select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c14, c15, c
         for (int i = 1; i <= 10; i++) {
             logger.info("process file:" + i)
             if (i == 5) {
+                getRowCount(total, table_name)
                 def retry = 0
                 while (retry < 10) {
                     try {

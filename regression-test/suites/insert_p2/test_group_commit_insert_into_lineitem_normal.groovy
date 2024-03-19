@@ -111,6 +111,10 @@ PROPERTIES (
                 break
             } catch (Exception e) {
                 logger.info("got exception:" + e)
+                Thread.sleep(5000)
+                context.reconnectFe()
+                sql """ set group_commit = async_mode; """
+                sql """ set enable_nereids_dml = false; """
             }
             i++;
             if (i >= 30) {
