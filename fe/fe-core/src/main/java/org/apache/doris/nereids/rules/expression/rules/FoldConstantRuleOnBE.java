@@ -33,8 +33,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -161,8 +161,12 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
     // if sleep(5) will cause rpc timeout
     private boolean skipSleepFunction(Expression expr) {
         if (expr instanceof Sleep) {
-            if (((IntegerLiteral) expr.child(0)).getValue() >= 5) {
-                return true;
+            Expression param = expr.child(0);
+            if (param instanceof Cast) {
+                param = param.child(0);
+            }
+            if (param instanceof NumericLiteral) {
+                return ((NumericLiteral) param).getDouble() >= 5.0;
             }
         }
         return false;
