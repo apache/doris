@@ -2390,116 +2390,21 @@ public class ShowExecutor {
     }
 
     private void handleShowQueryProfile() throws AnalysisException {
-        ShowQueryProfileStmt showStmt = (ShowQueryProfileStmt) stmt;
-        ShowQueryProfileStmt.PathType pathType = showStmt.getPathType();
-        List<List<String>> rows = Lists.newArrayList();
-        switch (pathType) {
-            case QUERY_IDS:
-                rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.QUERY);
-                break;
-            case FRAGMENTS: {
-                ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getQueryId(),
-                        showStmt.getQueryId());
-                if (treeRoot == null) {
-                    throw new AnalysisException("Failed to get fragment tree for query: " + showStmt.getQueryId());
-                }
-                List<String> row = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
-                rows.add(row);
-                break;
-            }
-            case INSTANCES: {
-                // For query profile, there should be only one execution profile,
-                // And the execution id is same as query id
-                List<Triple<String, String, Long>> instanceList
-                        = ProfileManager.getInstance().getFragmentInstanceList(
-                        showStmt.getQueryId(), showStmt.getQueryId(), showStmt.getFragmentId());
-                if (instanceList == null) {
-                    throw new AnalysisException("Failed to get instance list for fragment: "
-                            + showStmt.getFragmentId());
-                }
-                for (Triple<String, String, Long> triple : instanceList) {
-                    List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
-                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
-                    rows.add(row);
-                }
-                break;
-            }
-            case SINGLE_INSTANCE: {
-                // For query profile, there should be only one execution profile,
-                // And the execution id is same as query id
-                ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getQueryId(),
-                        showStmt.getQueryId(), showStmt.getFragmentId(), showStmt.getInstanceId());
-                if (treeRoot == null) {
-                    throw new AnalysisException("Failed to get instance tree for instance: "
-                            + showStmt.getInstanceId());
-                }
-                List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
-                rows.add(row);
-                break;
-            }
-            default:
-                break;
-        }
-
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
+        int httpPort = Config.http_port;
+        String terminalMsg = String.format(
+                "try visit http://%s:%d/QueryProfile, show query/load profile syntax is a deprecated feature",
+                selfHost, httpPort);
+        throw new AnalysisException(terminalMsg);
     }
 
     private void handleShowLoadProfile() throws AnalysisException {
-        ShowLoadProfileStmt showStmt = (ShowLoadProfileStmt) stmt;
-        ShowLoadProfileStmt.PathType pathType = showStmt.getPathType();
-        List<List<String>> rows = Lists.newArrayList();
-        switch (pathType) {
-            case QUERY_IDS:
-                rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.LOAD);
-                break;
-            case TASK_IDS: {
-                rows = ProfileManager.getInstance().getLoadJobTaskList(showStmt.getJobId());
-                break;
-            }
-            case FRAGMENTS: {
-                ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getJobId(),
-                        showStmt.getTaskId());
-                if (treeRoot == null) {
-                    throw new AnalysisException("Failed to get fragment tree for load: " + showStmt.getJobId());
-                }
-                List<String> row = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
-                rows.add(row);
-                break;
-            }
-            case INSTANCES: {
-                // For load profile, there should be only one fragment in each execution profile
-                // And the fragment id is 0.
-                List<Triple<String, String, Long>> instanceList
-                        = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getJobId(),
-                        showStmt.getTaskId(), ((ShowLoadProfileStmt) stmt).getFragmentId());
-                if (instanceList == null) {
-                    throw new AnalysisException("Failed to get instance list for task: " + showStmt.getTaskId());
-                }
-                for (Triple<String, String, Long> triple : instanceList) {
-                    List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
-                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
-                    rows.add(row);
-                }
-                break;
-            }
-            case SINGLE_INSTANCE: {
-                // For load profile, there should be only one fragment in each execution profile.
-                // And the fragment id is 0.
-                ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getJobId(),
-                        showStmt.getTaskId(), showStmt.getFragmentId(), showStmt.getInstanceId());
-                if (treeRoot == null) {
-                    throw new AnalysisException("Failed to get instance tree for instance: "
-                            + showStmt.getInstanceId());
-                }
-                List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
-                rows.add(row);
-                break;
-            }
-            default:
-                break;
-        }
-
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
+        int httpPort = Config.http_port;
+        String terminalMsg = String.format(
+                "try visit http://%s:%d/QueryProfile, show query/load profile syntax is a deprecated feature",
+                selfHost, httpPort);
+        throw new AnalysisException(terminalMsg);
     }
 
     private void handleShowCreateRepository() throws AnalysisException {
