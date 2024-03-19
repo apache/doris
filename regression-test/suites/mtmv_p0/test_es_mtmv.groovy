@@ -21,7 +21,7 @@ suite("test_es_mtmv", "p0,external,es,external_docker,external_docker_hive") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     logger.info("externalEnvIp: " + externalEnvIp)
     String es_7_port = context.config.otherConfigs.get("es_7_port")
-    logger.info("mysql_port: " + mysql_port)
+    logger.info("es_7_port: " + es_7_port)
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "es_mtmv_catalog";
         String mvName = "test_es_mtmv"
@@ -32,7 +32,7 @@ suite("test_es_mtmv", "p0,external,es,external_docker,external_docker_hive") {
 
         sql """create catalog if not exists ${catalog_name} properties(
             "type"="es",
-            "hosts"="http://${externalEnvIp}:$es_7_port",
+            "hosts"="http://${externalEnvIp}:${es_7_port}",
             "nodes_discovery"="false",
             "enable_keyword_sniff"="true"
         );"""
