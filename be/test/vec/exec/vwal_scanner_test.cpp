@@ -66,7 +66,8 @@ private:
     int64_t _tb_id = 2;
     int64_t _txn_id_1 = 123;
     int64_t _txn_id_2 = 456;
-    int64_t _version = 0;
+    uint32_t _version_0 = 0;
+    uint32_t _version_1 = 1;
     int64_t _backend_id = 1001;
     std::string _label_1 = "test1";
     std::string _label_2 = "test2";
@@ -249,16 +250,18 @@ void VWalScannerTest::init() {
     _env->_wal_manager = WalManager::create_shared(_env, _wal_dir);
     std::string base_path;
     auto st = _env->_wal_manager->_init_wal_dirs_info();
-    st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id_1, _label_1, base_path);
+    st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id_1, _label_1, base_path,
+                                             _version_0);
     std::string src = "./be/test/exec/test_data/wal_scanner/wal_version0";
     std::string dst = _wal_dir + "/" + std::to_string(_db_id) + "/" + std::to_string(_tb_id) + "/" +
-                      std::to_string(_version) + "_" + std::to_string(_backend_id) + "_" +
+                      std::to_string(_version_0) + "_" + std::to_string(_backend_id) + "_" +
                       std::to_string(_txn_id_1) + "_" + _label_1;
     std::filesystem::copy(src, dst);
-    st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id_2, _label_2, base_path);
+    st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id_2, _label_2, base_path,
+                                             _version_1);
     src = "./be/test/exec/test_data/wal_scanner/wal_version1";
     dst = _wal_dir + "/" + std::to_string(_db_id) + "/" + std::to_string(_tb_id) + "/" +
-          std::to_string(_version) + "_" + std::to_string(_backend_id) + "_" +
+          std::to_string(_version_1) + "_" + std::to_string(_backend_id) + "_" +
           std::to_string(_txn_id_2) + "_" + _label_2;
     std::filesystem::copy(src, dst);
 }

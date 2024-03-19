@@ -73,7 +73,7 @@ public:
 
     // replay wal
     Status create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
-                           const std::string& label, std::string& base_path);
+                           const std::string& label, std::string& base_path, uint32_t wal_version);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
     Status delete_wal(int64_t table_id, int64_t wal_id);
     Status rename_to_tmp_path(const std::string wal, int64_t table_id, int64_t wal_id);

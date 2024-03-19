@@ -205,11 +205,12 @@ size_t WalManager::get_wal_queue_size(int64_t table_id) {
 }
 
 Status WalManager::create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
-                                   const std::string& label, std::string& base_path) {
+                                   const std::string& label, std::string& base_path,
+                                   uint32_t wal_version) {
     base_path = _wal_dirs_info->get_available_random_wal_dir();
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
-       << WAL_VERSION << "_" << _exec_env->master_info()->backend_id << "_"
+       << std::to_string(wal_version) << "_" << _exec_env->master_info()->backend_id << "_"
        << std::to_string(wal_id) << "_" << label;
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
