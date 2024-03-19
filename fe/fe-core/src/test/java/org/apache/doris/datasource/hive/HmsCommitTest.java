@@ -54,9 +54,7 @@ public class HmsCommitTest {
     private static final String tbWithoutPartition = "test_tb_without_partition";
     private static Path warehousePath;
     static String dbLocation;
-    private String inputFormat = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
-    private String outputFormat = "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat";
-    private String serde = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
+    private String fileFormat = "orc";
 
     @BeforeClass
     public static void beforeClass() throws Throwable {
@@ -103,11 +101,11 @@ public class HmsCommitTest {
         partitionKeys.add(new FieldSchema("c3", "string", "comment"));
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
                 dbName, tbWithPartition, columns, partitionKeys,
-                new HashMap<>(), inputFormat, outputFormat, serde);
+                new HashMap<>(), fileFormat);
         hmsClient.createTable(tableMetadata, true);
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
                 dbName, tbWithoutPartition, columns, new ArrayList<>(),
-                new HashMap<>(), inputFormat, outputFormat, serde);
+                new HashMap<>(), fileFormat);
         hmsClient.createTable(tableMetadata2, true);
     }
 

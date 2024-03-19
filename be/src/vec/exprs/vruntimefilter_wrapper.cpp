@@ -120,12 +120,15 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
         if (is_column_const(*result_column.column)) {
             auto* constant_val = const_cast<char*>(result_column.column->get_data_at(0).data);
-            auto filter = constant_val == nullptr && reinterpret_cast<const int8_t*>(constant_val);
+            auto filter =
+                    (constant_val == nullptr) || (!reinterpret_cast<const uint8_t*>(constant_val));
             // if _null_aware is true, we should check the first args column is nullable. if value in
             // column is null. we should set it to true
             if (_null_aware) {
                 DCHECK(!args.empty());
-                DCHECK(is_column_const(*block->get_by_position(args[0]).column));
+                // if args is only null, result may be const null column
+                DCHECK(is_column_const(*block->get_by_position(args[0]).column) ||
+                       constant_val == nullptr);
                 if (filter &&
                     block->get_by_position(args[0]).column->get_data_at(0).data == nullptr) {
                     auto res_col = ColumnVector<uint8_t>::create(1, 1);

@@ -815,9 +815,8 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, *_params, range, _state->query_options().batch_size, tz,
                     _io_ctx.get(), _state,
-                    config::max_external_file_meta_cache_num <= 0
-                            ? nullptr
-                            : ExecEnv::GetInstance()->file_meta_cache(),
+                    _shoudl_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
+                                                     : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
             {
                 SCOPED_TIMER(_open_reader_timer);
