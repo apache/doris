@@ -47,6 +47,47 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
     private static final Logger LOG = LogManager.getLogger(CloudSchemaChangeHandler.class);
 
     @Override
+    public void updatePartitionsProperties(Database db, String tableName, List<String> partitionNames,
+                                           Map<String, String> properties) throws DdlException, MetaNotFoundException {
+        Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        if (properties.size() != 1) {
+            throw new DdlException("Can only set one partition property at a time");
+        }
+
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            long ttlSeconds = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+            olapTable.readLock();
+            try {
+                if (ttlSeconds == olapTable.getTTLSeconds()) {
+                    LOG.info("ttlSeconds:{} is equal with olapTable.getTTLSeconds():{}", ttlSeconds,
+                            olapTable.getTTLSeconds());
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.ttlSeconds = ttlSeconds;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TTL_SECONDS;
+        } else {
+            LOG.warn("invalid properties:{}", properties);
+            throw new DdlException("invalid properties");
+        }
+
+        for (String partitionName : partitionNames) {
+            try {
+                updateCloudPartitionMeta(db, olapTable.getName(), partitionName, param);
+            } catch (Exception e) {
+                LOG.warn("tableName:{}, partitionNames:{} updateCloudPartitionsProperties exception:",
+                        tableName, partitionNames, e);
+                throw new DdlException(e.getMessage());
+            }
+        }
+    }
+
+    @Override
     public void updateTableProperties(Database db, String tableName, Map<String, String> properties)
             throws UserException {
         Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
