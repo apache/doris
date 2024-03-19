@@ -129,16 +129,16 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                 if (((Cast) expr).child().isNullLiteral()) {
                     return;
                 }
+                if (skipSleepFunction(((Cast) expr).child())) {
+                    return;
+                }
             }
             // skip literal expr
             if (expr.isLiteral()) {
                 return;
             }
-            // if sleep(5) will cause rpc timeout
-            if (expr instanceof Sleep) {
-                if (((IntegerLiteral) expr.child(0)).getValue() >= 5) {
-                    return;
-                }
+            if (skipSleepFunction(expr)) {
+                return;
             }
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
@@ -156,6 +156,16 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                 collectConst(child, constMap, tExprMap);
             }
         }
+    }
+
+    // if sleep(5) will cause rpc timeout
+    private boolean skipSleepFunction(Expression expr) {
+        if (expr instanceof Sleep) {
+            if (((IntegerLiteral) expr.child(0)).getValue() >= 5) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,
@@ -191,8 +201,8 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
 
             // TODO: will be delete the debug log after find problem of timeout.
             LOG.info("fold query {} ", DebugUtil.printId(context.queryId()));
-            Future<PConstantExprResult> future =
-                    BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
+            Future<PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress,
+                    tParams);
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
 
             if (result.getStatus().getStatusCode() == 0) {

@@ -1740,12 +1740,12 @@ public class SessionVariable implements Serializable, Writable {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
             this.enableDeleteSubPredicateV2 = false;
-            this.enableFoldConstantByBe = false;
+            // this.enableFoldConstantByBe = false;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
-            this.enableFoldConstantByBe = true;
+            // this.enableFoldConstantByBe = true;
         }
         /*
         switch (randomInt) {
