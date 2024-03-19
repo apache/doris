@@ -19,7 +19,7 @@ name: Need_2_Approval
 
 on:
   pull_request_review:
-    types: [submitted]
+    types: [ submitted ]
 
 jobs:
   Need_2_Approval:
@@ -31,8 +31,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'  # Adjust if needed
-      - name: Install fnmatch library
-        run: pip install fnmatch
+      - name: Install match library
+        run: |
+          pip install --upgrade pip 
+          pip install match
+          pip install requests
       - name: Run Python script
         run: |
           python tools/maintainers/check_reviews.py  ${{ github.event.pull_request.number }} ${{secrets.GITHUB_TOKEN}}
