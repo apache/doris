@@ -166,7 +166,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
             } else {
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
-                sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+                if (col.getType().isStringType()) {
+                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_STRING_TEMPLATE);
+                } else {
+                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+                }
             }
             LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
                     + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "
