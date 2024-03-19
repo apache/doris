@@ -88,6 +88,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -229,6 +230,8 @@ public class Coordinator implements CoordInterface {
 
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
+
+    private final List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -484,6 +487,10 @@ public class Coordinator implements CoordInterface {
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return errorTabletInfos;
+    }
+
+    public List<THivePartitionUpdate> getHivePartitionUpdates() {
+        return hivePartitionUpdates;
     }
 
     public Map<String, Integer> getBeToInstancesNum() {
@@ -2409,7 +2416,14 @@ public class Coordinator implements CoordInterface {
         // TODO: more ranges?
     }
 
-
+    private void updateHivePartitionUpdates(List<THivePartitionUpdate> hivePartitionUpdates) {
+        lock.lock();
+        try {
+            this.hivePartitionUpdates.addAll(hivePartitionUpdates);
+        } finally {
+            lock.unlock();
+        }
+    }
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
@@ -2458,6 +2472,9 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
+            }
+            if (params.isSetHivePartitionUpdates()) {
+                updateHivePartitionUpdates(params.getHivePartitionUpdates());
             }
 
             Preconditions.checkArgument(params.isSetDetailedReport());
@@ -2523,6 +2540,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
+                }
+                if (params.isSetHivePartitionUpdates()) {
+                    updateHivePartitionUpdates(params.getHivePartitionUpdates());
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} instance {} is marked done",
@@ -2600,6 +2620,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
+                }
+                if (params.isSetHivePartitionUpdates()) {
+                    updateHivePartitionUpdates(params.getHivePartitionUpdates());
                 }
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             }
