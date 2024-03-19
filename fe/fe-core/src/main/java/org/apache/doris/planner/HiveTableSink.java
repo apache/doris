@@ -152,7 +152,7 @@ public class HiveTableSink extends DataSink {
     }
 
     private String createTempPath(String location) {
-        String user = ConnectContext.get().getUserIdentity().getUser();
+        String user = ConnectContext.get().getUserIdentity().getQualifiedUser();
         return location + "/.doris_staging/" + user + "/" + UUID.randomUUID().toString().replace("-", "");
     }
 
