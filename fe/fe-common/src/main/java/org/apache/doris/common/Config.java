@@ -2248,9 +2248,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static boolean allow_analyze_statistics_info_polluting_file_cache = true;
 
-    @ConfField
-    public static int cpu_resource_limit_per_analyze_task = 1;
-
     @ConfField(mutable = true)
     public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
 
