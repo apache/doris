@@ -4523,24 +4523,29 @@ public class Env {
                 groupSchema.checkColocateSchema(table);
             }
 
-            Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
-            if (groupSchema == null) {
-                // assign to a newly created group, set backends sequence.
-                // we arbitrarily choose a tablet backends sequence from this table,
-                // let the colocation balancer do the work.
-                backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
-            }
-            // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
-            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
+            if (Config.isCloudMode()) {
+                groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
+            } else {
+                Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
+                if (groupSchema == null) {
+                    // assign to a newly created group, set backends sequence.
+                    // we arbitrarily choose a tablet backends sequence from this table,
+                    // let the colocation balancer do the work.
+                    backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
+                }
+                // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
+                groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
 
-            if (groupSchema == null) {
-                Preconditions.checkNotNull(backendsPerBucketSeq);
-                colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                if (groupSchema == null) {
+                    Preconditions.checkNotNull(backendsPerBucketSeq);
+                    colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                }
+
+                // set this group as unstable
+                colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
+                        false /* edit log is along with modify table log */);
             }
 
-            // set this group as unstable
-            colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
-                    false /* edit log is along with modify table log */);
             table.setColocateGroup(assignedGroup);
         } else {
             // unset colocation group
