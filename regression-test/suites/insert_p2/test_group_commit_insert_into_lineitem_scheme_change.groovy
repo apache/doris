@@ -313,6 +313,7 @@ PROPERTIES (
             String fileName = file_array[i]
             logger.info("process file:" + fileName)
             if (i == (int) (file_array.length / 2)) {
+                getRowCount(total, table_name)
                 def retry = 0
                 while (retry < 10) {
                     try {
