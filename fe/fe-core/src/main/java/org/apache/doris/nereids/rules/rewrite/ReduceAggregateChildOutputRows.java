@@ -30,6 +30,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -52,29 +54,31 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
                 return null;
             }
 
-            List<NamedExpression> newOutput = agg.getOutputExpressions().stream().map(ne -> {
-                if (ne instanceof Alias && ne.child(0) instanceof AggregateFunction) {
-                    AggregateFunction f = (AggregateFunction) ne.child(0);
+            ImmutableList.Builder<NamedExpression> newOutput = ImmutableList.builder();
+            for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
+                NamedExpression expr = agg.getOutputExpressions().get(i);
+                if (expr instanceof Alias && expr.child(0) instanceof AggregateFunction) {
+                    AggregateFunction f = (AggregateFunction) expr.child(0);
                     if (f instanceof Min || f instanceof Max) {
-                        return new Alias(ne.getExprId(), f.child(0), ne.getName());
+                        newOutput.add(new Alias(expr.getExprId(), f.child(0), expr.getName()));
                     } else {
                         throw new AnalysisException("Unexpected aggregate function: " + f);
                     }
                 } else {
-                    return ne;
+                    newOutput.add(expr);
                 }
-            }).collect(Collectors.toList());
+            }
 
             if (agg.getGroupByExpressions().isEmpty()) {
                 LogicalAggregate newAgg = new LogicalAggregate<>(agg.getGroupByExpressions(),
                         agg.getOutputExpressions(), new LogicalLimit(1, 0, LimitPhase.ORIGIN,
-                                new LogicalProject<>(newOutput, agg.child())));
+                                new LogicalProject<>(newOutput.build(), agg.child())));
                 newAgg.setRewrittenByAggregateConstant(true);
                 return newAgg;
             } else {
                 List<NamedExpression> childOutput = agg.getGroupByExpressions().stream().map(expr ->
                         (NamedExpression) expr).collect(Collectors.toList());
-                return new LogicalProject<>(newOutput,
+                return new LogicalProject<>(newOutput.build(),
                                 new LogicalAggregate<>(agg.getGroupByExpressions(), childOutput, agg.child()));
             }
         }).toRule(RuleType.ELIMINATE_AGGREGATE_CONSTANT);
