@@ -444,12 +444,13 @@ public:
     }
 
     RuntimeFilterType get_real_type() const {
-        auto real_filter_type = _filter_type;
-        if (real_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-            real_filter_type = is_bloomfilter() ? RuntimeFilterType::BLOOM_FILTER
-                                                : RuntimeFilterType::IN_FILTER;
+        if (_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            if (_context->hybrid_set) {
+                return RuntimeFilterType::IN_FILTER;
+            }
+            return RuntimeFilterType::BLOOM_FILTER;
         }
-        return real_filter_type;
+        return _filter_type;
     }
 
     size_t get_bloom_filter_size() const {
@@ -901,7 +902,7 @@ public:
 
     PrimitiveType column_type() { return _column_return_type; }
 
-    bool is_bloomfilter() const { return _context->bloom_filter_func != nullptr; }
+    bool is_bloomfilter() const { return get_real_type() == RuntimeFilterType::BLOOM_FILTER; }
 
     bool contain_null() const {
         if (is_bloomfilter()) {

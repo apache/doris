@@ -101,43 +101,26 @@ public:
             RETURN_IF_ERROR(runtime_filter->change_to_bloom_filter());
         }
 
-        // process ignore oversize IN_FILTER
-        std::unordered_map<int, bool> has_in_filter;
-        for (auto* runtime_filter : _runtime_filters) {
-            if (runtime_filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
+        // process ignore duplicate IN_FILTER
+        std::unordered_set<int> has_in_filter;
+        for (auto* filter : _runtime_filters) {
+            if (filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
                 continue;
             }
-
-            if (get_real_size(runtime_filter, hash_table_size) >
-                state->runtime_filter_max_in_num()) {
-                RETURN_IF_ERROR(
-                        ignore_filter(state, runtime_filter,
-                                      fmt::format("in_num({}) >= max_in_num({})", hash_table_size,
-                                                  state->runtime_filter_max_in_num())));
-            } else {
-                has_in_filter[runtime_filter->expr_order()] = true;
+            if (has_in_filter.contains(filter->expr_order())) {
+                RETURN_IF_ERROR(ignore_filter(state, filter, "has IN_FILTER on same expr"));
+                continue;
             }
+            has_in_filter.insert(filter->expr_order());
         }
 
         // process ignore filter when it has IN_FILTER on same expr, and init bloom filter size
         for (auto* runtime_filter : _runtime_filters) {
-            if (runtime_filter->get_real_type() == RuntimeFilterType::IN_FILTER) {
+            if (runtime_filter->get_real_type() == RuntimeFilterType::IN_FILTER ||
+                !has_in_filter.contains(runtime_filter->expr_order())) {
                 continue;
             }
-
-            if (has_in_filter[runtime_filter->expr_order()]) {
-                RETURN_IF_ERROR(ignore_filter(state, runtime_filter, "has IN_FILTER on same expr"));
-                continue;
-            }
-
-            if (runtime_filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-                if (runtime_filter->isset_global_size()) {
-                    LOG(WARNING) << "mytest hash_table_size:" << hash_table_size
-                                 << " global_size:" << runtime_filter->get_global_size();
-                }
-                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(
-                        get_real_size(runtime_filter, hash_table_size)));
-            }
+            RETURN_IF_ERROR(ignore_filter(state, runtime_filter, "has IN_FILTER on same expr"));
         }
         return Status::OK();
     }
@@ -149,10 +132,6 @@ public:
                 continue;
             }
 
-            if (runtime_filter->isset_global_size()) {
-                LOG(WARNING) << "mytest hash_table_size:" << hash_table_size
-                             << " global_size:" << runtime_filter->get_global_size();
-            }
             RETURN_IF_ERROR(runtime_filter->init_bloom_filter(
                     get_real_size(runtime_filter, hash_table_size)));
         }
