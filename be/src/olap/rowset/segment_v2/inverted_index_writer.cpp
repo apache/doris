@@ -80,8 +80,9 @@ public:
 
     explicit InvertedIndexColumnWriterImpl(const std::string& field_name,
                                            InvertedIndexFileWriter* index_file_writer,
-                                           const TabletIndex* index_meta)
-            : _index_meta(index_meta), _index_file_writer(index_file_writer) {
+                                           const TabletIndex* index_meta, const bool single_field = true)
+            : _single_field(single_field),
+              _index_meta(index_meta), _index_file_writer(index_file_writer) {
         _parser_type = get_inverted_index_parser_type_from_string(
                 get_parser_string_from_properties(_index_meta->properties()));
         _value_key_coder = get_key_coder(field_type);
@@ -258,9 +259,14 @@ public:
         RETURN_IF_ERROR(create_char_string_reader(_char_string_reader));
         RETURN_IF_ERROR(create_analyzer(_analyzer));
         RETURN_IF_ERROR(create_index_writer(_index_writer));
-        RETURN_IF_ERROR(create_field(&_field));
         _doc = std::make_unique<lucene::document::Document>();
-        _doc->add(*_field);
+        if (_single_field) {
+            RETURN_IF_ERROR(create_field(&_field));
+            _doc->add(*_field);
+        } else {
+            // array's inverted index do need create field first
+            _doc->setNeedResetFieldData(true);
+        }
         return Status::OK();
     }
 
@@ -314,6 +320,16 @@ public:
         }
     }
 
+    void new_fulltext_field(const char* field_value_data, size_t field_value_size, lucene::document::Field* field) {
+        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
+            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
+            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
+            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
+            new_char_token_stream(field_value_data, field_value_size, field);
+        } else {
+            new_field_char_value(field_value_data, field_value_size, field);
+        }
+    }
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field) {
         _char_string_reader->init(s, len, false);
         auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader.get());
@@ -369,7 +385,7 @@ public:
         }
         const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
         if constexpr (field_is_slice_type(field_type)) {
-            if (_field == nullptr || _index_writer == nullptr) {
+            if (_index_writer == nullptr) {
                 LOG(ERROR) << "field or index writer is null in inverted index writer.";
                 return Status::InternalError(
                         "field or index writer is null in inverted index writer");
@@ -379,29 +395,36 @@ public:
             auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
                 // offsets[i+1] is now row element count
-                std::vector<std::string> strings;
                 // [0, 3, 6]
                 // [10,20,30] [20,30,40], [30,40,50]
                 auto start_off = offsets[i];
                 auto end_off = offsets[i + 1];
+                // TODO(Amory).later we use object pool to avoid field creation
+                lucene::document::Field* new_field = nullptr;
                 for (auto j = start_off; j < end_off; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
+                    // now we temp create field . later make a pool
+                    if (Status st = create_field(&new_field); st != Status::OK()) {
+                        LOG(ERROR) << "create field "
+                                   << string(_field_name.begin(), _field_name.end())
+                                   << " error:" << st;
+                        return st;
+                    }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-                    strings.emplace_back(v->get_data(), v->get_size());
+                    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                         v->get_size() > ignore_above) ||
+                        (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                        // is here a null value?
+                        RETURN_IF_ERROR(add_null_document());
+                    } else {
+                        new_fulltext_field(v->get_data(), v->get_size(), new_field);
+                        _doc->add(*new_field);
+                    }
                 }
-
-                auto value = join(strings, " ");
-                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
-                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                     value.length() > ignore_above) ||
-                    (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
-                    RETURN_IF_ERROR(add_null_document());
-                } else {
-                    new_fulltext_field(value.c_str(), value.length());
-                    RETURN_IF_ERROR(add_document());
-                }
+                RETURN_IF_ERROR(add_document());
+                _doc->clear();
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
@@ -600,6 +623,7 @@ private:
 
     std::unique_ptr<lucene::document::Document> _doc = nullptr;
     lucene::document::Field* _field = nullptr;
+    bool _single_field = true;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
@@ -619,11 +643,13 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();
     std::string field_name = field->name();
+    bool single_field = true;
     if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         const auto* array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);
         if (array_typeinfo != nullptr) {
             typeinfo = array_typeinfo->item_type_info();
             type = typeinfo->type();
+            single_field = false;
         } else {
             return Status::NotSupported("unsupported array type for inverted index: " +
                                         std::to_string(int(type)));
@@ -634,7 +660,7 @@ Status InvertedIndexColumnWriter::create(const Field* field,
 #define M(TYPE)                                                       \
     case TYPE:                                                        \
         *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>( \
-                field_name, index_file_writer, index_meta);           \
+                field_name, index_file_writer, index_meta, single_field);           \
         break;
         M(FieldType::OLAP_FIELD_TYPE_TINYINT)
         M(FieldType::OLAP_FIELD_TYPE_SMALLINT)
