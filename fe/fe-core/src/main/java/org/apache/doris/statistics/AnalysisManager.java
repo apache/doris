@@ -606,7 +606,7 @@ public class AnalysisManager implements Writable {
 
     public String getJobProgress(long jobId) {
         List<AnalysisInfo> tasks = findTasksByTaskIds(jobId);
-        if (tasks == null) {
+        if (tasks == null || tasks.isEmpty()) {
             return "N/A";
         }
         int finished = 0;
