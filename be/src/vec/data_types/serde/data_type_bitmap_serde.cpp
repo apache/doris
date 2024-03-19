@@ -52,6 +52,26 @@ Status DataTypeBitMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
+void DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                arrow::ArrayBuilder* array_builder, int start,
+                                                int end) const {
+    const auto& col = assert_cast<const ColumnBitmap&>(column);
+    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    for (size_t string_i = start; string_i < end; ++string_i) {
+        if (null_map && (*null_map)[string_i]) {
+            checkArrowStatus(builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+        } else {
+            auto& bitmap_value = const_cast<BitmapValue&>(col.get_element(string_i));
+            std::string memory_buffer(bitmap_value.getSizeInBytes(), '0');
+            bitmap_value.write_to(memory_buffer.data());
+            checkArrowStatus(
+                    builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
+                    column.get_name(), array_builder->type()->name());
+        }
+    }
+}
+
 Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
     auto ptype = result.mutable_type();
