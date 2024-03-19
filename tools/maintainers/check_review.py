@@ -39,9 +39,13 @@ def check_review_pass(pr_num, maintainers_file, token):
   reviews = response.json()
   reviewers = [review['user']['login'] for review in reviews]
   statuses = [review['state'] for review in reviews]
+  print(reviewers)
+  print(statuses)
+  # Create a dictionary with the latest status for each reviewer
+  latest_statuses = {reviewer: status for reviewer, status in zip(reviewers, statuses)}
 
-  # Find approved reviewers
-  approves = [reviewer for reviewer, status in zip(reviewers, statuses) if status == 'APPROVED']
+  # Create a list of reviewers who have approved
+  approves = [reviewer for reviewer, status in latest_statuses.items() if status == 'APPROVED']
 
   # Get list of changed files
   response = requests.get(f"https://api.github.com/repos/apache/doris/pulls/{pr_num}/files", headers=headers)
@@ -72,10 +76,10 @@ def check_review_pass(pr_num, maintainers_file, token):
 
       if not path_found:
           continue
-          
+  print(approves)
   if len(approves) < 2:
       print("PR has not been approved by at least 2 reviewers")
-      exit(1)  
+      exit(1)
 
   return has_maintainer_review
 
