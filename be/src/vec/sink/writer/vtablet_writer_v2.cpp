@@ -567,6 +567,18 @@ Status VTabletWriterV2::close(Status exec_status) {
         }
 
         std::vector<TTabletCommitInfo> tablet_commit_infos;
+        DBUG_EXECUTE_IF("VTabletWriterV2.close.add_failed_tablet", {
+            auto node = _streams_for_node.begin()->second;
+            int64_t tablet_id;
+            for (auto& stream : node->streams()) {
+                const auto& tablets = stream->success_tablets();
+                if (tablets.size() > 0) {
+                    tablet_id = tablets[0];
+                    break;
+                }
+            }
+            node->streams()[0]->add_failed_tablet(tablet_id, Status::InternalError("fault injection"));
+        });
         RETURN_IF_ERROR(_create_commit_info(tablet_commit_infos, _streams_for_node, _num_replicas));
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
@@ -608,6 +620,8 @@ Status VTabletWriterV2::_create_commit_info(
                 known_tablets.insert(tablet_id);
                 failed_tablets[tablet_id]++;
                 failed_reason[tablet_id] = reason;
+                LOG(INFO) << "tablet " << tablet_id << " failed on backend " << node_id << ": "
+                          << reason;
             }
             for (auto tablet_id : stream->success_tablets()) {
                 if (known_tablets.contains(tablet_id)) {
@@ -623,7 +637,8 @@ Status VTabletWriterV2::_create_commit_info(
     }
     for (auto [tablet_id, replicas] : failed_tablets) {
         if (replicas > (num_replicas - 1) / 2) {
-            LOG(INFO) << "tablet " << tablet_id << " failed, reason: " << failed_reason[tablet_id];
+            LOG(INFO) << "tablet " << tablet_id
+                      << " failed on majority backends: " << failed_reason[tablet_id];
             return failed_reason[tablet_id];
         }
     }
