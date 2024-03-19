@@ -497,9 +497,9 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         MutableColumnPtr variant_column;
         bool record_raw_string_with_serialization = false;
         // set
-        auto __defer = Defer([&]() {
+        auto encode_rowstore = [&]() {
             if (!ctx.record_raw_json_column) {
-                return;
+                return Status::OK();
             }
             auto* var = static_cast<vectorized::ColumnObject*>(variant_column.get());
             if (record_raw_string_with_serialization) {
@@ -507,7 +507,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                 auto raw_column = vectorized::ColumnString::create();
                 for (size_t i = 0; i < var->rows(); ++i) {
                     std::string raw_str;
-                    static_cast<void>(var->serialize_one_row_to_string(i, &raw_str));
+                    RETURN_IF_ERROR(var->serialize_one_row_to_string(i, &raw_str));
                     raw_column->insert_data(raw_str.c_str(), raw_str.size());
                 }
                 var->set_rowstore_column(raw_column->get_ptr());
@@ -518,11 +518,13 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                                                  ->get_root();
                 var->set_rowstore_column(original_var_root);
             }
-        });
+            return Status::OK();
+        };
 
         if (!var.is_scalar_variant()) {
             variant_column = var.assume_mutable();
             record_raw_string_with_serialization = true;
+            RETURN_IF_ERROR(encode_rowstore());
             // already parsed
             continue;
         }
@@ -559,6 +561,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             result = ColumnNullable::create(result, null_map);
         }
         block.get_by_position(variant_pos[i]).column = result;
+        RETURN_IF_ERROR(encode_rowstore());
         // block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
     }
     return Status::OK();

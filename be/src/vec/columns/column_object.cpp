@@ -1073,7 +1073,9 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
         } else {
             rapidjson::Value root(rapidjson::kNullType);
             rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
-            CHECK(root.Accept(writer));
+            if (!root.Accept(writer)) {
+                return Status::InternalError("Failed to serialize json value");
+            }
         }
         return Status::OK();
     }
@@ -1108,7 +1110,9 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
     } else {
         output->Clear();
         rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
-        CHECK(root.Accept(writer));
+        if (!root.Accept(writer)) {
+            return Status::InternalError("Failed to serialize json value");
+        }
     }
     return Status::OK();
 }
