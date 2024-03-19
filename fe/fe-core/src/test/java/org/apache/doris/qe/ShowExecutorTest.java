@@ -90,8 +90,14 @@ public class ShowExecutorTest {
 
         Column column1 = new Column("col1", PrimitiveType.BIGINT);
         Column column2 = new Column("col2", PrimitiveType.DOUBLE);
+        Column column3 = new Column("col3", PrimitiveType.DATEV2);
+        Column column4 = new Column("col4", PrimitiveType.DATETIMEV2);
+        Column column5 = new Column("col5", PrimitiveType.DECIMALV2);
         column1.setIsKey(true);
         column2.setIsKey(true);
+        column3.setIsKey(false);
+        column4.setIsKey(false);
+        column5.setIsKey(false);
         // mock index 1
         MaterializedIndex index1 = new MaterializedIndex();
 
@@ -119,7 +125,7 @@ public class ShowExecutorTest {
 
                 table.getBaseSchema();
                 minTimes = 0;
-                result = Lists.newArrayList(column1, column2);
+                result = Lists.newArrayList(column1, column2, column3, column4, column5);
 
                 table.getKeysType();
                 minTimes = 0;
@@ -502,6 +508,15 @@ public class ShowExecutorTest {
         Assert.assertEquals("NO", resultSet.getString(2));
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("col2", resultSet.getString(0));
+        Assert.assertTrue(resultSet.next());
+        Assert.assertEquals("col3", resultSet.getString(0));
+        Assert.assertEquals("date", resultSet.getString(1));
+        Assert.assertTrue(resultSet.next());
+        Assert.assertEquals("col4", resultSet.getString(0));
+        Assert.assertEquals("datetime", resultSet.getString(1));
+        Assert.assertTrue(resultSet.next());
+        Assert.assertEquals("col5", resultSet.getString(0));
+        Assert.assertEquals("decimal(9, 0)", resultSet.getString(1));
         Assert.assertFalse(resultSet.next());
 
         // verbose
@@ -516,7 +531,7 @@ public class ShowExecutorTest {
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("col2", resultSet.getString(0));
         Assert.assertEquals("NO", resultSet.getString(3));
-        Assert.assertFalse(resultSet.next());
+        Assert.assertTrue(resultSet.next());
 
         // pattern
         stmt = new ShowColumnStmt(new TableName(internalCtl, "testDb", "testTable"), null, "%1", true);
