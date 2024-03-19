@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -123,6 +124,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
     }
 
     protected void processOneJob(TableIf table, Set<String> columns, JobPriority priority) throws DdlException {
+        appendMvColumn(table, columns);
         columns = columns.stream().filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)).collect(Collectors.toSet());
         appendPartitionColumns(table, columns);
         if (columns.isEmpty()) {
@@ -143,6 +145,15 @@ public class StatisticsAutoCollector extends MasterDaemon {
             OlapTable olapTable = (OlapTable) table;
             columns.addAll(olapTable.getPartitionNames());
         }
+    }
+
+    protected void appendMvColumn(TableIf table, Set<String> columns) {
+        if (!(table instanceof OlapTable)) {
+            return;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        Set<String> mvColumns = olapTable.getMvColumns(false).stream().map(Column::getName).collect(Collectors.toSet());
+        columns.addAll(mvColumns);
     }
 
     protected boolean supportAutoAnalyze(TableIf tableIf) {
