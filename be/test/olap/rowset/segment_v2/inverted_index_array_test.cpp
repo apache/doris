@@ -22,15 +22,15 @@
 #include <gtest/gtest-test-part.h>
 #include <string.h>
 
-#include <algorithm>
 #include <memory>
 #include <string>
 
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
@@ -45,8 +45,10 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/olap/olap_data_convertor.h"
+#include "runtime/exec_env.h"
 
 using namespace lucene::index;
+using doris::segment_v2::InvertedIndexFileWriter;
 
 namespace doris {
 namespace segment_v2 {
@@ -58,7 +60,7 @@ public:
     void check_terms_stats(string dir_str, string file_str) {
         auto fs = io::global_local_filesystem();
         std::unique_ptr<DorisCompoundReader> reader = std::make_unique<DorisCompoundReader>(
-                DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
+                DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
                 4096);
         std::cout << "Term statistics for " << file_str << std::endl;
         std::cout << "==================================" << std::endl;
@@ -94,6 +96,15 @@ public:
         st = io::global_local_filesystem()->create_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
         config::enable_write_index_searcher_cache = false;
+        std::vector<StorePath> paths;
+        paths.emplace_back(kTestDir, 1024);
+        auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+        st = tmp_file_dirs->init();
+        if (!st.OK()) {
+            std::cout << "init tmp file dirs error:" << st.to_string() << std::endl;
+            return;
+        }
+        ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
     }
     void TearDown() override {
         //        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
@@ -114,11 +125,14 @@ public:
         index_meta_pb->add_col_unique_id(0);
 
         TabletIndex idx_meta;
+        idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
+        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                file_writer->fs(), file_writer->path().parent_path(),
+                file_writer->path().filename(), InvertedIndexStorageFormatPB::V1);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(
-                          field, &_inverted_index_builder, file_writer->path().filename().native(),
-                          file_writer->path().parent_path().native(), &idx_meta, file_writer->fs()),
+                          field, &_inverted_index_builder, index_file_writer.get(), &idx_meta),
                   Status::OK());
         vectorized::PaddedPODArray<Slice> _slice;
         _slice.resize(5);
@@ -182,6 +196,7 @@ public:
                 reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, 2);
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
+        EXPECT_EQ(index_file_writer->close(), Status::OK());
 
         {
             std::cout << "dir: " << file_writer->path().parent_path().string() << std::endl;
