@@ -25,7 +25,6 @@ import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.THdfsConf;
 import org.apache.doris.thrift.THdfsParams;
 
