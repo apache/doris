@@ -27,6 +27,7 @@
 
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME
 
+
 #define DECLARE_Bool(name) DECLARE_FIELD(bool, name)
 #define DECLARE_Int16(name) DECLARE_FIELD(int16_t, name)
 #define DECLARE_Int32(name) DECLARE_FIELD(int32_t, name)
