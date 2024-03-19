@@ -36,7 +36,9 @@ import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.THivePartitionUpdate;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -44,25 +46,31 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 public class HiveMetadataOps implements ExternalMetadataOps {
     private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
     private static final int MIN_CLIENT_POOL_SIZE = 8;
-    private JdbcClientConfig jdbcClientConfig;
-    private HiveConf hiveConf;
-    private HMSExternalCatalog catalog;
-    private HMSCachedClient client;
+    private static final String FILE_FORMAT_KEY = "file_format";
+    private static final Set<String> DORIS_HIVE_KEYS = ImmutableSet.of(FILE_FORMAT_KEY);
+    private final HMSExternalCatalog catalog;
+    private final HMSCachedClient client;
     private final RemoteFileSystem fs;
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
+        this(catalog, createCachedClient(hiveConf,
+                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
+                jdbcClientConfig));
+    }
+
+    @VisibleForTesting
+    public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client) {
         this.catalog = catalog;
-        this.hiveConf = hiveConf;
-        this.jdbcClientConfig = jdbcClientConfig;
-        this.client = createCachedClient(hiveConf,
-                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size), jdbcClientConfig);
+        this.client = client;
         this.fs = new DFSFileSystem(catalog.getProperties());
     }
 
@@ -127,32 +135,44 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             Map<String, String> props = stmt.getProperties();
-            String fileFormat = props.getOrDefault("file_format", Config.hive_default_file_format);
-            List<String> partitionColNames = stmt.getPartitionDesc().getPartitionColNames();
-            HiveTableMetadata catalogTable;
+            String fileFormat = props.getOrDefault(FILE_FORMAT_KEY, Config.hive_default_file_format);
+            Map<String, String> ddlProps = new HashMap<>();
+            for (Map.Entry<String, String> entry : props.entrySet()) {
+                String key = entry.getKey().toLowerCase();
+                if (DORIS_HIVE_KEYS.contains(entry.getKey().toLowerCase())) {
+                    ddlProps.put("doris." + key, entry.getValue());
+                } else {
+                    ddlProps.put(key, entry.getValue());
+                }
+            }
+            List<String> partitionColNames = new ArrayList<>();
+            if (stmt.getPartitionDesc() != null) {
+                partitionColNames.addAll(stmt.getPartitionDesc().getPartitionColNames());
+            }
+            HiveTableMetadata hiveTableMeta;
             DistributionDesc bucketInfo = stmt.getDistributionDesc();
             if (bucketInfo == null) {
-                catalogTable = HiveTableMetadata.of(dbName,
+                hiveTableMeta = HiveTableMetadata.of(dbName,
                         tblName,
                         stmt.getColumns(),
                         partitionColNames,
-                        props,
+                        ddlProps,
                         fileFormat);
             } else {
-                if (bucketInfo instanceof HashDistributionDesc) {
-                    catalogTable = HiveTableMetadata.of(dbName,
+                if (Config.enable_external_hive_bucket && (bucketInfo instanceof HashDistributionDesc)) {
+                    hiveTableMeta = HiveTableMetadata.of(dbName,
                             tblName,
                             stmt.getColumns(),
                             partitionColNames,
                             ((HashDistributionDesc) bucketInfo).getDistributionColumnNames(),
                             bucketInfo.getBuckets(),
-                            props,
+                            ddlProps,
                             fileFormat);
                 } else {
                     throw new UserException("External hive table only supports hash bucketing");
                 }
             }
-            client.createTable(catalogTable, stmt.isSetIfNotExists());
+            client.createTable(hiveTableMeta, stmt.isSetIfNotExists());
             db.setUnInitialized(true);
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);

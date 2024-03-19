@@ -2217,6 +2217,11 @@ public class Config extends ConfigBase {
     public static boolean enable_external_ddl = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "启用Hive分桶表",
+            "Enable external hive bucket table"})
+    public static boolean enable_external_hive_bucket = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Hive创建外部表默认指定的文件格式",
             "Default hive file format for creating table."})
     public static String hive_default_file_format = "orc";
