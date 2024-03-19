@@ -462,6 +462,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return new ArrayList<>(idToTable.values());
     }
 
+    public Map<Long, Table> getIdToTableRef() {
+        return idToTable;
+    }
+
     // tables must get read or write table in fixed order to avoid potential dead lock
     public List<Table> getTablesOnIdOrder() {
         return idToTable.values().stream()

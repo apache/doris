@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -396,6 +397,11 @@ public class EditLog {
                 case OperationType.OP_UPDATE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     env.replayUpdateReplica(info);
+                    break;
+                }
+                case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
+                    CloudWarmUpJob cloudWarmUpJob = (CloudWarmUpJob) journal.getData();
+                    env.getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
                     break;
                 }
                 case OperationType.OP_DELETE_REPLICA: {
@@ -1811,6 +1817,10 @@ public class EditLog {
 
     public void logModifyDistributionType(TableInfo tableInfo) {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+    }
+
+    public void logModifyCloudWarmUpJob(CloudWarmUpJob cloudWarmUpJob) {
+        logEdit(OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB, cloudWarmUpJob);
     }
 
     private long logModifyTableProperty(short op, ModifyTablePropertyOperationLog info) {
