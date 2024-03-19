@@ -69,12 +69,16 @@
 #define PATH_DELIMITERA "/"
 #endif
 
-#define LOG_AND_THROW_IF_ERROR(status, msg)                      \
-    if (!status.ok()) {                                          \
-        auto err = std::string(msg) + ": " + status.to_string(); \
-        LOG(WARNING) << err;                                     \
-        _CLTHROWA(CL_ERR_IO, err.c_str());                       \
-    }
+#define LOG_AND_THROW_IF_ERROR(status, msg)                                  \
+    do {                                                                     \
+        auto _status_result = (status);                                      \
+        if (!_status_result.ok()) {                                          \
+            auto err = std::string(msg) + ": " + _status_result.to_string(); \
+            LOG(WARNING) << err;                                             \
+            _CLTHROWA(CL_ERR_IO, err.c_str());                               \
+        }                                                                    \
+    } while (0)
+
 namespace doris::segment_v2 {
 
 const char* const DorisFSDirectory::WRITE_LOCK_FILE = "write.lock";
