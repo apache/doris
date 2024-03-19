@@ -520,8 +520,7 @@ public class OlapTableSink extends DataSink {
                         String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
                                 + " < load required replica num " + loadRequiredReplicaNum
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
-                                + ", detail: [" + tablet.getDetailsStatusForQuery(partition.getVisibleVersion())
-                                + "]";
+                                + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
                         if (Config.isCloudMode()) {
                             errMsg += ", or you may not have permission to access the current cluster";
                             if (ConnectContext.get() != null) {
