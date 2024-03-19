@@ -63,7 +63,12 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    const RowDescriptor& row_desc() const override { return *_output_row_desc; }
+    const RowDescriptor& row_desc() const override {
+        if (_output_row_descriptor) {
+            return *_output_row_descriptor;
+        }
+        return *_output_row_desc;
+    }
 
     const RowDescriptor& intermediate_row_desc() const override { return *_intermediate_row_desc; }
 
@@ -152,6 +157,10 @@ protected:
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::vector<IRuntimeFilter*> _runtime_filters;
+    // In the Old planner, there is a plan for two columns of tuple is null,
+    // but in the Nereids planner, this logic does not exist.
+    // Therefore, we should not insert these two columns under the Nereids optimizer.
+    bool _is_nereids = false;
 };
 
 } // namespace doris::vectorized

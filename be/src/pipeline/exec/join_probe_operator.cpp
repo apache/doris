@@ -82,6 +82,13 @@ template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
         vectorized::Block* origin_block, vectorized::Block* output_block, bool keep_origin) {
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
+    if (!Base::_projections.empty()) {
+        // In previous versions, the join node had a separate set of project structures,
+        // and you could see a 'todo' in the Thrift definition.
+        //  Here, we have refactored it, but considering upgrade compatibility, we still need to retain the old code.
+        *output_block = *origin_block;
+        return Status::OK();
+    }
     SCOPED_TIMER(_build_output_block_timer);
     auto is_mem_reuse = output_block->mem_reuse();
     vectorized::MutableBlock mutable_block =
@@ -197,14 +204,18 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size())));
-        _output_row_desc.reset(
-                new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        if (!Base::_output_row_descriptor) {
+            _output_row_desc.reset(
+                    new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        }
     } else if (tnode.__isset.nested_loop_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size())));
-        _output_row_desc.reset(
-                new RowDescriptor(descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+        if (!Base::_output_row_descriptor) {
+            _output_row_desc.reset(new RowDescriptor(
+                    descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+        }
     } else {
         // Iff BE has been upgraded and FE has not yet, we should keep origin logics for CROSS JOIN.
         DCHECK_EQ(_join_op, TJoinOp::CROSS_JOIN);
@@ -214,6 +225,7 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
 template <typename LocalStateType>
 Status JoinProbeOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
+    _is_nereids = state->is_nereids();
     if (tnode.__isset.hash_join_node || tnode.__isset.nested_loop_join_node) {
         const auto& output_exprs = tnode.__isset.hash_join_node
                                            ? tnode.hash_join_node.srcExprList
