@@ -484,7 +484,11 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                eof = true;
+                if (ref_block->rows() == 0) {
+                    break;
+                } else {
+                    eof = true;
+                }
             } else {
                 return st;
             }
@@ -561,7 +565,11 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                eof = true;
+                if (ref_block->rows() == 0) {
+                    break;
+                } else {
+                    eof = true;
+                }
             } else {
                 return st;
             }
