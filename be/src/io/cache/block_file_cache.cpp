@@ -27,6 +27,7 @@
 #endif
 
 #include <chrono> // IWYU pragma: keep
+#include <mutex>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -1507,5 +1508,7 @@ Status BlockFileCache::clear_file_cache_directly() {
             .tag("use_time", static_cast<int64_t>(use_time.count()));
     return Status::OK();
 }
-
+template void BlockFileCache::remove(FileBlockSPtr file_block,
+                                     std::lock_guard<std::mutex>& cache_lock,
+                                     std::lock_guard<std::mutex>& block_lock);
 } // namespace doris::io
