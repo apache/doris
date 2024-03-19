@@ -35,6 +35,13 @@ public:
 
     // TODO(plat1ko): cloud backend functions
 
+    // If another cluster load, FE need to notify the cluster to sync the load data
+    void sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
+                               const TSyncLoadForTabletsRequest& request) override;
+    
+     void get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
+                                  const TGetTopNHotPartitionsRequest& request) override;
+
 private:
     [[maybe_unused]] CloudStorageEngine& _engine;
 };

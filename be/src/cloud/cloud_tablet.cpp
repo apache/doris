@@ -31,6 +31,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
@@ -192,13 +193,38 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 
     auto add_rowsets_directly = [=, this](std::vector<RowsetSharedPtr>& rowsets) {
         for (auto& rs : rowsets) {
+            if (version_overlap || warmup_delta_data) {
+#ifndef BE_TEST
+                // Warmup rowset data in background
+                for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
+                    io::S3FileMeta download_file_meta;
+                    auto rowset_meta = rs->rowset_meta();
+                    constexpr int64_t interval = 600; // 10 mins
+                    // When BE restart and receive the `load_sync` rpc, it will sync all historical rowsets first time.
+                    // So we need to filter out the old rowsets avoid to download the whole table.
+                    if (warmup_delta_data &&
+                        ::time(nullptr) - rowset_meta->newest_write_timestamp() >= interval) {
+                        continue;
+                    }
+                    // download_file_meta.file_size = rowset_meta->get_segment_file_size(seg_id);
+                    download_file_meta.file_system = rowset_meta->fs();
+                    // download_file_meta.path = io::Path(rs->segment_file_path(seg_id));
+                    // download_file_meta.expiration_time =
+                    //         _tablet_meta->ttl_seconds() == 0
+                    //                 ? 0
+                    //                 : rowset_meta->newest_write_timestamp() +
+                    //                           _tablet_meta->ttl_seconds();
+                    io::FileCacheBlockDownloader::instance()->submit_download_task(
+                            std::move(download_file_meta));
+                }
+#endif
+            }
             _rs_version_map.emplace(rs->version(), rs);
             _timestamped_version_tracker.add_version(rs->version());
             _max_version = std::max(rs->end_version(), _max_version);
             update_base_size(*rs);
         }
         _tablet_meta->add_rowsets_unchecked(rowsets);
-        // TODO(plat1ko): Warmup delta rowset data in background
     };
 
     if (!version_overlap) {

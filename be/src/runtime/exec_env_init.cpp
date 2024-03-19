@@ -33,10 +33,14 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
+#include "cloud/cloud_tablet_hotspot.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
@@ -190,6 +194,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(32)
                               .build(&_send_table_stats_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("S3DownloaderDownloadPollerThreadPool")
+                              .set_min_threads(4)
+                              .set_max_threads(16)
+                              .build(&_s3_downloader_download_poller_thread_pool));
+
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
                               .set_min_threads(16)
                               .set_max_threads(64)
@@ -245,6 +254,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
+    _tablet_hotspot = new TabletHotspot();
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
@@ -289,6 +299,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         std::cout << "start BE in cloud mode" << std::endl;
         _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
+        _file_cache_block_downloader = new io::FileCacheBlockS3Downloader(
+                *dynamic_cast<CloudStorageEngine*>(_storage_engine.get()));
+        _cloud_warm_up_manager =
+                new CloudWarmUpManager(*dynamic_cast<CloudStorageEngine*>(_storage_engine.get()));
     } else {
         std::cout << "start BE in local mode" << std::endl;
         _storage_engine = std::make_unique<StorageEngine>(options);
@@ -631,6 +645,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
+    SAFE_DELETE(_file_cache_block_downloader);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
@@ -664,6 +679,7 @@ void ExecEnv::destroy() {
     _lazy_release_obj_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
+    _s3_downloader_download_poller_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
@@ -703,6 +719,9 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
 
     _s_tracking_memory = false;
+    SAFE_DELETE(_tablet_hotspot);
+    SAFE_DELETE(_cloud_warm_up_manager);
+
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

@@ -30,6 +30,7 @@
 #include <set>
 #include <shared_mutex>
 
+#include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
@@ -183,6 +184,7 @@ Status NewOlapScanner::init() {
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             ReadSource read_source;
+            TabletHotspot::instance()->count(tablet);
             auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
                                                  &read_source.rs_splits,
                                                  _state->skip_missing_version());
