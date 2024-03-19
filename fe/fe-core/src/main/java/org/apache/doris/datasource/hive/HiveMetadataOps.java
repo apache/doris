@@ -186,6 +186,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         Table table = client.getTable(dbName, tableName);
         HMSCommitter hmsCommitter = new HMSCommitter(this, fs, table);
         hmsCommitter.commit(hivePUs);
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            LOG.warn("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+        } else {
+            db.setUnInitialized(true);
+        }
     }
 
     public void updateTableStatistics(
