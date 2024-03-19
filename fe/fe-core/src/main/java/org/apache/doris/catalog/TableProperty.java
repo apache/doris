@@ -26,6 +26,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -76,6 +77,8 @@ public class TableProperty implements Writable {
      * This property should be set when creating the table, and can only be changed to V2 using Alter Table stmt.
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
+
+    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.DEFAULT;
 
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
@@ -416,6 +419,13 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildInvertedIndexStorageFormat() {
+        invertedIndexStorageFormat = TInvertedIndexStorageFormat.valueOf(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                TInvertedIndexStorageFormat.DEFAULT.name()));
+        return this;
+    }
+
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
@@ -477,6 +487,10 @@ public class TableProperty implements Writable {
             return TStorageFormat.V2;
         }
         return storageFormat;
+    }
+
+    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+        return invertedIndexStorageFormat;
     }
 
     public DataSortInfo getDataSortInfo() {

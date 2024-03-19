@@ -333,6 +333,14 @@ public:
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    bool has_inverted_index() const {
+        for (const auto& index : _indexes) {
+            if (index.index_type() == IndexType::INVERTED) {
+                return true;
+            }
+        }
+        return false;
+    }
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
     bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
@@ -421,6 +429,9 @@ public:
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
     std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+    InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
+        return _inverted_index_storage_format;
+    }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -462,6 +473,7 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

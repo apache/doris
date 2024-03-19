@@ -220,6 +220,11 @@ enum IndexType {
     NGRAM_BF = 3;
 }
 
+enum InvertedIndexStorageFormatPB {
+    V1 = 0;
+    V2 = 1;
+}
+
 message TabletIndexPB {
     optional int64 index_id = 1;
     optional string index_name = 2;
@@ -259,6 +264,7 @@ message TabletSchemaPB {
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
 }
 
 enum TabletStatePB {

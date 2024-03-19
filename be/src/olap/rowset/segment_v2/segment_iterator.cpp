@@ -38,6 +38,7 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
@@ -50,6 +51,7 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -1227,12 +1229,12 @@ Status SegmentIterator::_init_return_column_iterators() {
         std::vector<bool> tmp_is_pred_column;
         tmp_is_pred_column.resize(_schema->columns().size(), false);
         for (auto predicate : _col_predicates) {
-            auto cid = predicate->column_id();
-            tmp_is_pred_column[cid] = true;
+            auto p_cid = predicate->column_id();
+            tmp_is_pred_column[p_cid] = true;
         }
         // handle delete_condition
-        for (auto cid : del_cond_id_set) {
-            tmp_is_pred_column[cid] = true;
+        for (auto d_cid : del_cond_id_set) {
+            tmp_is_pred_column[d_cid] = true;
         }
 
         if (_column_iterators[cid] == nullptr) {
