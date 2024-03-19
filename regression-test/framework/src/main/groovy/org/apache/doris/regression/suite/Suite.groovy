@@ -369,11 +369,11 @@ class Suite implements GroovyInterceptable {
     }
 
     def jdbc_sql_return_maparray(String sqlStr) {
-        return sql_return_maparray_impl(context.getConnection(), sqlStr)
+        return sql_return_maparray_impl(sqlStr, context.getConnection())
     }
 
     def arrow_flight_sql_return_maparray(String sqlStr) {
-        return sql_return_maparray_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr))
+        return sql_return_maparray_impl((String) ("USE ${context.dbName};" + sqlStr), context.getArrowFlightSqlConnection())
     }
 
     def sql_return_maparray(String sqlStr) {
