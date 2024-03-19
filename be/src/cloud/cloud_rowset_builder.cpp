@@ -37,7 +37,11 @@ Status CloudRowsetBuilder::init() {
 
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
-        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets());
+        auto st = std::static_pointer_cast<CloudTablet>(_tablet)->sync_rowsets();
+        // sync_rowsets will return INVALID_TABLET_STATE when tablet is under alter
+        if (!st.ok() && !st.is<ErrorCode::INVALID_TABLET_STATE>()) {
+            return st;
+        }
         RETURN_IF_ERROR(init_mow_context(mow_context));
     }
     RETURN_IF_ERROR(check_tablet_version_count());
