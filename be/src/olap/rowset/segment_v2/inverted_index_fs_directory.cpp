@@ -744,7 +744,7 @@ DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(
         LOG_AND_THROW_IF_ERROR(_fs->exists(file, &exists), "Get directory exists IO error");
         if (!exists) {
             LOG_AND_THROW_IF_ERROR(_fs->create_directory(file),
-                                   "Get directory create directory IO error")
+                                   "Get directory create directory IO error");
         }
         dir = _CLNEW DorisFSDirectory();
     }
