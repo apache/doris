@@ -166,12 +166,22 @@ public class SummaryProfile {
     private long getTableVersionTime = 0;
     private long getTableVersionCount = 0;
 
-    public SummaryProfile(RuntimeProfile rootProfile) {
+    public SummaryProfile() {
         summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
         executionSummaryProfile = new RuntimeProfile(EXECUTION_SUMMARY_PROFILE_NAME);
         init();
-        rootProfile.addChild(summaryProfile);
-        rootProfile.addChild(executionSummaryProfile);
+    }
+
+    public String getProfileId() {
+        return this.summaryProfile.getInfoString(PROFILE_ID);
+    }
+
+    public RuntimeProfile getSummary() {
+        return summaryProfile;
+    }
+
+    public RuntimeProfile getExecutionSummary() {
+        return executionSummaryProfile;
     }
 
     private void init() {

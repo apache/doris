@@ -234,7 +234,6 @@ public class StmtExecutor {
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     public static final String NULL_VALUE_FOR_LOAD = "\\N";
     private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
-    private final Object writeProfileLock = new Object();
     private ConnectContext context;
     private final StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -274,7 +273,9 @@ public class StmtExecutor {
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile);
+        this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile,
+                this.context.getSessionVariable().profileLevel,
+                this.context.getSessionVariable().getEnablePipelineXEngine());
     }
 
     // for test
@@ -304,7 +305,8 @@ public class StmtExecutor {
             this.statementContext.setParsedStatement(parsedStmt);
         }
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", context.getSessionVariable().enableProfile());
+        this.profile = new Profile("Query", context.getSessionVariable().enableProfile(),
+                context.getSessionVariable().profileLevel, context.getSessionVariable().getEnablePipelineXEngine());
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
@@ -1111,9 +1113,7 @@ public class StmtExecutor {
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
-            profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
-                    context.getSessionVariable().profileLevel, this.planner,
-                    context.getSessionVariable().getEnablePipelineXEngine());
+            profile.updateSummary(context.startTime, getSummaryInfo(isFinished), isFinished, this.planner);
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ingore this error", t);
         }
@@ -1746,9 +1746,9 @@ public class StmtExecutor {
         } else {
             coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
                 planner, context.getStatsErrorEstimator());
+            profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-            profile.addExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
 
@@ -1756,35 +1756,10 @@ public class StmtExecutor {
             coordBase.exec();
             profile.getSummaryProfile().setQueryScheduleFinishTime();
             updateProfile(false);
-            if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                try {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
-                                context.getQualifiedUser(), context.getDatabase(),
-                                parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                coordBase.getInstanceTotalNum());
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Fail to print fragment concurrency for Query.", e);
-                }
-            }
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
-                if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                    try {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, "
-                                            + "fragment instance num: {}",
-                                    context.getQualifiedUser(), context.getDatabase(),
-                                    parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                    coordBase.getInstanceTotalNum());
-                        }
-                    } catch (Exception e) {
-                        LOG.warn("Fail to print fragment concurrency for Query.", e);
-                    }
-                }
                 return;
             }
 
@@ -1869,18 +1844,6 @@ public class StmtExecutor {
             throw e;
         } finally {
             coordBase.close();
-            if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                try {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
-                                context.getQualifiedUser(), context.getDatabase(),
-                                parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                coordBase.getInstanceTotalNum());
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Fail to print fragment concurrency for Query.", e);
-                }
-            }
         }
     }
 

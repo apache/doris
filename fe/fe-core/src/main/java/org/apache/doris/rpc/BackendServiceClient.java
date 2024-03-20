@@ -22,6 +22,7 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
@@ -82,7 +83,7 @@ public class BackendServiceClient {
                 .execPlanFragmentStart(request);
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
             InternalService.PCancelPlanFragmentRequest request) {
         return stub.cancelPlanFragment(request);
     }

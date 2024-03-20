@@ -33,6 +33,7 @@ import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -172,7 +173,8 @@ public class StmtExecutorTest {
     public void testSelect(@Mocked QueryStmt queryStmt,
                            @Mocked SqlParser parser,
                            @Mocked OriginalPlanner planner,
-                           @Mocked Coordinator coordinator) throws Exception {
+                           @Mocked Coordinator coordinator,
+                           @Mocked Profile profile) throws Exception {
         Env env = Env.getCurrentEnv();
         Deencapsulation.setField(env, "canRead", new AtomicBoolean(true));
 

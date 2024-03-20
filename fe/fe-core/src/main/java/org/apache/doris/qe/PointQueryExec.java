@@ -200,12 +200,6 @@ public class PointQueryExec implements CoordInterface {
     }
 
     @Override
-    public int getInstanceTotalNum() {
-        // TODO
-        return 1;
-    }
-
-    @Override
     public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
         // Do nothing
     }
