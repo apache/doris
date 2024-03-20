@@ -46,6 +46,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
@@ -262,8 +263,14 @@ private:
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
     void _init_file_description();
+
     template <bool is_filter = false>
-    Status _orc_column_to_doris_column(const std::string& col_name, const ColumnPtr& doris_column,
+    Status _fill_doris_data_column(const std::string& col_name, MutableColumnPtr& data_column,
+                                   const DataTypePtr& data_type, const orc::Type* orc_column_type,
+                                   orc::ColumnVectorBatch* cvb, size_t num_values);
+
+    template <bool is_filter = false>
+    Status _orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        const orc::Type* orc_column_type,
                                        orc::ColumnVectorBatch* cvb, size_t num_values);
@@ -576,6 +583,9 @@ private:
     bool _is_dict_cols_converted;
     bool _has_complex_type = false;
     std::vector<orc::TypeKind>* _unsupported_pushdown_types;
+
+    // resolve schema change
+    std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
 };
 
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {

@@ -355,14 +355,7 @@ std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& nam
 }
 
 String DataTypeStruct::get_name_by_position(size_t i) const {
-    if (i == 0 || i > names.size()) {
-        fmt::memory_buffer error_msg;
-        fmt::format_to(error_msg, "Index of tuple element ({}) if out range ([1, {}])", i,
-                       names.size());
-        LOG(FATAL) << fmt::to_string(error_msg);
-    }
-
-    return names[i - 1];
+    return names[i];
 }
 
 int64_t DataTypeStruct::get_uncompressed_serialized_bytes(const IColumn& column,
