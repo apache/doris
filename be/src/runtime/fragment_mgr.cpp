@@ -1399,7 +1399,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
 
     // 2. create the filter wrapper to replace or ignore the target filters
-    if (request->ignored()) {
+    if (request->has_ignored() && request->ignored()) {
         std::ranges::for_each(filters, [](auto& filter) {
             filter->set_ignored();
             filter->signal();

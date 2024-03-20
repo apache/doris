@@ -906,6 +906,8 @@ public:
 
     bool is_ignored() const { return _context->ignored; }
 
+    void set_ignored() { _context->ignored = true; }
+
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
                                           PColumnValue&, ObjectPool*)) {
@@ -1452,8 +1454,14 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
     if (param->request->has_column_type()) {
         column_type = to_primitive_type(param->request->column_type());
     }
-    wrapper->reset(new RuntimePredicateWrapper(pool, column_type, get_type(filter_type),
-                                               param->request->filter_id()));
+    *wrapper = std::make_unique<RuntimePredicateWrapper>(pool, column_type, get_type(filter_type),
+                                                         param->request->filter_id());
+
+    if (param->request->has_ignored() && param->request->ignored()) {
+        (*wrapper)->set_ignored();
+        return Status::OK();
+    }
+
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
@@ -1792,8 +1800,7 @@ bool IRuntimeFilter::need_sync_filter_size() {
 Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
     _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
 
-    if (param->request->ignored()) {
-        const PInFilter in_filter = param->request->in_filter();
+    if (param->request->has_ignored() && param->request->ignored()) {
         set_ignored();
     } else {
         std::unique_ptr<RuntimePredicateWrapper> wrapper;
