@@ -31,7 +31,7 @@ suite("bind_priority") {
     sql """
     insert into bind_priority_tbl values(1, 2),(3, 4)
     """
-    
+
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -100,17 +100,17 @@ suite("bind_priority") {
         );
     """
     sql "insert into bind_priority_tbl2 values(3,5),(2, 6),(1,4);"
-    
+
     qt_bind_order_to_project_alias """
             select bind_priority_tbl.b b, bind_priority_tbl2.b
-            from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a 
+            from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a
             order by b;
         """
 
 
     qt_bind_order_to_project_alias """
         select bind_priority_tbl.b, bind_priority_tbl2.b b
-        from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a 
+        from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a
         order by b;
         """
 
@@ -148,11 +148,86 @@ suite("bind_priority") {
               ) a
             ), tb2 as
             (
-              select * from tb1 
+              select * from tb1
             )
             select * from tb2 order by id;
             """)
 
         result([[1], [2], [3]])
     }
+
+    def testBindHaving = {
+        sql "drop table if exists test_bind_having_slots"
+
+        sql "create table test_bind_having_slots " +
+                "(id int, age int) " +
+                "distributed by hash(id) " +
+                "properties('replication_num'='1');"
+        sql "insert into test_bind_having_slots values(1, 10), (2, 20), (3, 30);"
+
+        order_qt_having_bind_child """
+            select id, sum(age)
+            from test_bind_having_slots s
+            group by id
+            having id = 1; -- bind id from group by
+            """
+
+        order_qt_having_bind_child2 """
+            select id + 1 as id, sum(age)
+            from test_bind_having_slots s
+            group by id
+            having id = 1; -- bind id from group by
+            """
+
+
+        order_qt_having_bind_child3 """
+            select id + 1 as id, sum(age)
+            from test_bind_having_slots s
+            group by id
+            having id + 1 = 2; -- bind id from group by
+            """
+
+        order_qt_having_bind_project """
+            select id + 1 as id, sum(age)
+            from test_bind_having_slots s
+            group by id + 1
+            having id = 2; -- bind id from project
+            """
+
+        order_qt_having_bind_project2 """
+            select id + 1 as id, sum(age)
+            from test_bind_having_slots s
+            group by id + 1
+            having id + 1 = 2;  -- bind id from project
+            """
+
+
+        order_qt_having_bind_project3 """
+            select id + 1 as id, sum(age + 1) as age
+            from test_bind_having_slots s
+            group by id
+            having age = 10; -- bind id from age
+            """
+
+        order_qt_having_bind_project4 """
+            select id + 1 as id, sum(age + 1) as age
+            from test_bind_having_slots s
+            group by id
+            having age = 11; -- bind age from project
+            """
+
+        order_qt_having_bind_child4 """
+            select id + 1 as id, sum(age + 1) as age
+            from test_bind_having_slots s
+            group by id
+            having sum(age) = 10; -- bind age from s
+            """
+
+        order_qt_having_bind_child5 """
+            select id + 1 as id, sum(age + 1) as age
+            from test_bind_having_slots s
+            group by id
+            having sum(age + 1) = 11 -- bind age from s
+            """
+    }()
 }
