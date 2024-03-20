@@ -672,8 +672,10 @@ public:
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
         WhichDataType addr_type(addr_column_with_type_and_name.type);
         WhichDataType cidr_type(cidr_column_with_type_and_name.type);
-        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
-        const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
+        const ColumnPtr& addr_column =
+                addr_column_with_type_and_name.column->convert_to_full_column_if_const();
+        const ColumnPtr& cidr_column =
+                cidr_column_with_type_and_name.column->convert_to_full_column_if_const();
         const ColumnString* str_addr_column = nullptr;
         const ColumnString* str_cidr_column = nullptr;
         const NullMap* null_map_addr = nullptr;
@@ -770,8 +772,8 @@ public:
         ColumnWithTypeAndName& ip_column = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& cidr_column = block.get_by_position(arguments[1]);
 
-        const ColumnPtr& ip_column_ptr = ip_column.column;
-        const ColumnPtr& cidr_column_ptr = cidr_column.column;
+        const ColumnPtr& ip_column_ptr = ip_column.column->convert_to_full_column_if_const();
+        const ColumnPtr& cidr_column_ptr = cidr_column.column->convert_to_full_column_if_const();
 
         const auto* col_ip_column = check_and_get_column<ColumnVector<IPv4>>(ip_column_ptr.get());
         const auto* col_cidr_column =
@@ -855,8 +857,10 @@ public:
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
         WhichDataType addr_type(addr_column_with_type_and_name.type);
         WhichDataType cidr_type(cidr_column_with_type_and_name.type);
-        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
-        const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
+        const ColumnPtr& addr_column =
+                addr_column_with_type_and_name.column->convert_to_full_column_if_const();
+        const ColumnPtr& cidr_column =
+                cidr_column_with_type_and_name.column->convert_to_full_column_if_const();
         const auto* cidr_col = assert_cast<const ColumnInt16*>(cidr_column.get());
         ColumnPtr col_res = nullptr;
 
