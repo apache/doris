@@ -635,7 +635,11 @@ public class Coordinator implements CoordInterface {
     @Override
     public void close() {
         if (queryQueue != null && queueToken != null) {
-            queryQueue.returnToken(queueToken);
+            try {
+                queryQueue.returnToken(queueToken);
+            } catch (Throwable t) {
+                LOG.error("error happens when coordinator close ", t);
+            }
         }
     }
 
