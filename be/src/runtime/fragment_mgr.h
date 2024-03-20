@@ -160,6 +160,9 @@ private:
     void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                       const FinishCallback& cb);
 
+    template <typename Param>
+    void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
+
     void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
                                                     QueryContext* query_ctx);
 
