@@ -44,6 +44,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -168,11 +169,8 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
         List<? extends RowFilterPolicy> policies = accessManager.evalRowFilterPolicies(
                 currentUserIdentity, ctlName, dbName, tableName);
-        if (policies.isEmpty()) {
-            return RelatedPolicy.NO_POLICY;
-        }
         return new RelatedPolicy(
-                Optional.ofNullable(mergeRowPolicy(policies)),
+                Optional.ofNullable(CollectionUtils.isEmpty(policies) ? null : mergeRowPolicy(policies)),
                 hasDataMask ? Optional.of(dataMasks.build()) : Optional.empty()
         );
     }
