@@ -61,6 +61,8 @@ protected:
     std::atomic<bool> _spill_status_ok {true};
     std::mutex _spill_lock;
 
+    bool _child_eos {false};
+
     Status _spill_status;
     std::mutex _spill_status_lock;
 
@@ -68,6 +70,10 @@ protected:
 
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
+    RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
+    RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
+    RuntimeProfile::Counter* _spill_data_size = nullptr;
+    RuntimeProfile::Counter* _spill_block_count = nullptr;
 };
 
 class PartitionedHashJoinSinkOperatorX
