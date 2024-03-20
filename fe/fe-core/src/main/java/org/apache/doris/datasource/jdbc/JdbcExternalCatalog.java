@@ -22,6 +22,7 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -85,10 +86,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
-
-        Map<String, String> propertiesWithoutCheckSum = Maps.newHashMap(catalogProperty.getProperties());
-        propertiesWithoutCheckSum.remove(JdbcResource.CHECK_SUM);
-        JdbcResource.validateProperties(propertiesWithoutCheckSum);
+        Map<String, String> propertiesIncludeRequired = Maps.newHashMap(catalogProperty.getProperties());
+        propertiesIncludeRequired.remove(JdbcResource.CHECK_SUM);
+        propertiesIncludeRequired.remove(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+        JdbcResource.validateProperties(propertiesIncludeRequired);
 
         JdbcResource.checkBooleanProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, getOnlySpecifiedDatabase());
         JdbcResource.checkBooleanProperty(JdbcResource.LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
