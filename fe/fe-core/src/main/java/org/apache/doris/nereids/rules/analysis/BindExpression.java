@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -759,7 +760,7 @@ public class BindExpression implements AnalysisRuleFactory {
         final Plan finalInput = input;
         Supplier<Scope> inputChildrenScope = Suppliers.memoize(
                 () -> toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(finalInput.children())));
-        SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
+        SimpleExprAnalyzer bindInInputScopeThenInputChildScope = buildCustomSlotBinderAnalyzer(
                 sort, cascadesContext, inputScope, true, false,
                 (self, unboundSlot) -> {
                     // first, try to bind slot in Scope(input.output)
@@ -774,9 +775,39 @@ public class BindExpression implements AnalysisRuleFactory {
                     return self.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
                 });
 
+        ImmutableList.Builder<Slot> outputSlots = ImmutableList.builder();
+        if (finalInput instanceof LogicalAggregate) {
+            LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) finalInput;
+            List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+            for (NamedExpression outputExpr : outputExpressions) {
+                if (!outputExpr.anyMatch(expr -> expr instanceof AggregateFunction)) {
+                    outputSlots.add(outputExpr.toSlot());
+                }
+            }
+        }
+        Scope outputWithoutAggFunc = toScope(cascadesContext, outputSlots.build());
+        SimpleExprAnalyzer bindInInputChildScope = buildCustomSlotBinderAnalyzer(
+                sort, cascadesContext, inputScope, true, false,
+                (analyzer, unboundSlot) -> {
+                    if (finalInput instanceof LogicalAggregate) {
+                        List<Slot> boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(unboundSlot,
+                                outputWithoutAggFunc);
+                        if (!boundInOutputWithoutAggFunc.isEmpty()) {
+                            return ImmutableList.of(boundInOutputWithoutAggFunc.get(0));
+                        }
+                    }
+                    return analyzer.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
+                });
+
         Builder<OrderKey> boundOrderKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
+        FunctionRegistry functionRegistry = cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
         for (OrderKey orderKey : sort.getOrderKeys()) {
-            Expression boundKey = bindWithOrdinal(orderKey.getExpr(), analyzer, childOutput);
+            Expression boundKey;
+            if (hasAggregateFunction(orderKey.getExpr(), functionRegistry)) {
+                boundKey = bindInInputChildScope.analyze(orderKey.getExpr());
+            } else {
+                boundKey = bindWithOrdinal(orderKey.getExpr(), bindInInputScopeThenInputChildScope, childOutput);
+            }
             boundOrderKeys.add(orderKey.withExpression(boundKey));
         }
         return new LogicalSort<>(boundOrderKeys.build(), sort.child());
@@ -964,5 +995,22 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private interface CustomSlotBinderAnalyzer {
         List<? extends Expression> bindSlot(ExpressionAnalyzer analyzer, UnboundSlot unboundSlot);
+    }
+
+    private boolean hasAggregateFunction(Expression expression, FunctionRegistry functionRegistry) {
+        return expression.anyMatch(expr -> {
+            if (expr instanceof AggregateFunction) {
+                return true;
+            } else if (expr instanceof UnboundFunction) {
+                UnboundFunction unboundFunction = (UnboundFunction) expr;
+                boolean isAggregateFunction = functionRegistry
+                        .isAggregateFunction(
+                                unboundFunction.getDbName(),
+                                unboundFunction.getName()
+                        );
+                return isAggregateFunction;
+            }
+            return false;
+        });
     }
 }
