@@ -572,8 +572,13 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "str_to_date", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
     public static Expression strToDate(VarcharLiteral str, VarcharLiteral format) {
-        return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
-                        .toFormatter(), str.getValue()));
+        if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
+            return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+                    .toFormatter(), str.getValue()));
+        } else {
+            return DateV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+                    .toFormatter(), str.getValue()));
+        }
     }
 
     @ExecFunction(name = "timestamp", argTypes = {"DATETIME"}, returnType = "DATETIME")
