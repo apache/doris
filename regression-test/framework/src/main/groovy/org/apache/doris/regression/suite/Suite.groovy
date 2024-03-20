@@ -336,8 +336,11 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def sql_return_maparray_impl(Connection conn, String sqlStr) {
+    def sql_return_maparray_impl(String sqlStr, Connection conn = null) {        
         logger.info("Execute sql: ${sqlStr}".toString())
+        if (conn == null) {
+            conn = context.getConnection()
+        }
         def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
 
         // get all column names as list
@@ -359,11 +362,11 @@ class Suite implements GroovyInterceptable {
     }
 
     def jdbc_sql_return_maparray(String sqlStr) {
-        return sql_return_maparray_impl(context.getConnection(), sqlStr)
+        return sql_return_maparray_impl(sqlStr, context.getConnection())
     }
 
     def arrow_flight_sql_return_maparray(String sqlStr) {
-        return sql_return_maparray_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr))
+        return sql_return_maparray_impl((String) ("USE ${context.dbName};" + sqlStr), context.getArrowFlightSqlConnection())
     }
 
     def sql_return_maparray(String sqlStr) {
@@ -706,6 +709,11 @@ class Suite implements GroovyInterceptable {
         return lines;
     }
 
+
+    Connection getTargetConnection() {
+        return context.getTargetConnection(this)
+    }
+    
     boolean deleteFile(String filePath) {
         def file = new File(filePath)
         file.delete()
