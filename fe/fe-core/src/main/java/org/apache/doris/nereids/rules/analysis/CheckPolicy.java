@@ -74,22 +74,16 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 }
                             }
 
-                            // row policy
                             RelatedPolicy relatedPolicy = checkPolicy.findPolicy(relation, ctx.cascadesContext);
-
                             relatedPolicy.rowPolicyFilter.ifPresent(expression -> combineFilter.addAll(
                                             ExpressionUtils.extractConjunctionToSet(expression)));
-
-                            Plan result;
-                            if (combineFilter.isEmpty()) {
-                                result = relation;
-                            } else {
-                                if (upperFilter != null) {
-                                    combineFilter.addAll(upperFilter.getConjuncts());
-                                }
+                            Plan result = relation;
+                            if (upperFilter != null) {
+                                combineFilter.addAll(upperFilter.getConjuncts());
+                            }
+                            if (!combineFilter.isEmpty()) {
                                 result = new LogicalFilter<>(combineFilter, relation);
                             }
-
                             if (relatedPolicy.dataMaskProjects.isPresent()) {
                                 result = new LogicalProject<>(relatedPolicy.dataMaskProjects.get(), result);
                             }
