@@ -31,10 +31,6 @@ suite("load") {
         );
     """
 
-    sql """
-    use @compute_cluster
-    """
-
     // ssb_sf1_p1 is writted to test unique key table merge correctly.
     // It creates unique key table and sets bucket num to 1 in order to make sure that
     // many rowsets will be created during loading and then the merge process will be triggered.
