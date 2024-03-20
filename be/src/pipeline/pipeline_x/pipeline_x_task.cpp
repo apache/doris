@@ -378,15 +378,16 @@ std::string PipelineXTask::debug_string() {
                    "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
                    "= {}s], block dependency = {}, is running = {}\noperators: ",
                    (void*)this, get_state_name(_cur_state), _dry_run, elapsed,
-                   _blocked_dep ? _blocked_dep->debug_string() : "NULL", is_running());
+                   _blocked_dep && !_finished ? _blocked_dep->debug_string() : "NULL",
+                   is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
-        fmt::format_to(
-                debug_string_buffer, "\n{}",
-                _opened ? _operators[i]->debug_string(_state, i) : _operators[i]->debug_string(i));
+        fmt::format_to(debug_string_buffer, "\n{}",
+                       _opened && !_finished ? _operators[i]->debug_string(_state, i)
+                                             : _operators[i]->debug_string(i));
     }
     fmt::format_to(debug_string_buffer, "\n{}",
-                   _opened ? _sink->debug_string(_state, _operators.size())
-                           : _sink->debug_string(_operators.size()));
+                   _opened && !_finished ? _sink->debug_string(_state, _operators.size())
+                                         : _sink->debug_string(_operators.size()));
     if (_finished) {
         return fmt::to_string(debug_string_buffer);
     }
