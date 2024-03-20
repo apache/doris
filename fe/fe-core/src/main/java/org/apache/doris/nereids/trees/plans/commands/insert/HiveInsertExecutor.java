@@ -20,7 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetadataOps;
+import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -32,12 +35,14 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -88,6 +93,11 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
         } else {
+            // TODO use transaction
+            List<THivePartitionUpdate> ups = coordinator.getHivePartitionUpdates();
+            ExternalCatalog catalog = ((HMSExternalTable) table).getCatalog();
+            ExternalMetadataOps metadataOps = catalog.getMetadataOps();
+            ((HiveMetadataOps) metadataOps).commit(((HMSExternalTable) table).getDbName(), table.getName(), ups);
             txnStatus = TransactionStatus.COMMITTED;
         }
     }
