@@ -131,6 +131,8 @@ struct RuntimeFilterParams {
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
+
+    bool bloom_filter_size_calculated_by_ndv = false;
     bool null_aware = false;
 };
 
