@@ -25,12 +25,12 @@ suite("test_plugins_download", "p0") {
         logger.info("${plugins_compression} has been downloaded")
     } else {
         logger.info("start delete trino-connector plugins dir ...")
-        def delete_local_spark_jar = "rm -r ${plugins_dir}".execute()
+        def delete_local_connectors_tar = "rm -r ${plugins_dir}".execute()
         logger.info("start download trino-connector plugins ...")
         def s3_url = getS3Url()
 
         logger.info("getS3Url ==== ${s3_url}")
-        def download_spark_jar = "/usr/bin/curl ${s3_url}/regression/${plugins_compression} --output ${plugins_compression}".execute().getText()
+        def download_connectors_tar = "/usr/bin/curl ${s3_url}/regression/${plugins_compression} --output ${plugins_compression}".execute().getText()
         logger.info("finish download ${plugins_compression} ...")
     }
 
@@ -42,8 +42,8 @@ suite("test_plugins_download", "p0") {
         if (path.exists() && path.isFile()) {
             def run_cmd = "tar -zxvf ${plugins_compression}"
             logger.info("run_cmd : $run_cmd")
-            def run_spark_jar = run_cmd.execute().getText()
-            logger.info("result: $run_spark_jar")
+            def run_decompress_cmd = run_cmd.execute().getText()
+            logger.info("result: $run_decompress_cmd")
         } else {
             logger.info("${plugins_compression} is not exist or is not a file.")
             throw exception
