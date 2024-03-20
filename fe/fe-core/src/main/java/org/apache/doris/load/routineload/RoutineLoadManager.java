@@ -484,7 +484,7 @@ public class RoutineLoadManager implements Writable {
         try {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
 
-            // 1. Find if the given BE id has available slots
+            // 1. Find if the given BE id has more than half of available slots
             if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
                 // get the previousBackend info
                 Backend previousBackend = Env.getCurrentSystemInfo().getBackend(previousBeId);
@@ -499,7 +499,7 @@ public class RoutineLoadManager implements Writable {
                     } else {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
                     }
-                    if (idleTaskNum > 0) {
+                    if (idleTaskNum > (Config.max_routine_load_task_num_per_be >> 1)) {
                         return previousBeId;
                     }
                 }

@@ -299,7 +299,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     // try to allocate a task to BE which has idle slot.
-    // 1. First is to check if the previous allocated BE is available. If yes, allocate task to previous BE.
+    // 1. First is to check if the previous allocated BE has more than half of available slots.
+    //    If yes, allocate task to previous BE.
     // 2. If not, try to find a better one with most idle slots.
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.
