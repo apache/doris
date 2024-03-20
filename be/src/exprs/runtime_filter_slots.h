@@ -91,6 +91,7 @@ public:
     }
 
     Status ignore_filters(RuntimeState* state, uint64_t hash_table_size) {
+        /*
         // process ignore duplicate IN_FILTER
         std::unordered_set<int> has_in_filter;
         for (auto* filter : _runtime_filters) {
@@ -112,6 +113,7 @@ public:
             }
             RETURN_IF_ERROR(ignore_filter(state, filter, "has IN_FILTER on same expr"));
         }
+        */
         return Status::OK();
     }
 
