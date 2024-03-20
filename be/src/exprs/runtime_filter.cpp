@@ -465,6 +465,15 @@ public:
                           const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
+        if (is_ignored()) {
+            return Status::OK();
+        }
+
+        if (wrapper->is_ignored()) {
+            _context->ignored = true;
+            return Status::OK();
+        }
+
         bool can_not_merge_in_or_bloom =
                 _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
                 (wrapper->_filter_type != RuntimeFilterType::IN_FILTER &&
