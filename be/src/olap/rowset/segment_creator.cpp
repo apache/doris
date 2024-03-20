@@ -88,10 +88,10 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     }
 
     {
-        std::lock_guard<std::mutex> lock(*(_context->schema_lock));
+        std::lock_guard<std::mutex> lock(*(_context.schema_lock));
         // save original tablet schema, _context->tablet_schema maybe modified
-        if (_context->original_tablet_schema == nullptr) {
-            _context->original_tablet_schema = _context->tablet_schema;
+        if (_context.original_tablet_schema == nullptr) {
+            _context.original_tablet_schema = _context.tablet_schema;
         }
     }
 
