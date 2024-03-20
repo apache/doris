@@ -454,10 +454,7 @@ public:
     }
 
     size_t get_bloom_filter_size() const {
-        if (is_bloomfilter()) {
-            return _context->bloom_filter_func->get_size();
-        }
-        return 0;
+        return _context->bloom_filter_func ? _context->bloom_filter_func->get_size() : 0;
     }
 
     Status get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
@@ -918,7 +915,9 @@ public:
         }
     }
 
-    size_t get_in_filter_size() const { return _context->hybrid_set->size(); }
+    size_t get_in_filter_size() const {
+        return _context->hybrid_set ? _context->hybrid_set->size() : 0;
+    }
 
     std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const {
         return _context->bitmap_filter_func;
