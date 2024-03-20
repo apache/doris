@@ -125,7 +125,6 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         PhysicalTableSink<?> physicalTableSink = ((PhysicalTableSink<?>) plan.get());
         TableIf targetTable = physicalTableSink.getTargetTable();
         List<String> partitionNames;
-        List<String> tempPartitionNames;
         if (physicalTableSink instanceof PhysicalOlapTableSink) {
             InternalDatabaseUtil
                     .checkDatabase(((OlapTable) targetTable).getQualifiedDbName(), ConnectContext.get());
@@ -177,6 +176,18 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
     }
 
+    private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
+                                  ConnectContext ctx, StmtExecutor executor) throws Exception {
+        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
+                Optional.of(insertCtx));
+        insertCommand.run(ctx, executor);
+        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+            String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
+            LOG.warn("InsertInto state error:{}", errMsg);
+            throw new UserException(errMsg);
+        }
+    }
+
     /**
      * insert into select. for sepecified temp partitions
      *
@@ -217,16 +228,9 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else {
-            throw new RuntimeException("Current catalog does not support insert overwrite yet.");
+            throw new UserException("Current catalog does not support insert overwrite yet.");
         }
-        InsertIntoTableCommand insertCommand =
-                new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
-        insertCommand.run(ctx, executor);
-        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-            String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
-            LOG.warn("InsertInto state error:{}", errMsg);
-            throw new UserException(errMsg);
-        }
+        runInsertCommand(copySink, insertCtx, ctx, executor);
     }
 
     /**
@@ -236,17 +240,19 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      * @param executor executor
      */
     private void insertInto(ConnectContext ctx, StmtExecutor executor, long groupId) throws Exception {
-        UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
         // 1. for overwrite situation, we disable auto create partition.
-        // 2. we save and pass overwrite auto detect by insertCtx
-        OlapInsertCommandContext insertCtx = new OlapInsertCommandContext(false, sink.isAutoDetectPartition(), groupId);
-        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(sink, labelName, Optional.of(insertCtx));
-        insertCommand.run(ctx, executor);
-        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-            String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
-            LOG.warn("InsertInto state error:{}", errMsg);
-            throw new UserException(errMsg);
+        // 2. we save and pass overwrite auto-detected by insertCtx
+        InsertCommandContext insertCtx;
+        if (logicalQuery instanceof UnboundTableSink) {
+            insertCtx = new OlapInsertCommandContext(false,
+                    ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId);
+        } else if (logicalQuery instanceof UnboundHiveTableSink) {
+            insertCtx = new HiveInsertCommandContext();
+            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
+        } else {
+            throw new UserException("Current catalog does not support insert overwrite yet.");
         }
+        runInsertCommand(logicalQuery, insertCtx, ctx, executor);
     }
 
     @Override
