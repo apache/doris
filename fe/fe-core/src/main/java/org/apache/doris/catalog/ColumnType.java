@@ -96,8 +96,12 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.IPV4.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.IPV6.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.IPV4.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.IPV6.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.STRING.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
@@ -151,6 +155,12 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.IPV4.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.IPV4.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.IPV6.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.IPV6.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         // we should support schema change between different precision
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
