@@ -235,6 +235,16 @@ class UpCommand(Command):
                             type=str,
                             help="Specify be configs for be.conf. "\
                                     "Example: --be-config \"enable_debug_points = true\" \"enable_auth = true\".")
+        group1.add_argument("--ms-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify ms configs for doris_cloud.conf. "\
+                                    "Example: --ms-config \"log_level = warn\".")
+        group1.add_argument("--recycle-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify recycle configs for doris_cloud.conf. "\
+                                    "Example: --recycle-config \"log_level = warn\".")
         group1.add_argument("--be-disks",
                             nargs="*",
                             default=["HDD=1"],
@@ -344,6 +354,7 @@ class UpCommand(Command):
 
             cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE, args.cloud,
                                           args.fe_config, args.be_config,
+                                          args.ms_config, args.recycle_config,
                                           args.be_disks, args.be_cluster,
                                           args.coverage_dir,
                                           cloud_store_config)
