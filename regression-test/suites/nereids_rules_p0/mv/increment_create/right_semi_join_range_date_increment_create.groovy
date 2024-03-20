@@ -124,7 +124,7 @@ suite("right_semi_join_range_date_increment_create") {
         """
     }
     def refresh_mv = {
-        sql """refresh MATERIALIZED VIEW ${mv_name}"""
+        sql """refresh MATERIALIZED VIEW ${mv_name} AUTO"""
     }
     def delete_mv = {
         sql """DROP MATERIALIZED VIEW ${mv_name};"""
