@@ -162,6 +162,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     throw new AnalysisException("group commit is not supported in Nereids now");
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
+                // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()

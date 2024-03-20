@@ -123,13 +123,23 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
                           eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
         _is_null_safe_eq_join.push_back(null_aware);
 
+        const bool build_side_nullable = _build_expr_ctxs.back()->root()->is_nullable();
+        const bool probe_side_nullable = _probe_expr_ctxs.back()->root()->is_nullable();
         // if is null aware, build join column and probe join column both need dispose null value
-        _store_null_in_hash_table.emplace_back(
-                null_aware ||
-                (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
+        _store_null_in_hash_table.emplace_back(null_aware ||
+                                               (build_side_nullable && build_stores_null));
         probe_not_ignore_null[conjuncts_index] =
-                null_aware ||
-                (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
+                null_aware || (probe_side_nullable && probe_dispose_null);
+
+        const bool should_convert_build_side_to_nullable =
+                null_aware && !build_side_nullable && probe_side_nullable;
+        const bool should_convert_probe_side_to_nullable =
+                (null_aware || _join_op == TJoinOp::RIGHT_ANTI_JOIN) && build_side_nullable &&
+                !probe_side_nullable;
+
+        _should_convert_build_side_to_nullable.emplace_back(should_convert_build_side_to_nullable);
+        _should_convert_probe_side_to_nullable.emplace_back(should_convert_probe_side_to_nullable);
+
         conjuncts_index++;
     }
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
@@ -594,7 +604,7 @@ void HashJoinNode::_prepare_probe_block() {
         column_type.column = remove_nullable(column_type.column);
         column_type.type = remove_nullable(column_type.type);
     }
-    _temp_probe_nullable_columns.clear();
+    _key_columns_holder.clear();
     release_block_memory(_probe_block);
 }
 
@@ -841,8 +851,17 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
                                           ColumnRawPtrs& raw_ptrs,
                                           const std::vector<int>& res_col_ids) {
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
-    _temp_probe_nullable_columns.clear();
+    _key_columns_holder.clear();
+    auto& should_convert_to_nullable = BuildSide ? _should_convert_build_side_to_nullable
+                                                 : _should_convert_probe_side_to_nullable;
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
+        if (should_convert_to_nullable[i]) {
+            _key_columns_holder.emplace_back(
+                    make_nullable(block.get_by_position(res_col_ids[i]).column));
+            raw_ptrs[i] = _key_columns_holder.back().get();
+            continue;
+        }
+
         if (_is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
@@ -865,15 +884,6 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
                     raw_ptrs[i] = &col_nested;
                 }
             } else {
-                if constexpr (!BuildSide) {
-                    if (_join_op == TJoinOp::RIGHT_ANTI_JOIN &&
-                        _build_expr_ctxs[i]->root()->is_nullable()) {
-                        _temp_probe_nullable_columns.emplace_back(make_nullable(
-                                block.get_by_position(res_col_ids[i]).column->assume_mutable()));
-                        raw_ptrs[i] = _temp_probe_nullable_columns.back().get();
-                        continue;
-                    }
-                }
                 raw_ptrs[i] = column;
             }
         }
