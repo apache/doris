@@ -146,9 +146,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             if (ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
-
-            Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+            Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
+                    .<Set<PhysicalSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
             PhysicalSink physicalSink = plan.get();
@@ -163,6 +162,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     throw new AnalysisException("group commit is not supported in Nereids now");
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
+                // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()
@@ -173,6 +173,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner, insertCtx);
+                // set hive query options
             } else {
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support olap table");

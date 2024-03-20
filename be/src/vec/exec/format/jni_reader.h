@@ -63,6 +63,13 @@ public:
     Status init_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
+protected:
+    void _collect_profile_before_close() override {
+        if (_jni_connector != nullptr) {
+            _jni_connector->collect_profile_before_close();
+        }
+    }
+
 private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state = nullptr;

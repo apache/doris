@@ -275,4 +275,20 @@ suite("test_subquery") {
     qt_select_assert_num_row """SELECT * FROM table_100_undef_partitions2_keys3_properties4_distributed_by5 AS t1 WHERE t1.`pk` IN (0, 6, 8, 9, 5)  OR  t1.`pk`  -  0  <  (SELECT `pk` FROM table_5_undef_partitions2_keys3_properties4_distributed_by5 AS t2 WHERE t2.pk = 9) order by t1.pk;"""
     sql """drop table if exists table_100_undef_partitions2_keys3_properties4_distributed_by5"""
     sql """drop table if exists table_5_undef_partitions2_keys3_properties4_distributed_by5"""
+    
+    sql """drop table if exists scalar_subquery_t"""
+    sql """create table scalar_subquery_t (id int , name varchar(32), dt datetime) 
+            partition by range(dt) (from ('2024-02-01 00:00:00') to ('2024-02-07 00:00:00') interval 1 day) 
+            distributed by hash(id) buckets 1 
+            properties ("replication_num"="1");"""
+    sql """insert into scalar_subquery_t values (1, 'Tom', '2024-02-01 23:12:42'), (2, 'Jelly', '2024-02-02 13:53:32'), (3, 'Kat', '2024-02-03 06:42:21');"""
+    explain {
+        sql("""select count(*) from scalar_subquery_t where dt >  (select '2024-02-02 00:00:00');""")
+        contains("partitions=2/")
+    }
+    explain {
+        sql("""select count(*) from scalar_subquery_t where dt >  (select '2024-02-02 00:00:00' from scalar_subquery_t);""")
+        contains("partitions=3/")
+    }
+    sql """drop table if exists scalar_subquery_t"""
 }

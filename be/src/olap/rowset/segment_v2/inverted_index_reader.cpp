@@ -1175,4 +1175,9 @@ const std::map<string, string>& InvertedIndexIterator::get_index_properties() co
     return _reader->get_index_properties();
 }
 
+template class InvertedIndexVisitor<InvertedIndexQueryType::LESS_THAN_QUERY>;
+template class InvertedIndexVisitor<InvertedIndexQueryType::EQUAL_QUERY>;
+template class InvertedIndexVisitor<InvertedIndexQueryType::LESS_EQUAL_QUERY>;
+template class InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>;
+template class InvertedIndexVisitor<InvertedIndexQueryType::GREATER_EQUAL_QUERY>;
 } // namespace doris::segment_v2

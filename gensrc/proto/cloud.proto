@@ -735,6 +735,7 @@ message AlterObjStoreInfoRequest {
         LEGACY_UPDATE_AK_SK = 3;
 
         ADD_HDFS_INFO = 100;
+        DROP_HDFS_INFO = 101;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
@@ -1190,6 +1191,8 @@ enum MetaServiceCode {
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;
     CLUSTER_ENDPOINT_MISSING = 3003;
+
+    STORAGE_VAULT_NOT_FOUND = 3004;
 
     // Stage
     STAGE_NOT_FOUND = 4001;

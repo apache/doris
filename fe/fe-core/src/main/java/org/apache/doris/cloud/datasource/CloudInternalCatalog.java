@@ -120,6 +120,10 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
         boolean storageVaultIdSet = false;
+        // We don't need to set the vault name if the table has no property
+        if (storageVaultName == null || storageVaultName.isEmpty()) {
+            storageVaultIdSet = true;
+        }
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -497,12 +501,21 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (LOG.isDebugEnabled()) {
             LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
         }
-        Cloud.CreateTabletsResponse response;
-        try {
-            response = MetaServiceProxy.getInstance().createTablets(createTabletsReq);
-        } catch (RpcException e) {
-            LOG.warn("failed to send create tablets rpc {}", e.getMessage());
-            throw new RuntimeException(e);
+        Cloud.CreateTabletsResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+            try {
+                response = MetaServiceProxy.getInstance().createTablets(createTabletsReq);
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, create tablets RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
         }
         LOG.info("create tablets response: {}", response);
 

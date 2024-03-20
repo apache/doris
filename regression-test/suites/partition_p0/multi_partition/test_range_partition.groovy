@@ -296,4 +296,32 @@ suite("test_range_partition", "p0") {
             "DISTRIBUTED BY RANDOM BUCKETS 13"
     )
 
+    // create one table without datetime partition, but with date string
+    sql """set enable_fallback_to_original_planner=false"""
+    sql """
+        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime ( 
+            id int,
+            name string,
+            pdate DATETIME ) 
+        PARTITION BY RANGE(pdate)(
+            PARTITION pd20230418 VALUES less than ("2023-04-20")
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1 properties("replication_num" = "1")
+        """
+    sql "insert into range_date_cast_to_datetime values (1, 'name', '2023-04-19 08:08:30')"
+    sql "drop table range_date_cast_to_datetime"
+
+    sql """set enable_fallback_to_original_planner=true"""
+    sql """
+        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime ( 
+            id int,
+            name string,
+            pdate DATETIME ) 
+        PARTITION BY RANGE(pdate)(
+            PARTITION pd20230418 VALUES less than ("2023-04-20")
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1 properties("replication_num" = "1")
+        """
+    sql "insert into range_date_cast_to_datetime values (1, 'name', '2023-04-19 08:08:30')"
+    sql "drop table range_date_cast_to_datetime"
 }
