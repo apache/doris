@@ -50,7 +50,6 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/data_types/number_traits.h"
 #include "vec/data_types/serde/data_type_serde.h"
@@ -655,10 +654,6 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
         }
         for (size_t i = 0; i < size; ++i) {
             dst[i].value = FromFieldType(src[i] * multiplier.value + ((src[i] >= 0) ? 0.5 : -0.5));
-        }
-    } else if constexpr (IsDateV2Type<FromDataType>) {
-        for (size_t i = 0; i < size; ++i) {
-            dst[i].value = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(src[i]).to_int64();
         }
     } else {
         using DecimalFrom =
