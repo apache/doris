@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -748,7 +749,7 @@ public class BindExpression implements AnalysisRuleFactory {
         final Plan finalInput = input;
         Supplier<Scope> inputChildrenScope = Suppliers.memoize(
                 () -> toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(finalInput.children())));
-        SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
+        SimpleExprAnalyzer bindInInputScopeThenInputChildScope = buildCustomSlotBinderAnalyzer(
                 sort, cascadesContext, inputScope, true, false,
                 (self, unboundSlot) -> {
                     // first, try to bind slot in Scope(input.output)
@@ -763,9 +764,21 @@ public class BindExpression implements AnalysisRuleFactory {
                     return self.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
                 });
 
+        SimpleExprAnalyzer bindInInputChildScope = buildCustomSlotBinderAnalyzer(
+                sort, cascadesContext, inputScope, true, false,
+                (self, unboundSlot) -> {
+                    return self.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
+                });
+
         Builder<OrderKey> boundOrderKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
+        FunctionRegistry functionRegistry = cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
         for (OrderKey orderKey : sort.getOrderKeys()) {
-            Expression boundKey = analyzer.analyze(orderKey.getExpr());
+            Expression boundKey;
+            if (hasAggregateFunction(orderKey.getExpr(), functionRegistry)) {
+                boundKey = bindInInputChildScope.analyze(orderKey.getExpr());
+            } else {
+                boundKey = bindInInputScopeThenInputChildScope.analyze(orderKey.getExpr());
+            }
             boundOrderKeys.add(orderKey.withExpression(boundKey));
         }
         return new LogicalSort<>(boundOrderKeys.build(), sort.child());
