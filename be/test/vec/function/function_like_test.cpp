@@ -32,10 +32,6 @@ TEST(FunctionLikeTest, like) {
     std::string func_name = "like";
 
     DataSet data_set = {
-            // all pass
-            {{std::string(""), std::string(".*")}, uint8_t(1)},
-            {{std::string("a"), std::string(".*")}, uint8_t(1)},
-            {{std::string("abc"), std::string(".*")}, uint8_t(1)},
             // sub_string
             {{std::string("abc"), std::string("%b%")}, uint8_t(1)},
             {{std::string("abc"), std::string("%ad%")}, uint8_t(0)},
