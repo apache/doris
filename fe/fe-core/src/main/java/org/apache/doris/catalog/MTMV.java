@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
@@ -30,6 +31,7 @@ import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -38,7 +40,6 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -51,7 +52,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -314,35 +314,6 @@ public class MTMV extends OlapTable {
     }
 
     /**
-     * generateRelatedPartitionDescs
-     * <p>
-     * Different partitions may generate the same PartitionKeyDesc through logical calculations
-     * (such as selecting only one column, or rolling up partitions), so it is a one to many relationship
-     *
-     * @return related PartitionKeyDesc ==> relatedPartitionIds
-     * @throws AnalysisException
-     */
-    public Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs() throws AnalysisException {
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Maps.newHashMap();
-        }
-        Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
-        int relatedColPos = mvPartitionInfo.getRelatedColPos();
-        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable()
-                .getPartitionItemsByTimeFilter(relatedColPos,
-                        MTMVUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties));
-        for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
-            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
-            if (res.containsKey(partitionKeyDesc)) {
-                res.get(partitionKeyDesc).add(entry.getKey());
-            } else {
-                res.put(partitionKeyDesc, Sets.newHashSet(entry.getKey()));
-            }
-        }
-        return res;
-    }
-
-    /**
      * Calculate the partition and associated partition mapping relationship of the MTMV
      * It is the result of real-time comparison calculation, so there may be some costs,
      * so it should be called with caution
@@ -355,7 +326,8 @@ public class MTMV extends OlapTable {
             return Maps.newHashMap();
         }
         Map<Long, Set<Long>> res = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs = generateRelatedPartitionDescs();
+        Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs = MTMVPartitionUtil
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
         Map<Long, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         for (Entry<Long, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
@@ -384,6 +356,9 @@ public class MTMV extends OlapTable {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            Expr.writeTo(mvPartitionInfo.getExpr(), out);
+        }
     }
 
     @Override
@@ -402,6 +377,10 @@ public class MTMV extends OlapTable {
         // For compatibility
         if (refreshSnapshot == null) {
             refreshSnapshot = new MTMVRefreshSnapshot();
+        }
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            Expr e = Expr.readIn(in);
+            mvPartitionInfo.setExpr(e);
         }
     }
 

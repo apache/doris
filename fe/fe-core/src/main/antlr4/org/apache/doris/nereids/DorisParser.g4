@@ -93,7 +93,7 @@ statementBase
         (REFRESH refreshMethod? refreshTrigger?)?
         (KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
-        (PARTITION BY LEFT_PAREN partitionKey = identifier RIGHT_PAREN)?
+        (PARTITION BY mvPartition)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
@@ -182,6 +182,11 @@ refreshSchedule
 
 refreshMethod
     : COMPLETE | AUTO
+    ;
+
+mvPartition
+    : LEFT_PAREN partitionKey = identifier RIGHT_PAREN
+    | partitionExpr = functionCallExpression
     ;
 
 identifierOrStringLiteral
