@@ -100,7 +100,7 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
         Database database = pair.first;
         OlapTable table = pair.second;
-        boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
+        boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType().isAggregationFamily();
 
         LogicalPlan child = ((LogicalPlan) sink.child());
         boolean childHasSeqCol = child.getOutput().stream()

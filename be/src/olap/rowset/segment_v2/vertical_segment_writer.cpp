@@ -689,8 +689,11 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        if (block->columns() <= _tablet_schema->num_key_columns() ||
-            block->columns() >= _tablet_schema->num_columns()) {
+        if ((_tablet_schema->keys_type() == UNIQUE_KEYS &&
+             (block->columns() <= _tablet_schema->num_key_columns() ||
+              block->columns() >= _tablet_schema->num_columns())) ||
+            (_tablet_schema->keys_type() == AGG_KEYS &&
+             block->columns() <= _tablet_schema->num_key_columns())) {
             return Status::InternalError(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
                     "schema columns: {}",
@@ -702,7 +705,31 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
                 "illegal block columns, block columns = {}, tablet_schema columns = {}",
                 block->columns(), _tablet_schema->num_columns());
     }
-    _batched_blocks.emplace_back(block, row_pos, num_rows);
+    if (_opts.rowset_ctx->partial_update_info &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _tablet_schema->keys_type() == AGG_KEYS) {
+        std::shared_ptr<vectorized::Block> block_ptr =
+                std::make_shared<vectorized::Block>(_tablet_schema->create_block());
+        const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
+        size_t input_id = 0;
+        for (auto i : including_cids) {
+            block_ptr->replace_by_position(i, block->get_by_position(input_id++).column);
+        }
+        std::vector<bool> use_default_or_null_flag;
+        use_default_or_null_flag.reserve(num_rows);
+        size_t segment_start_pos = 0;
+        auto mutable_full_columns = block_ptr->mutate_columns();
+        bool has_default_or_nullable = true;
+        for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
+            use_default_or_null_flag.emplace_back(true);
+        }
+        RETURN_IF_ERROR(_fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
+                                              has_default_or_nullable, segment_start_pos));
+        _full_blocks.emplace_back(block_ptr);
+        _batched_blocks.emplace_back(nullptr, row_pos, num_rows);
+    } else {
+        _batched_blocks.emplace_back(block, row_pos, num_rows);
+    }
     return Status::OK();
 }
 
@@ -710,7 +737,8 @@ Status VerticalSegmentWriter::write_batch() {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
-        !_opts.rowset_ctx->is_transient_rowset_writer) {
+        !_opts.rowset_ctx->is_transient_rowset_writer &&
+        _tablet_schema->keys_type() == UNIQUE_KEYS) {
         for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
             RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
         }
@@ -738,9 +766,11 @@ Status VerticalSegmentWriter::write_batch() {
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
+        int index = 0;
         for (auto& data : _batched_blocks) {
             _olap_data_convertor->set_source_content_with_specifid_columns(
-                    data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid});
+                    data.block ? data.block : _full_blocks[index++].get(), data.row_pos,
+                    data.num_rows, std::vector<uint32_t> {cid});
 
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -765,9 +795,10 @@ Status VerticalSegmentWriter::write_batch() {
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
-
+    int index = 0;
     for (auto& data : _batched_blocks) {
-        _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
+        _olap_data_convertor->set_source_content(
+                data.block ? data.block : _full_blocks[index++].get(), data.row_pos, data.num_rows);
         // find all row pos for short key indexes
         std::vector<size_t> short_key_pos;
         // We build a short key index every `_opts.num_rows_per_block` rows. Specifically, we
@@ -809,8 +840,8 @@ Status VerticalSegmentWriter::write_batch() {
         _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
     }
-
     _batched_blocks.clear();
+    _full_blocks.clear();
     return Status::OK();
 }
 
