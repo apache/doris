@@ -271,22 +271,18 @@ public:
                             bool* eof, bool is_dict_filter) override;
 
     const std::vector<level_t>& get_rep_level() const override {
-        for (const auto& reader : _child_readers) {
-            const auto& rep_level = reader.second->get_rep_level();
-            if (!rep_level.empty()) {
-                return rep_level;
-            }
+        if (!_read_column_names.empty()) {
+            // can't use _child_readers[*_read_column_names.begin()]
+            // because the operator[] of std::unordered_map is not const :(
+            return _child_readers.find(*_read_column_names.begin())->second->get_rep_level();
         }
         return _child_readers.begin()->second->get_rep_level();
     }
-    const std::vector<level_t>& get_def_level() const override {
-        for (const auto& reader : _child_readers) {
-            const auto& def_level = reader.second->get_def_level();
-            if (!def_level.empty()) {
-                return def_level;
-            }
-        }
 
+    const std::vector<level_t>& get_def_level() const override {
+        if (!_read_column_names.empty()) {
+            return _child_readers.find(*_read_column_names.begin())->second->get_def_level();
+        }
         return _child_readers.begin()->second->get_def_level();
     }
 
@@ -294,7 +290,7 @@ public:
         Statistics st;
         for (const auto& reader : _child_readers) {
             // make sure the field is read
-            if (!reader.second->get_rep_level().empty()) {
+            if (_read_column_names.find(reader.first) != _read_column_names.end()) {
                 Statistics cst = reader.second->statistics();
                 st.merge(cst);
             }
@@ -306,6 +302,7 @@ public:
 
 private:
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;
+    std::set<std::string> _read_column_names;
 };
 
 }; // namespace doris::vectorized

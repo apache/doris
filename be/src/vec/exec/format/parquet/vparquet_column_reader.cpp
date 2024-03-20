@@ -735,16 +735,20 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     bool least_one_reader = false;
     std::vector<size_t> missing_column_idxs {};
 
+    _read_column_names.clear();
+
     for (size_t i = 0; i < doris_struct.tuple_size(); ++i) {
         ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
-        DataTypePtr& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
-        String& doris_name = const_cast<String&>(doris_struct_type->get_element_name(i));
+        auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
+        auto& doris_name = const_cast<String&>(doris_struct_type->get_element_name(i));
 
         // remember the missing column index
         if (_child_readers.find(doris_name) == _child_readers.end()) {
             missing_column_idxs.push_back(i);
             continue;
         }
+
+        _read_column_names.insert(doris_name);
 
         select_vector.reset();
         size_t field_rows = 0;
@@ -779,7 +783,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     // fill missing column with null or default value
     for (auto idx : missing_column_idxs) {
         auto& doris_field = doris_struct.get_column_ptr(idx);
-        DataTypePtr& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(idx));
+        auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(idx));
         DCHECK(doris_type->is_nullable());
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
                 (*std::move(doris_field)).mutate().get());
