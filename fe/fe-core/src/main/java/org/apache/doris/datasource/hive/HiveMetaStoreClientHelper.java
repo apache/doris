@@ -606,6 +606,22 @@ public class HiveMetaStoreClientHelper {
             return "double";
         } else if (dorisType.equals(Type.STRING)) {
             return "string";
+        } else if (dorisType.equals(Type.DEFAULT_DECIMALV3)) {
+            StringBuilder decimalType = new StringBuilder();
+            decimalType.append("decimal");
+            ScalarType scalarType = (ScalarType) dorisType;
+            int precision = scalarType.getScalarPrecision();
+            if (precision == 0) {
+                precision = ScalarType.DEFAULT_PRECISION;
+            }
+            // decimal(precision, scale)
+            int scale = scalarType.getScalarScale();
+            decimalType.append("(");
+            decimalType.append(precision);
+            decimalType.append(",");
+            decimalType.append(scale);
+            decimalType.append(")");
+            return decimalType.toString();
         }
         throw new HMSClientException("Unsupported type conversion of " + dorisType.toSql());
     }

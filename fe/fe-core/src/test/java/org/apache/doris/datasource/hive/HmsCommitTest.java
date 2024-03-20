@@ -24,7 +24,6 @@ import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TUpdateMode;
 
 import com.google.common.collect.Lists;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.After;
@@ -97,8 +96,8 @@ public class HmsCommitTest {
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("c1", PrimitiveType.INT, true));
         columns.add(new Column("c2", PrimitiveType.STRING, true));
-        List<FieldSchema> partitionKeys = new ArrayList<>();
-        partitionKeys.add(new FieldSchema("c3", "string", "comment"));
+        List<String> partitionKeys = new ArrayList<>();
+        partitionKeys.add("c3");
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
                 dbName, tbWithPartition, columns, partitionKeys,
                 new HashMap<>(), fileFormat);
