@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
@@ -132,6 +133,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Stddev.class, "stddev_pop", "stddev"),
             agg(StddevSamp.class, "stddev_samp"),
             agg(Sum.class, "sum"),
+            agg(Sum0.class, "sum0"),
             agg(TopN.class, "topn"),
             agg(TopNArray.class, "topn_array"),
             agg(TopNWeighted.class, "topn_weighted"),

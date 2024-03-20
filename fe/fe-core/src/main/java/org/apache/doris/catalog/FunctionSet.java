@@ -46,6 +46,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 public class FunctionSet<T> {
@@ -1174,86 +1175,91 @@ public class FunctionSet<T> {
         }
 
         // Sum
-        String []sumNames = {"sum", "sum_distinct"};
-        for (String name : sumNames) {
-            addBuiltin(AggregateFunction.createBuiltin(name,
+        // functionName(String) -> returnsNonNullOnEmpty(Boolean)
+        Map<String, Boolean> sumNames = ImmutableMap.of(
+                "sum", false,
+                "sum_distinct", false,
+                "sum0", true
+        );
+        for (Entry<String, Boolean> nameWithReturn : sumNames.entrySet()) {
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.BOOLEAN), Type.BIGINT, Type.BIGINT, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
+                    null, false, true, nameWithReturn.getValue(), true));
 
-            addBuiltin(AggregateFunction.createBuiltin(name,
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.TINYINT), Type.BIGINT, Type.BIGINT, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.SMALLINT), Type.BIGINT, Type.BIGINT, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.INT), Type.BIGINT, Type.BIGINT, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.BIGINT), Type.BIGINT, Type.BIGINT, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.DOUBLE), Type.DOUBLE, Type.DOUBLE, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE), Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.DECIMAL32), ScalarType.DECIMAL128, Type.DECIMAL128, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.DECIMAL64), Type.DECIMAL128, Type.DECIMAL128, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.DECIMAL128), Type.DECIMAL128, Type.DECIMAL128, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
-            addBuiltin(AggregateFunction.createBuiltin(name,
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.LARGEINT), Type.LARGEINT, Type.LARGEINT, "",
                     "",
                     "",
                     null, null,
                     "",
-                    null, false, true, false, true));
+                    null, false, true, nameWithReturn.getValue(), true));
         }
 
         Type[] types = {Type.SMALLINT, Type.TINYINT, Type.INT, Type.BIGINT, Type.FLOAT, Type.DOUBLE, Type.CHAR,
