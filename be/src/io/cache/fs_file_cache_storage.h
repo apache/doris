@@ -93,9 +93,10 @@ private:
             char* v2 = (char*)&w.second;
             char buf[24];
             memcpy(buf, v1, 16);
-            memcpy(buf+16, v2, 8);
+            memcpy(buf + 16, v2, 8);
             std::string_view str(buf, 24);
-            return std::hash<std::string_view>{}(str);
+            return std::hash<std::string_view> {}(str);
+        }
         }
     };
 
