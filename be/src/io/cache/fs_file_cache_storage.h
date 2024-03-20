@@ -97,7 +97,6 @@ private:
             std::string_view str(buf, 24);
             return std::hash<std::string_view> {}(str);
         }
-        }
     };
 
     std::string _cache_base_path;
