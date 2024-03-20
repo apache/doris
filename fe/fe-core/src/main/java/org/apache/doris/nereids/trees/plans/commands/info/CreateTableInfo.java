@@ -525,16 +525,11 @@ public class CreateTableInfo {
         }
     }
 
-    /**
-     * validate ctas definition
-     */
     public void validateCreateTableAsSelect(List<ColumnDefinition> columns, ConnectContext ctx) {
         this.columns = Utils.copyRequiredMutableList(columns);
         // bucket num is hard coded 10 to be consistent with legacy planner
-        if (engineName.equals("olap") && this.distribution == null) {
-            this.distribution = new DistributionDescriptor(true, false, 10,
-                    Lists.newArrayList(columns.get(0).getName()));
-        }
+        this.distribution = new DistributionDescriptor(true, false, 10,
+                Lists.newArrayList(columns.get(0).getName()));
         validate(ctx);
     }
 

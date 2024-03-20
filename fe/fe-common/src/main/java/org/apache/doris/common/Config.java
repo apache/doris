@@ -2219,7 +2219,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
             "Enable external hive bucket table"})
-    public static boolean enable_external_hive_bucket = false;
+    public static boolean enable_create_hive_bucket_table = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Hive创建外部表默认指定的文件格式",

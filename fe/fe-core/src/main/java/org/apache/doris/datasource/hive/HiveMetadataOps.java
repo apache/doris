@@ -151,16 +151,21 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             }
             HiveTableMetadata hiveTableMeta;
             DistributionDesc bucketInfo = stmt.getDistributionDesc();
-            if (bucketInfo != null && Config.enable_external_hive_bucket) {
-                if (bucketInfo instanceof HashDistributionDesc) {
-                    hiveTableMeta = HiveTableMetadata.of(dbName,
-                            tblName,
-                            stmt.getColumns(),
-                            partitionColNames,
-                            ((HashDistributionDesc) bucketInfo).getDistributionColumnNames(),
-                            bucketInfo.getBuckets(),
-                            ddlProps,
-                            fileFormat);
+            if (bucketInfo != null) {
+                if (Config.enable_create_hive_bucket_table) {
+                    if (bucketInfo instanceof HashDistributionDesc) {
+                        hiveTableMeta = HiveTableMetadata.of(dbName,
+                                tblName,
+                                stmt.getColumns(),
+                                partitionColNames,
+                                ((HashDistributionDesc) bucketInfo).getDistributionColumnNames(),
+                                bucketInfo.getBuckets(),
+                                ddlProps,
+                                fileFormat);
+                    } else {
+                        throw new UserException("Create hive bucket table need"
+                                + " set enable_create_hive_bucket_table to true");
+                    }
                 } else {
                     throw new UserException("External hive table only supports hash bucketing");
                 }
