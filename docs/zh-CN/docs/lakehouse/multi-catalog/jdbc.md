@@ -44,7 +44,7 @@ PROPERTIES ("key"="value", ...)
 
 ## 参数说明
 
-| 参数                        | 必须 | 默认值  | 说明                                                                    |
+| 参数                        | 必须 | 默认值     | 说明                                                                    |
 |---------------------------|-----|---------|-----------------------------------------------------------------------|
 | `user`                    | 是   |         | 对应数据库的用户名                                                             |
 | `password`                | 是   |         | 对应数据库的密码                                                              |
@@ -56,6 +56,7 @@ PROPERTIES ("key"="value", ...)
 | `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                   |
 | `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。     |
 | `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
+| `test_connection`         | 否   | "true" | 是否在创建 Catalog 时测试连接。如果设置为 `true`，则会在创建 Catalog 时测试连接，如果连接失败，则会拒绝创建 Catalog。如果设置为 `false`，则不会测试连接。 |
 
 ### 驱动包路径
 
