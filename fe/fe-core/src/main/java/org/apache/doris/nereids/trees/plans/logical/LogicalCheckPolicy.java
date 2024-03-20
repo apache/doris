@@ -19,13 +19,20 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -113,32 +120,61 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     /**
-     * get wherePredicate of policy for logicalRelation.
+     * find related policy for logicalRelation.
      *
      * @param logicalRelation include tableName and dbName
-     * @param connectContext include information about user and policy
+     * @param cascadesContext include information about user and policy
      */
-    public Optional<Expression> getFilter(LogicalRelation logicalRelation, ConnectContext connectContext) {
+    public RelatedPolicy findPolicy(LogicalRelation logicalRelation, CascadesContext cascadesContext) {
         if (!(logicalRelation instanceof CatalogRelation)) {
-            return Optional.empty();
+            return RelatedPolicy.NO_POLICY;
         }
 
+        ConnectContext connectContext = cascadesContext.getConnectContext();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
-            return Optional.empty();
+            return RelatedPolicy.NO_POLICY;
         }
 
         CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
         String ctlName = catalogRelation.getDatabase().getCatalog().getName();
         String dbName = catalogRelation.getDatabase().getFullName();
         String tableName = catalogRelation.getTable().getName();
-        List<? extends RowFilterPolicy> policies = accessManager.evalRowFilterPolicies(currentUserIdentity, ctlName,
-                dbName, tableName);
-        if (policies.isEmpty()) {
-            return Optional.empty();
+
+        NereidsParser nereidsParser = new NereidsParser();
+        ImmutableList.Builder<NamedExpression> dataMasks
+                = ImmutableList.builderWithExpectedSize(logicalRelation.getOutput().size());
+
+        boolean hasDataMask = false;
+        for (Slot slot : logicalRelation.getOutput()) {
+            Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
+                    currentUserIdentity, ctlName, dbName, tableName, slot.getName());
+            if (dataMaskPolicy.isPresent()) {
+                Expression unboundExpr = nereidsParser.parseExpression(dataMaskPolicy.get().getMaskTypeDef());
+                Expression childOfAlias
+                        = unboundExpr instanceof UnboundAlias ? unboundExpr.child(0) : unboundExpr;
+                Alias alias = new Alias(
+                        StatementScopeIdGenerator.newExprId(),
+                        ImmutableList.of(childOfAlias),
+                        slot.getName(), slot.getQualifier(), false
+                );
+                dataMasks.add(alias);
+                hasDataMask = true;
+            } else {
+                dataMasks.add(slot);
+            }
         }
-        return Optional.ofNullable(mergeRowPolicy(policies));
+
+        List<? extends RowFilterPolicy> policies = accessManager.evalRowFilterPolicies(
+                currentUserIdentity, ctlName, dbName, tableName);
+        if (policies.isEmpty()) {
+            return RelatedPolicy.NO_POLICY;
+        }
+        return new RelatedPolicy(
+                Optional.ofNullable(mergeRowPolicy(policies)),
+                hasDataMask ? Optional.of(dataMasks.build()) : Optional.empty()
+        );
     }
 
     private Expression mergeRowPolicy(List<? extends RowFilterPolicy> policies) {
@@ -170,6 +206,19 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return ExpressionUtils.and(andList);
         } else {
             return null;
+        }
+    }
+
+    /** RelatedPolicy */
+    public static class RelatedPolicy {
+        public static final RelatedPolicy NO_POLICY = new RelatedPolicy(Optional.empty(), Optional.empty());
+
+        public final Optional<Expression> rowPolicyFilter;
+        public final Optional<List<NamedExpression>> dataMaskProjects;
+
+        public RelatedPolicy(Optional<Expression> rowPolicyFilter, Optional<List<NamedExpression>> dataMaskProjects) {
+            this.rowPolicyFilter = rowPolicyFilter;
+            this.dataMaskProjects = dataMaskProjects;
         }
     }
 }
