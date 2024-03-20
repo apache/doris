@@ -140,6 +140,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             }
             tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
         } else {
+            // Do not create temp partition on FE
             partitionNames = new ArrayList<>();
             tempPartitionNames = new ArrayList<>();
         }
