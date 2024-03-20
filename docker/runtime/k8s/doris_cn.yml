@@ -62,6 +62,11 @@ spec:
             #Specify the startup type as k8s to bypass some restrictions of the official image initialization script
             - name: BUILD_TYPE
               value: "k8s"
+            - name: APP_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
           ports:
             - containerPort: 9060
               name: be-port
