@@ -2630,6 +2630,11 @@ public class ShowExecutor {
         resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
+    /**
+     * @param columnStatistics Return value. Pair<Pair<columnName, indexName>, ColumnStatistic>
+     * @param tableIf
+     * @throws AnalysisException
+     */
     private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
                                        TableIf tableIf) throws AnalysisException {
         List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(tableIf.getId());

@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
@@ -29,20 +28,20 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
 
 public class TableStatsMeta implements Writable {
+    private static final Logger LOG = LogManager.getLogger(TableStatsMeta.class);
 
     @SerializedName("tblId")
     public final long tblId;
@@ -134,46 +133,69 @@ public class TableStatsMeta implements Writable {
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
         userInjected = analyzedJob.userInject;
-        String colNameStr = analyzedJob.colName;
-        // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
-        // TODO: Refactor this later
-        if (analyzedJob.colName.startsWith("[") && analyzedJob.colName.endsWith("]")) {
-            colNameStr = colNameStr.substring(1, colNameStr.length() - 1);
-        }
-        List<String> cols = Arrays.stream(colNameStr.split(","))
-                .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
-        for (String col : cols) {
-            ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(col);
-            if (colStatsMeta == null) {
-                colNameToColStatsMeta.put(col, new ColStatsMeta(updatedTime,
-                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
-            } else {
-                colStatsMeta.updatedTime = updatedTime;
-                colStatsMeta.analysisType = analyzedJob.analysisType;
-                colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
-                colStatsMeta.jobType = analyzedJob.jobType;
-            }
+        // Update column meta
+        for (String col : analyzedJob.colToPartitions.keySet()) {
+            updateColumnMeta(col, analyzedJob);
         }
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
                 rowCount = analyzedJob.emptyJob ? 0 : tableIf.getRowCount();
             }
-            if (!analyzedJob.emptyJob && analyzedJob.colToPartitions.keySet()
-                    .containsAll(tableIf.getBaseSchema().stream()
-                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                            .map(Column::getName).collect(Collectors.toSet()))) {
-                updatedRows.set(0);
-                newPartitionLoaded.set(false);
+            if (analyzedJob.emptyJob) {
+                return;
             }
+            // Reset update rows and userInject flag if all columns are analyzed.
+            Set<String> columns = StatisticsUtil.getColumnNamesWithIndexId(tableIf, tableIf.getSchemaAllIndexes(false));
+            if (analyzedJob.colToPartitions.keySet().containsAll(columns)) {
+                updatedRows.set(0);
+                userInjected = false;
+            }
+            // Reset new partition loaded flag if all partition columns are analyzed.
             if (tableIf instanceof OlapTable) {
-                PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
-                if (partitionInfo != null && analyzedJob.colToPartitions.keySet()
-                        .containsAll(partitionInfo.getPartitionColumns().stream()
-                            .map(Column::getName).collect(Collectors.toSet()))) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                if (partitionInfo == null) {
+                    return;
+                }
+                if (analyzedJob.colToPartitions.keySet().containsAll(
+                        StatisticsUtil.getColumnNamesWithIndexId(tableIf, partitionInfo.getPartitionColumns()))) {
                     newPartitionLoaded.set(false);
                 }
             }
         }
+    }
+
+    protected void updateColumnMeta(String col, AnalysisInfo analyzedJob) {
+        ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(col);
+        if (colStatsMeta == null) {
+            colNameToColStatsMeta.put(col, new ColStatsMeta(updatedTime,
+                    analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
+        } else {
+            colStatsMeta.updatedTime = updatedTime;
+            colStatsMeta.analysisType = analyzedJob.analysisType;
+            colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
+            colStatsMeta.jobType = analyzedJob.jobType;
+        }
+    }
+
+    public String analyzeRealColumns() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+        for (String col : colNameToColStatsMeta.keySet()) {
+            try {
+                sb.append(StatisticsUtil.splitUniqueColumnName(col).second);
+            } catch (Exception e) {
+                LOG.info("Old column stats name [{}] encounter", col);
+                sb.append(col);
+                continue;
+            }
+            sb.append(", ");
+        }
+        if (sb.length() > 2) {
+            sb.delete(sb.length() - 2, sb.length());
+        }
+        sb.append("]");
+        return sb.toString();
     }
 }

@@ -149,7 +149,7 @@ public class ShowTableStatsStmt extends ShowStmt {
                         java.time.ZoneId.systemDefault());
         String formattedDateTime = dateTime.format(formatter);
         row.add(formattedDateTime);
-        row.add(tableStatistic.analyzeColumns().toString());
+        row.add(tableStatistic.analyzeRealColumns());
         row.add(tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
         row.add(String.valueOf(tableStatistic.userInjected));

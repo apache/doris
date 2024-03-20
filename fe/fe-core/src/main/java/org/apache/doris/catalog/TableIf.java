@@ -31,6 +31,7 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
@@ -44,6 +45,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -184,7 +187,20 @@ public interface TableIf {
 
     boolean needReAnalyzeTable(TableStatsMeta tblStats);
 
-    Map<String, Set<String>> findReAnalyzeNeededPartitions();
+    default Map<String, Set<String>> findReAnalyzeNeededPartitions(Set<String> columns) {
+        Map<String, Set<String>> colToPart = new HashMap<>();
+        HashSet<String> partitions = Sets.newHashSet();
+        partitions.add("Dummy Partition");
+        for (Column col : getSchemaAllIndexes(false)) {
+            if (StatisticsUtil.isUnsupportedType(col.getType()) || !columns.contains(col.getName())) {
+                continue;
+            }
+            for (String name : StatisticsUtil.getUniqueColumnNames(this, col.getName())) {
+                colToPart.put(name, partitions);
+            }
+        }
+        return colToPart;
+    }
 
     // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
     // For HMS external table, the return result is a list of all the files' size.

@@ -36,7 +36,6 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import org.apache.commons.lang3.NotImplementedException;
@@ -46,11 +45,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -331,15 +328,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         }
         return System.currentTimeMillis()
             - tblStats.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
-    }
-
-    @Override
-    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-        HashSet<String> partitions = Sets.newHashSet();
-        // TODO: Find a way to collect external table partitions that need to be analyzed.
-        partitions.add("Dummy Partition");
-        return getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                .collect(Collectors.toMap(Column::getName, k -> partitions));
     }
 
     @Override

@@ -38,6 +38,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Text;
@@ -82,7 +83,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -292,51 +292,6 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    /**
-     * Gets the partitions for which statistics are to be collected. First verify that
-     * there are partitions that have been deleted but have historical statistics(invalid statistics),
-     * if there are these partitions, we need to delete them to avoid errors in summary table level statistics.
-     * Then get the partitions for which statistics need to be collected based on collection mode (incremental/full).
-     * <p>
-     * note:
-     * If there is no invalid statistics, it does not need to collect/update
-     * statistics if the following conditions are met:
-     * - in full collection mode, the partitioned table does not have partitions
-     * - in incremental collection mode, partition statistics already exist
-     * <p>
-     * TODO Supports incremental collection of statistics from materialized views
-     */
-    private Map<String, Set<String>> validateAndGetPartitions(TableIf table, Set<String> columnNames,
-            Set<String> partitionNames, AnalysisType analysisType) throws DdlException {
-
-        Map<String, Set<String>> columnToPartitions = columnNames.stream()
-                .collect(Collectors.toMap(
-                        columnName -> columnName,
-                        columnName -> new HashSet<>(partitionNames == null ? Collections.emptySet() : partitionNames)
-                ));
-
-        if (analysisType == AnalysisType.HISTOGRAM) {
-            // Collecting histograms does not need to support incremental collection,
-            // and will automatically cover historical statistics
-            return columnToPartitions;
-        }
-
-        if (table instanceof HMSExternalTable) {
-            // TODO Currently, we do not support INCREMENTAL collection for external table.
-            // One reason is external table partition id couldn't convert to a Long value.
-            // Will solve this problem later.
-            return columnToPartitions;
-        }
-
-        if (analysisType == AnalysisType.FUNDAMENTALS) {
-            Map<String, Set<String>> result = table.findReAnalyzeNeededPartitions();
-            result.keySet().retainAll(columnNames);
-            return result;
-        }
-
-        return columnToPartitions;
-    }
-
     // Make sure colName of job has all the column as this AnalyzeStmt specified, no matter whether it will be analyzed
     // or not.
     @VisibleForTesting
@@ -399,12 +354,13 @@ public class AnalysisManager implements Writable {
         long periodTimeInMs = stmt.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
 
-        Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
-                partitionNames, analysisType);
+        Map<String, Set<String>> colToPartitions = table.findReAnalyzeNeededPartitions(columnNames);
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
-        infoBuilder.setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0);
+        infoBuilder.setEmptyJob(table instanceof OlapTable
+                && table.getRowCount() == 0
+                && analysisMethod.equals(AnalysisMethod.SAMPLE));
         return infoBuilder.build();
     }
 
@@ -421,16 +377,11 @@ public class AnalysisManager implements Writable {
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
             boolean isSync) throws DdlException {
         Map<String, Set<String>> columnToPartitions = jobInfo.colToPartitions;
-        TableIf table = jobInfo.getTable();
         for (Entry<String, Set<String>> entry : columnToPartitions.entrySet()) {
-            String colName = entry.getKey();
-            List<Long> indexIds = Lists.newArrayList();
-            // Get index id this column belongs to for OlapTable. Set it to -1 for baseIndex id.
-            if (table instanceof OlapTable) {
-                indexIds = ((OlapTable) table).getMvColumnIndexIds(colName);
-            } else {
-                indexIds.add(-1L);
-            }
+            String colNameWithIndex = entry.getKey();
+            Pair<Long, String> indexIdColumnNamePair = StatisticsUtil.splitUniqueColumnName(colNameWithIndex);
+            long indexId = indexIdColumnNamePair.first;
+            String colName = indexIdColumnNamePair.second;
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
             if (jobInfo.analysisType != AnalysisType.HISTOGRAM) {
                 colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
@@ -438,17 +389,15 @@ public class AnalysisManager implements Writable {
                 colToParts.put(colName, entry.getValue());
                 colTaskInfoBuilder.setColToPartitions(colToParts);
             }
-            for (long indexId : indexIds) {
-                long taskId = Env.getCurrentEnv().getNextId();
-                AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
-                        .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
-                analysisTasks.put(taskId, createTask(analysisInfo));
-                jobInfo.addTaskId(taskId);
-                if (isSync) {
-                    continue;
-                }
-                replayCreateAnalysisTask(analysisInfo);
+            long taskId = Env.getCurrentEnv().getNextId();
+            AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
+                    .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
+            analysisTasks.put(taskId, createTask(analysisInfo));
+            jobInfo.addTaskId(taskId);
+            if (isSync) {
+                continue;
             }
+            replayCreateAnalysisTask(analysisInfo);
         }
     }
 
@@ -713,6 +662,7 @@ public class AnalysisManager implements Writable {
             }
             for (long indexId : indexIds) {
                 tableStats.removeColumn(column);
+                tableStats.removeColumn(indexId + "_" + column);
                 statisticsCache.invalidate(tableId, indexId, column);
             }
         }
@@ -1088,25 +1038,30 @@ public class AnalysisManager implements Writable {
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
     }
 
-    // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
-    // we could make sure it would be analyzed again soon if user or system submit job for that column again.
-    public void removeColStatsStatus(long tblId, String colName) {
-        TableStatsMeta tableStats = findTableStatsStatus(tblId);
-        if (tableStats != null) {
-            tableStats.removeColumn(colName);
-        }
-    }
-
     public void removeTableStats(long tableId) {
         idToTblStats.remove(tableId);
     }
 
-    public ColStatsMeta findColStatsMeta(long tblId, String colName) {
-        TableStatsMeta tableStats = findTableStatsStatus(tblId);
+    /**
+     *
+     * @param table
+     * @param nameIndexPair Pair<ColumnName, IndexName>
+     * @return
+     */
+    public ColStatsMeta findColStatsMeta(TableIf table, Pair<String, String> nameIndexPair) {
+        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
         if (tableStats == null) {
             return null;
         }
-        return tableStats.findColumnStatsMeta(colName);
+        String columnName = nameIndexPair.first;
+        if (nameIndexPair.second.equals("N/A")) {
+            columnName = "-1_" + columnName;
+        } else {
+            columnName = ((OlapTable) table).getIndexIdByName(nameIndexPair.second) + "_" + columnName;
+        }
+        ColStatsMeta columnStatsMeta = tableStats.findColumnStatsMeta(columnName);
+        // To compatible old column stats without index name as prefix.
+        return columnStatsMeta == null ? tableStats.findColumnStatsMeta(nameIndexPair.first) : columnStatsMeta;
     }
 
     public AnalysisJob findJob(long id) {

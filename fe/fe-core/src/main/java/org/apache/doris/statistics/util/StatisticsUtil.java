@@ -105,6 +105,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -1029,4 +1030,55 @@ public class StatisticsUtil {
         return true;
     }
 
+    /**
+     * Give an olap table and a column name, convert the column name to indexId_column.
+     * This is used for collect materialize view column stats.
+     * Because there may exist columns in base index and all MVs with identical name.
+     * This will generate the unique name for each column.
+     */
+    public static List<String> getUniqueColumnNames(TableIf tableIf, String column) {
+        List<String> ret = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        if (tableIf instanceof OlapTable) {
+            List<Long> indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(column);
+            for (long id : indexIds) {
+                sb.setLength(0);
+                ret.add(sb.append(id).append("_").append(column).toString());
+            }
+        } else {
+            ret.add(sb.append("-1_").append(column).toString());
+        }
+        return ret;
+    }
+
+    /**
+     * @param name column name with index id as prefix.
+     * @return Pair of index id and original column name.
+     */
+    public static Pair<Long, String> splitUniqueColumnName(String name) {
+        int pos = name.indexOf("_");
+        long indexId = Long.parseLong(name.substring(0, pos));
+        String columnName = name.substring(pos + 1);
+        return Pair.of(indexId, columnName);
+    }
+
+    /**
+     * Return the support type column names with index id as prefix. Only take effect for olap table.
+     * For external table, return the input columns as is.
+     * @param table
+     * @param columns
+     * @return
+     */
+    public static Set<String> getColumnNamesWithIndexId(TableIf table, List<Column> columns) {
+        Set<String> ret = new HashSet<>();
+        for (Column c : columns) {
+            if (isUnsupportedType(c.getType())) {
+                continue;
+            }
+            for (String col : getUniqueColumnNames(table, c.getName())) {
+                ret.add(col);
+            }
+        }
+        return ret;
+    }
 }

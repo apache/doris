@@ -136,6 +136,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
         return table;
     }
 
+    /**
+     * @param columnStatistics Pair<Pair<columnName, indexName>, ColumnStatistic>
+     * @return
+     */
     public ShowResultSet constructResultSet(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics) {
         List<List<String>> result = Lists.newArrayList();
         columnStatistics.forEach(p -> {
@@ -153,8 +157,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.avgSizeByte));
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
-            ColStatsMeta colStatsMeta = Env.getCurrentEnv().getAnalysisManager().findColStatsMeta(table.getId(),
-                    p.first.first);
+            ColStatsMeta colStatsMeta = Env.getCurrentEnv().getAnalysisManager().findColStatsMeta(table, p.first);
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisMethod));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisType));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));
