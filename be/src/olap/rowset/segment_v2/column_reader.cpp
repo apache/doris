@@ -1508,8 +1508,7 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
         }
     }
     // fill nullmap
-    if (root_column->is_nullable()) {
-        DCHECK(dst->is_nullable());
+    if (root_column->is_nullable() && dst->is_nullable()) {
         vectorized::ColumnUInt8& dst_null_map =
                 assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
         vectorized::ColumnUInt8& src_null_map =
@@ -1542,8 +1541,7 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
         }
     }
     // fill nullmap
-    if (root_column->is_nullable()) {
-        DCHECK(dst->is_nullable());
+    if (root_column->is_nullable() && dst->is_nullable()) {
         vectorized::ColumnUInt8& dst_null_map =
                 assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
         vectorized::ColumnUInt8& src_null_map =

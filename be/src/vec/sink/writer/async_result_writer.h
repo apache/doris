@@ -95,6 +95,7 @@ private:
     void process_block(RuntimeState* state, RuntimeProfile* profile);
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
+    void _set_ready_to_finish();
 
     std::unique_ptr<Block> _get_block_from_queue();
 

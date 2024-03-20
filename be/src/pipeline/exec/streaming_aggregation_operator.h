@@ -212,13 +212,14 @@ private:
     vectorized::Sizes _offsets_of_aggregate_states;
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
-    size_t _external_agg_bytes_threshold;
+
+    /// When spilling is enabled, the streaming agg should not occupy too much memory.
+    size_t _spill_streaming_agg_mem_limit;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
     std::vector<size_t> _make_nullable_keys;
-    size_t _spill_partition_count_bits;
     bool _have_conjuncts;
 };
 
