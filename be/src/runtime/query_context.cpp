@@ -110,6 +110,14 @@ QueryContext::~QueryContext() {
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
+    // Not release the the thread token in query context's dector method, because the query
+    // conext may be dectored in the thread token it self. It is very dangerous and may core.
+    // And also thread token need shutdown, it may take some time, may cause the thread that
+    // release the token hang, the thread maybe a pipeline task scheduler thread.
+    if (_thread_token) {
+        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+    }
 
     //TODO: check if pipeline and tracing both enabled
     if (_is_pipeline && ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {

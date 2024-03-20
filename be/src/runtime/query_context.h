@@ -95,6 +95,15 @@ public:
 
     int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
 
+    void set_thread_token(int concurrency, bool is_serial) {
+        _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
+                is_serial ? ThreadPool::ExecutionMode::SERIAL
+                          : ThreadPool::ExecutionMode::CONCURRENT,
+                concurrency);
+    }
+
+    ThreadPoolToken* get_token() { return _thread_token.get(); }
+
     void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
@@ -271,6 +280,13 @@ private:
     int64_t _bytes_limit = 0;
     bool _is_pipeline = false;
     bool _is_nereids = false;
+
+    // A token used to submit olap scanner to the "_limited_scan_thread_pool",
+    // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
+    // And will be shared by all instances of this query.
+    // So that we can control the max thread that a query can be used to execute.
+    // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
+    std::unique_ptr<ThreadPoolToken> _thread_token;
 
     std::mutex _start_lock;
     std::condition_variable _start_cond;
