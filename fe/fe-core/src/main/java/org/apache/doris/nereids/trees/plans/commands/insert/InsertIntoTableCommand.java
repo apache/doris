@@ -157,8 +157,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    // return;
-                    throw new AnalysisException("group commit is not supported in Nereids now");
+                    return null;
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
@@ -191,7 +190,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
-        insertExecutor.executeSingleInsert(executor, jobId);
+        if (insertExecutor != null) {
+            insertExecutor.executeSingleInsert(executor, jobId);
+        }
     }
 
     @Override

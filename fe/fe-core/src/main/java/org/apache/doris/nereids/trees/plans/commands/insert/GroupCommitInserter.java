@@ -24,7 +24,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
@@ -61,15 +60,15 @@ public class GroupCommitInserter {
     /**
      * Handle group commit
      */
-    public static boolean groupCommit(ConnectContext ctx, DataSink sink, PhysicalSink physicalSink) {
+    public static boolean groupCommit(ConnectContext ctx, DataSink sink, PhysicalSink physicalSink)
+                throws TException, RpcException, UserException, ExecutionException, InterruptedException {
         PhysicalOlapTableSink<?> olapSink = (PhysicalOlapTableSink<?>) physicalSink;
-        // TODO: implement group commit
-        if (canGroupCommit(ctx, sink, olapSink)) {
-            // handleGroupCommit(ctx, sink, physicalOlapTableSink);
-            // return;
-            throw new AnalysisException("group commit is not supported in Nereids now");
+        boolean can = canGroupCommit(ctx, sink, olapSink);
+        ctx.setGroupCommit(can);
+        if (can) {
+            handleGroupCommit(ctx, sink, olapSink);
         }
-        return false;
+        return can;
     }
 
     private static boolean canGroupCommit(ConnectContext ctx, DataSink sink,
@@ -94,7 +93,7 @@ public class GroupCommitInserter {
         return child instanceof OneRowRelation || (child instanceof PhysicalUnion && child.arity() == 0);
     }
 
-    private void handleGroupCommit(ConnectContext ctx, DataSink sink,
+    private static void handleGroupCommit(ConnectContext ctx, DataSink sink,
             PhysicalOlapTableSink<?> physicalOlapTableSink)
             throws UserException, RpcException, TException, ExecutionException, InterruptedException {
         // TODO we should refactor this to remove rely on UnionNode

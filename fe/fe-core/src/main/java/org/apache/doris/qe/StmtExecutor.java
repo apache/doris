@@ -2991,7 +2991,7 @@ public class StmtExecutor {
                 if (!Config.wait_internal_group_commit_finish && insert.getLabelName().isPresent()) {
                     throw new AnalysisException("label and group_commit can't be set at the same time");
                 }
-                context.setGroupCommitStreamLoadSql(true);
+                context.setGroupCommit(true);
             }
             OlapInsertExecutor insertExecutor = (OlapInsertExecutor) insert.initPlan(context, this);
             httpStreamParams.setTxnId(insertExecutor.getTxnId());
