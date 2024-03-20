@@ -24,12 +24,15 @@
 suite("load") {
 
     sql """
-        CREATE RESOURCE IF NOT EXISTS hdfs_vault_ssb
+        CREATE STORAGE VAULT IF NOT EXISTS ssb_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="hdfs://127.0.0.1:8020",
-        "hdfs_validity_check" = "true"
+        "fs.defaultFS"="127.0.0.1:8020"
         );
+    """
+
+    sql """
+    use @compute_cluster
     """
 
     // ssb_sf1_p1 is writted to test unique key table merge correctly.
