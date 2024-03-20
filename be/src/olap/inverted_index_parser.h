@@ -37,6 +37,11 @@ enum class InvertedIndexParserType {
     PARSER_CHINESE = 4,
     PARSER_UNICODE = 5,
 };
+enum class InvertedIndexParserMode {
+    UNKNOWN = 0,
+    FINE_GRAIN = 1,
+    COARSE_GRAIN = 2,
+};
 
 using CharFilterMap = std::map<std::string, std::string>;
 

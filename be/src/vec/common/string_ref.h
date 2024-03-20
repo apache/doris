@@ -196,6 +196,10 @@ struct StringRef {
     /// Make this copy constructor explicit to prevent inadvertently constructing a StringRef from a temporary std::string variable.
     explicit StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
     explicit StringRef(const char* str) : data(str), size(strlen(str)) {}
+    void init(const char* data_, size_t size_) {
+        data = data_;
+        size = size_;
+    }
 
     std::string to_string() const { return std::string(data, size); }
     std::string debug_string() const { return to_string(); }
@@ -236,6 +240,19 @@ struct StringRef {
     bool end_with(char) const;
     bool start_with(const StringRef& search_string) const;
     bool end_with(const StringRef& search_string) const;
+    [[nodiscard]] bool equals_ignore_case(const StringRef& other) const {
+        if (size != other.size) {
+            return false;
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            if (std::tolower(data[i]) != std::tolower(other.data[i])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     // Byte-by-byte comparison. Returns:
     // this < other: -1
