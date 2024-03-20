@@ -89,7 +89,13 @@ private:
     using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
     struct FileWriterMapKeyHash {
         std::size_t operator()(const FileWriterMapKey& w) const {
-            return UInt128Hash()(w.first.value_) + w.second;
+            char* v1 = (char*)&w.first.value_;
+            char* v2 = (char*)&w.second;
+            char buf[24];
+            memcpy(buf, v1, 16);
+            memcpy(buf+16, v2, 8);
+            std::string_view str(buf, 24);
+            return std::hash<std::string_view>{}(str);
         }
     };
 
