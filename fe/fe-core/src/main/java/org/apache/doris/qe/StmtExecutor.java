@@ -663,6 +663,13 @@ public class StmtExecutor {
                                 + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status"));
                     }
+                    if (context.getSessionVariable().isEnableInsertGroupCommit()) {
+                        // FIXME: Group commit insert does not need to forward to master
+                        //  Nereids does not support group commit, so we can not judge if should forward
+                        //  Here throw an exception to fallback to legacy planner and let legacy judge if should forward
+                        //  After Nereids support group commit, we can remove this exception
+                        throw new NereidsException(new UserException("Nereids does not support group commit insert"));
+                    }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
                         context.setQueryId(masterOpExecutor.getQueryId());
@@ -2794,7 +2801,10 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.getPartitionNames().size() == 0) {
+            if (iotStmt.isAutoDetectPartition()) {
+                // insert overwrite table auto detect which partitions need to replace
+                handleAutoOverwritePartition(iotStmt);
+            } else if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
             } else {
@@ -2941,6 +2951,26 @@ public class StmtExecutor {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             handleIotPartitionRollback(targetTableName, tempPartitionName);
         }
+    }
+
+    /*
+     * TODO: support insert overwrite auto detect partition in legacy planner
+     */
+    private void handleAutoOverwritePartition(InsertOverwriteTableStmt iotStmt) {
+        // TODO:
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
+        try {
+            parsedStmt = new NativeInsertStmt(targetTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true).withAutoDetectOverwrite();
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(targetTableName);
+            return;
+        }
+
     }
 
     private void handleIotRollback(TableName table) {

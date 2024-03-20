@@ -474,7 +474,11 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                eof = true;
+                if (ref_block->rows() == 0) {
+                    break;
+                } else {
+                    eof = true;
+                }
             } else {
                 return st;
             }
@@ -538,7 +542,11 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                eof = true;
+                if (ref_block->rows() == 0) {
+                    break;
+                } else {
+                    eof = true;
+                }
             } else {
                 return st;
             }
@@ -590,7 +598,6 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet_schema;
-    context.original_tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     std::unique_ptr<RowsetWriter> rowset_writer;
@@ -619,7 +626,6 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet_schema;
-    context.original_tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     std::unique_ptr<RowsetWriter> rowset_writer;
@@ -1079,7 +1085,6 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet_schema;
-        context.original_tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;

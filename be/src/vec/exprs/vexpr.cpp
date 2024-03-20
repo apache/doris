@@ -542,10 +542,10 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
                                    const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        // close failed will make system unstable. dont swallow it.
-        THROW_IF_ERROR(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        // `close_function_context` is called in VExprContext's destructor so do not throw exceptions here.
+        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            THROW_IF_ERROR(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         }
     }
 }

@@ -115,7 +115,6 @@ timestamp_col	TEXT	Yes	true	\N
 1
 
 -- !sql --
-INFORMATION_SCHEMA
 db_accessadmin
 db_backupoperator
 db_datareader

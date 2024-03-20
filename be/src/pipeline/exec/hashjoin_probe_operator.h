@@ -124,6 +124,8 @@ private:
 
     vectorized::VExprContextSPtrs _mark_join_conjuncts;
 
+    std::vector<vectorized::ColumnPtr> _key_columns_holder;
+
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<uint16_t> _probe_column_disguise_null;
@@ -193,6 +195,8 @@ private:
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     bool _probe_ignore_null = false;
+
+    std::vector<bool> _should_convert_to_nullable;
 
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;

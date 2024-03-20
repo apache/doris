@@ -133,7 +133,7 @@ public class CloudReplica extends Replica {
                     LOG.debug("get cluster by session context cluster: {}", cluster);
                 }
             } else {
-                cluster = context.getCloudCluster();
+                cluster = context.getCloudCluster(false);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("get cluster by context {}", cluster);
                 }

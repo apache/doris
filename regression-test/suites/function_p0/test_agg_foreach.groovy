@@ -20,10 +20,17 @@ suite("test_agg_foreach") {
    // now support  min min_by maxmax_by avg avg_weighted sum stddev stddev_samp_foreach variance var_samp
    // covar covar_samp corr
    // topn topn_array topn_weighted
-   // count  count_by_enum
+   // count  count_by_enum approx_count_distinct
    // PERCENTILE PERCENTILE_ARRAY PERCENTILE_APPROX
    // histogram
-   //  GROUP_BIT_AND GROUP_BIT_OR GROUP_BIT_XOR
+   // GROUP_BIT_AND GROUP_BIT_OR GROUP_BIT_XOR
+   // any_value
+   // array_agg map_agg
+   // collect_set collect_list
+   // retention
+   // not support
+   // GROUP_BITMAP_XOR BITMAP_UNION HLL_UNION_AGG GROUPING GROUPING_ID BITMAP_AGG SEQUENCE-MATCH SEQUENCE-COUNT
+
 
     sql """ set enable_nereids_planner=true;"""
     sql """ set enable_fallback_to_original_planner=false;"""
@@ -48,7 +55,7 @@ suite("test_agg_foreach") {
     """
     sql """
     insert into foreach_table values
-    (1,[1,2,3],[[1],[1,2,3],[2]],["ab","123"]),
+    (1,[1,2,3],[[1],[1,2,3],[2]],["ab","123","114514"]),
     (2,[20],[[2]],["cd"]),
     (3,[100],[[1]],["efg"]) , 
     (4,null,[null],null),
@@ -73,7 +80,11 @@ suite("test_agg_foreach") {
 
 
    qt_sql """
-   select count_foreach(a)  , count_by_enum_foreach(a) from foreach_table;
+   select count_foreach(a)  , count_by_enum_foreach(a)  , approx_count_distinct_foreach(a) from foreach_table;
+   """
+
+   qt_sql """
+   select histogram_foreach(a) from foreach_table;
    """
    
    qt_sql """
@@ -91,5 +102,29 @@ suite("test_agg_foreach") {
 
    qt_sql """
    select GROUP_BIT_AND_foreach(a), GROUP_BIT_OR_foreach(a), GROUP_BIT_XOR_foreach(a)  from foreach_table;
+   """
+
+   qt_sql """
+   select GROUP_CONCAT_foreach(s), GROUP_CONCAT_foreach(s,s) from foreach_table;
+   """
+   
+   qt_sql """
+   select retention_foreach(a), retention_foreach(a,a ),retention_foreach(a,a,a) , retention_foreach(a,a,a ,a) from foreach_table;
+   """
+   
+   qt_sql """
+   select any_value_foreach(s), any_value_foreach(a) from foreach_table;
+   """
+
+   qt_sql """
+   select collect_set_foreach(a), collect_set_foreach(s) , collect_set_foreach(a,a) from foreach_table;
+   """
+
+   qt_sql """
+   select collect_list_foreach(a), collect_list_foreach(s) , collect_list_foreach(a,a) from foreach_table;
+   """
+
+   qt_sql """
+   select map_agg_foreach(a,a), map_agg_foreach(a,s) , map_agg_foreach(s,s) from foreach_table;
    """
 }
