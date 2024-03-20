@@ -126,8 +126,9 @@ public class LakeSoulArrowJniScanner extends JniScanner {
                 predicates = new ScanPredicate[0];
             }
         }
+        this.predicates = predicates;
 
-        super.initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+        super.initTableInfo(columnTypes, requiredFields, batchSize);
     }
 
     private Integer fillMetaAddressVector(int batchSize, ColumnType columnType, long metaAddress, Integer offset,
