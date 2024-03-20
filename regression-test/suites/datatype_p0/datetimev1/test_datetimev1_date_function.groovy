@@ -15,23 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_datetimev1_compare", "nonConcurrent") {
+suite("test_datetimev1_date_function", "nonConcurrent") {
 
     /// legacy date/datetime format need to run in non concurrent mode.
     sql """
         admin set frontend config("enable_date_conversion" = "false");
     """
 
-    def table_dup = "test_datetimev1_compare_dup_tbl" // duplicate key
+    def table_dup = "test_datetimev1_date_function_dup_tbl" // duplicate key
 
     sql "drop table if exists ${table_dup};"
 
     sql """
         CREATE TABLE IF NOT EXISTS `${table_dup}` (
             `date_key1` datetimev1 NULL COMMENT "",
-            `date_key2` datetimev1 NULL COMMENT ""
           ) ENGINE=OLAP
-          DUPLICATE KEY(`date_key1`, `date_key2`)
+          DUPLICATE KEY(`date_key1`)
           COMMENT "OLAP"
           DISTRIBUTED BY HASH(`date_key1`) BUCKETS 1
           PROPERTIES (
@@ -45,15 +44,15 @@ suite("test_datetimev1_compare", "nonConcurrent") {
         sql """
             insert into ${table_name}
                 values
-                    ('2010-01-01 19:29:39', '2012-01-02 19:29:39'),
-                    ('2010-01-02 18:28:38', '2012-02-02 19:29:39'),
-                    ('2010-01-03 23:37:47', '2012-03-02 19:29:39'),
-                    ('2010-01-04 21:42:43', '2012-04-02'),
-                    ('2010-01-05 17:58:59', '2012-05-02'),
-                    ('2010-01-06 21:02:03', '2012-06-02 00:00:00'),
-                    ('2010-01-07 09:29:39', '2012-07-02 00:00:00'),
-                    ('2010-01-08 11:33:55', '2012-08-02 00:00:00'),
-                    ('2010-01-09 14:43:42', '2012-09-02 00:00:00');
+                    ('2020-01-01 19:29:39'),
+                    ('2020-01-02 18:28:38'),
+                    ('2020-01-03 23:37:47'),
+                    ('2020-01-04 21:42:43'),
+                    ('2020-01-05 17:58:59'),
+                    ('2020-01-06 21:02:03'),
+                    ('2020-01-07 09:29:39'),
+                    ('2020-01-08 11:33:55'),
+                    ('2020-01-09 14:43:42');
         """
     }
 
@@ -66,10 +65,10 @@ suite("test_datetimev1_compare", "nonConcurrent") {
             from
                 `${table_name}`
             where
-                `${col}` < ${col_value}
+                date(`${col}`) > ${col_value}
             order by 1, 2, 3, 4;
         """
-        quickTest("compare_test_datetime_lt_${table_name}", query1)
+        quickTest("date_function_test_datetimev1_gt_${table_name}", query1)
 
         def query2 = """
             select
@@ -77,10 +76,10 @@ suite("test_datetimev1_compare", "nonConcurrent") {
             from
                 `${table_name}`
             where
-                `${col}` <= ${col_value}
+                date(`${col}`) >= ${col_value}
             order by 1, 2, 3, 4;
         """
-        quickTest("compare_test_datetime_lte_${table_name}", query2)
+        quickTest("date_function_test_datetimev1_gte_${table_name}", query2)
 
         def query3 = """
             select
@@ -91,7 +90,7 @@ suite("test_datetimev1_compare", "nonConcurrent") {
                 date(`${col}`) < ${col_value}
             order by 1, 2, 3, 4;
         """
-        quickTest("compare_test_datetime_lt_${table_name}", query3)
+        quickTest("date_function_test_datetimev1_lt_${table_name}", query3)
 
         def query4 = """
             select
@@ -102,13 +101,13 @@ suite("test_datetimev1_compare", "nonConcurrent") {
                 date(`${col}`) <= ${col_value}
             order by 1, 2, 3, 4;
         """
-        quickTest("compare_test_datetime_lte_${table_name}", query4)
+        quickTest("date_function_test_datetimev1_lte_${table_name}", query4)
     }
 
-    run_compare_test(table_dup, "date_key1", "'2010-01-05 17:58:59'");
-    run_compare_test(table_dup, "date_key2", "'2012-05-02 00:00:00'");
-    run_compare_test(table_dup, "date_key1", "'2010-01-05 17:58:59'");
-    run_compare_test(table_dup, "date_key2", "'2012-05-02 00:00:00'");
+    run_compare_test(table_dup, "date_key1", "'2020-01-05 17:58:59'");
+    run_compare_test(table_dup, "date_key1", "'2022-05-02 00:00:00'");
+    run_compare_test(table_dup, "date_key1", "'2020-01-05 17:58:59'");
+    run_compare_test(table_dup, "date_key1", "'2022-05-02 00:00:00'");
 
     sql """
         admin set frontend config("enable_date_conversion" = "true");
