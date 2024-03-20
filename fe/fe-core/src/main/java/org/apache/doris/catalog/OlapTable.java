@@ -1106,6 +1106,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
+    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+        List<String> names = new ArrayList<String>();
+        for (Long id : partitionIds) {
+            names.add(idToPartition.get(id).getName());
+        }
+        return names;
+    }
+
     public List<Long> getPartitionIds() {
         readLock();
         try {

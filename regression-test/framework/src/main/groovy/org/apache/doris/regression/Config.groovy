@@ -41,6 +41,10 @@ class Config {
     public String jdbcPassword
     public String defaultDb
 
+    public String ccrDownstreamUrl
+    public String ccrDownstreamUser
+    public String ccrDownstreamPassword
+
     public String feSourceThriftAddress
     public String feTargetThriftAddress
     public String feSyncerUser
@@ -517,6 +521,9 @@ class Config {
             configToString(obj.cloudVersion)
         )
 
+        config.ccrDownstreamUrl = configToString(obj.ccrDownstreamUrl)
+        config.ccrDownstreamUser = configToString(obj.ccrDownstreamUser)
+        config.ccrDownstreamPassword = configToString(obj.ccrDownstreamPassword)
         config.image = configToString(obj.image)
         config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
@@ -841,6 +848,13 @@ class Config {
         String arrowFlightSqlJdbcUser = otherConfigs.get("extArrowFlightSqlUser")
         String arrowFlightSqlJdbcPassword = otherConfigs.get("extArrowFlightSqlPassword")
         return DriverManager.getConnection(dbUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
+    }
+
+    Connection getDownstreamConnectionByDbName(String dbName) {
+        String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
+        tryCreateDbIfNotExist(dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, ccrDownstreamUser, ccrDownstreamPassword)
     }
 
     String getDbNameByFile(File suiteFile) {
