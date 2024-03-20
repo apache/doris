@@ -24,12 +24,20 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_group_array_intersect(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
     assert_unary(name, argument_types);
+    std::string demangled_name_before = boost::core::demangle(typeid((argument_types[0])).name());
+    LOG(INFO) << "in the cpp, before remove, name of argument_types[0]: " << demangled_name_before;
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
 
-    if (!WhichDataType(argument_types.at(0)).is_array())
+    std::string demangled_name_argument_type = boost::core::demangle(typeid(argument_type).name());
+    LOG(INFO) << "in the cpp, after remove, name of argument_type: "
+              << demangled_name_argument_type;
+
+    if (!WhichDataType(argument_type).is_array())
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Aggregate function groupArrayIntersect accepts only array type argument.");
-
-    return create_aggregate_function_group_array_intersect_impl(name, argument_types,
+                        "Aggregate function groupArrayIntersect accepts only array type argument. "
+                        "Provided argument type: " +
+                                argument_type->get_name());
+    return create_aggregate_function_group_array_intersect_impl(name, {argument_type},
                                                                 result_is_nullable);
 }
 

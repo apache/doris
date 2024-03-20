@@ -1446,7 +1446,7 @@ public class FunctionSet<T> {
                             t, "", "", "", "", "", true, false, true, true));
             addBuiltin(
                     AggregateFunction.createBuiltin(GROUP_ARRAY_INTERSECT, Lists.newArrayList(new ArrayType(t)),
-                            new ArrayType(t), Type.VARCHAR, "", "", "", "", "", true, false, true, true));
+                            new ArrayType(t), t, "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
                     true, false, true, true));
 

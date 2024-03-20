@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -33,8 +35,8 @@ import java.util.List;
 /**
  * AggregateFunction 'group_array_intersect'.
  */
-public class GroupArrayIntersect extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature {
+public class GroupArrayIntersect extends AggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
@@ -55,24 +57,13 @@ public class GroupArrayIntersect extends NullableAggregateFunction
         super("group_array_intersect", distinct, arg);
     }
 
-    public FunctionSignature computeSignature(FunctionSignature signature) {
-        signature = signature.withReturnType(ArrayType.of(getArgumentType(0)));
-        return super.computeSignature(signature);
-    }
-
     /**
      * withChildren.
      */
     @Override
-    public GroupArrayIntersect withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new GroupArrayIntersect(children.get(0));
-    }
-
-    @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new CollectSet(distinct, children.get(0));
+        return new GroupArrayIntersect(distinct, children.get(0));
     }
 
     @Override
@@ -83,10 +74,5 @@ public class GroupArrayIntersect extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
-    }
-
-    @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return null;
     }
 }
