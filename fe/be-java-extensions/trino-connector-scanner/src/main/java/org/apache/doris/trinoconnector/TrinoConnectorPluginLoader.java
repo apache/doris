@@ -30,9 +30,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.util.logging.FileHandler;
 import java.util.logging.Level;
+import java.util.logging.SimpleFormatter;
 
 public class TrinoConnectorPluginLoader {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
@@ -46,18 +46,16 @@ public class TrinoConnectorPluginLoader {
         static {
             try {
                 // Trino uses jul as its own log system, so the attributes of JUL are configured here
-                java.util.logging.LogManager manager = java.util.logging.LogManager.getLogManager();
-                File file = new File(EnvUtils.getDorisHome() + "/conf/logging.properties");
-                if (file.exists() && file.isFile()) {
-                    manager.readConfiguration(new FileInputStream(file));
-                } else {
-                    manager.readConfiguration();
-                }
+                System.setProperty("java.util.logging.SimpleFormatter.format",
+                        "%1$tY-%1$tm-%1$td %1$tH:%1$tM:%1$tS %4$s: %5$s%6$s%n");
                 java.util.logging.Logger logger = java.util.logging.Logger.getLogger("");
-                FileHandler fileHandler = new FileHandler(EnvUtils.getDorisHome() + "/log/trinoconnector%g.log");
+                logger.setUseParentHandlers(false);
+                FileHandler fileHandler = new FileHandler(EnvUtils.getDorisHome() + "/log/trinoconnector%g.log",
+                        500000000, 10, true);
                 fileHandler.setLevel(Level.INFO);
+                fileHandler.setFormatter(new SimpleFormatter());
                 logger.addHandler(fileHandler);
-                manager.addLogger(logger);
+                java.util.logging.LogManager.getLogManager().addLogger(logger);
 
                 TypeOperators typeOperators = new TypeOperators();
                 featuresConfig = new FeaturesConfig();
