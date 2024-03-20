@@ -86,12 +86,19 @@ private:
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
+    using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
+    struct FileWriterMapKeyHash {
+        std::size_t operator()(const FileWriterMapKey& w) const {
+            return UInt128Hash()(w.first.value_) + w.second;
+        }
+    };
+
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();
     // TODO(Lchangliang): use a more efficient data structure
     std::mutex _mtx;
-    std::unordered_map<UInt128Wrapper, FileWriterPtr, KeyHash> _key_to_writer;
+    std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
 };
 
 } // namespace doris::io
