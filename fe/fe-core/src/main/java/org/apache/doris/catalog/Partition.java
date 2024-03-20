@@ -223,10 +223,6 @@ public class Partition extends MetaObject implements Writable {
         return baseIndex;
     }
 
-    public Collection<MaterializedIndex> getRollupIndices() {
-        return idToVisibleRollupIndex.values();
-    }
-
     public long getNextVersion() {
         return nextVersion;
     }
