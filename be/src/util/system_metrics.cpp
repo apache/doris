@@ -404,6 +404,14 @@ const char* k_ut_vmstat_path;
 #endif
 
 void SystemMetrics::_update_cpu_metrics() {
+#ifdef __APPLE__
+    // For macOS, simply set CPU metrics to 0 as a placeholder
+    for (auto& metric : _cpu_metrics) {
+        for (auto& m : metric.second->metrics) {
+            m->set_value(0);
+        }
+    }
+#else
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_stat_path, "r");
 #else
@@ -448,6 +456,7 @@ void SystemMetrics::_update_cpu_metrics() {
     }
 
     fclose(fp);
+#endif
 }
 
 void SystemMetrics::_install_memory_metrics(MetricEntity* entity) {
@@ -515,6 +524,19 @@ void SystemMetrics::_install_disk_metrics(const std::set<std::string>& disk_devi
 }
 
 void SystemMetrics::_update_disk_metrics() {
+#ifdef __APPLE__
+    // For macOS, simply set disk metrics to 0 as there is no /proc/diskstats
+    for (auto& metric : _disk_metrics) {
+        metric.second->disk_reads_completed->set_value(0);
+        metric.second->disk_bytes_read->set_value(0);
+        metric.second->disk_read_time_ms->set_value(0);
+        metric.second->disk_writes_completed->set_value(0);
+        metric.second->disk_bytes_written->set_value(0);
+        metric.second->disk_write_time_ms->set_value(0);
+        metric.second->disk_io_time_ms->set_value(0);
+        metric.second->disk_io_time_weigthed->set_value(0);
+    }
+#else
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_diskstats_path, "r");
 #else
@@ -587,6 +609,7 @@ void SystemMetrics::_update_disk_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
+#endif
 }
 
 void SystemMetrics::_install_net_metrics(const std::vector<std::string>& interfaces) {
@@ -603,6 +626,15 @@ void SystemMetrics::_install_snmp_metrics(MetricEntity* entity) {
 }
 
 void SystemMetrics::_update_net_metrics() {
+#ifdef __APPLE__
+    // For macOS, simply set network metrics to 0 as there is no /proc/net/dev
+    for (auto& metric : _network_metrics) {
+        metric.second->network_receive_bytes->set_value(0);
+        metric.second->network_receive_packets->set_value(0);
+        metric.second->network_send_bytes->set_value(0);
+        metric.second->network_send_packets->set_value(0);
+    }
+#else
 #ifdef BE_TEST
     // to mock proc
     FILE* fp = fopen(k_ut_net_dev_path, "r");
@@ -696,9 +728,16 @@ void SystemMetrics::_update_net_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
+#endif
 }
 
 void SystemMetrics::_update_snmp_metrics() {
+#ifdef __APPLE__
+    // For macOS, simply set SNMP metrics to 0 as there is no /proc/net/snmp
+    _snmp_metrics->snmp_tcp_retrans_segs->set_value(0);
+    _snmp_metrics->snmp_tcp_in_errs->set_value(0);
+    _snmp_metrics->snmp_tcp_in_segs->set_value(0);
+    _snmp_metrics->snmp_tcp_out_segs->set_value(0);
 #ifdef BE_TEST
     // to mock proc
     FILE* fp = fopen(k_ut_net_snmp_path, "r");
@@ -768,6 +807,7 @@ void SystemMetrics::_update_snmp_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
+#endif
 }
 
 void SystemMetrics::_install_fd_metrics(MetricEntity* entity) {
@@ -775,6 +815,11 @@ void SystemMetrics::_install_fd_metrics(MetricEntity* entity) {
 }
 
 void SystemMetrics::_update_fd_metrics() {
+#ifdef __APPLE__
+    // For macOS, simply set file descriptor metrics to 0 as there is no /proc/sys/fs/file-nr
+    _fd_metrics->fd_num_limit->set_value(0);
+    _fd_metrics->fd_num_used->set_value(0);
+#else
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_fd_path, "r");
 #else
@@ -809,6 +854,7 @@ void SystemMetrics::_update_fd_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
+#endif
 }
 
 void SystemMetrics::_install_load_avg_metrics(MetricEntity* entity) {
@@ -816,6 +862,12 @@ void SystemMetrics::_install_load_avg_metrics(MetricEntity* entity) {
 }
 
 void SystemMetrics::_update_load_avg_metrics() {
+#ifdef __APPLE__
+    // For macOS, simply set load average metrics to 0
+    _load_average_metrics->load_average_1_minutes->set_value(0);
+    _load_average_metrics->load_average_5_minutes->set_value(0);
+    _load_average_metrics->load_average_15_minutes->set_value(0);
+#else
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_load_avg_path, "r");
 #else
@@ -845,6 +897,7 @@ void SystemMetrics::_update_load_avg_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
+#endif
 }
 
 int64_t SystemMetrics::get_max_io_util(const std::map<std::string, int64_t>& lst_value,
@@ -926,6 +979,13 @@ void SystemMetrics::_install_proc_metrics(MetricEntity* entity) {
 }
 
 void SystemMetrics::_update_proc_metrics() {
+#ifdef __APPLE__
+    // For macOS, simply set process metrics to 0 as a placeholder
+    _proc_metrics->proc_interrupt->set_value(0);
+    _proc_metrics->proc_ctxt_switch->set_value(0);
+    _proc_metrics->proc_procs_running->set_value(0);
+    _proc_metrics->proc_procs_blocked->set_value(0);
+#else
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_stat_path, "r");
 #else
@@ -973,9 +1033,17 @@ void SystemMetrics::_update_proc_metrics() {
     }
 
     fclose(fp);
+#endif
 }
 
 void SystemMetrics::get_metrics_from_proc_vmstat() {
+#ifdef __APPLE__
+    // For macOS, simply set memory metrics to 0 as there is no /proc/vmstat
+    _memory_metrics->memory_pgpgin->set_value(0);
+    _memory_metrics->memory_pgpgout->set_value(0);
+    _memory_metrics->memory_pswpin->set_value(0);
+    _memory_metrics->memory_pswpout->set_value(0);
+#else
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_vmstat_path, "r");
 #else
@@ -1014,9 +1082,14 @@ void SystemMetrics::get_metrics_from_proc_vmstat() {
     }
 
     fclose(fp);
+#endif
 }
 
 void SystemMetrics::get_cpu_name() {
+#ifdef __APPLE__
+    // For macOS, set a placeholder CPU name as macOS does not have /proc/stat
+    _cpu_names.push_back("cpu0");
+#else
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_stat_path, "r");
 #else
@@ -1047,6 +1120,7 @@ void SystemMetrics::get_cpu_name() {
     }
 
     fclose(fp);
+#endif
 }
 
 } // namespace doris

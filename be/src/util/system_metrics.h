@@ -102,13 +102,13 @@ private:
     std::map<std::string, NetworkMetrics*> _network_metrics;
     std::unique_ptr<FileDescriptorMetrics> _fd_metrics;
     std::unique_ptr<LoadAverageMetrics> _load_average_metrics;
-    int _proc_net_dev_version = 0;
+    [[maybe_unused]] int _proc_net_dev_version = 0;
     std::unique_ptr<SnmpMetrics> _snmp_metrics;
     std::unique_ptr<ProcMetrics> _proc_metrics;
 
     std::vector<std::string> _cpu_names;
     char* _line_ptr = nullptr;
-    size_t _line_buf_size = 0;
+    [[maybe_unused]] size_t _line_buf_size = 0;
     MetricRegistry* _registry = nullptr;
     std::shared_ptr<MetricEntity> _server_entity;
 
