@@ -53,6 +53,7 @@ public:
 
 private:
     Status _abort();
+    [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
     Status _complete();
     Status _create_multi_upload_request();
