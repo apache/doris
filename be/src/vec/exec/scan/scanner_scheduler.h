@@ -60,6 +60,9 @@ public:
 
     void stop();
 
+    std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
+                                                                 int max_concurrency);
+
     int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
 
 private:
