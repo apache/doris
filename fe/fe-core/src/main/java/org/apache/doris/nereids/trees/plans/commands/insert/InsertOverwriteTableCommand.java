@@ -198,7 +198,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
             insertCtx = new HiveInsertCommandContext();
-            ((HiveInsertCommandContext) insertCtx).setOverwrite(false);
+            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else {
             throw new RuntimeException("Current catalog does not support insert overwrite yet.");
         }
