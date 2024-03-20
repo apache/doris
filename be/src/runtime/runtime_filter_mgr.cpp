@@ -334,6 +334,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         ObjectPool* pool = cnt_val->pool.get();
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, pool, holder.getHandle()));
+
         RETURN_IF_ERROR(cnt_val->filter->merge_from(holder.getHandle()->get()));
         cnt_val->arrive_id.insert(UniqueId(request->fragment_instance_id()));
         merged_size = cnt_val->arrive_id.size();

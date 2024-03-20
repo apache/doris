@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -56,6 +57,10 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(unboundTableSink, context);
     }
 
+    default R visitUnboundHiveTableSink(UnboundHiveTableSink<? extends Plan> unboundTableSink, C context) {
+        return visitLogicalSink(unboundTableSink, context);
+    }
+
     default R visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink, C context) {
         return visitLogicalSink(unboundResultSink, context);
     }
@@ -73,11 +78,11 @@ public interface SinkVisitor<R, C> {
     }
 
     default R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
-        return visitLogicalSink(olapTableSink, context);
+        return visitLogicalTableSink(olapTableSink, context);
     }
 
     default R visitLogicalHiveTableSink(LogicalHiveTableSink<? extends Plan> hiveTableSink, C context) {
-        return visitLogicalSink(hiveTableSink, context);
+        return visitLogicalTableSink(hiveTableSink, context);
     }
 
     default R visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, C context) {
@@ -102,11 +107,11 @@ public interface SinkVisitor<R, C> {
     }
 
     default R visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, C context) {
-        return visitPhysicalSink(olapTableSink, context);
+        return visitPhysicalTableSink(olapTableSink, context);
     }
 
     default R visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink, C context) {
-        return visitPhysicalSink(hiveTableSink, context);
+        return visitPhysicalTableSink(hiveTableSink, context);
     }
 
     default R visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, C context) {

@@ -29,6 +29,7 @@ include "Exprs.thrift"
 include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
+include "DataSinks.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
@@ -481,6 +482,8 @@ struct TReportExecStatusParams {
   24: optional TQueryStatistics query_statistics // deprecated
 
   25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
+
+  26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 }
 
 struct TFeResult {
@@ -919,7 +922,8 @@ struct TInitExternalCtlMetaResult {
 enum TSchemaTableName {
   // BACKENDS = 0,
   METADATA_TABLE = 1, // tvf
-  SCHEMA_TABLE = 2, // db information_schema's table
+  ACTIVE_QUERIES = 2, // db information_schema's table
+  WORKLOAD_GROUPS = 3, // db information_schema's table
 }
 
 struct TMetadataTableRequestParams {
@@ -935,10 +939,17 @@ struct TMetadataTableRequestParams {
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
 }
 
+struct TSchemaTableRequestParams {
+    1: optional list<string> columns_name
+    2: optional Types.TUserIdentity current_user_ident
+    3: optional bool replay_to_other_fe
+}
+
 struct TFetchSchemaTableDataRequest {
   1: optional string cluster_name
   2: optional TSchemaTableName schema_table_name
-  3: optional TMetadataTableRequestParams metada_table_params
+  3: optional TMetadataTableRequestParams metada_table_params // used for tvf
+  4: optional TSchemaTableRequestParams schema_table_params // used for request db information_schema's table
 }
 
 struct TFetchSchemaTableDataResult {
@@ -1272,6 +1283,23 @@ struct TCreatePartitionResult {
     4: optional list<Descriptors.TNodeInfo> nodes
 }
 
+// these two for auto detect replacing partition
+struct TReplacePartitionRequest {
+    1: optional i64 overwrite_group_id
+    2: optional i64 db_id
+    3: optional i64 table_id
+    4: optional list<i64> partition_ids // partition to replace.
+    // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
+    5: optional string be_endpoint
+}
+
+struct TReplacePartitionResult {
+    1: optional Status.TStatus status
+    2: optional list<Descriptors.TOlapTablePartition> partitions
+    3: optional list<Descriptors.TTabletLocation> tablets
+    4: optional list<Descriptors.TNodeInfo> nodes
+}
+
 struct TGetMetaReplica {
     1: optional i64 id
 }
@@ -1487,6 +1515,8 @@ service FrontendService {
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 
     TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
+    // insert overwrite partition(*)
+    TReplacePartitionResult replacePartition(1: TReplacePartitionRequest request)
 
     TGetMetaResult getMeta(1: TGetMetaRequest request)
 

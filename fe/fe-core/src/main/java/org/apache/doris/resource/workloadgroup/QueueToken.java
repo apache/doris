@@ -36,7 +36,7 @@ public class QueueToken implements Comparable<QueueToken> {
         return Long.compare(this.tokenId, other.getTokenId());
     }
 
-    enum TokenState {
+    public enum TokenState {
         ENQUEUE_SUCCESS,
         READY_TO_RUN
     }
@@ -55,6 +55,9 @@ public class QueueToken implements Comparable<QueueToken> {
 
     private final ReentrantLock tokenLock = new ReentrantLock();
     private final Condition tokenCond = tokenLock.newCondition();
+
+    private long queueStartTime = -1;
+    private long queueEndTime = -1;
 
     public QueueToken(TokenState tokenState, long queueWaitTimeout,
             String offerResultDetail) {
@@ -94,6 +97,7 @@ public class QueueToken implements Comparable<QueueToken> {
             return false;
         } finally {
             this.tokenLock.unlock();
+            this.setQueueTimeWhenQueueEnd();
         }
     }
 
@@ -124,6 +128,33 @@ public class QueueToken implements Comparable<QueueToken> {
 
     public boolean isReadyToRun() {
         return this.tokenState == TokenState.READY_TO_RUN;
+    }
+
+    public void setQueueTimeWhenOfferSuccess() {
+        long currentTime = System.currentTimeMillis();
+        this.queueStartTime = currentTime;
+        this.queueEndTime = currentTime;
+    }
+
+    public void setQueueTimeWhenQueueSuccess() {
+        long currentTime = System.currentTimeMillis();
+        this.queueStartTime = currentTime;
+    }
+
+    public void setQueueTimeWhenQueueEnd() {
+        this.queueEndTime = System.currentTimeMillis();
+    }
+
+    public long getQueueStartTime() {
+        return queueStartTime;
+    }
+
+    public long getQueueEndTime() {
+        return queueEndTime;
+    }
+
+    public TokenState getTokenState() {
+        return tokenState;
     }
 
     @Override

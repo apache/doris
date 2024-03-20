@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
@@ -53,6 +54,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
             DigitalMaskingConvert.INSTANCE,
             SimplifyArithmeticComparisonRule.INSTANCE,
             SupportJavaDateFormatter.INSTANCE,
+            ConvertAggStateCast.INSTANCE,
             CheckCast.INSTANCE
     );
 

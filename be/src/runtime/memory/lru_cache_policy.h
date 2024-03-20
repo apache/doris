@@ -120,6 +120,9 @@ public:
 
     uint64_t new_id() { return _cache->new_id(); };
 
+    // Subclass can override this method to determine whether to do the minor or full gc
+    virtual bool exceed_prune_limit() { return mem_consumption() > CACHE_MIN_FREE_SIZE; }
+
     // Try to prune the cache if expired.
     void prune_stale() override {
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
@@ -127,7 +130,7 @@ public:
         if (_stale_sweep_time_s <= 0 && _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
-        if (mem_consumption() > CACHE_MIN_FREE_SIZE) {
+        if (exceed_prune_limit()) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             const int64_t curtime = UnixMillis();
@@ -161,7 +164,7 @@ public:
         if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
-        if ((force && mem_consumption() != 0) || mem_consumption() > CACHE_MIN_FREE_SIZE) {
+        if ((force && mem_consumption() != 0) || exceed_prune_limit()) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             LOG(INFO) << fmt::format("[MemoryGC] {} prune all start, consumption {}",

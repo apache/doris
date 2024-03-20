@@ -44,6 +44,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
@@ -71,6 +72,8 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.insertoverwrite.InsertOverwriteManager;
+import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
@@ -199,6 +202,8 @@ import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TReplacePartitionRequest;
+import org.apache.doris.thrift.TReplacePartitionResult;
 import org.apache.doris.thrift.TReplicaInfo;
 import org.apache.doris.thrift.TReportCommitTxnResultRequest;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -208,6 +213,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TShowVariableRequest;
@@ -265,7 +271,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 // Frontend service used to serve all request for this frontend through
 // thrift protocol
@@ -987,6 +995,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ConnectContext context = new ConnectContext(null, true);
         // Set current connected FE to the client address, so that we can know where this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
+        if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
+            context.setCloudCluster(params.getCloudCluster());
+        }
 
         ConnectProcessor processor = null;
         if (context.getConnectType().equals(ConnectType.MYSQL)) {
@@ -1940,6 +1951,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         List<String> tableNames = request.getTableNames();
+
+        if (Config.isCloudMode()) {
+            try {
+                ConnectContext ctx = new ConnectContext();
+                ctx.setThreadLocalInfo();
+                ctx.setQualifiedUser(request.getUser());
+                ctx.setRemoteIP(request.getUserIp());
+                String userName = ClusterNamespace.getNameFromFullName(request.getUser());
+                if (userName != null) {
+                    List<UserIdentity> currentUser = Lists.newArrayList();
+                    try {
+                        Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
+                                request.getUserIp(), request.getPasswd(), currentUser);
+                    } catch (AuthenticationException e) {
+                        throw new UserException(e.formatErrMsg());
+                    }
+                    Preconditions.checkState(currentUser.size() == 1);
+                    ctx.setCurrentUserIdentity(currentUser.get(0));
+                }
+                LOG.info("one stream multi table load use cloud cluster {}", request.getCloudCluster());
+                //ctx.setCloudCluster();
+                if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
+                    if (Strings.isNullOrEmpty(request.getUser())) {
+                        ctx.setCloudCluster(request.getCloudCluster());
+                    } else {
+                        ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
+                    }
+                }
+            } catch (UserException e) {
+                LOG.warn("failed to set ConnectContext info: {}", e.getMessage());
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs(e.getMessage());
+            }
+        }
+
         try {
             if (CollectionUtils.isEmpty(tableNames)) {
                 throw new MetaNotFoundException("table not found");
@@ -1977,7 +2023,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
-                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
+                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR,
                             "failed to get stream load plan, " + exception.getMessage()), false);
             } catch (UserException e) {
                 LOG.warn("catch update routine load job error.", e);
@@ -2100,6 +2146,49 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
+        if (request.isSetAuthCode()) {
+            String clientAddr = getClientAddrAsString();
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.setRemoteIP(clientAddr);
+            long backendId = request.getBackendId();
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            Preconditions.checkNotNull(backend);
+            ctx.setCloudCluster(backend.getCloudClusterName());
+            LOG.info("streamLoadPutImpl set context: cluster {}", ctx.getCloudCluster());
+        } else if (Config.isCloudMode()) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.setQualifiedUser(request.getUser());
+            ctx.setRemoteIP(request.getUserIp());
+            String userName = ClusterNamespace.getNameFromFullName(request.getUser());
+            if (userName != null) {
+                List<UserIdentity> currentUser = Lists.newArrayList();
+                try {
+                    Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
+                            request.getUserIp(), request.getPasswd(), currentUser);
+                } catch (AuthenticationException e) {
+                    throw new UserException(e.formatErrMsg());
+                }
+                Preconditions.checkState(currentUser.size() == 1);
+                ctx.setCurrentUserIdentity(currentUser.get(0));
+            }
+
+            LOG.info("stream load use cloud cluster {}", request.getCloudCluster());
+            if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
+                if (Strings.isNullOrEmpty(request.getUser())) {
+                    // mysql load
+                    ctx.setCloudCluster(request.getCloudCluster());
+                } else {
+                    // stream load
+                    ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
+                }
+            }
+
+            LOG.debug("streamLoadPutImpl set context: cluster {}, setCurrentUserIdentity {}",
+                    ctx.getCloudCluster(), ctx.getCurrentUserIdentity());
+        }
+
         Env env = Env.getCurrentEnv();
         String fullDbName = request.getDb();
         Database db = env.getInternalCatalog().getDbNullable(fullDbName);
@@ -2296,15 +2385,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
-        switch (request.getSchemaTableName()) {
-            case METADATA_TABLE:
-                return MetadataGenerator.getMetadataTable(request);
-            case SCHEMA_TABLE:
-                return MetadataGenerator.getSchemaTableData(request);
-            default:
-                break;
+        if (!request.isSetSchemaTableName()) {
+            return MetadataGenerator.errorResult("Fetch schema table name is not set");
         }
-        return MetadataGenerator.errorResult("Fetch schema table name is not set");
+        // tvf queries
+        if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
+            return MetadataGenerator.getMetadataTable(request);
+        } else {
+            // database information_schema's tables
+            return MetadataGenerator.getSchemaTableData(request);
+        }
     }
 
     private TNetworkAddress getClientAddr() {
@@ -3464,6 +3554,166 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(new TStatus(TStatusCode.OK));
         if (LOG.isDebugEnabled()) {
             LOG.debug("send create partition result: {}", result);
+        }
+        return result;
+    }
+
+    @Override
+    public TReplacePartitionResult replacePartition(TReplacePartitionRequest request) throws TException {
+        LOG.info("Receive create partition request: {}", request);
+        long dbId = request.getDbId();
+        long tableId = request.getTableId();
+        List<Long> partitionIds = request.getPartitionIds();
+        long taskGroupId = request.getOverwriteGroupId();
+        TReplacePartitionResult result = new TReplacePartitionResult();
+        TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
+        if (!Env.getCurrentEnv().isMaster()) {
+            errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
+            errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.warn("failed to createPartition: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
+            result.setStatus(errorStatus);
+            LOG.warn("send replace partition error status: {}", result);
+            return result;
+        }
+
+        Table table = db.getTable(tableId).get();
+        if (table == null) {
+            errorStatus.setErrorMsgs(
+                    (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
+            result.setStatus(errorStatus);
+            LOG.warn("send replace partition error status: {}", result);
+            return result;
+        }
+
+        if (!(table instanceof OlapTable)) {
+            errorStatus.setErrorMsgs(
+                    Lists.newArrayList(String.format("dbId=%d tableId=%d is not olap table", dbId, tableId)));
+            result.setStatus(errorStatus);
+            LOG.warn("send replace partition error status: {}", result);
+            return result;
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
+        ReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
+        List<String> allReqPartNames; // all request partitions
+        try {
+            taskLock.lock();
+            // we dont lock the table. other thread in this txn will be controled by taskLock.
+            // if we have already replaced. dont do it again, but acquire the recorded new partition directly.
+            // if not by this txn, just let it fail naturally is ok.
+            List<Long> replacedPartIds = overwriteManager.tryReplacePartitionIds(taskGroupId, partitionIds);
+            // here if replacedPartIds still have null. this will throw exception.
+            allReqPartNames = olapTable.uncheckedGetPartNamesById(replacedPartIds);
+
+            List<Long> pendingPartitionIds = IntStream.range(0, partitionIds.size())
+                    .filter(i -> partitionIds.get(i) == replacedPartIds.get(i)) // equal means not replaced
+                    .mapToObj(partitionIds::get)
+                    .collect(Collectors.toList());
+            // from here we ONLY deal the pending partitions. not include the dealed(by others).
+            if (!pendingPartitionIds.isEmpty()) {
+                // below two must have same order inner.
+                List<String> pendingPartitionNames = olapTable.uncheckedGetPartNamesById(pendingPartitionIds);
+                List<String> tempPartitionNames = InsertOverwriteUtil
+                        .generateTempPartitionNames(pendingPartitionNames);
+
+                long taskId = overwriteManager.registerTask(dbId, tableId, tempPartitionNames);
+                overwriteManager.registerTaskInGroup(taskGroupId, taskId);
+                InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, tempPartitionNames);
+                InsertOverwriteUtil.replacePartition(olapTable, pendingPartitionNames, tempPartitionNames);
+                // now temp partitions are bumped up and use new names. we get their ids and record them.
+                List<Long> newPartitionIds = new ArrayList<Long>();
+                for (String newPartName : pendingPartitionNames) {
+                    newPartitionIds.add(olapTable.getPartition(newPartName).getId());
+                }
+                overwriteManager.recordPartitionPairs(taskGroupId, pendingPartitionIds, newPartitionIds);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("partition replacement: ");
+                    for (int i = 0; i < pendingPartitionIds.size(); i++) {
+                        LOG.debug("[" + pendingPartitionIds.get(i) + ", " + newPartitionIds.get(i) + "], ");
+                    }
+                }
+            }
+        } catch (DdlException ex) {
+            errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+            result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
+            return result;
+        } finally {
+            taskLock.unlock();
+        }
+
+        // build partition & tablets. now all partitions in allReqPartNames are replaced an recorded.
+        // so they won't be changed again. if other transaction changing it. just let it fail.
+        List<TOlapTablePartition> partitions = Lists.newArrayList();
+        List<TTabletLocation> tablets = Lists.newArrayList();
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        for (String partitionName : allReqPartNames) {
+            Partition partition = table.getPartition(partitionName);
+            TOlapTablePartition tPartition = new TOlapTablePartition();
+            tPartition.setId(partition.getId());
+
+            // set partition keys
+            int partColNum = partitionInfo.getPartitionColumns().size();
+            OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+                tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
+                        index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
+                tPartition.setNumBuckets(index.getTablets().size());
+            }
+            tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
+            partitions.add(tPartition);
+            // tablet
+            int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
+                    + 1;
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+                for (Tablet tablet : index.getTablets()) {
+                    // we should ensure the replica backend is alive
+                    // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
+                    // BE id -> path hash
+                    Multimap<Long, Long> bePathsMap;
+                    try {
+                        if (Config.isCloudMode() && request.isSetBeEndpoint()) {
+                            bePathsMap = ((CloudTablet) tablet)
+                                    .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                        } else {
+                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        }
+                    } catch (UserException ex) {
+                        errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                        result.setStatus(errorStatus);
+                        LOG.warn("send create partition error status: {}", result);
+                        return result;
+                    }
+                    if (bePathsMap.keySet().size() < quorum) {
+                        LOG.warn("auto go quorum exception");
+                    }
+                    tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                }
+            }
+        }
+        result.setPartitions(partitions);
+        result.setTablets(tablets);
+
+        // build nodes
+        List<TNodeInfo> nodeInfos = Lists.newArrayList();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Long id : systemInfoService.getAllBackendIds(false)) {
+            Backend backend = systemInfoService.getBackend(id);
+            nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+        }
+        result.setNodes(nodeInfos);
+
+        // successfully return
+        result.setStatus(new TStatus(TStatusCode.OK));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("send replace partition result: {}", result);
         }
         return result;
     }

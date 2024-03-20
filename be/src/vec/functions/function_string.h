@@ -948,7 +948,7 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtilOld::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
@@ -1437,103 +1437,6 @@ class FunctionStringRepeat : public IFunction {
 public:
     static constexpr auto name = "repeat";
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 2; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
-    }
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 2);
-        auto res = ColumnString::create();
-
-        ColumnPtr argument_ptr[2];
-        argument_ptr[0] =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        argument_ptr[1] = block.get_by_position(arguments[1]).column;
-
-        if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
-            if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
-                vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
-                              res->get_chars(), res->get_offsets(),
-                              context->state()->repeat_max_num());
-                block.replace_by_position(result, std::move(res));
-                return Status::OK();
-            } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
-                DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = 0;
-                repeat = std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
-
-                if (repeat <= 0) {
-                    res->insert_many_defaults(input_rows_count);
-                } else {
-                    vector_const(col1->get_chars(), col1->get_offsets(), repeat, res->get_chars(),
-                                 res->get_offsets());
-                }
-                block.replace_by_position(result, std::move(res));
-                return Status::OK();
-            }
-        }
-
-        return Status::RuntimeError("repeat function get error param: {}, {}",
-                                    argument_ptr[0]->get_name(), argument_ptr[1]->get_name());
-    }
-
-    void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, const int repeat_max_num) const {
-        size_t input_row_size = offsets.size();
-
-        fmt::memory_buffer buffer;
-        res_offsets.resize(input_row_size);
-        for (ssize_t i = 0; i < input_row_size; ++i) {
-            buffer.clear();
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t size = offsets[i] - offsets[i - 1];
-            int repeat = 0;
-            repeat = std::min<int>(repeats[i], repeat_max_num);
-
-            if (repeat <= 0) {
-                StringOP::push_empty_string(i, res_data, res_offsets);
-            } else {
-                for (int j = 0; j < repeat; ++j) {
-                    buffer.append(raw_str, raw_str + size);
-                }
-                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                            res_data, res_offsets);
-            }
-        }
-    }
-
-    // TODO: 1. use pmr::vector<char> replace fmt_buffer may speed up the code
-    //       2. abstract the `vector_vector` and `vector_const`
-    //       3. rethink we should use `DEFAULT_MAX_STRING_SIZE` to bigger here
-    void vector_const(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                      int repeat, ColumnString::Chars& res_data,
-                      ColumnString::Offsets& res_offsets) const {
-        size_t input_row_size = offsets.size();
-
-        fmt::memory_buffer buffer;
-        res_offsets.resize(input_row_size);
-        for (ssize_t i = 0; i < input_row_size; ++i) {
-            buffer.clear();
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t size = offsets[i] - offsets[i - 1];
-
-            for (int j = 0; j < repeat; ++j) {
-                buffer.append(raw_str, raw_str + size);
-            }
-            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
-                                        res_offsets);
-        }
-    }
-};
-
-class FunctionStringRepeatOld : public IFunction {
-public:
-    static constexpr auto name = "repeat";
-    static FunctionPtr create() { return std::make_shared<FunctionStringRepeatOld>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
 

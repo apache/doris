@@ -22,9 +22,10 @@ suite("query32") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def ds = """SELECT WatchID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth) FROM hits WHERE SearchPhrase <> '' GROUP BY WatchID, ClientIP ORDER BY c DESC LIMIT 10"""
-    qt_ds_shape_32 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT WatchID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth) FROM hits WHERE SearchPhrase <> '' GROUP BY WatchID, ClientIP ORDER BY c DESC LIMIT 10"""
+    qt_ckbench_shape_32 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

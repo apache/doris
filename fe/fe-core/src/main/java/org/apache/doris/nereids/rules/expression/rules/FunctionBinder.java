@@ -80,6 +80,12 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     public static final FunctionBinder INSTANCE = new FunctionBinder();
 
+    // Keep track of which element_at function's level
+    // e.g. element_at(element_at(v, 'repo'), 'name') level 1
+    //      element_at(v, 'repo') level 2
+    // Only works with function ElementAt which satisfy condition PushDownToProjectionFunction.validToPushDown
+    private int currentElementAtLevel = 0;
+
     @Override
     public Expression visit(Expression expr, ExpressionRewriteContext context) {
         expr = super.visit(expr, context);
@@ -141,6 +147,9 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
+        if (unboundFunction.getName().equalsIgnoreCase("element_at")) {
+            ++currentElementAtLevel;
+        }
         if (unboundFunction.isHighOrder()) {
             unboundFunction = bindHighOrderFunction(unboundFunction, context);
         } else {
@@ -188,6 +197,16 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
                 boundFunction = new Nvl(boundFunction, new BigIntLiteral(0));
             }
+            if (currentElementAtLevel == 1
+                    && PushDownToProjectionFunction.validToPushDown(boundFunction)) {
+                // Only rewrite the top level of PushDownToProjectionFunction, otherwise invalid slot will be generated
+                // currentElementAtLevel == 1 means at the top of element_at function, other levels will be ignored.
+                currentElementAtLevel = 0;
+                return visitElementAt((ElementAt) boundFunction, context);
+            }
+            if (boundFunction instanceof ElementAt) {
+                --currentElementAtLevel;
+            }
             return boundFunction;
         }
     }
@@ -201,6 +220,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
         Expression boundFunction = visitBoundFunction(elementAt, context);
+
         if (PushDownToProjectionFunction.validToPushDown(boundFunction)) {
             if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable() != null

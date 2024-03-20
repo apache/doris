@@ -57,17 +57,28 @@ suite("test_load_to_single_tablet", "p0") {
     assertEquals(10, totalCount[0][0])
     String[][] res = sql "show tablets from ${tableName}"
     res = deduplicate_tablets(res)
-    def tablet1 = res[0][0]
-    def tablet2 = res[1][0]
-    def tablet3 = res[2][0]
-    def rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
-    def rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
-    def rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
 
-    assertEquals(10, rowCount1[0][0])
-    assertEquals(0, rowCount2[0][0])
-    assertEquals(0, rowCount3[0][0])
-    
+    def tablets = []
+    for (int i = 0; i < res.size(); i++) {
+        tablets.add(res[i][0])
+    }
+
+    def beginIdx = -1
+    def rowCounts = []
+
+    for (int i = tablets.size() - 1; i >= 0; i--) {
+        def countResult = sql "select count() from ${tableName} tablet(${tablets[i]})"
+        rowCounts[i] = countResult[0][0]
+        log.info("tablet: ${tablets[i]}, rowCount: ${rowCounts[i]}")
+        if (rowCounts[i] > 0 && (beginIdx == -1 || beginIdx == i + 1)) {
+            beginIdx = i;
+        }
+    }
+
+    assertEquals(10, rowCounts[beginIdx])
+    for (int i = 1; i < tablets.size(); i++) {
+        assertEquals(0, rowCounts[(beginIdx + i) % tablets.size()])
+    }
 
     // load second time
     streamLoad {
@@ -82,13 +93,19 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
-    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
-    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
     assertEquals(20, totalCount[0][0])
-    assertEquals(10, rowCount1[0][0])
-    assertEquals(10, rowCount2[0][0])
-    assertEquals(0, rowCount3[0][0])
+
+    for (int i = 0; i < tablets.size(); i++) {
+        def countResult = sql "select count() from ${tableName} tablet(${tablets[i]})"
+        rowCounts[i] = countResult[0][0]
+        log.info("tablet: ${tablets[i]}, rowCount: ${rowCounts[i]}")
+    }
+
+    assertEquals(10, rowCounts[beginIdx])
+    assertEquals(10, rowCounts[(beginIdx + 1) % tablets.size()])
+    for (int i = 2; i < tablets.size(); i++) {
+        assertEquals(0, rowCounts[(beginIdx + i) % tablets.size()])
+    }
 
     // load third time
     streamLoad {
@@ -103,13 +120,21 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
-    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
-    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
     assertEquals(30, totalCount[0][0])
-    assertEquals(10, rowCount1[0][0])
-    assertEquals(10, rowCount2[0][0])
-    assertEquals(10, rowCount3[0][0])
+
+    for (int i = 0; i < tablets.size(); i++) {
+        def countResult = sql "select count() from ${tableName} tablet(${tablets[i]})"
+        rowCounts[i] = countResult[0][0]
+        log.info("tablet: ${tablets[i]}, rowCount: ${rowCounts[i]}")
+    }
+
+    assertEquals(10, rowCounts[beginIdx])
+    assertEquals(10, rowCounts[(beginIdx + 1) % tablets.size()])
+    assertEquals(10, rowCounts[(beginIdx + 2) % tablets.size()])
+
+    for (int i = 3; i < tablets.size(); i++) {
+        assertEquals(0, rowCounts[(beginIdx + i) % tablets.size()])
+    }
 
     // test partitioned table
     tableName = "test_load_to_single_tablet_partitioned"
@@ -148,29 +173,43 @@ suite("test_load_to_single_tablet", "p0") {
     }
 
     sql "sync"
+
     totalCount = sql "select count() from ${tableName}"
     assertEquals(10, totalCount[0][0])
+
+    def partitionTablets = []
+    def partitionRowCounts = []
+    def partitionBeginIdx = []
     res = sql "show tablets from ${tableName} partitions(p20231011, p20231012)"
     res = deduplicate_tablets(res)
-    tablet1 = res[0][0]
-    tablet2 = res[1][0]
-    tablet3 = res[2][0]
-    tablet4 = res[10][0]
-    tablet5 = res[11][0]
-    tablet6 = res[12][0]
+    for (int i = 0; i < res.size(); i++) {
+        if (i % 10 == 0) {
+            partitionTablets[i/10] = []
+            partitionRowCounts[i/10] = []
+        }
+        partitionTablets[i/10][i%10] = res[i][0]
+    }
 
-    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
-    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
-    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
-    def rowCount4 = sql "select count() from ${tableName} tablet(${tablet4})"
-    def rowCount5 = sql "select count() from ${tableName} tablet(${tablet5})"
-    def rowCount6 = sql "select count() from ${tableName} tablet(${tablet6})"
-    assertEquals(5, rowCount1[0][0])
-    assertEquals(0, rowCount2[0][0])
-    assertEquals(0, rowCount3[0][0])
-    assertEquals(5, rowCount4[0][0])
-    assertEquals(0, rowCount5[0][0])
-    assertEquals(0, rowCount6[0][0])
+    for (int i = 0; i < partitionTablets.size(); i++) {
+        for (int j = partitionTablets[i].size() - 1; j >= 0; j--) {
+            def countResult = sql "select count() from ${tableName} tablet(${partitionTablets[i][j]})"
+            partitionRowCounts[i][j] = countResult[0][0]
+            log.info("tablet: ${partitionTablets[i][j]}, rowCount: ${partitionRowCounts[i][j]}")
+            if (partitionRowCounts[i][j] > 0 &&
+                (partitionBeginIdx[i] == null || partitionBeginIdx[i] == j + 1)) {
+                partitionBeginIdx[i] = j
+            }
+        }
+    }
+
+    assertEquals(5, partitionRowCounts[0][partitionBeginIdx[0]])
+    for (int i = 1; i < partitionTablets[0].size(); i++) {
+        assertEquals(0, partitionRowCounts[0][(partitionBeginIdx[0] + i) % partitionTablets[0].size()])
+    }
+    assertEquals(5, partitionRowCounts[1][partitionBeginIdx[1]])
+    for (int i = 1; i < partitionTablets[1].size(); i++) {
+        assertEquals(0, partitionRowCounts[1][(partitionBeginIdx[1] + i) % partitionTablets[1].size()])
+    }
 
     // load second time
     streamLoad {
@@ -185,19 +224,27 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
-    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
-    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
-    rowCount4 = sql "select count() from ${tableName} tablet(${tablet4})"
-    rowCount5 = sql "select count() from ${tableName} tablet(${tablet5})"
-    rowCount6 = sql "select count() from ${tableName} tablet(${tablet6})"
     assertEquals(20, totalCount[0][0])
-    assertEquals(5, rowCount1[0][0])
-    assertEquals(5, rowCount2[0][0])
-    assertEquals(0, rowCount3[0][0])
-    assertEquals(5, rowCount4[0][0])
-    assertEquals(5, rowCount5[0][0])
-    assertEquals(0, rowCount6[0][0])
+
+    for (int i = 0; i < partitionTablets.size(); i++) {
+        for (int j = 0; j < partitionTablets[i].size(); j++) {
+            def countResult = sql "select count() from ${tableName} tablet(${partitionTablets[i][j]})"
+            partitionRowCounts[i][j] = countResult[0][0]
+            log.info("tablet: ${partitionTablets[i][j]}, rowCount: ${partitionRowCounts[i][j]}")
+        }
+    }
+
+    assertEquals(5, partitionRowCounts[0][partitionBeginIdx[0]])
+    assertEquals(5, partitionRowCounts[0][(partitionBeginIdx[0] + 1) % partitionTablets[0].size()])
+    for (int i = 2; i < partitionTablets[0].size(); i++) {
+        assertEquals(0, partitionRowCounts[0][(partitionBeginIdx[0] + i) % partitionTablets[0].size()])
+    }
+
+    assertEquals(5, partitionRowCounts[1][partitionBeginIdx[1]])
+    assertEquals(5, partitionRowCounts[1][(partitionBeginIdx[1] + 1) % partitionTablets[1].size()])
+    for (int i = 2; i < partitionTablets[1].size(); i++) {
+        assertEquals(0, partitionRowCounts[1][(partitionBeginIdx[1] + i) % partitionTablets[1].size()])
+    }
 
     // load third time
     streamLoad {
@@ -212,18 +259,29 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
-    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
-    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
-    rowCount4 = sql "select count() from ${tableName} tablet(${tablet4})"
-    rowCount5 = sql "select count() from ${tableName} tablet(${tablet5})"
-    rowCount6 = sql "select count() from ${tableName} tablet(${tablet6})"
     assertEquals(30, totalCount[0][0])
-    assertEquals(5, rowCount1[0][0])
-    assertEquals(5, rowCount2[0][0])
-    assertEquals(5, rowCount3[0][0])
-    assertEquals(5, rowCount4[0][0])
-    assertEquals(5, rowCount5[0][0])
-    assertEquals(5, rowCount6[0][0])
+
+    for (int i = 0; i < partitionTablets.size(); i++) {
+        for (int j = 0; j < partitionTablets[i].size(); j++) {
+            def countResult = sql "select count() from ${tableName} tablet(${partitionTablets[i][j]})"
+            partitionRowCounts[i][j] = countResult[0][0]
+            log.info("tablet: ${partitionTablets[i][j]}, rowCount: ${partitionRowCounts[i][j]}")
+        }
+    }
+
+    assertEquals(5, partitionRowCounts[0][partitionBeginIdx[0]])
+    assertEquals(5, partitionRowCounts[0][(partitionBeginIdx[0] + 1) % partitionTablets[0].size()])
+    assertEquals(5, partitionRowCounts[0][(partitionBeginIdx[0] + 2) % partitionTablets[0].size()])
+
+    for (int i = 3; i < partitionTablets[0].size(); i++) {
+        assertEquals(0, partitionRowCounts[0][(partitionBeginIdx[0] + i) % partitionTablets[0].size()])
+    }
+
+    assertEquals(5, partitionRowCounts[1][partitionBeginIdx[1]])
+    assertEquals(5, partitionRowCounts[1][(partitionBeginIdx[1] + 1) % partitionTablets[1].size()])
+    assertEquals(5, partitionRowCounts[1][(partitionBeginIdx[1] + 2) % partitionTablets[1].size()])
+    for (int i = 3; i < partitionTablets[1].size(); i++) {
+        assertEquals(0, partitionRowCounts[1][(partitionBeginIdx[1] + i) % partitionTablets[1].size()])
+    }
 }
 

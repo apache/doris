@@ -798,12 +798,6 @@ public class TypeCoercionUtils {
             commonType = DoubleType.INSTANCE;
         }
 
-        // we treat decimalv2 vs dicimalv3, largeint or bigint as decimalv3 way.
-        if ((t1.isDecimalV3Type() || t1.isBigIntType() || t1.isLargeIntType()) && t2.isDecimalV2Type()
-                || t1.isDecimalV2Type() && (t2.isDecimalV3Type() || t2.isBigIntType() || t2.isLargeIntType())) {
-            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
-        }
-
         if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             // to be consistent with old planner
             // see findCommonType() method in ArithmeticExpr.java
@@ -830,6 +824,12 @@ public class TypeCoercionUtils {
         // mod retain float % float
         if (binaryArithmetic instanceof Mod && t1.isFloatType() && t2.isFloatType()) {
             return binaryArithmetic;
+        }
+
+        // we treat decimalv2 vs dicimalv3, largeint or bigint as decimalv3 way.
+        if ((t1.isDecimalV3Type() || t1.isBigIntType() || t1.isLargeIntType()) && t2.isDecimalV2Type()
+                || t1.isDecimalV2Type() && (t2.isDecimalV3Type() || t2.isBigIntType() || t2.isLargeIntType())) {
+            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
         }
 
         // if double as common type, all arithmetic should cast both side to double
@@ -1294,9 +1294,17 @@ public class TypeCoercionUtils {
 
         // variant type
         if ((leftType.isVariantType() && (rightType.isStringLikeType() || rightType.isNumericType()))) {
+            if (rightType.isDecimalLikeType()) {
+                // TODO support decimal
+                return Optional.of(DoubleType.INSTANCE);
+            }
             return Optional.of(rightType);
         }
         if ((rightType.isVariantType() && (leftType.isStringLikeType() || leftType.isNumericType()))) {
+            if (leftType.isDecimalLikeType()) {
+                // TODO support decimal
+                return Optional.of(DoubleType.INSTANCE);
+            }
             return Optional.of(leftType);
         }
         return Optional.of(DoubleType.INSTANCE);

@@ -175,9 +175,6 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
                 if (index == null) {
                     throw new AnalysisException("Can not find grouping set expression in output: " + expression);
                 }
-                if (groupingSetIndex.contains(index)) {
-                    throw new AnalysisException("expression duplicate in grouping set: " + expression);
-                }
                 groupingSetIndex.add(index);
             }
             groupingSetsIndex.add(groupingSetIndex);
@@ -228,11 +225,18 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
             this.shapes = ImmutableList.copyOf(shapes);
         }
 
-        // compute a long value that backend need to fill to the GROUPING_ID slot
+        /**compute a long value that backend need to fill to the GROUPING_ID slot*/
         public List<Long> computeVirtualGroupingIdValue() {
-            return shapes.stream()
-                    .map(GroupingSetShape::computeLongValue)
-                    .collect(ImmutableList.toImmutableList());
+            Set<Long> res = Sets.newLinkedHashSet();
+            long k = (long) Math.pow(2, flattenGroupingSetExpression.size());
+            for (GroupingSetShape shape : shapes) {
+                Long val = shape.computeLongValue();
+                while (res.contains(val)) {
+                    val += k;
+                }
+                res.add(val);
+            }
+            return ImmutableList.copyOf(res);
         }
 
         public int indexOf(Expression expression) {

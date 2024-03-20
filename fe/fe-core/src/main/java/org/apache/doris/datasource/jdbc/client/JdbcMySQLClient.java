@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -33,6 +34,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
@@ -158,6 +160,13 @@ public class JdbcMySQLClient extends JdbcClient {
             close(rs, conn);
         }
         return tableSchema;
+    }
+
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("mysql")
+                .add("sys")
+                .build();
     }
 
     @Override

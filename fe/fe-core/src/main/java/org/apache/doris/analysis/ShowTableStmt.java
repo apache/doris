@@ -37,6 +37,7 @@ public class ShowTableStmt extends ShowStmt {
     private static final String NAME_COL_PREFIX = "Tables_in_";
     private static final String TYPE_COL = "Table_type";
     private static final String STORAGE_FORMAT_COL = "Storage_format";
+    private static final String INVERTED_INDEX_STORAGE_FORMAT_COL = "Inverted_index_storage_format";
     private String db;
     private String catalog;
     private boolean isVerbose;
@@ -164,6 +165,7 @@ public class ShowTableStmt extends ShowStmt {
         if (isVerbose) {
             builder.addColumn(new Column(TYPE_COL, ScalarType.createVarchar(20)));
             builder.addColumn(new Column(STORAGE_FORMAT_COL, ScalarType.createVarchar(20)));
+            builder.addColumn(new Column(INVERTED_INDEX_STORAGE_FORMAT_COL, ScalarType.createVarchar(20)));
         }
         return builder.build();
     }
