@@ -724,7 +724,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             (delete_sign_column_data != nullptr &&
              delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
             for (auto i = 0; i < cids_missing.size(); ++i) {
-                // if the column has default value, fiil it with default value
+                // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
                 const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
                 if (tablet_column.has_default_value()) {
