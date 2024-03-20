@@ -102,6 +102,7 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
@@ -361,6 +362,14 @@ public class Coordinator implements CoordInterface {
 
     private void setFromUserProperty(ConnectContext connectContext) {
         String qualifiedUser = connectContext.getQualifiedUser();
+        // set cpu resource limit
+        int cpuLimit = Env.getCurrentEnv().getAuth().getCpuResourceLimit(qualifiedUser);
+        if (cpuLimit > 0) {
+            // overwrite the cpu resource limit from session variable;
+            TResourceLimit resourceLimit = new TResourceLimit();
+            resourceLimit.setCpuLimit(cpuLimit);
+            this.queryOptions.setResourceLimit(resourceLimit);
+        }
         // set exec mem limit
         long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
         long memLimit = maxExecMemByte > 0 ? maxExecMemByte :

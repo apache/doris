@@ -2801,7 +2801,10 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.getPartitionNames().size() == 0) {
+            if (iotStmt.isAutoDetectPartition()) {
+                // insert overwrite table auto detect which partitions need to replace
+                handleAutoOverwritePartition(iotStmt);
+            } else if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
             } else {
@@ -2948,6 +2951,26 @@ public class StmtExecutor {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             handleIotPartitionRollback(targetTableName, tempPartitionName);
         }
+    }
+
+    /*
+     * TODO: support insert overwrite auto detect partition in legacy planner
+     */
+    private void handleAutoOverwritePartition(InsertOverwriteTableStmt iotStmt) {
+        // TODO:
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
+        try {
+            parsedStmt = new NativeInsertStmt(targetTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true).withAutoDetectOverwrite();
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(targetTableName);
+            return;
+        }
+
     }
 
     private void handleIotRollback(TableName table) {
