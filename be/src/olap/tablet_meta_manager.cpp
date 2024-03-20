@@ -234,14 +234,14 @@ void TabletMetaManager::decode_delete_bitmap_key(const string& enc_key, TTabletI
 }
 
 Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
-                                             DeleteBitmapPtr delete_bimap, int64_t version) {
+                                             DeleteBitmapPtr delete_bitmap, int64_t version) {
     VLOG_NOTICE << "save delete bitmap, tablet_id:" << tablet_id << ", version: " << version;
-    if (delete_bimap->delete_bitmap.empty()) {
+    if (delete_bitmap->delete_bitmap.empty()) {
         return Status::OK();
     }
     OlapMeta* meta = store->get_meta();
     DeleteBitmapPB delete_bitmap_pb;
-    for (auto& [id, bitmap] : delete_bimap->delete_bitmap) {
+    for (auto& [id, bitmap] : delete_bitmap->delete_bitmap) {
         auto& rowset_id = std::get<0>(id);
         int64_t segment_id = std::get<1>(id);
         delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());

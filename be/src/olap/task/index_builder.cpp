@@ -692,7 +692,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         }
         _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
 
-        // modify_rowsets will remove the delete_bimap for input rowsets,
+        // modify_rowsets will remove the delete_bitmap for input rowsets,
         // should call it after merge delete_bitmap
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     } else {
