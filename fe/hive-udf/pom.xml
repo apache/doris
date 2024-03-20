@@ -39,12 +39,6 @@ under the License.
             <artifactId>hive-exec</artifactId>
             <version>${hive.version}</version>
             <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <artifactId>HikariCP-java7</artifactId>
-                    <groupId>com.zaxxer</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
