@@ -630,4 +630,25 @@ suite("negative_partition_mv_rewrite") {
         sql("${query_sql}")
         notContains "${mv_name}(${mv_name})"
     }
+
+    // mv does not contain all the columns, but sql queries all the columns
+    mtmv_sql = """
+        select l_shipdate, o_orderdate, l_partkey 
+        from (select l_shipdate, l_partkey, l_orderkey from lineitem_1) as t
+        left join orders_1
+        on t.l_orderkey = orders_1.o_orderkey;
+        """
+    create_mv_lineitem(mv_name, mtmv_sql)
+    job_name = getJobName(db, mv_name)
+    waitingMTMVTaskFinished(job_name)
+    query_sql = """    
+        select * 
+        from (select l_shipdate, l_partkey, l_orderkey from lineitem_1) as t
+        left join orders_1
+        on t.l_orderkey = orders_1.o_orderkey;
+        """
+    explain {
+        sql("${query_sql}")
+        notContains "${mv_name}(${mv_name})"
+    }
 }
