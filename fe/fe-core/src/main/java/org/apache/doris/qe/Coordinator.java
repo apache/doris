@@ -3292,11 +3292,8 @@ public class Coordinator implements CoordInterface {
 
         // cancel all fragment instances.
         // return true if cancel success. Otherwise, return false
-
+        // The return value has not been used. Should it still be kept?
         private synchronized boolean cancelFragment(Types.PPlanFragmentCancelReason cancelReason) {
-            if (!this.hasCanceled) {
-                return false;
-            }
             for (RuntimeProfile profile : taskProfile) {
                 profile.setIsCancel(true);
             }

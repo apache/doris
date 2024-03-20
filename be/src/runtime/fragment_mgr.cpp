@@ -1042,7 +1042,8 @@ void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
 
 void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                                   const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    if (auto q_ctx = _query_ctx_map.find(query_id)->second) {
+    if (auto q_ctx_iter = _query_ctx_map.find(query_id); q_ctx_iter != _query_ctx_map.end()) {
+        auto& q_ctx = q_ctx_iter->second;
         WARN_IF_ERROR(q_ctx->cancel_pipeline_context(fragment_id, reason, msg),
                       "fail to cancel fragment");
     } else {
