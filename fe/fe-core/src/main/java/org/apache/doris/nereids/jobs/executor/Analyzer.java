@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
+import org.apache.doris.nereids.rules.analysis.EliminateDistinctConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
@@ -144,6 +145,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // so any rule before this, if create a new logicalProject node
                 // should make sure isDistinct property is correctly passed around.
                 // please see rule BindSlotReference or BindFunction for example
+                new EliminateDistinctConstant(),
                 new ProjectWithDistinctToAggregate(),
                 new ResolveOrdinalInOrderByAndGroupBy(),
                 new ReplaceExpressionByChildOutput(),
