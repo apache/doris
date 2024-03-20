@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
@@ -49,21 +48,30 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
         assertRewrite(new NullSafeEqual(slot, NullLiteral.INSTANCE), BooleanLiteral.FALSE);
     }
 
-    // "A<=> "abc" to "A = "abc"
+    // "A(nullable)<=>B" not changed
+    @Test
+    void testNullSafeEqualNotChangedLeft() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, true);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
+        assertRewrite(new NullSafeEqual(a, b), new NullSafeEqual(a, b));
+    }
+
+    // "A<=>B(nullable)" not changed
+    @Test
+    void testNullSafeEqualNotChangedRight() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE, true);
+        assertRewrite(new NullSafeEqual(a, b), new NullSafeEqual(a, b));
+    }
+
+    // "A<=>B" changed
     @Test
     void testNullSafeEqualToEqual() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
-        SlotReference slot = new SlotReference("a", StringType.INSTANCE, true);
-        StringLiteral str = new StringLiteral("abc");
-        assertRewrite(new NullSafeEqual(slot, str), new EqualTo(slot, str));
-    }
-
-    // "A<=>B" not changed
-    @Test
-    void testNullSafeEqualNotChanged() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
-        SlotReference a = new SlotReference("a", StringType.INSTANCE, true);
-        SlotReference b = new SlotReference("b", StringType.INSTANCE, true);
-        assertRewrite(new NullSafeEqual(a, b), new NullSafeEqual(a, b));
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
+        assertRewrite(new NullSafeEqual(a, b), new EqualTo(a, b));
     }
 }
