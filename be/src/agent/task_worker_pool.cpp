@@ -999,6 +999,31 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
     }
 }
 
+void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info) {
+    // Random sleep 1~5 seconds before doing report.
+    // In order to avoid the problem that the FE receives many report requests at the same time
+    // and can not be processed.
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
+    (void)engine; // To be used in the future
+
+    TReportRequest request;
+    request.__set_backend(BackendOptions::get_local_backend());
+    request.__isset.disks = true;
+
+    // TODO(deardeng): report disk info in cloud mode. And make it more clear
+    //                 that report CPU by using a separte report procedure
+    //                 or abstracting disk report as "host info report"
+    request.__set_num_cores(CpuInfo::num_cores());
+    request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
+                                                 ? config::pipeline_executor_size
+                                                 : CpuInfo::num_cores());
+    bool succ = handle_report(request, master_info, "disk");
+    report_disk_total << 1;
+    report_disk_failed << !succ;
+}
+
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info) {
     if (config::report_random_wait) {
         random_sleep(5);

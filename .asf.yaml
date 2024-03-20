@@ -57,7 +57,6 @@ github:
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
-          - Build Documents
           - ShellCheck          
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
@@ -93,7 +92,6 @@ github:
           - BE UT (Doris BE UT)
           - Build Broker
           - ShellCheck
-          - Build Documents
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
