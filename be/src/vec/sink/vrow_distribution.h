@@ -18,23 +18,21 @@
 #pragma once
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/stopwatch.hpp"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
@@ -50,6 +48,15 @@ public:
     std::vector<int64_t> row_ids;
     std::vector<int64_t> partition_ids;
     std::vector<int64_t> tablet_ids;
+
+    std::string debug_string() const {
+        std::string value;
+        value.reserve(row_ids.size() * 15);
+        for (int i = 0; i < row_ids.size(); i++) {
+            value.append(fmt::format("[{}, {}, {}]", row_ids[i], partition_ids[i], tablet_ids[i]));
+        }
+        return value;
+    }
 };
 
 // void* for caller
@@ -153,8 +160,14 @@ private:
             vectorized::Block* block, bool has_filtered_rows,
             std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
+    Status _generate_rows_distribution_for_auto_overwrite(
+            vectorized::Block* block, bool has_filtered_rows,
+            std::vector<RowPartTabletIds>& row_part_tablet_ids);
+    Status _replace_overwriting_partition();
+
     void _reset_row_part_tablet_ids(std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                     int64_t rows);
+    void _reset_find_tablets(int64_t rows);
 
     RuntimeState* _state = nullptr;
     int _batch_size = 0;
@@ -177,16 +190,19 @@ private:
     OlapTableLocationParam* _location = nullptr;
     // int64_t _number_output_rows = 0;
     const VExprContextSPtrs* _vec_output_expr_ctxs = nullptr;
+    // generally it's writer's on_partitions_created
     CreatePartitionCallback _create_partition_callback = nullptr;
     void* _caller = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema;
 
-    // reuse for find_tablet.
+    // reuse for find_tablet. save partitions found by find_tablets
     std::vector<VOlapTablePartition*> _partitions;
     std::vector<bool> _skip;
     std::vector<uint32_t> _tablet_indexes;
     std::vector<int64_t> _tablet_ids;
     std::vector<int64_t> _missing_map; // indice of missing values in partition_col
+    // for auto detect overwrite partition
+    std::set<int64_t> _new_partition_ids; // if contains, not to replace it again.
 };
 
 } // namespace doris::vectorized

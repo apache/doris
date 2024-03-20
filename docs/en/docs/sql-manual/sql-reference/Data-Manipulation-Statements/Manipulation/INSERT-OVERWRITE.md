@@ -33,11 +33,11 @@ INSERT OVERWRITE
 
 ### Description
 
-The function of this statement is to overwrite a table or a partition of a table
+The function of this statement is to overwrite a table or some partitions of a table
 
 ```sql
 INSERT OVERWRITE table table_name
-    [ PARTITION (p1, ...) ]
+    [ PARTITION (p1, ... | *) ]
     [ WITH LABEL label]
     [ (column [, ...]) ]
     [ [ hint [, ...] ] ]
@@ -48,7 +48,10 @@ INSERT OVERWRITE table table_name
 
 > table_name: the destination table to overwrite. This table must exist. It can be of the form `db_name.table_name`
 >
-> partitions: the table partition that needs to be overwritten must be one of the existing partitions in `table_name` separated by a comma
+> partitions: the table partitions that needs to be overwritten. The following two formats are supported
+>
+>> 1. partition names. must be one of the existing partitions in `table_name` separated by a comma
+>> 2. asterisk(*)。Enable [auto-detect-partition](#overwrite-auto-detect-partition). The write operation will automatically detect the partitions involved in the data and overwrite those partitions.
 >
 > label: specify a label for the Insert task
 >
@@ -69,7 +72,7 @@ INSERT OVERWRITE table table_name
 Notice:
 
 1. In the current version, the session variable `enable_insert_strict` is set to `true` by default. If some data that does not conform to the format of the target table is filtered out during the execution of the `INSERT OVERWRITE` statement, such as when overwriting a partition and not all partition conditions are satisfied, overwriting the target table will fail.
-2. If the target table of the INSERT OVERWRITE is an [AUTO-PARTITION-table](../../../../advanced/partition/auto-partition), then new partitions can be created if PARTITION is not specified (that is, rewrite the whole table). If PARTITION for overwrite is specified, then the AUTO PARTITION table behaves as if it were a normal partitioned table during this process, and data that does not satisfy the existing partition conditions is filtered instead of creating a new partition.
+2. If the target table of the INSERT OVERWRITE is an [AUTO-PARTITION-table](../../../../advanced/partition/auto-partition), then new partitions can be created if PARTITION is not specified (that is, rewrite the whole table). If PARTITION for overwrite is specified(Includes automatic detection and overwriting of partitions through the `partition(*)` syntax), then the AUTO PARTITION table behaves as if it were a normal partitioned table during this process, and data that does not satisfy the existing partition conditions is filtered instead of creating a new partition.
 3. The `INSERT OVERWRITE` statement first creates a new table, inserts the data to be overwritten into the new table, and then atomically replaces the old table with the new table and modifies its name. Therefore, during the process of overwriting the table, the data in the old table can still be accessed normally until the overwriting is completed.
 
 ### Example
@@ -138,6 +141,13 @@ PROPERTIES (
 
 #### Overwrite Table Partition
 
+When using INSERT OVERWRITE to rewrite partitions, we actually encapsulate the following three steps into a single transaction and execute it. If it fails halfway through, the operations that have been performed will be rolled back:
+1. Assuming that partition `p1` is specified to be rewritten, first create an empty temporary partition `pTMP` with the same structure as the target partition to be rewritten.
+2. Write data to `pTMP`.
+3. replace `p1` with the `pTMP` atom
+
+The following is examples:
+
 1. Overwrite partitions `P1` and `P2` of the `test` table using the form of `VALUES`.
 
    ```sql
@@ -175,6 +185,56 @@ PROPERTIES (
    INSERT OVERWRITE table test PARTITION(p1,p2) WITH LABEL `label4` (c1, c2) SELECT * from test2;
    ```
 
+
+#### Overwrite Auto Detect Partition
+
+When the PARTITION clause specified by the INSERT OVERWRITE command is `PARTITION(*)`, this overwrite will automatically detect the partition where the data is located. Example:
+
+```sql
+mysql> create table test(
+    -> k0 int null
+    -> )
+    -> partition by range (k0)
+    -> (
+    -> PARTITION p10 values less than (10),
+    -> PARTITION p100 values less than (100),
+    -> PARTITION pMAX values less than (maxvalue)
+    -> )
+    -> DISTRIBUTED BY HASH(`k0`) BUCKETS 1
+    -> properties("replication_num" = "1");
+Query OK, 0 rows affected (0.11 sec)
+
+mysql> insert into test values (1), (2), (15), (100), (200);
+Query OK, 5 rows affected (0.29 sec)
+
+mysql> select * from test order by k0;
++------+
+| k0   |
++------+
+|    1 |
+|    2 |
+|   15 |
+|  100 |
+|  200 |
++------+
+5 rows in set (0.23 sec)
+
+mysql> insert overwrite table test partition(*) values (3), (1234);
+Query OK, 2 rows affected (0.24 sec)
+
+mysql> select * from test order by k0;
++------+
+| k0   |
++------+
+|    3 |
+|   15 |
+| 1234 |
++------+
+3 rows in set (0.20 sec)
+```
+
+As you can see, all data in partitions `p10` and `pMAX`, where data 3 and 1234 are located, are overwritten, while partition `p100` remains unchanged. This operation can be interpreted as syntactic sugar for specifying a specific partition to be overwritten by the PARTITION clause during an INSERT OVERWRITE operation, which is implemented in the same way as [specify a partition to overwrite](#overwrite-table-partition). The `PARTITION(*)` syntax eliminates the need to manually fill in all the partition names when overwriting a large number of partitions.
+
 ### Keywords
 
-    INSERT OVERWRITE, OVERWRITE
+    INSERT OVERWRITE, OVERWRITE, AUTO DETECT
