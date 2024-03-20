@@ -430,7 +430,10 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             bool has_attachment = false;
             if (!cnt_val->filter->get_ignored()) {
                 RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
+            } else {
+                apply_request.set_ignored(true);
             }
+
             if (data != nullptr && len > 0) {
                 request_attachment.append(data, len);
                 has_attachment = true;
@@ -450,7 +453,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
                 }
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
-                rpc_contexts[cur]->request.set_ignored(cnt_val->filter->get_ignored());
                 // set fragment-id
                 for (size_t fid = 0; fid < targets[cur].target_fragment_instance_ids.size();
                      fid++) {
@@ -500,7 +502,10 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             bool has_attachment = false;
             if (!cnt_val->filter->get_ignored()) {
                 RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
+            } else {
+                apply_request.set_ignored(true);
             }
+
             if (data != nullptr && len > 0) {
                 request_attachment.append(data, len);
                 has_attachment = true;
@@ -520,7 +525,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
                 }
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
-                rpc_contexts[cur]->request.set_ignored(cnt_val->filter->get_ignored());
                 // set fragment_instance_id
                 auto request_fragment_instance_id =
                         rpc_contexts[cur]->request.mutable_fragment_instance_id();

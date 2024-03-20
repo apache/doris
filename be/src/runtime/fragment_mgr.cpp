@@ -1399,12 +1399,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
 
     // 2. create the filter wrapper to replace or ignore the target filters
-    if (request->has_ignored() && request->ignored()) {
-        std::ranges::for_each(filters, [](auto& filter) {
-            filter->set_ignored();
-            filter->signal();
-        });
-    } else if (!filters.empty()) {
+    if (!filters.empty()) {
         UpdateRuntimeFilterParamsV2 params {request, attach_data, pool, filters[0]->column_type()};
         RuntimePredicateWrapper* filter_wrapper = nullptr;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));

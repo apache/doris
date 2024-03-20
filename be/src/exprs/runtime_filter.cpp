@@ -462,11 +462,7 @@ public:
                           const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
-        if (is_ignored()) {
-            return Status::OK();
-        }
-
-        if (wrapper->is_ignored()) {
+        if (is_ignored()|| wrapper->is_ignored()) {
             _context->ignored = true;
             return Status::OK();
         }
@@ -1413,6 +1409,12 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     PrimitiveType column_type = param->column_type;
     *wrapper = param->pool->add(new RuntimePredicateWrapper(
             param->pool, column_type, get_type(filter_type), param->request->filter_id()));
+
+    if (param->request->has_ignored() && param->request->ignored()) {
+        (*wrapper)->set_ignored();
+        return Status::OK();
+    }
+
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
@@ -1498,7 +1500,7 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
-    if (wrapper->is_ignored()) {
+    if (wrapper->is_ignored() || get_ignored()) {
         set_ignored();
         return Status::OK();
     }
@@ -1825,7 +1827,7 @@ void IRuntimeFilter::update_filter(RuntimePredicateWrapper* wrapper, int64_t mer
     }
     _wrapper = wrapper;
     update_runtime_filter_type_to_profile();
-    this->signal();
+    signal();
 }
 
 Status RuntimePredicateWrapper::get_push_exprs(

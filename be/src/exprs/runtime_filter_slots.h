@@ -62,10 +62,13 @@ public:
     }
 
     Status ignore_filter(RuntimeState* state, IRuntimeFilter* runtime_filter) const {
-        runtime_filter->set_ignored();
         if (runtime_filter->has_remote_target()) {
-            RETURN_IF_ERROR(runtime_filter->publish());
+            if (_need_local_merge) {
+                runtime_filter->set_ignored();
+                RETURN_IF_ERROR(runtime_filter->publish());
+            }
         } else {
+            runtime_filter->set_ignored();
             auto* runtime_filter_mgr = _need_local_merge ? state->global_runtime_filter_mgr()
                                                          : state->local_runtime_filter_mgr();
 
