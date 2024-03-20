@@ -39,7 +39,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
@@ -77,9 +79,9 @@
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_sched_policy_mgr.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
@@ -213,11 +215,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
-
+    _file_cache_factory = new io::FileCacheFactory();
     init_file_cache_factory();
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
-    _task_group_manager = new taskgroup::TaskGroupManager();
+    _workload_group_manager = new WorkloadGroupMgr();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -238,9 +240,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
     _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
-
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
@@ -308,7 +310,7 @@ Status ExecEnv::init_pipeline_task_scheduler() {
         executors_size = CpuInfo::num_cores();
     }
 
-    // TODO pipeline task group combie two blocked schedulers.
+    // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_block_scheduler =
             std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");
@@ -327,23 +329,24 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 void ExecEnv::init_file_cache_factory() {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
-        _file_cache_factory = new io::FileCacheFactory();
-        io::IFileCache::init();
+        if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
+            config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
+            LOG_FATAL(
+                    "The config file_cache_each_block_size {} must less than or equal to config "
+                    "s3_write_buffer_size {} and config::s3_write_buffer_size % "
+                    "config::file_cache_each_block_size must be zero",
+                    config::file_cache_each_block_size, config::s3_write_buffer_size);
+            exit(-1);
+        }
         std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
-        Status olap_res =
-                doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
-        if (!olap_res) {
+        Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+        if (!rest) {
             LOG(FATAL) << "parse config file cache path failed, path="
                        << doris::config::file_cache_path;
             exit(-1);
         }
-
-        std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        static_cast<void>(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                                  .set_min_threads(cache_paths.size())
-                                  .set_max_threads(cache_paths.size())
-                                  .build(&file_cache_init_pool));
+        std::vector<std::thread> file_cache_init_threads;
 
         std::list<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {
@@ -352,20 +355,19 @@ void ExecEnv::init_file_cache_factory() {
                 continue;
             }
 
-            olap_res = file_cache_init_pool->submit_func(
-                    [this, capture0 = cache_path.path, capture1 = cache_path.init_settings(),
-                     capture2 = &(cache_status.emplace_back())] {
-                        _file_cache_factory->create_file_cache(capture0, capture1, capture2);
-                    });
+            file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
+                *status = doris::io::FileCacheFactory::instance()->create_file_cache(
+                        cache_path.path, cache_path.init_settings());
+            });
 
-            if (!olap_res.ok()) {
-                LOG(FATAL) << "failed to init file cache, err: " << olap_res;
-                exit(-1);
-            }
             cache_path_set.emplace(cache_path.path);
         }
 
-        file_cache_init_pool->wait();
+        for (std::thread& thread : file_cache_init_threads) {
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
         for (const auto& status : cache_status) {
             if (!status.ok()) {
                 LOG(FATAL) << "failed to init file cache, err: " << status;
@@ -463,6 +465,14 @@ Status ExecEnv::_init_mem_env() {
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
+    size_t block_file_cache_fd_cache_size =
+            std::min((uint64_t)config::file_cache_max_file_reader_cache_size, fd_number / 3);
+    LOG(INFO) << "max file reader cache size is: " << block_file_cache_fd_cache_size
+              << ", resource hard limit is: " << fd_number
+              << ", config file_cache_max_file_reader_cache_size is: "
+              << config::file_cache_max_file_reader_cache_size;
+    config::file_cache_max_file_reader_cache_size = block_file_cache_fd_cache_size;
+
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
 
     _lookup_connection_cache = LookupConnectionCache::create_global_instance(
@@ -477,7 +487,7 @@ Status ExecEnv::_init_mem_env() {
         inverted_index_cache_limit = inverted_index_cache_limit / 2;
     }
     _inverted_index_searcher_cache =
-            InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit);
+            InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit, 256);
     LOG(INFO) << "Inverted index searcher cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_searcher_cache_limit;
@@ -491,7 +501,7 @@ Status ExecEnv::_init_mem_env() {
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
     _inverted_index_query_cache =
-            InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
+            InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 256);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
@@ -554,7 +564,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_without_group_task_scheduler);
     // stop pipline step 2, cgroup execution
     SAFE_SHUTDOWN(_global_block_scheduler.get());
-    SAFE_STOP(_task_group_manager);
+    SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
@@ -565,6 +575,7 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_stub_pool.reset();
+    _file_cache_open_fd_cache.reset();
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
     // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
@@ -620,7 +631,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_result_cache);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
-    SAFE_DELETE(_task_group_manager);
+    SAFE_DELETE(_workload_group_manager);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
@@ -631,6 +642,7 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
+    _file_cache_open_fd_cache.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);

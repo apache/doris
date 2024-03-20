@@ -88,6 +88,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -101,7 +102,6 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
-import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
@@ -229,6 +229,9 @@ public class Coordinator implements CoordInterface {
 
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
+
+    // TODO moved to ExternalTransactionManager
+    private final List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -358,14 +361,6 @@ public class Coordinator implements CoordInterface {
 
     private void setFromUserProperty(ConnectContext connectContext) {
         String qualifiedUser = connectContext.getQualifiedUser();
-        // set cpu resource limit
-        int cpuLimit = Env.getCurrentEnv().getAuth().getCpuResourceLimit(qualifiedUser);
-        if (cpuLimit > 0) {
-            // overwrite the cpu resource limit from session variable;
-            TResourceLimit resourceLimit = new TResourceLimit();
-            resourceLimit.setCpuLimit(cpuLimit);
-            this.queryOptions.setResourceLimit(resourceLimit);
-        }
         // set exec mem limit
         long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
         long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
@@ -486,6 +481,10 @@ public class Coordinator implements CoordInterface {
         return errorTabletInfos;
     }
 
+    public List<THivePartitionUpdate> getHivePartitionUpdates() {
+        return hivePartitionUpdates;
+    }
+
     public Map<String, Integer> getBeToInstancesNum() {
         Map<String, Integer> result = Maps.newTreeMap();
         if (enablePipelineEngine) {
@@ -508,7 +507,7 @@ public class Coordinator implements CoordInterface {
     }
 
     // Initialize
-    protected void prepare() throws Exception {
+    protected void prepare() throws UserException {
         for (PlanFragment fragment : fragments) {
             fragmentExecParamsMap.put(fragment.getFragmentId(), new FragmentExecParams(fragment));
         }
@@ -524,7 +523,8 @@ public class Coordinator implements CoordInterface {
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
 
-        this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
+        this.idToBackend = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+
         if (LOG.isDebugEnabled()) {
             int backendNum = idToBackend.size();
             StringBuilder backendInfos = new StringBuilder("backends info:");
@@ -2408,7 +2408,14 @@ public class Coordinator implements CoordInterface {
         // TODO: more ranges?
     }
 
-
+    private void updateHivePartitionUpdates(List<THivePartitionUpdate> hivePartitionUpdates) {
+        lock.lock();
+        try {
+            this.hivePartitionUpdates.addAll(hivePartitionUpdates);
+        } finally {
+            lock.unlock();
+        }
+    }
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
@@ -2457,6 +2464,9 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
+            }
+            if (params.isSetHivePartitionUpdates()) {
+                updateHivePartitionUpdates(params.getHivePartitionUpdates());
             }
 
             Preconditions.checkArgument(params.isSetDetailedReport());
@@ -2522,6 +2532,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
+                }
+                if (params.isSetHivePartitionUpdates()) {
+                    updateHivePartitionUpdates(params.getHivePartitionUpdates());
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} instance {} is marked done",
@@ -2599,6 +2612,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
+                }
+                if (params.isSetHivePartitionUpdates()) {
+                    updateHivePartitionUpdates(params.getHivePartitionUpdates());
                 }
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             }
@@ -3607,7 +3623,10 @@ public class Coordinator implements CoordInterface {
 
         List<TExecPlanFragmentParams> toThrift(int backendNum) {
             List<TExecPlanFragmentParams> paramsList = Lists.newArrayList();
-
+            Set<Integer> topnFilterSources = scanNodes.stream()
+                    .filter(scanNode -> scanNode instanceof OlapScanNode)
+                    .flatMap(scanNode -> ((OlapScanNode) scanNode).getTopnFilterSortNodes().stream())
+                    .map(sort -> sort.getId().asInt()).collect(Collectors.toSet());
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 TExecPlanFragmentParams params = new TExecPlanFragmentParams();
@@ -3619,11 +3638,17 @@ public class Coordinator implements CoordInterface {
                 params.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 params.params.setQueryId(queryId);
                 params.params.setFragmentInstanceId(instanceExecParam.instanceId);
+
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
                 }
-
+                if (!topnFilterSources.isEmpty()) {
+                    // topn_filter_source_node_ids is used by nereids not by legacy planner.
+                    // if there is no topnFilterSources, do not set it.
+                    // topn_filter_source_node_ids=null means legacy planner
+                    params.params.topn_filter_source_node_ids = Lists.newArrayList(topnFilterSources);
+                }
                 params.params.setPerNodeScanRanges(scanRanges);
                 params.params.setPerExchNumSenders(perExchNumSenders);
 
@@ -3694,7 +3719,6 @@ public class Coordinator implements CoordInterface {
                                 rf.getFilterId().asInt(), rf.toThrift());
                     }
                 }
-
                 params.setFileScanParams(fileScanRangeParamsMap);
                 paramsList.add(params);
             }
@@ -3904,6 +3928,10 @@ public class Coordinator implements CoordInterface {
             sb.append("]"); // end of instances
             sb.append("}");
         }
+    }
+
+    public QueueToken getQueueToken() {
+        return queueToken;
     }
 
     // fragment instance exec param, it is used to assemble

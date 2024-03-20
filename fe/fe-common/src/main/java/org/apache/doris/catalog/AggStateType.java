@@ -72,7 +72,7 @@ public class AggStateType extends ScalarType {
     @Override
     public String toSql(int depth) {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("AGG_STATE(");
+        stringBuilder.append("AGG_STATE<").append(functionName).append("(");
         for (int i = 0; i < subTypes.size(); i++) {
             if (i > 0) {
                 stringBuilder.append(", ");
@@ -82,7 +82,7 @@ public class AggStateType extends ScalarType {
                 stringBuilder.append(" NULL");
             }
         }
-        stringBuilder.append(")");
+        stringBuilder.append(")>");
         return stringBuilder.toString();
     }
 

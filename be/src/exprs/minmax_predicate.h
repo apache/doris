@@ -28,7 +28,7 @@
 
 namespace doris {
 // only used in Runtime Filter
-class MinMaxFuncBase {
+class MinMaxFuncBase : public RuntimeFilterFuncBase {
 public:
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
     virtual void* get_max() = 0;
@@ -38,6 +38,13 @@ public:
     // merge from other minmax_func
     virtual Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) = 0;
     virtual ~MinMaxFuncBase() = default;
+
+    bool contain_null() const { return _null_aware && _contain_null; }
+
+    void set_contain_null() { _contain_null = true; }
+
+protected:
+    bool _contain_null = false;
 };
 
 template <class T, bool NeedMax = true, bool NeedMin = true>
@@ -47,15 +54,13 @@ public:
     ~MinMaxNumFunc() override = default;
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
-        if (column->empty()) {
-            return;
-        }
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column_ptr();
             const auto& nullmap = nullable->get_null_map_data();
             if (nullable->has_null()) {
                 update_batch(col, nullmap, start);
+                _contain_null = true;
             } else {
                 update_batch(col, start);
             }
@@ -152,6 +157,7 @@ public:
             }
         }
 
+        _contain_null |= minmax_func->contain_null();
         return Status::OK();
     }
 

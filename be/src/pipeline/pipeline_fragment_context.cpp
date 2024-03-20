@@ -60,6 +60,7 @@
 #include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/hive_table_sink_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/mysql_scan_operator.h" // IWYU pragma: keep
@@ -771,7 +772,7 @@ void PipelineFragmentContext::close_sink() {
     }
 }
 
-void PipelineFragmentContext::close_if_prepare_failed() {
+void PipelineFragmentContext::close_if_prepare_failed(Status /*st*/) {
     if (_tasks.empty()) {
         if (_root_plan) {
             static_cast<void>(_root_plan->close(_runtime_state.get()));
@@ -823,12 +824,14 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                                                                       _sink.get());
         break;
     }
-    case TDataSinkType::MYSQL_TABLE_SINK:
-    case TDataSinkType::JDBC_TABLE_SINK:
-    case TDataSinkType::ODBC_TABLE_SINK: {
-        sink_ = std::make_shared<TableSinkOperatorBuilder>(next_operator_builder_id(), _sink.get());
+    case TDataSinkType::HIVE_TABLE_SINK: {
+        sink_ = std::make_shared<HiveTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                               _sink.get());
         break;
     }
+    case TDataSinkType::MYSQL_TABLE_SINK:
+    case TDataSinkType::JDBC_TABLE_SINK:
+    case TDataSinkType::ODBC_TABLE_SINK:
     case TDataSinkType::RESULT_FILE_SINK: {
         sink_ = std::make_shared<ResultFileSinkOperatorBuilder>(
                 thrift_sink.result_file_sink.dest_node_id, _sink.get());

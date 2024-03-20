@@ -34,7 +34,6 @@ import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
@@ -253,6 +252,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
+
+    public static final String CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD = "enable_multi_cluster_sync_load";
 
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
@@ -484,6 +485,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
     public static final String EXTERNAL_AGG_BYTES_THRESHOLD = "external_agg_bytes_threshold";
     public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
+    public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
     public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
     public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
@@ -772,6 +774,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FRAGMENT_TRANSMISSION_COMPRESSION_CODEC)
     public String fragmentTransmissionCompressionCodec = "none";
+
+    // whether sync load to other cluster
+    @VariableMgr.VarAttr(name = CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD, needForward = true)
+    public static boolean cloudEnableMultiClusterSyncLoad = false;
 
     /*
      * the parallel exec instance num for one Fragment in one BE
@@ -1698,8 +1704,13 @@ public class SessionVariable implements Serializable, Writable {
     // Set to 0 to disable; min: 128M
     public static final long MIN_EXTERNAL_AGG_BYTES_THRESHOLD = 134217728;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_BYTES_THRESHOLD,
-            checker = "checkExternalAggBytesThreshold", fuzzy = true)
+            checker = "checkExternalAggBytesThreshold", fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public long externalAggBytesThreshold = 0;
+
+    // The memory limit of streaming agg when spilling is enabled
+    // NOTE: streaming agg operator will not spill to disk.
+    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT)
+    public long spillStreamingAggMemLimit = 268435456; //256MB
 
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
@@ -1967,6 +1978,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isAutoCommit() {
         return autoCommit;
+    }
+
+    public boolean enableMultiClusterSyncLoad() {
+        return cloudEnableMultiClusterSyncLoad;
+    }
+
+    public void setEnableMultiClusterSyncLoad(boolean cloudEnableMultiClusterSyncLoad) {
+        this.cloudEnableMultiClusterSyncLoad = cloudEnableMultiClusterSyncLoad;
     }
 
     public boolean isTxReadonly() {
@@ -2599,10 +2618,6 @@ public class SessionVariable implements Serializable, Writable {
         return groupByAndHavingUseAliasFirst;
     }
 
-    public int getCpuResourceLimit() {
-        return cpuResourceLimit;
-    }
-
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
     }
@@ -2979,12 +2994,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
-        if (cpuResourceLimit > 0) {
-            TResourceLimit resourceLimit = new TResourceLimit();
-            resourceLimit.setCpuLimit(cpuResourceLimit);
-            tResult.setResourceLimit(resourceLimit);
-        }
-
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
@@ -3005,6 +3014,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setExternalAggBytesThreshold(0); // disable for now
+
+        tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
 
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 

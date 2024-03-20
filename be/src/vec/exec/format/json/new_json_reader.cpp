@@ -1723,4 +1723,13 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, IColumn* c
     return Status::OK();
 }
 
+void NewJsonReader::_collect_profile_before_close() {
+    if (_line_reader != nullptr) {
+        _line_reader->collect_profile_before_close();
+    }
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
+    }
+}
+
 } // namespace doris::vectorized

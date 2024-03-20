@@ -208,8 +208,7 @@ public abstract class IdentifierMapping {
                 || localColumnToRemoteColumn.get(remoteDbName).isEmpty()
                 || !localColumnToRemoteColumn.get(remoteDbName).containsKey(remoteTableName)
                 || localColumnToRemoteColumn.get(remoteDbName).get(remoteTableName) == null
-                || localColumnToRemoteColumn.get(
-                remoteDbName).get(remoteTableName).isEmpty()) {
+                || localColumnToRemoteColumn.get(remoteDbName).get(remoteTableName).isEmpty()) {
             loadColumnNamesIfNeeded(localDbName, localTableName);
         }
         return localColumnToRemoteColumn.get(remoteDbName).get(remoteTableName);

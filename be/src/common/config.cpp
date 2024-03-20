@@ -268,6 +268,7 @@ DEFINE_mInt32(doris_max_scan_key_num, "48");
 DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
+DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
 
 DEFINE_mInt64(column_dictionary_key_ratio_threshold, "0");
 DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
@@ -813,8 +814,6 @@ DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
-DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
-
 // s3 config
 DEFINE_mInt32(max_remote_storage_count, "10");
 
@@ -991,20 +990,12 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
-DEFINE_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
-// 4KB <= file_cache_max_file_segment_size <= 256MB
-DEFINE_Validator(file_cache_max_file_segment_size, [](const int64_t config) -> bool {
-    return config >= 4096 && config <= 268435456;
-});
-DEFINE_Int64(file_cache_min_file_segment_size, "1048576"); // 1MB
-// 4KB <= file_cache_min_file_segment_size <= 256MB
-DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> bool {
-    return config >= 4096 && config <= 268435456 &&
-           config <= config::file_cache_max_file_segment_size;
-});
+DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
+
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1030,6 +1021,8 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
 DEFINE_mBool(inverted_index_compaction_enable, "false");
+// Only for debug, do not use in production
+DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
 DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
@@ -1048,7 +1041,7 @@ DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 // Page size of row column, default 4KB
 DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
-DEFINE_mInt32(s3_write_buffer_size, "5242880");
+DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
@@ -1067,9 +1060,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
-DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
-DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+DEFINE_Int64(max_external_file_meta_cache_num, "1000");
+DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
 // Apply delete pred in cumu compaction
 DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 
@@ -1196,6 +1190,27 @@ DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 DEFINE_mInt32(max_s3_client_retry, "10");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+DEFINE_mString(ca_cert_file_paths,
+               "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+               "/etc/ssl/ca-bundle.pem");
+
+/** Table sink configurations(currently contains only external table types) **/
+// Minimum data processed to scale writers when non partition writing
+DEFINE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold,
+              "125829120"); // 120MB
+// Minimum data processed to start rebalancing in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_data_processed_threshold, "209715200"); // 200MB
+// Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold,
+              "209715200"); // 200MB
+// Maximum processed partition nums of per writer when partition writing
+DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
+
+/** Hive sink configurations **/
+DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
 // clang-format off
 #ifdef BE_TEST

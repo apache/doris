@@ -62,6 +62,8 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
@@ -71,6 +73,8 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
+import org.apache.doris.nereids.properties.DistributionSpecTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecTableSinkRandomPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecTabletIdShuffle;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -164,6 +168,7 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
+import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MultiCastDataSink;
@@ -441,6 +446,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink,
                                                    PlanTranslatorContext context) {
         PlanFragment rootFragment = hiveTableSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+
+        TupleDescriptor hiveTuple = context.generateTupleDesc();
+        List<Column> targetTableColumns = hiveTableSink.getTargetTable().getFullSchema();
+        for (Column column : targetTableColumns) {
+            SlotDescriptor slotDesc = context.addSlotDesc(hiveTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(column.getType());
+            slotDesc.setColumn(column);
+            slotDesc.setIsNullable(column.isAllowNull());
+            slotDesc.setAutoInc(column.isAutoInc());
+        }
+        HiveTableSink sink = new HiveTableSink(hiveTableSink.getTargetTable());
+        rootFragment.setSink(sink);
         return rootFragment;
     }
 
@@ -549,6 +568,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof PaimonExternalTable) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+        } else if (table instanceof TrinoConnectorExternalTable) {
+            scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof MaxComputeExternalTable) {
             scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else {
@@ -1030,12 +1051,39 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment currentFragment = assertNumRows.child().accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(assertNumRows.child());
+
+        // we need convert all columns to nullable in AssertNumRows node
+        // create a tuple for AssertNumRowsNode
+        TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         // create assertNode
         AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
                 currentFragment.getPlanRoot(),
-                ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
+                ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()), true, tupleDescriptor);
         assertNumRowsNode.setChildrenDistributeExprLists(distributeExprLists);
         assertNumRowsNode.setNereidsId(assertNumRows.getId());
+
+        // collect all child output slots
+        List<TupleDescriptor> childTuples = context.getTupleDesc(currentFragment.getPlanRoot());
+        List<SlotDescriptor> childSlotDescriptors = childTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        // create output slot based on child output
+        Map<ExprId, SlotReference> childOutputMap = Maps.newHashMap();
+        assertNumRows.child().getOutput().stream()
+                .map(SlotReference.class::cast)
+                .forEach(s -> childOutputMap.put(s.getExprId(), s));
+        List<SlotDescriptor> slotDescriptors = Lists.newArrayList();
+        for (SlotDescriptor slot : childSlotDescriptors) {
+            SlotReference sf = childOutputMap.get(context.findExprId(slot.getId()));
+            SlotDescriptor sd = context.createSlotDesc(tupleDescriptor, sf, slot.getParent().getTable());
+            slotDescriptors.add(sd);
+        }
+
+        // set all output slot nullable
+        slotDescriptors.forEach(sd -> sd.setIsNullable(true));
+
         addPlanRoot(currentFragment, assertNumRowsNode, assertNumRows);
         return currentFragment;
     }
@@ -2550,6 +2598,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return new DataPartition(partitionType, partitionExprs);
         } else if (distributionSpec instanceof DistributionSpecTabletIdShuffle) {
             return DataPartition.TABLET_ID;
+        } else if (distributionSpec instanceof DistributionSpecTableSinkHashPartitioned) {
+            DistributionSpecTableSinkHashPartitioned partitionSpecHash =
+                    (DistributionSpecTableSinkHashPartitioned) distributionSpec;
+            List<Expr> partitionExprs = Lists.newArrayList();
+            List<ExprId> partitionExprIds = partitionSpecHash.getOutputColExprIds();
+            for (ExprId partitionExprId : partitionExprIds) {
+                if (childOutputIds.contains(partitionExprId)) {
+                    partitionExprs.add(context.findSlotRef(partitionExprId));
+                }
+            }
+            return new DataPartition(TPartitionType.TABLE_SINK_HASH_PARTITIONED, partitionExprs);
+        } else if (distributionSpec instanceof DistributionSpecTableSinkRandomPartitioned) {
+            return new DataPartition(TPartitionType.TABLE_SINK_RANDOM_PARTITIONED);
         } else {
             throw new RuntimeException("Unknown DistributionSpec: " + distributionSpec);
         }

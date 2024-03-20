@@ -452,6 +452,8 @@ public:
 
     std::vector<TTabletCommitInfo>& tablet_commit_infos() { return _tablet_commit_infos; }
 
+    std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
+
     const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
@@ -725,6 +727,8 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
     int _task_id = -1;
+
+    std::vector<THivePartitionUpdate> _hive_partition_updates;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 

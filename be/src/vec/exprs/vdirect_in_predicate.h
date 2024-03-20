@@ -26,8 +26,8 @@ class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
 
 public:
-    VDirectInPredicate(const TExprNode& node)
-            : VExpr(node), _filter(nullptr), _expr_name("direct_in_predicate") {}
+    VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter)
+            : VExpr(node), _filter(filter), _expr_name("direct_in_predicate") {}
     ~VDirectInPredicate() override = default;
 
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
@@ -46,8 +46,25 @@ public:
     }
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        ColumnNumbers arguments;
+        return _do_execute(context, block, result_column_id, arguments);
+    }
+
+    Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
+                                  doris::vectorized::Block* block, int* result_column_id,
+                                  std::vector<size_t>& args) override {
+        return _do_execute(context, block, result_column_id, args);
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
+
+private:
+    Status _do_execute(VExprContext* context, Block* block, int* result_column_id,
+                       std::vector<size_t>& arguments) {
         DCHECK(_open_finished || _getting_const_col);
-        ColumnNumbers arguments(_children.size());
+        arguments.resize(_children.size());
         for (int i = 0; i < _children.size(); ++i) {
             int column_id = -1;
             RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
@@ -67,12 +84,6 @@ public:
             const auto& null_map =
                     static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
             _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data());
-            if (_null_aware) {
-                auto* __restrict res_data = res_data_column->get_data().data();
-                for (size_t i = 0; i < sz; ++i) {
-                    res_data[i] |= null_map[i];
-                }
-            }
         } else {
             _filter->find_batch(*argument_column, sz, res_data_column->get_data());
         }
@@ -85,15 +96,7 @@ public:
         return Status::OK();
     }
 
-    const std::string& expr_name() const override { return _expr_name; }
-
-    void set_filter(std::shared_ptr<HybridSetBase>& filter) { _filter = filter; }
-
-    std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
-
-private:
     std::shared_ptr<HybridSetBase> _filter;
-    bool _null_aware = false;
     std::string _expr_name;
 };
 } // namespace doris::vectorized

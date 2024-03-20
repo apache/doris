@@ -731,12 +731,6 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    # make a soft link palo_be point to doris_be, for forward compatibility
-    cd "${DORIS_OUTPUT}/be/lib"
-    rm -f palo_be
-    ln -s doris_be palo_be
-    cd -
-
     if [[ "${BUILD_META_TOOL}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
     fi

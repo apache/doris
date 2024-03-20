@@ -111,7 +111,9 @@ public:
                int64_t time_series_compaction_file_count_threshold = 2000,
                int64_t time_series_compaction_time_threshold_seconds = 3600,
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
-               int64_t time_series_compaction_level_threshold = 1);
+               int64_t time_series_compaction_level_threshold = 1,
+               TInvertedIndexStorageFormat::type inverted_index_storage_format =
+                       TInvertedIndexStorageFormat::V1);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;

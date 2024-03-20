@@ -32,11 +32,11 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
-#include "task_group/task_group.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 #include "vec/runtime/shared_scanner_controller.h"
+#include "workload_group/workload_group.h"
 
 namespace doris {
 
@@ -95,18 +95,16 @@ public:
 
     int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
 
-    void set_thread_token(int concurrency, bool is_serial) {
-        _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
-                is_serial ? ThreadPool::ExecutionMode::SERIAL
-                          : ThreadPool::ExecutionMode::CONCURRENT,
-                concurrency);
-    }
-
-    ThreadPoolToken* get_token() { return _thread_token.get(); }
-
     void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
+
+    void cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
+                                     const std::string& msg);
+    Status cancel_pipeline_context(const int fragment_id, const PPlanFragmentCancelReason& reason,
+                                   const std::string& msg);
+    void set_pipeline_context(const int fragment_id,
+                              std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
     bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
@@ -124,6 +122,8 @@ public:
         std::lock_guard<std::mutex> l(_exec_status_lock);
         return _exec_status;
     }
+
+    void set_execution_dependency_ready();
 
     void set_ready_to_execute_only();
 
@@ -163,7 +163,7 @@ public:
         }
     }
 
-    Status set_task_group(taskgroup::TaskGroupPtr& tg);
+    Status set_workload_group(WorkloadGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -259,8 +259,6 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
-    std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
-    std::mutex pipeline_lock;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -274,13 +272,6 @@ private:
     bool _is_pipeline = false;
     bool _is_nereids = false;
 
-    // A token used to submit olap scanner to the "_limited_scan_thread_pool",
-    // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
-    // And will be shared by all instances of this query.
-    // So that we can control the max thread that a query can be used to execute.
-    // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token;
-
     std::mutex _start_lock;
     std::condition_variable _start_cond;
     // Only valid when _need_wait_execution_trigger is set to true in PlanFragmentExecutor.
@@ -292,7 +283,7 @@ private:
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
-    taskgroup::TaskGroupPtr _task_group = nullptr;
+    WorkloadGroupPtr _workload_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
@@ -311,6 +302,9 @@ private:
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+
+    std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
+    std::mutex _pipeline_map_write_lock;
 };
 
 } // namespace doris

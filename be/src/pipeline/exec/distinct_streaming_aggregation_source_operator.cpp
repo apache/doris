@@ -59,7 +59,7 @@ Status DistinctStreamingAggSourceOperator::pull_data(RuntimeState* state, vector
                                                                block->columns()));
     }
 
-    rows_have_returned += block->rows();
+    _node->add_num_rows_returned(block->rows());
     return Status::OK();
 }
 
@@ -71,7 +71,6 @@ Status DistinctStreamingAggSourceOperator::get_block(RuntimeState* state, vector
             std::bind(&DistinctStreamingAggSourceOperator::pull_data, this, std::placeholders::_1,
                       std::placeholders::_2, std::placeholders::_3)));
     if (UNLIKELY(eos)) {
-        _node->set_num_rows_returned(rows_have_returned);
         source_state = SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;

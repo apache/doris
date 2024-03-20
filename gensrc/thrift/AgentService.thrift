@@ -111,6 +111,14 @@ enum TCompressionType {
     LZ4HC = 8
 }
 
+// Enumerates the storage formats for inverted indexes in src_backends.
+// This enum is used to distinguish between different organizational methods
+// of inverted index data, affecting how the index is stored and accessed.
+enum TInvertedIndexStorageFormat {
+    DEFAULT, // Default format, unspecified storage method.
+    V1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+}
 
 struct TBinlogConfig {
     1: optional bool enable;
@@ -152,7 +160,7 @@ struct TCreateTabletReq {
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
     26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
     27: optional i64 time_series_compaction_level_threshold = 1
-
+    28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.V1
     // For cloud
     1000: optional bool is_in_memory = false
     1001: optional bool is_persistent = false

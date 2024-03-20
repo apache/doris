@@ -518,11 +518,14 @@ public class OlapTableSink extends DataSink {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
                         String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                + " < quorum replica num " + loadRequiredReplicaNum
-                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
-                        errMsg += " or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null && Config.isCloudMode()) {
-                            errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
+                                + " < load required replica num " + loadRequiredReplicaNum
+                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
+                                + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
+                        if (Config.isCloudMode()) {
+                            errMsg += ", or you may not have permission to access the current cluster";
+                            if (ConnectContext.get() != null) {
+                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster(false);
+                            }
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }
