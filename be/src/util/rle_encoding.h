@@ -210,12 +210,12 @@ private:
     // if we are in a literal run.  If the repeat_count_ get high enough, we switch
     // to encoding repeated runs.
     uint64_t current_value_;
-    int repeat_count_;
+    uint32_t repeat_count_;
 
     // Number of literals in the current run.  This does not include the literals
     // that might be in buffered_values_.  Only after we've got a group big enough
     // can we decide if they should part of the literal_count_ or repeat_count_
-    int literal_count_;
+    uint32_t literal_count_;
 
     // Index of a byte in the underlying buffer that stores the indicator byte.
     // This is reserved as soon as we need a literal run but the value is written
@@ -480,8 +480,8 @@ void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
         // We only reserve one byte, to allow for streaming writes of literal values.
         // The logic makes sure we flush literal runs often enough to not overrun
         // the 1 byte.
-        int num_groups = BitUtil::Ceil(literal_count_, 8);
-        int32_t indicator_value = (num_groups << 1) | 1;
+        uint32_t num_groups = literal_count_ / 8;
+        uint32_t indicator_value = (num_groups << 1) | 1;
         DCHECK_EQ(indicator_value & 0xFFFFFF00, 0);
         bit_writer_.buffer()->data()[literal_indicator_byte_idx_] = indicator_value;
         literal_indicator_byte_idx_ = -1;
@@ -493,7 +493,17 @@ template <typename T>
 void RleEncoder<T>::FlushRepeatedRun() {
     DCHECK_GT(repeat_count_, 0);
     // The lsb of 0 indicates this is a repeated run
-    int32_t indicator_value = repeat_count_ << 1 | 0;
+
+    // Avoid attempting to manage run lengths exceeding the capacity of an int32_t.
+    // Note that the Parquet standard prohibits longer runs - refer to PARQUET-1290 for details.
+    if (repeat_count_ > std::numeric_limits<int32_t>::max()) [[unlikely]] {
+        num_buffered_values_ = 0;
+        repeat_count_ = 0;
+        LOG(WARNING) << "Run length exceeds int32_t";
+        return;
+    }
+
+    uint32_t indicator_value = repeat_count_ << 1 | 0;
     bit_writer_.PutVlqInt(indicator_value);
     bit_writer_.PutAligned(current_value_, BitUtil::Ceil(bit_width_, 8));
     num_buffered_values_ = 0;
