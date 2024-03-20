@@ -1635,6 +1635,9 @@ public class TypeCoercionUtils {
     }
 
     private static boolean supportCompare(DataType dataType) {
+        if (dataType.isArrayType()) {
+            return true;
+        }
         if (!(dataType instanceof PrimitiveType)) {
             return false;
         }
