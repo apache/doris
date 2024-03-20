@@ -195,9 +195,14 @@ class SuiteContext implements Closeable {
         return subJdbc.substring(0, subJdbc.indexOf("/"))
     }
 
-    private Map<String, String> getSpec() {
+    private String getDownstreamJdbcNetInfo() {
+        String subJdbc = config.ccrDownstreamUrl.substring(config.ccrDownstreamUrl.indexOf("://") + 3)
+        return subJdbc.substring(0, subJdbc.indexOf("/"))
+    }
+
+    private Map<String, String> getSpec(String[] jdbc) {
         Map<String, String> spec = Maps.newHashMap()
-        String[] jdbc = getJdbcNetInfo().split(":")
+
         spec.put("host", jdbc[0])
         spec.put("port", jdbc[1])
         spec.put("user", config.feSyncerUser)
@@ -208,7 +213,8 @@ class SuiteContext implements Closeable {
     }
 
     Map<String, String> getSrcSpec() {
-        Map<String, String> spec = getSpec()
+        String[] jdbc = getJdbcNetInfo().split(":")
+        Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feSourceThriftNetworkAddress.port.toString())
         spec.put("database", dbName)
 
@@ -216,7 +222,8 @@ class SuiteContext implements Closeable {
     }
 
     Map<String, String> getDestSpec() {
-        Map<String, String> spec = getSpec()
+        String[] jdbc = getDownstreamJdbcNetInfo().split(":")
+        Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feTargetThriftNetworkAddress.port.toString())
         spec.put("database", "TEST_" + dbName)
 
@@ -256,7 +263,7 @@ class SuiteContext implements Closeable {
     Connection getTargetConnection(Suite suite) {
         def context = getSyncer(suite).context
         if (context.targetConnection == null) {
-            context.targetConnection = config.getConnectionByDbName("TEST_" + dbName)
+            context.targetConnection = config.getDownstreamConnectionByDbName("TEST_" + dbName)
         }
         return context.targetConnection
     }

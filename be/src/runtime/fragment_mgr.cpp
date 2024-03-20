@@ -646,7 +646,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         query_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(pipeline);
-        _set_scan_concurrency(params, query_ctx.get());
         const bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
@@ -765,7 +764,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     return Status::OK();
 }
 
-std::string FragmentMgr::dump_pipeline_tasks() {
+std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     fmt::memory_buffer debug_string_buffer;
     auto t = MonotonicNanos();
     size_t i = 0;
@@ -774,9 +773,13 @@ std::string FragmentMgr::dump_pipeline_tasks() {
         fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
                        _pipeline_map.size());
         for (auto& it : _pipeline_map) {
-            fmt::format_to(
-                    debug_string_buffer, "No.{} (elapse time = {}ns, InstanceId = {}) : {}\n", i,
-                    t - it.second->create_time(), print_id(it.first), it.second->debug_string());
+            auto elapsed = (t - it.second->create_time()) / 1000000000.0;
+            if (elapsed < duration) {
+                // Only display tasks which has been running for more than {duration} seconds.
+                continue;
+            }
+            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}s, InstanceId = {}) : {}\n",
+                           i, elapsed, print_id(it.first), it.second->debug_string());
             i++;
         }
     }
@@ -958,18 +961,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
     }
     return Status::OK();
-}
-
-template <typename Param>
-void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query_ctx) {
-#ifndef BE_TEST
-    // If the token is set, the scan task will use limited_scan_pool in scanner scheduler.
-    // Otherwise, the scan task will use local/remote scan pool in scanner scheduler
-    if (params.query_options.__isset.resource_limit &&
-        params.query_options.resource_limit.__isset.cpu_limit) {
-        query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
-    }
-#endif
 }
 
 void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,

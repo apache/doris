@@ -149,10 +149,15 @@ Status HttpService::start() {
     HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
-    // Register BE health action
+    // Dump all running pipeline tasks
     PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks",
                                       pipeline_task_action);
+
+    // Dump all running pipeline tasks which has been running for more than {duration} seconds
+    LongPipelineTaskAction* long_pipeline_task_action = _pool.add(new LongPipelineTaskAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks/{duration}",
+                                      long_pipeline_task_action);
 
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
