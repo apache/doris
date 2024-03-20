@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -220,6 +221,10 @@ public class Partition extends MetaObject implements Writable {
 
     public MaterializedIndex getBaseIndex() {
         return baseIndex;
+    }
+
+    public Collection<MaterializedIndex> getRollupIndices() {
+        return idToVisibleRollupIndex.values();
     }
 
     public long getNextVersion() {
