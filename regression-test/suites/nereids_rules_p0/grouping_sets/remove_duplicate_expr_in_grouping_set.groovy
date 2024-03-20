@@ -18,20 +18,20 @@ suite("remove_duplicate_expr_in_grouping_set") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """
-          DROP TABLE IF EXISTS mal_test1
+          DROP TABLE IF EXISTS mal_test33
          """
 
     sql """
-         create table mal_test1(pk int, a int, b int) distributed by hash(pk) buckets 10
+         create table mal_test33(pk int, a int, b int) distributed by hash(pk) buckets 10
          properties('replication_num' = '1'); 
          """
 
     sql """
-         insert into mal_test1 values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
+         insert into mal_test33 values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
         ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);
       """
     sql "sync"
-    qt_test_col "select a, sum(b) from mal_test1 group by grouping sets((a,a)) order by 1,2"
-    qt_test_expr "select a+1,sum(b) from mal_test1 group by grouping sets((a+1,a+1)) order by 1,2"
+    qt_test_col "select a, sum(b) from mal_test33 group by grouping sets((a,a)) order by 1,2"
+    qt_test_expr "select a+1,sum(b) from mal_test33 group by grouping sets((a+1,a+1)) order by 1,2"
 
 }

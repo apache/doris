@@ -1031,7 +1031,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                                        tnode.hash_join_node.is_broadcast_join;
         const auto enable_join_spill = _runtime_state->enable_join_spill();
         if (enable_join_spill && !is_broadcast_join) {
-            const uint32_t partition_count = 16;
+            const uint32_t partition_count = 32;
             op.reset(new PartitionedHashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs,
                                                            partition_count));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
@@ -1319,7 +1319,7 @@ void PipelineXFragmentContext::close_sink() {
     }
 }
 
-void PipelineXFragmentContext::close_if_prepare_failed() {
+void PipelineXFragmentContext::close_if_prepare_failed(Status st) {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             DCHECK(!t->is_pending_finish());
@@ -1327,6 +1327,7 @@ void PipelineXFragmentContext::close_if_prepare_failed() {
             close_a_pipeline();
         }
     }
+    _query_ctx->cancel(true, st.to_string(), st, _fragment_id);
 }
 
 void PipelineXFragmentContext::_close_fragment_instance() {

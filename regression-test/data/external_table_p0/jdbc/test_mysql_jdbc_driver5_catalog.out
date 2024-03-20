@@ -284,10 +284,8 @@ Doris
 doris
 information_schema
 init_db
-mysql
 performance_schema
 show_test_do_not_modify
-sys
 
 -- !specified_database_4 --
 information_schema
@@ -428,10 +426,8 @@ doris_3
 doris_test
 information_schema
 init_db
-mysql
 performance_schema
 show_test_do_not_modify
-sys
 
 -- !sql --
 doris_1

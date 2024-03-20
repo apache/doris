@@ -20,7 +20,6 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
@@ -161,8 +160,9 @@ public class MasterOpExecutor {
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
 
-        if (Config.isCloudMode() && !Strings.isNullOrEmpty(ctx.getCloudCluster())) {
-            params.setCloudCluster(ctx.getCloudCluster());
+        String cluster = ctx.getCloudCluster(false);
+        if (!Strings.isNullOrEmpty(cluster)) {
+            params.setCloudCluster(cluster);
         }
 
         // query options

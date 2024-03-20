@@ -107,10 +107,6 @@ public:
     // {query id fragment} -> PipelineXFragmentContext
     void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                          const PPlanFragmentCancelReason& reason, const std::string& msg = "");
-    void cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fragment_id,
-                                  const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock,
-                                  const std::string& msg = "");
 
     // Can be used in both version.
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
@@ -152,7 +148,7 @@ public:
         return _query_ctx_map.size();
     }
 
-    std::string dump_pipeline_tasks();
+    std::string dump_pipeline_tasks(int64_t duration = 0);
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
@@ -163,9 +159,6 @@ private:
 
     void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                       const FinishCallback& cb);
-
-    template <typename Param>
-    void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
     void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
                                                     QueryContext* query_ctx);
@@ -190,8 +183,6 @@ private:
     // when allocate failed, allocator may call query_is_cancelled, query is callced will also
     // call _lock, so that there is dead lock.
     std::mutex _lock;
-
-    std::condition_variable _cv;
 
     // Make sure that remove this before no data reference PlanFragmentExecutor
     std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_instance_map;

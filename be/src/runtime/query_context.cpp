@@ -110,14 +110,6 @@ QueryContext::~QueryContext() {
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
-    // Not release the the thread token in query context's dector method, because the query
-    // conext may be dectored in the thread token it self. It is very dangerous and may core.
-    // And also thread token need shutdown, it may take some time, may cause the thread that
-    // release the token hang, the thread maybe a pipeline task scheduler thread.
-    if (_thread_token) {
-        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
-    }
 
     //TODO: check if pipeline and tracing both enabled
     if (_is_pipeline && ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
@@ -130,7 +122,7 @@ QueryContext::~QueryContext() {
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
-    _execution_dependency->set_ready();
+    set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
         if (!_is_cancelled) {
@@ -145,12 +137,16 @@ void QueryContext::set_ready_to_execute(bool is_cancelled) {
 }
 
 void QueryContext::set_ready_to_execute_only() {
-    _execution_dependency->set_ready();
+    set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
         _ready_to_execute = true;
     }
     _start_cond.notify_all();
+}
+
+void QueryContext::set_execution_dependency_ready() {
+    _execution_dependency->set_ready();
 }
 
 bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragment_id) {
@@ -162,15 +158,46 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
 
     set_ready_to_execute(true);
     {
-        std::lock_guard<std::mutex> plock(pipeline_lock);
-        for (auto& ctx : fragment_id_to_pipeline_ctx) {
-            if (fragment_id == ctx.first) {
+        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+        for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+            if (fragment_id == f_id) {
                 continue;
             }
-            ctx.second->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
+            if (auto pipeline_ctx = f_context.lock()) {
+                pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
+            }
         }
     }
     return true;
+}
+
+void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
+                                               const std::string& msg) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+        if (auto pipeline_ctx = f_context.lock()) {
+            pipeline_ctx->cancel(reason, msg);
+        }
+    }
+}
+
+Status QueryContext::cancel_pipeline_context(const int fragment_id,
+                                             const PPlanFragmentCancelReason& reason,
+                                             const std::string& msg) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    if (!_fragment_id_to_pipeline_ctx.contains(fragment_id)) {
+        return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
+    }
+    if (auto pipeline_ctx = _fragment_id_to_pipeline_ctx[fragment_id].lock()) {
+        pipeline_ctx->cancel(reason, msg);
+    }
+    return Status::OK();
+}
+
+void QueryContext::set_pipeline_context(
+        const int fragment_id, std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
 }
 
 void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
