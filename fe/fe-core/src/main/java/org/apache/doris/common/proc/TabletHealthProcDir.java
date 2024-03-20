@@ -256,8 +256,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     oversizeTabletIds.add(tablet.getId());
                                 }
                                 for (Replica replica : tablet.getReplicas()) {
-                                    if (replica.getVersionCount()
-                                            > Config.min_version_count_indicate_replica_compaction_too_slow) {
+                                    if (replica.tooBigVersionCount()) {
                                         replicaCompactionTooSlowNum++;
                                         replicaCompactionTooSlowTabletIds.add(tablet.getId());
                                         break;

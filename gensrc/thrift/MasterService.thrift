@@ -33,7 +33,7 @@ struct TTabletInfo {
     6: required Types.TSize data_size
     7: optional Types.TStorageMedium storage_medium
     8: optional list<Types.TTransactionId> transaction_ids
-    9: optional i64 version_count
+    9: optional i64 total_version_count
     10: optional i64 path_hash
     11: optional bool version_miss
     12: optional bool used
@@ -46,6 +46,7 @@ struct TTabletInfo {
     // 18: optional bool is_cooldown
     19: optional i64 cooldown_term
     20: optional Types.TUniqueId cooldown_meta_id
+    21: optional i64 visible_version_count
 
     // For cloud
     1000: optional bool is_persistent
@@ -109,6 +110,7 @@ struct TReportRequest {
     10: optional list<AgentService.TStorageResource> resource // only id and version
     11: i32 num_cores
     12: i32 pipeline_executor_size
+    13: optional map<Types.TPartitionId, Types.TVersion> partitions_version
 }
 
 struct TMasterResult {

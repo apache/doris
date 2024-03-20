@@ -429,6 +429,13 @@ DEFINE_Validator(compaction_task_num_per_fast_disk,
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 
+// Not compact the invisible versions, but with some limitations:
+// if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
+// if timeout, keep no more than compaction_keep_invisible_version_min_count versions.
+DEFINE_mInt32(compaction_keep_invisible_version_timeout_sec, "1800");
+DEFINE_mInt32(compaction_keep_invisible_version_min_count, "50");
+DEFINE_mInt32(compaction_keep_invisible_version_max_count, "500");
+
 // Threshold to logging compaction trace, in seconds.
 DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");

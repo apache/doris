@@ -177,6 +177,9 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::GC_BINLOG] = std::make_unique<TaskWorkerPool>(
             "GC_BINLOG", 1, [&engine](auto&& task) { return gc_binlog_callback(engine, task); });
 
+    _workers[TTaskType::UPDATE_VISIBLE_VERSION] = std::make_unique<TaskWorkerPool>(
+            "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
+
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _master_info, config::report_task_interval_seconds, [&master_info = _master_info] { report_task_callback(master_info); }));
 

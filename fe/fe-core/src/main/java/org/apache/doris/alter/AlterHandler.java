@@ -242,8 +242,7 @@ public abstract class AlterHandler extends MasterDaemon {
                     task.getSignature(), replica, task.getVersion());
             boolean versionChanged = false;
             if (replica.getVersion() < task.getVersion()) {
-                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRemoteDataSize(),
-                        replica.getRowCount());
+                replica.updateVersion(task.getVersion());
                 versionChanged = true;
             }
 

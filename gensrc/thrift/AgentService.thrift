@@ -397,6 +397,10 @@ struct TPublishVersionRequest {
     3: optional bool strict_mode = false
 }
 
+struct TVisibleVersionReq {
+    1: required map<Types.TPartitionId, Types.TVersion> partition_version
+}
+
 struct TCalcDeleteBitmapPartitionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
@@ -508,6 +512,7 @@ struct TAgentTaskRequest {
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
     33: optional TGcBinlogReq gc_binlog_req
+    34: optional TVisibleVersionReq visible_version_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

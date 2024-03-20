@@ -165,6 +165,7 @@ public:
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
     size_t version_count() const;
+    size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
     TabletState tablet_state() const;

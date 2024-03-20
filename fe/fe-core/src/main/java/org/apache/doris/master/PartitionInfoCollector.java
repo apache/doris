@@ -27,29 +27,49 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-public class PartitionInMemoryInfoCollector extends MasterDaemon {
+public class PartitionInfoCollector extends MasterDaemon {
 
-    private static final Logger LOG = LogManager.getLogger(PartitionInMemoryInfoCollector.class);
+    // notice since collect partition info every Config.partition_info_update_interval_secs seconds,
+    // so partition collect info may be stale
+    public static class PartitionCollectInfo {
+        private long visibleVersion;
+        private boolean isInMemory;
 
-    public PartitionInMemoryInfoCollector() {
-        super("PartitionInMemoryInfoCollector", Config.partition_in_memory_update_interval_secs * 1000);
+        PartitionCollectInfo(long visibleVersion, boolean isInMemory) {
+            this.visibleVersion = visibleVersion;
+            this.isInMemory = isInMemory;
+        }
+
+        public long getVisibleVersion() {
+            return this.visibleVersion;
+        }
+
+        public boolean isInMemory() {
+            return this.isInMemory;
+        }
+    }
+
+    private static final Logger LOG = LogManager.getLogger(PartitionInfoCollector.class);
+
+    public PartitionInfoCollector() {
+        super("PartitionInfoCollector", Config.partition_info_update_interval_secs * 1000);
     }
 
     @Override
     protected void runAfterCatalogReady() {
-        updatePartitionInMemoryInfo();
+        updatePartitionCollectInfo();
     }
 
-    private void updatePartitionInMemoryInfo() {
+    private void updatePartitionCollectInfo() {
         Env env = Env.getCurrentEnv();
         TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
-        ImmutableSet.Builder builder = ImmutableSet.builder();
+        ImmutableMap.Builder builder = ImmutableMap.builder();
         List<Long> dbIdList = env.getInternalCatalog().getDbIds();
         for (Long dbId : dbIdList) {
             Database db = env.getInternalCatalog().getDbNullable(dbId);
@@ -70,10 +90,12 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                     try {
                         OlapTable olapTable = (OlapTable) table;
                         for (Partition partition : olapTable.getAllPartitions()) {
-                            if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
+                            boolean isInMemory = olapTable.getPartitionInfo().getIsInMemory(partition.getId());
+                            if (isInMemory) {
                                 partitionInMemoryCount++;
-                                builder.add(partition.getId());
                             }
+                            builder.put(partition.getId(),
+                                    new PartitionCollectInfo(partition.getVisibleVersion(), isInMemory));
                         }
                     } finally {
                         table.readUnlock();
@@ -87,9 +109,6 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                 LOG.warn("Update database[" + db.getFullName() + "] partition in memory info failed", e);
             }
         }
-        ImmutableSet<Long> partitionIdInMemorySet = builder.build();
-        tabletInvertedIndex.setPartitionIdInMemorySet(partitionIdInMemorySet);
+        tabletInvertedIndex.setPartitionCollectInfoMap(builder.build());
     }
-
-
 }
