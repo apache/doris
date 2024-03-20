@@ -80,17 +80,17 @@ public class AnotherDemoTest {
 
     // generate all port from valid ports
     private static void getPorts() {
-        fe_http_port = UtFrameUtils.findValidPort();
-        fe_rpc_port = UtFrameUtils.findValidPort();
-        fe_query_port = UtFrameUtils.findValidPort();
-        fe_arrow_flight_sql_port = UtFrameUtils.findValidPort();
-        fe_edit_log_port = UtFrameUtils.findValidPort();
+        fe_http_port = UtPortUtils.findValidPort();
+        fe_rpc_port = UtPortUtils.findValidPort();
+        fe_query_port = UtPortUtils.findValidPort();
+        fe_arrow_flight_sql_port = UtPortUtils.findValidPort();
+        fe_edit_log_port = UtPortUtils.findValidPort();
 
-        be_heartbeat_port = UtFrameUtils.findValidPort();
-        be_thrift_port = UtFrameUtils.findValidPort();
-        be_brpc_port = UtFrameUtils.findValidPort();
-        be_http_port = UtFrameUtils.findValidPort();
-        be_arrow_flight_sql_port = UtFrameUtils.findValidPort();
+        be_heartbeat_port = UtPortUtils.findValidPort();
+        be_thrift_port = UtPortUtils.findValidPort();
+        be_brpc_port = UtPortUtils.findValidPort();
+        be_http_port = UtPortUtils.findValidPort();
+        be_arrow_flight_sql_port = UtPortUtils.findValidPort();
     }
 
     @Test

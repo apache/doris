@@ -109,9 +109,6 @@ import org.junit.jupiter.api.TestInstance;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
-import java.net.DatagramSocket;
-import java.net.ServerSocket;
-import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -387,11 +384,11 @@ public abstract class TestWithFeService {
         }
         System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
-        int feHttpPort = findValidPort();
-        int feRpcPort = findValidPort();
-        int feQueryPort = findValidPort();
-        int arrowFlightSqlPort = findValidPort();
-        int feEditLogPort = findValidPort();
+        int feHttpPort = UtPortUtils.findValidPort();
+        int feRpcPort = UtPortUtils.findValidPort();
+        int feQueryPort = UtPortUtils.findValidPort();
+        int arrowFlightSqlPort = UtPortUtils.findValidPort();
+        int feEditLogPort = UtPortUtils.findValidPort();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
@@ -478,11 +475,11 @@ public abstract class TestWithFeService {
     }
 
     private Backend createBackendWithoutRetry(String beHost, int feRpcPort) throws IOException, InterruptedException {
-        int beHeartbeatPort = findValidPort();
-        int beThriftPort = findValidPort();
-        int beBrpcPort = findValidPort();
-        int beHttpPort = findValidPort();
-        int beArrowFlightSqlPort = findValidPort();
+        int beHeartbeatPort = UtPortUtils.findValidPort();
+        int beThriftPort = UtPortUtils.findValidPort();
+        int beBrpcPort = UtPortUtils.findValidPort();
+        int beHttpPort = UtPortUtils.findValidPort();
+        int beArrowFlightSqlPort = UtPortUtils.findValidPort();
 
         // start be
         MockedBackendFactory.BeThriftService beThriftService = new DefaultBeThriftServiceImpl();
@@ -520,25 +517,6 @@ public abstract class TestWithFeService {
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-    public static int findValidPort() {
-        int port = 0;
-        while (true) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    System.out.println("The port " + port + " is invalid and try another port.");
-                }
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-            }
-        }
-        return port;
     }
 
     public String getSQLPlanOrErrorMsg(String sql) throws Exception {

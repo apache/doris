@@ -60,7 +60,7 @@ import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpTabletsRequest;
 import org.apache.doris.thrift.TWarmUpTabletsResponse;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.UtPortUtils;
 
 import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.thrift.TException;
@@ -80,7 +80,7 @@ public class GenericPoolTest {
     static int port;
 
     static {
-        port = UtFrameUtils.findValidPort();
+        port = UtPortUtils.findValidPort();
     }
 
     static void close() {
