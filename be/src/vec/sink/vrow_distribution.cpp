@@ -21,6 +21,7 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <cstdint>
 #include <memory>
 
 #include "common/logging.h"
@@ -88,7 +89,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_partitionValues(_partitions_need_create);
     request.__set_be_endpoint(be_endpoint);
 
-    VLOG(1) << "automatic partition rpc begin request " << request;
+    VLOG_NOTICE << "automatic partition rpc begin request " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     int time_out = _state->execution_timeout() * 1000;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -99,11 +100,82 @@ Status VRowDistribution::automatic_create_partition() {
             time_out));
 
     Status status(Status::create(result.status));
-    VLOG(1) << "automatic partition rpc end response " << result;
+    VLOG_NOTICE << "automatic partition rpc end response " << result;
     if (result.status.status_code == TStatusCode::OK) {
         // add new created partitions
         RETURN_IF_ERROR(_vpartition->add_partitions(result.partitions));
         RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
+    }
+
+    return status;
+}
+
+// for reuse the same create callback of create-partition
+static TCreatePartitionResult cast_as_create_result(TReplacePartitionResult& arg) {
+    TCreatePartitionResult result;
+    result.status = arg.status;
+    result.nodes = std::move(arg.nodes);
+    result.partitions = std::move(arg.partitions);
+    result.tablets = std::move(arg.tablets);
+    return result;
+}
+
+// use _partitions and replace them
+Status VRowDistribution::_replace_overwriting_partition() {
+    SCOPED_TIMER(_add_partition_request_timer);
+    TReplacePartitionRequest request;
+    TReplacePartitionResult result;
+    request.__set_overwrite_group_id(_vpartition->get_overwrite_group_id());
+    request.__set_db_id(_vpartition->db_id());
+    request.__set_table_id(_vpartition->table_id());
+
+    // only request for partitions not recorded for replacement
+    std::set<int64_t> id_deduper;
+    for (const auto* part : _partitions) {
+        if (part == nullptr) [[unlikely]] {
+            return Status::EndOfFile(
+                    "Cannot found origin partitions in auto detect overwriting, stop processing");
+        }
+        if (_new_partition_ids.contains(part->id)) {
+            // this is a new partition. dont replace again.
+        } else {
+            // request for replacement
+            id_deduper.insert(part->id);
+        }
+    }
+    if (id_deduper.empty()) {
+        return Status::OK(); // no need to request
+    }
+    // de-duplicate. there's no check in FE
+    std::vector<int64_t> request_part_ids(id_deduper.begin(), id_deduper.end());
+
+    request.__set_partition_ids(request_part_ids);
+
+    string be_endpoint = BackendOptions::get_be_endpoint();
+    request.__set_be_endpoint(be_endpoint);
+
+    VLOG_NOTICE << "auto detect replace partition request: " << request;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    int time_out = _state->execution_timeout() * 1000;
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->replacePartition(result, request);
+            },
+            time_out));
+
+    Status status(Status::create(result.status));
+    VLOG_NOTICE << "auto detect replace partition result: " << result;
+    if (result.status.status_code == TStatusCode::OK) {
+        // record new partitions
+        for (const auto& part : result.partitions) {
+            _new_partition_ids.insert(part.id);
+        }
+        // replace data in _partitions
+        RETURN_IF_ERROR(_vpartition->replace_partitions(request_part_ids, result.partitions));
+        // reuse the function as the args' structure are same. it add nodes/locations and incremental_open
+        auto result_as_create = cast_as_create_result(result);
+        RETURN_IF_ERROR(_create_partition_callback(_caller, &result_as_create));
     }
 
     return status;
@@ -284,6 +356,29 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
     return Status::OK();
 }
 
+Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
+        vectorized::Block* block, bool has_filtered_rows,
+        std::vector<RowPartTabletIds>& row_part_tablet_ids) {
+    auto num_rows = block->rows();
+
+    bool stop_processing = false;
+    RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
+                                                 _tablet_indexes, stop_processing, _skip));
+    RETURN_IF_ERROR(_replace_overwriting_partition());
+
+    // regenerate locations for new partitions & tablets
+    _reset_find_tablets(num_rows);
+    RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
+                                                 _tablet_indexes, stop_processing, _skip));
+    if (has_filtered_rows) {
+        for (int i = 0; i < num_rows; i++) {
+            _skip[i] = _skip[i] || _block_convertor->filter_map()[i];
+        }
+    }
+    RETURN_IF_ERROR(_filter_block(block, row_part_tablet_ids));
+    return Status::OK();
+}
+
 void VRowDistribution::_reset_row_part_tablet_ids(
         std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t rows) {
     row_part_tablet_ids.resize(_schema->indexes().size());
@@ -321,12 +416,7 @@ Status VRowDistribution::generate_rows_distribution(
     }
 
     auto num_rows = block->rows();
-    _tablet_finder->filter_bitmap().Reset(num_rows);
-
-    //reuse vars for find_tablets
-    _partitions.assign(num_rows, nullptr);
-    _skip.assign(num_rows, false);
-    _tablet_indexes.assign(num_rows, 0);
+    _reset_find_tablets(num_rows);
 
     // if there's projection of partition calc, we need to calc it first.
     auto [part_ctxs, part_funcs] = _get_partition_function();
@@ -345,7 +435,11 @@ Status VRowDistribution::generate_rows_distribution(
         _vpartition->set_transformed_slots(partition_cols_idx);
     }
 
-    if (_vpartition->is_auto_partition() && !_deal_batched) {
+    if (_vpartition->is_auto_detect_overwrite()) {
+        // when overwrite, no auto create partition allowed.
+        RETURN_IF_ERROR(_generate_rows_distribution_for_auto_overwrite(
+                block.get(), has_filtered_rows, row_part_tablet_ids));
+    } else if (_vpartition->is_auto_partition() && !_deal_batched) {
         RETURN_IF_ERROR(_generate_rows_distribution_for_auto_partition(
                 block.get(), partition_cols_idx, has_filtered_rows, row_part_tablet_ids,
                 rows_stat_val));
@@ -357,6 +451,14 @@ Status VRowDistribution::generate_rows_distribution(
     filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
                     prev_filtered_rows;
     return Status::OK();
+}
+
+// reuse vars for find_tablets
+void VRowDistribution::_reset_find_tablets(int64_t rows) {
+    _tablet_finder->filter_bitmap().Reset(rows);
+    _partitions.assign(rows, nullptr);
+    _skip.assign(rows, false);
+    _tablet_indexes.assign(rows, 0);
 }
 
 } // namespace doris::vectorized

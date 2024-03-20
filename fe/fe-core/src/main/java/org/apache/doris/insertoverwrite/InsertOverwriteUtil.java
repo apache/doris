@@ -83,7 +83,7 @@ public class InsertOverwriteUtil {
     }
 
     /**
-     * generate temp partitionName
+     * generate temp partitionName. must keep same order.
      *
      * @param partitionNames
      * @return
