@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -24,6 +25,8 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -91,5 +94,26 @@ public class CreateViewStmt extends BaseViewStmt {
                 ConnectContext.get().setNotEvalNondeterministicFunction(false);
             }
         }
+    }
+
+    public void createColumnAndViewDefsForNereids(String querySql, Plan plan) {
+        List<Slot> outputs = plan.getOutput();
+        if (cols.isEmpty()) {
+            for (Slot output : outputs) {
+                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType());
+                finalCols.add(column);
+            }
+        } else {
+            for (int i = 0; i < cols.size(); ++i) {
+                Column column = new Column(cols.get(i).getColName(), outputs.get(i).getDataType().toCatalogDataType());
+                column.setComment(cols.get(i).getComment());
+                finalCols.add(column);
+            }
+        }
+        inlineViewDef = querySql;
+    }
+
+    public List<Column> getFinalColumns() {
+        return finalCols;
     }
 }

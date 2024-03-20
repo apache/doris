@@ -1246,12 +1246,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan relation;
             if (ctx.fromClause() == null) {
                 SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
+                String sql = getOriginSql(columnCtx);
+                int startIndex = columnCtx.start.getStartIndex();
+                int stopIndex = columnCtx.stop.getStopIndex();
+                System.out.println(sql + ' ' + startIndex + ' ' + stopIndex);
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
                 relation = new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                         ImmutableList.of(new UnboundAlias(Literal.of(0))));
             } else {
+                SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
+                String sql = getOriginSql(columnCtx);
+                int startIndex = columnCtx.start.getStartIndex();
+                int stopIndex = columnCtx.stop.getStopIndex();
+                System.out.println(sql + ' ' + startIndex + ' ' + stopIndex);
                 relation = visitFromClause(ctx.fromClause());
             }
             if (ctx.intoClause() != null && !ConnectContext.get().isRunProcedure()) {
@@ -1385,6 +1394,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 target = ImmutableList.of();
             }
+            int startIndex = ctx.start.getStartIndex();
+            int stopIndex = ctx.stop.getStopIndex();
+            System.out.println(startIndex + " " + stopIndex);
             return new UnboundStar(target);
         });
     }
@@ -2423,7 +2435,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
-        CreateViewInfo info = new CreateViewInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts), comment, logicalPlan, querySql,
+        CreateViewInfo info = new CreateViewInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+                comment, logicalPlan, querySql,
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         return new CreateViewCommand(info);
     }
