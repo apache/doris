@@ -53,13 +53,14 @@ import java.util.Set;
 import java.util.function.Function;
 
 public class HiveMetadataOps implements ExternalMetadataOps {
+    public static final String LOCATION_URI_KEY = "location_uri";
+    public static final String FILE_FORMAT_KEY = "file_format";
+    public static final Set<String> DORIS_HIVE_KEYS = ImmutableSet.of(FILE_FORMAT_KEY, LOCATION_URI_KEY);
     private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
     private static final int MIN_CLIENT_POOL_SIZE = 8;
-    private static final String FILE_FORMAT_KEY = "file_format";
-    private static final Set<String> DORIS_HIVE_KEYS = ImmutableSet.of(FILE_FORMAT_KEY);
-    private final HMSExternalCatalog catalog;
     private final HMSCachedClient client;
     private final RemoteFileSystem fs;
+    private final HMSExternalCatalog catalog;
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
@@ -101,10 +102,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         try {
             HiveDatabaseMetadata catalogDatabase = new HiveDatabaseMetadata();
             catalogDatabase.setDbName(fullDbName);
-            catalogDatabase.setProperties(properties);
-            if (properties.containsKey("location_uri")) {
-                catalogDatabase.setLocationUri(properties.get("location_uri"));
+            if (properties.containsKey(LOCATION_URI_KEY)) {
+                catalogDatabase.setLocationUri(properties.get(LOCATION_URI_KEY));
             }
+            properties.remove(LOCATION_URI_KEY);
+            catalogDatabase.setProperties(properties);
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
             client.createDatabase(catalogDatabase);
             catalog.onRefresh(true);
@@ -163,11 +165,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                                 ddlProps,
                                 fileFormat);
                     } else {
-                        throw new UserException("Create hive bucket table need"
-                                + " set enable_create_hive_bucket_table to true");
+                        throw new UserException("External hive table only supports hash bucketing");
                     }
                 } else {
-                    throw new UserException("External hive table only supports hash bucketing");
+                    throw new UserException("Create hive bucket table need"
+                            + " set enable_create_hive_bucket_table to true");
                 }
             } else {
                 hiveTableMeta = HiveTableMetadata.of(dbName,

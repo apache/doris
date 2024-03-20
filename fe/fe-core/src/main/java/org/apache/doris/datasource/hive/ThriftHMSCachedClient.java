@@ -202,7 +202,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         table.setCreateTime(createTime);
         table.setLastAccessTime(createTime);
         // table.setRetention(0);
-        String location = hiveTable.getProperties().get("external_location");
+        String location = hiveTable.getProperties().get(HiveMetadataOps.LOCATION_URI_KEY);
         Set<String> partitionSet = new HashSet<>(hiveTable.getPartitionKeys());
         Pair<List<FieldSchema>, List<FieldSchema>> hiveSchema = toHiveSchema(hiveTable.getColumns(), partitionSet);
 

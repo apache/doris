@@ -17,14 +17,18 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.DatabaseMetadata;
@@ -42,11 +46,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class HiveMetadataOpsTest {
 
     private HiveMetadataOps metadataOps;
-    private String mockedDbName = "mockedDb";
 
     @Mocked
     private HMSCachedClient mockedClient;
@@ -59,7 +63,7 @@ public class HiveMetadataOpsTest {
         new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
             @Mock
             public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
-                return new HMSExternalDatabase(mockedCatalog, 0L, mockedDbName);
+                return new HMSExternalDatabase(mockedCatalog, 0L, "mockedDb");
             }
 
             @Mock
@@ -90,40 +94,69 @@ public class HiveMetadataOpsTest {
         };
     }
 
-    @Test
-    public void createDb() throws DdlException {
-        Map<String, String> props = new HashMap<>();
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, mockedDbName, props);
+    private void createDb(String dbName, Map<String, String> props) throws DdlException {
+        CreateDbStmt createDbStmt = new CreateDbStmt(true, dbName, props);
         metadataOps.createDb(createDbStmt);
     }
 
-    @Test
-    public void createTable() throws UserException {
-        TableName tableName = new TableName();
-        tableName.setCtl("mockedCtl");
-        tableName.setDb("mockedDb");
-        tableName.setCtl("mockedTbl");
-        List<ColumnDef> cols = new ArrayList<>();
-        List<String> colsName = new ArrayList<>();
-        Map<String, String> props = new HashMap<>();
-        CreateTableStmt stmt = new CreateTableStmt(false, false, tableName, cols, "hive",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null, null, props, null, "");
+    private void dropDb(String dbName, boolean forceDrop) throws DdlException {
+        DropDbStmt dropDbStmt = new DropDbStmt(true, dbName, forceDrop);
+        metadataOps.dropDb(dropDbStmt);
+    }
+
+    private void createTable(TableName tableName,
+                             List<Column> cols,
+                             List<String> parts,
+                             List<String> buckets,
+                             Map<String, String> props)
+            throws UserException {
+        PartitionDesc partitionDesc = new PartitionDesc(parts, null);
+        DistributionDesc distributionDesc = null;
+        if (!buckets.isEmpty()) {
+            distributionDesc = new HashDistributionDesc(10, buckets);
+        }
+        List<String> colsName = cols.stream().map(Column::getName).collect(Collectors.toList());
+        CreateTableStmt stmt = new CreateTableStmt(true, false,
+                tableName,
+                cols, null,
+                "hive",
+                new KeysDesc(KeysType.AGG_KEYS, colsName),
+                partitionDesc,
+                distributionDesc,
+                props,
+                props,
+                "comment",
+                null, null);
         metadataOps.createTable(stmt);
     }
 
-    @Test
-    public void dropTable() throws DdlException {
-        TableName tableName = new TableName();
-        tableName.setCtl("mockedCtl");
-        tableName.setDb("mockedDb");
-        tableName.setCtl("mockedTbl");
-        DropTableStmt dropTblStmt = new DropTableStmt(true, tableName, true);
+    private void dropTable(TableName tableName, boolean forceDrop) throws DdlException {
+        DropTableStmt dropTblStmt = new DropTableStmt(true, tableName, forceDrop);
         metadataOps.dropTable(dropTblStmt);
     }
 
     @Test
-    public void dropDb() throws DdlException {
-        DropDbStmt dropDbStmt = new DropDbStmt(true, mockedDbName, true);
-        metadataOps.dropDb(dropDbStmt);
+    public void testCreateAndDropAll() throws UserException {
+        Map<String, String> dbProps = new HashMap<>();
+        dbProps.put(HiveMetadataOps.LOCATION_URI_KEY, "file://loc/db");
+        createDb("mockedDb", dbProps);
+        Map<String, String> tblProps = new HashMap<>();
+        tblProps.put(HiveMetadataOps.FILE_FORMAT_KEY, "orc");
+        tblProps.put(HiveMetadataOps.LOCATION_URI_KEY, "file://loc/tbl");
+        tblProps.put("fs.defaultFS", "hdfs://ha");
+        TableName tableName = new TableName("mockedCtl", "mockedDb", "mockedTbl");
+        List<Column> cols = new ArrayList<>();
+        cols.add(new Column("id", Type.BIGINT));
+        cols.add(new Column("pt", Type.STRING));
+        cols.add(new Column("rate", Type.DOUBLE));
+        cols.add(new Column("time", Type.DATETIME));
+        List<String> parts = new ArrayList<>();
+        parts.add("pt");
+        List<String> bucks = new ArrayList<>();
+        // bucks.add("id");
+        createTable(tableName, cols, parts, bucks, tblProps);
+        dropTable(tableName, true);
+        dropDb("mockedDb", true);
+        // TODO: use TestWithFeService to double check plan
     }
 }
