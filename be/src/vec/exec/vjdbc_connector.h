@@ -103,6 +103,9 @@ public:
 
     Status close() override;
 
+    Status test_connection();
+    Status clean_datasource();
+
 private:
     Status _register_func_id(JNIEnv* env);
     Status _check_column_type();
@@ -165,6 +168,8 @@ private:
     jmethodID _executor_begin_trans_id;
     jmethodID _executor_finish_trans_id;
     jmethodID _executor_abort_trans_id;
+    jmethodID _executor_test_connection_id;
+    jmethodID _executor_clean_datasource_id;
     std::map<int, int> _map_column_idx_to_cast_idx;
     std::vector<DataTypePtr> _input_array_string_types;
     std::vector<MutableColumnPtr>

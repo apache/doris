@@ -41,7 +41,7 @@ public class JdbcExternalCatalogTest {
         properties.put(JdbcResource.DRIVER_URL, "ojdbc8.jar");
         properties.put(JdbcResource.JDBC_URL, "jdbc:oracle:thin:@127.0.0.1:1521:XE");
         properties.put(JdbcResource.DRIVER_CLASS, "oracle.jdbc.driver.OracleDriver");
-        jdbcExternalCatalog = new JdbcExternalCatalog(1L, "testCatalog", null, properties, "testComment");
+        jdbcExternalCatalog = new JdbcExternalCatalog(1L, "testCatalog", null, properties, "testComment", false);
     }
 
     @Test

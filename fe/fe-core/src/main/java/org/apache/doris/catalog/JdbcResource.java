@@ -104,6 +104,8 @@ public class JdbcResource extends Resource {
     public static final String CONNECTION_POOL_KEEP_ALIVE = "connection_pool_keep_alive";
     public static final String CHECK_SUM = "checksum";
     public static final String CREATE_TIME = "create_time";
+    public static final String TEST_CONNECTION = "test_connection";
+
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
             USER,
@@ -120,7 +122,8 @@ public class JdbcResource extends Resource {
             CONNECTION_POOL_MAX_SIZE,
             CONNECTION_POOL_MAX_LIFE_TIME,
             CONNECTION_POOL_MAX_WAIT_TIME,
-            CONNECTION_POOL_KEEP_ALIVE
+            CONNECTION_POOL_KEEP_ALIVE,
+            TEST_CONNECTION
     ).build();
     private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
@@ -131,7 +134,8 @@ public class JdbcResource extends Resource {
             CONNECTION_POOL_MAX_SIZE,
             CONNECTION_POOL_MAX_LIFE_TIME,
             CONNECTION_POOL_MAX_WAIT_TIME,
-            CONNECTION_POOL_KEEP_ALIVE
+            CONNECTION_POOL_KEEP_ALIVE,
+            TEST_CONNECTION
     ).build();
 
     // The default value of optional properties
@@ -148,6 +152,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_LIFE_TIME, "1800000");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_WAIT_TIME, "5000");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_KEEP_ALIVE, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(TEST_CONNECTION, "true");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.

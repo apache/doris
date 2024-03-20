@@ -46,6 +46,11 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
+    public String getTestQuery() {
+        return "SELECT 1 FROM dual";
+    }
+
+    @Override
     public List<String> getDatabaseNameList() {
         Connection conn = getConnection();
         ResultSet rs = null;

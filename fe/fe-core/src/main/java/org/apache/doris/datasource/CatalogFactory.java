@@ -119,7 +119,7 @@ public class CatalogFactory {
                 catalog = new EsExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "jdbc":
-                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment);
+                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment, isReplay);
                 break;
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
