@@ -484,10 +484,6 @@ public:
             // try insert set
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
-                _ignored_msg = fmt::format(
-                        " ignore merge runtime filter(in filter id {})"
-                        "because: in_num({}) >= max_in_num({})",
-                        _filter_id, _context->hybrid_set->size(), _max_in_num);
                 _context->ignored = true;
                 // release in filter
                 _context->hybrid_set.reset();
@@ -516,10 +512,6 @@ public:
 
             if (real_filter_type == RuntimeFilterType::IN_FILTER) {
                 if (other_filter_type == RuntimeFilterType::IN_FILTER) { // in merge in
-                    CHECK(!wrapper->is_ignored())
-                            << " can not ignore merge runtime filter(in filter id "
-                            << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
-                            << wrapper->ignored_msg();
                     _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
                     if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
                         VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
@@ -536,10 +528,6 @@ public:
                 }
             } else {
                 if (other_filter_type == RuntimeFilterType::IN_FILTER) { // bloom filter merge in
-                    CHECK(!wrapper->is_ignored())
-                            << " can not ignore merge runtime filter(in filter id "
-                            << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
-                            << wrapper->ignored_msg();
                     wrapper->insert_to_bloom_filter(_context->bloom_filter_func.get());
                     // bloom filter merge bloom filter
                 } else {
@@ -556,14 +544,6 @@ public:
     }
 
     Status assign(const PInFilter* in_filter, bool contain_null) {
-        if (in_filter->has_ignored_msg()) {
-            VLOG_DEBUG << "Ignore in filter(id=" << _filter_id
-                       << ") because: " << in_filter->ignored_msg();
-            _context->ignored = true;
-            _ignored_msg = in_filter->ignored_msg();
-            return Status::OK();
-        }
-
         PrimitiveType type = to_primitive_type(in_filter->column_type());
         _context->hybrid_set.reset(create_set(type));
         if (contain_null) {
@@ -920,8 +900,6 @@ public:
 
     bool is_ignored() const { return _context->ignored; }
 
-    const std::string& ignored_msg() const { return _ignored_msg; }
-
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
                                           PColumnValue&, ObjectPool*)) {
@@ -960,7 +938,6 @@ private:
     int32_t _max_in_num = -1;
 
     SharedRuntimeFilterContext _context;
-    std::string _ignored_msg;
     uint32_t _filter_id;
     bool _build_bf_exactly;
 };
@@ -1134,21 +1111,22 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     merge_filter_request->set_column_type(to_proto(column_type));
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
 
-    Status serialize_status = serialize(merge_filter_request.get(), &data, &len);
-    if (serialize_status.ok()) {
-        VLOG_NOTICE << "Producer:" << merge_filter_request->ShortDebugString() << addr->hostname
-                    << ":" << addr->port;
-        if (len > 0) {
-            DCHECK(data != nullptr);
-            merge_filter_callback->cntl_->request_attachment().append(data, len);
-        }
-
-        stub->merge_filter(merge_filter_closure->cntl_.get(), merge_filter_closure->request_.get(),
-                           merge_filter_closure->response_.get(), merge_filter_closure.get());
-        // the closure will be released by brpc during closure->Run.
-        merge_filter_closure.release();
+    if (get_ignored()) {
+        merge_filter_request->set_ignored(true);
+    } else {
+        RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
     }
-    return serialize_status;
+
+    if (len > 0) {
+        DCHECK(data != nullptr);
+        merge_filter_callback->cntl_->request_attachment().append(data, len);
+    }
+
+    stub->merge_filter(merge_filter_closure->cntl_.get(), merge_filter_closure->request_.get(),
+                       merge_filter_closure->response_.get(), merge_filter_closure.get());
+    // the closure will be released by brpc during closure->Run.
+    merge_filter_closure.release();
+    return Status::OK();
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
@@ -1309,9 +1287,8 @@ void IRuntimeFilter::set_global_size(uint64_t global_size) {
     _dependency->sub();
 }
 
-void IRuntimeFilter::set_ignored(const std::string& msg) {
+void IRuntimeFilter::set_ignored() {
     _wrapper->_context->ignored = true;
-    _wrapper->_context->ignored_msg = msg;
 }
 
 bool IRuntimeFilter::get_ignored() {
@@ -1320,10 +1297,9 @@ bool IRuntimeFilter::get_ignored() {
 
 std::string IRuntimeFilter::_format_status() const {
     return fmt::format(
-            "[IsPushDown = {}, RuntimeFilterState = {}, IgnoredMsg = {}, HasRemoteTarget = {}, "
+            "[IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
             "HasLocalTarget = {}]",
-            _is_push_down, _get_explain_state_string(), _wrapper->ignored_msg(), _has_remote_target,
-            _has_local_target);
+            _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target);
 }
 
 BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
@@ -1507,7 +1483,7 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
     if (wrapper->is_ignored()) {
-        set_ignored(wrapper->ignored_msg());
+        set_ignored();
         return Status::OK();
     }
     return _wrapper->merge(wrapper);
@@ -1553,11 +1529,6 @@ Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
 void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     auto column_type = _wrapper->column_type();
     filter->set_column_type(to_proto(column_type));
-
-    if (_wrapper->is_ignored()) {
-        filter->set_ignored_msg(_wrapper->ignored_msg());
-        return;
-    }
 
     auto it = _wrapper->get_in_filter_iterator();
     DCHECK(it != nullptr);
@@ -1813,9 +1784,9 @@ bool IRuntimeFilter::need_sync_filter_size() {
 Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
     _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
 
-    if (param->request->has_in_filter() && param->request->in_filter().has_ignored_msg()) {
+    if (param->request->ignored()) {
         const PInFilter in_filter = param->request->in_filter();
-        set_ignored(in_filter.ignored_msg());
+        set_ignored();
     } else {
         std::unique_ptr<RuntimePredicateWrapper> wrapper;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));

@@ -61,9 +61,8 @@ public:
         return Status::OK();
     }
 
-    Status ignore_filter(RuntimeState* state, IRuntimeFilter* runtime_filter,
-                         std::string reason) const {
-        runtime_filter->set_ignored(reason);
+    Status ignore_filter(RuntimeState* state, IRuntimeFilter* runtime_filter) const {
+        runtime_filter->set_ignored();
         if (runtime_filter->has_remote_target()) {
             RETURN_IF_ERROR(runtime_filter->publish());
         } else {
@@ -78,7 +77,7 @@ public:
                                 runtime_filter->filter_id());
             }
             for (auto* filter : filters) {
-                filter->set_ignored(reason);
+                filter->set_ignored();
                 filter->signal();
             }
         }
@@ -91,7 +90,6 @@ public:
     }
 
     Status ignore_filters(RuntimeState* state, uint64_t hash_table_size) {
-        /*
         // process ignore duplicate IN_FILTER
         std::unordered_set<int> has_in_filter;
         for (auto* filter : _runtime_filters) {
@@ -99,7 +97,7 @@ public:
                 continue;
             }
             if (has_in_filter.contains(filter->expr_order())) {
-                RETURN_IF_ERROR(ignore_filter(state, filter, "has IN_FILTER on same expr"));
+                RETURN_IF_ERROR(ignore_filter(state, filter));
                 continue;
             }
             has_in_filter.insert(filter->expr_order());
@@ -111,9 +109,8 @@ public:
                 !has_in_filter.contains(filter->expr_order())) {
                 continue;
             }
-            RETURN_IF_ERROR(ignore_filter(state, filter, "has IN_FILTER on same expr"));
+            RETURN_IF_ERROR(ignore_filter(state, filter));
         }
-        */
         return Status::OK();
     }
 

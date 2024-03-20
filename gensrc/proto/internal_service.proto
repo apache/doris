@@ -557,6 +557,7 @@ message PMergeFilterRequest {
     optional bool opt_remote_rf = 9;
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
+    optional bool ignored = 12;
 };
 
 message PMergeFilterResponse {
@@ -576,6 +577,7 @@ message PPublishFilterRequest {
     optional int64 merge_time = 9;
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
+    optional bool ignored = 12;
 };
 
 message PPublishFilterRequestV2 {
@@ -589,6 +591,7 @@ message PPublishFilterRequestV2 {
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
     optional bool contain_null = 10;
+    optional bool ignored = 11;
 };
 
 message PPublishFilterResponse {
