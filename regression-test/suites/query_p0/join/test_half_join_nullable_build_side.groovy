@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_half_join_nullable_build_side", "query,p0") {
-    /// TODO: fix on pipelinex
-    sql " set ENABLE_PIPELINE_X_ENGINE = 0; "
     sql " set disable_join_reorder = 1; "
     sql " drop table if exists test_half_join_nullable_build_side_l; ";
     sql " drop table if exists test_half_join_nullable_build_side_l2; ";
