@@ -601,6 +601,20 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                     );
                 """
         sql """ drop catalog if exists mysql_lower_case_catalog3; """
+
+        sql """drop catalog if exists mysql_refresh_property;"""
+
+        sql """create catalog if not exists mysql_refresh_property properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "metadata_refresh_interval_sec" = "5"
+        );"""
+
+        sql """drop catalog if exists mysql_refresh_property;"""
     }
 }
 
