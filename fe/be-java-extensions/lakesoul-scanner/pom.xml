@@ -40,6 +40,12 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>fe-common</artifactId>
+                    <groupId>org.apache.doris</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
@@ -63,38 +69,6 @@ under the License.
             <version>${arrow.version}</version>
         </dependency>
 
-        <!--        jnr-ffi deps-->
-        <dependency>
-            <groupId>com.github.jnr</groupId>
-            <artifactId>jnr-ffi</artifactId>
-            <version>2.2.13</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.github.jnr</groupId>
-                    <artifactId>jffi</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- https://github.com/jnr/jffi/issues/138 -->
-        <!-- upgrade jffi version to make it work on CentOS 7 -->
-        <dependency>
-            <groupId>com.github.jnr</groupId>
-            <artifactId>jffi</artifactId>
-            <version>1.3.11</version>
-        </dependency>
-        <dependency>
-            <groupId>com.github.jnr</groupId>
-            <artifactId>jffi</artifactId>
-            <version>1.3.11</version>
-            <scope>runtime</scope>
-            <classifier>native</classifier>
-        </dependency>
-
-        <dependency>
-            <groupId>com.alibaba</groupId>
-            <artifactId>fastjson</artifactId>
-            <version>1.2.83</version>
-        </dependency>
         <!-- scala deps -->
         <dependency>
             <groupId>org.scala-lang</groupId>
@@ -106,13 +80,13 @@ under the License.
             <groupId>org.scala-lang</groupId>
             <artifactId>scala-compiler</artifactId>
             <version>${scala.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.scala-lang</groupId>
             <artifactId>scala-reflect</artifactId>
             <version>${scala.version}</version>
         </dependency>
-
 
         <dependency>
             <groupId>com.dmetasoul</groupId>
@@ -133,26 +107,25 @@ under the License.
                 </exclusion>
                 <exclusion>
                     <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-vector</artifactId>
+                    <artifactId>*</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-netty</artifactId>
+                    <groupId>org.antlr</groupId>
+                    <artifactId>antlr4-runtime</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-core</artifactId>
+                    <groupId>org.ow2.asm</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-c-data</artifactId>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.code.findbugs</groupId>
+                    <artifactId>jsr305</artifactId>
                 </exclusion>
             </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.dmetasoul</groupId>
-            <artifactId>lakesoul-common</artifactId>
-            <version>2.6.0-SNAPSHOT</version>
         </dependency>
 
         <dependency>
@@ -197,26 +170,16 @@ under the License.
                         </includes>
                     </artifactSet>
                     <filters>
-<!--                        <filter>-->
-<!--                            <artifact>com.github.jnr:jffi</artifact>-->
-<!--                            <excludes>-->
-<!--                                <exclude>com/kenai/jffi/Library*</exclude>-->
-<!--                            </excludes>-->
-<!--                        </filter>-->
                         <filter>
                             <artifact>**</artifact>
                             <excludes>
                                 <exclude>META-INF/*.SF</exclude>
                                 <exclude>META-INF/versions/**</exclude>
+                                <exclude>META-INF/*.DSA</exclude>
+                                <exclude>META-INF/*.RSA</exclude>
                             </excludes>
                         </filter>
                     </filters>
-                    <relocations>
-                        <relocation>
-                            <pattern>com.zaxxer.hikari</pattern>
-                            <shadedPattern>com.lakesoul.shaded.com.zaxxer.hikari</shadedPattern>
-                        </relocation>
-                    </relocations>
                     <transformers>
                         <transformer
                             implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
