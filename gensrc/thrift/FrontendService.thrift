@@ -29,6 +29,7 @@ include "Exprs.thrift"
 include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
+include "DataSinks.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
@@ -356,11 +357,11 @@ struct TListTableStatusResult {
 
 struct TTableMetadataNameIds {
     1: optional string name
-    2: optional i64 id 
+    2: optional i64 id
 }
 
 struct TListTableMetadataNameIdsResult {
-    1: optional list<TTableMetadataNameIds> tables 
+    1: optional list<TTableMetadataNameIds> tables
 }
 
 // getTableNames returns a list of unqualified table names
@@ -481,6 +482,8 @@ struct TReportExecStatusParams {
   24: optional TQueryStatistics query_statistics // deprecated
 
   25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
+
+  26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 }
 
 struct TFeResult {
@@ -918,7 +921,9 @@ struct TInitExternalCtlMetaResult {
 
 enum TSchemaTableName {
   // BACKENDS = 0,
-  METADATA_TABLE = 1,
+  METADATA_TABLE = 1, // tvf
+  ACTIVE_QUERIES = 2, // db information_schema's table
+  WORKLOAD_GROUPS = 3, // db information_schema's table
 }
 
 struct TMetadataTableRequestParams {
@@ -934,10 +939,17 @@ struct TMetadataTableRequestParams {
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
 }
 
+struct TSchemaTableRequestParams {
+    1: optional list<string> columns_name
+    2: optional Types.TUserIdentity current_user_ident
+    3: optional bool replay_to_other_fe
+}
+
 struct TFetchSchemaTableDataRequest {
   1: optional string cluster_name
   2: optional TSchemaTableName schema_table_name
-  3: optional TMetadataTableRequestParams metada_table_params
+  3: optional TMetadataTableRequestParams metada_table_params // used for tvf
+  4: optional TSchemaTableRequestParams schema_table_params // used for request db information_schema's table
 }
 
 struct TFetchSchemaTableDataResult {
@@ -1165,6 +1177,8 @@ struct TPlsqlStoredProcedure {
     4: optional string packageName
     5: optional string ownerName
     6: optional string source
+    7: optional string createTime
+    8: optional string modifyTime
 }
 
 struct TPlsqlPackage {
@@ -1401,6 +1415,13 @@ struct TShowProcessListResult {
     1: optional list<list<string>> process_list
 }
 
+struct TReportCommitTxnResultRequest {
+    1: optional i64 dbId
+    2: optional i64 txnId
+    3: optional string label
+    4: optional binary payload
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1453,6 +1474,8 @@ service FrontendService {
 
     TMySqlLoadAcquireTokenResult acquireToken()
 
+    bool checkToken(1: string token)
+
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
@@ -1485,4 +1508,5 @@ service FrontendService {
     Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
 
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
+    Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
 }

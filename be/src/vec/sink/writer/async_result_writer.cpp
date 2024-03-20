@@ -90,6 +90,9 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
     // Should set to false here, to
     _writer_thread_closed = false;
+    if (_finish_dependency) {
+        _finish_dependency->block();
+    }
     // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
@@ -98,7 +101,7 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
         RETURN_IF_ERROR(pool_ptr->submit_func([this, state, profile, task_ctx]() {
             auto task_lock = task_ctx.lock();
             if (task_lock == nullptr) {
-                _writer_thread_closed = true;
+                _set_ready_to_finish();
                 return;
             }
             this->process_block(state, profile);
@@ -108,7 +111,7 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
                 [this, state, profile, task_ctx]() {
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
-                        _writer_thread_closed = true;
+                        _set_ready_to_finish();
                         return;
                     }
                     this->process_block(state, profile);
@@ -163,6 +166,8 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     if (_writer_status.ok() && _eos) {
         _writer_status = finish(state);
     }
+    // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
+    _set_ready_to_finish();
 
     Status close_st = close(_writer_status);
     // If it is already failed before, then not update the write status so that we could get
@@ -171,6 +176,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         _writer_status = close_st;
     }
     _writer_thread_closed = true;
+}
+
+void AsyncResultWriter::_set_ready_to_finish() {
     if (_finish_dependency) {
         _finish_dependency->set_ready();
     }

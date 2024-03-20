@@ -296,6 +296,16 @@ public class MetaServiceClient {
         return blockingStub.alterCluster(request);
     }
 
+    public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AlterObjStoreInfoRequest.Builder builder =
+                    Cloud.AlterObjStoreInfoRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.alterObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.alterObjStoreInfo(request);
+    }
+
     public Cloud.GetDeleteBitmapUpdateLockResponse
             getDeleteBitmapUpdateLock(Cloud.GetDeleteBitmapUpdateLockRequest request) {
         if (!request.hasCloudUniqueId()) {

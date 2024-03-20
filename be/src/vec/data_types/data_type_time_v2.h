@@ -132,7 +132,10 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         DateV2Value<DateTimeV2ValueType> value;
-        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
+        const int32_t scale =
+                node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
+        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size(),
+                                scale)) {
             return value.to_date_int_val();
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,

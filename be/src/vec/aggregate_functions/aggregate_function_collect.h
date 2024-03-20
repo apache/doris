@@ -390,7 +390,7 @@ struct AggregateFunctionArrayAggData<StringRef> {
     void deserialize_and_merge(const IColumn& column, size_t row_num) {
         auto& to_arr = assert_cast<const ColumnArray&>(column);
         auto& to_nested_col = to_arr.get_data();
-        auto col_null = reinterpret_cast<const ColumnNullable*>(&to_nested_col);
+        auto col_null = assert_cast<const ColumnNullable*>(&to_nested_col);
         const auto& vec = assert_cast<const ColVecType&>(col_null->get_nested_column());
         auto start = to_arr.get_offsets()[row_num - 1];
         auto end = start + to_arr.get_offsets()[row_num] - to_arr.get_offsets()[row_num - 1];
@@ -469,7 +469,7 @@ public:
 
     bool allocates_memory_in_arena() const override { return ENABLE_ARENA; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit::value) {
@@ -556,8 +556,8 @@ public:
                                    const size_t num_rows) const override {
         if constexpr (ShowNull::value) {
             for (size_t i = 0; i != num_rows; ++i) {
-                this->data(places[i]).deserialize_and_merge(*assert_cast<const IColumn*>(column),
-                                                            i);
+                this->data(places[i] + offset)
+                        .deserialize_and_merge(*assert_cast<const IColumn*>(column), i);
             }
         } else {
             return BaseHelper::deserialize_and_merge_vec(places, offset, rhs, column, arena,
@@ -596,9 +596,9 @@ public:
                                             Arena* arena, const size_t num_rows) const override {
         if constexpr (ShowNull::value) {
             for (size_t i = 0; i != num_rows; ++i) {
-                if (places[i]) {
-                    this->data(places[i]).deserialize_and_merge(
-                            *assert_cast<const IColumn*>(column), i);
+                if (places[i] + offset) {
+                    this->data(places[i] + offset)
+                            .deserialize_and_merge(*assert_cast<const IColumn*>(column), i);
                 }
             }
         } else {

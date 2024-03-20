@@ -39,6 +39,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <vec/exec/vjdbc_connector.h>
 
 #include <algorithm>
 #include <exception>
@@ -531,6 +532,9 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
 
         const auto& fragment_list = t_request.params_list;
+        if (fragment_list.empty()) {
+            return Status::InternalError("Invalid TPipelineFragmentParamsList!");
+        }
         MonotonicStopWatch timer;
         timer.start();
         for (const TPipelineFragmentParams& fragment : fragment_list) {
@@ -748,9 +752,8 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     }
 }
 
-Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
-                                                PTabletKeyLookupResponse* response) {
-    // TODO(yuejing): use PointQueryExecutor lookup_util(_engine); instead
+Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                                            PTabletKeyLookupResponse* response) {
     PointQueryExecutor lookup_util;
     RETURN_IF_ERROR(lookup_util.init(request, response));
     RETURN_IF_ERROR(lookup_util.lookup_up());
@@ -761,10 +764,10 @@ Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* r
     return Status::OK();
 }
 
-void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* controller,
-                                             const PTabletKeyLookupRequest* request,
-                                             PTabletKeyLookupResponse* response,
-                                             google::protobuf::Closure* done) {
+void PInternalService::tablet_fetch_data(google::protobuf::RpcController* controller,
+                                         const PTabletKeyLookupRequest* request,
+                                         PTabletKeyLookupResponse* response,
+                                         google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
@@ -773,6 +776,65 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::test_jdbc_connection(google::protobuf::RpcController* controller,
+                                            const PJdbcTestConnectionRequest* request,
+                                            PJdbcTestConnectionResult* result,
+                                            google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "test jdbc connection";
+        brpc::ClosureGuard closure_guard(done);
+        TTableDescriptor table_desc;
+        vectorized::JdbcConnectorParam jdbc_param;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)request->jdbc_table().data();
+            uint32_t len = request->jdbc_table().size();
+            st = deserialize_thrift_msg(buf, &len, false, &table_desc);
+            if (!st.ok()) {
+                LOG(WARNING) << "test jdbc connection failed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+        TJdbcTable jdbc_table = (table_desc.jdbcTable);
+        jdbc_param.catalog_id = jdbc_table.catalog_id;
+        jdbc_param.driver_class = jdbc_table.jdbc_driver_class;
+        jdbc_param.driver_path = jdbc_table.jdbc_driver_url;
+        jdbc_param.driver_checksum = jdbc_table.jdbc_driver_checksum;
+        jdbc_param.jdbc_url = jdbc_table.jdbc_url;
+        jdbc_param.user = jdbc_table.jdbc_user;
+        jdbc_param.passwd = jdbc_table.jdbc_password;
+        jdbc_param.query_string = request->query_str();
+        jdbc_param.table_type = static_cast<TOdbcTableType::type>(request->jdbc_table_type());
+        jdbc_param.use_transaction = false;
+        jdbc_param.connection_pool_min_size = jdbc_table.connection_pool_min_size;
+        jdbc_param.connection_pool_max_size = jdbc_table.connection_pool_max_size;
+        jdbc_param.connection_pool_max_life_time = jdbc_table.connection_pool_max_life_time;
+        jdbc_param.connection_pool_max_wait_time = jdbc_table.connection_pool_max_wait_time;
+        jdbc_param.connection_pool_keep_alive = jdbc_table.connection_pool_keep_alive;
+
+        std::unique_ptr<vectorized::JdbcConnector> jdbc_connector;
+        jdbc_connector.reset(new (std::nothrow) vectorized::JdbcConnector(jdbc_param));
+
+        st = jdbc_connector->test_connection();
+        st.to_protobuf(result->mutable_status());
+
+        Status clean_st = jdbc_connector->clean_datasource();
+        if (!clean_st.ok()) {
+            LOG(WARNING) << "Failed to clean JDBC datasource: " << clean_st.msg();
+        }
+        Status close_st = jdbc_connector->close();
+        if (!close_st.ok()) {
+            LOG(WARNING) << "Failed to close JDBC connector: " << close_st.msg();
+        }
+    });
+
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
         return;
     }
 }
@@ -817,24 +879,24 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
 
             std::set<int32_t> column_ids;
             for (const auto& col : columns) {
-                column_ids.insert(col.unique_id());
+                column_ids.insert(col->unique_id());
             }
             filter_set.insert(std::move(column_ids));
 
             if (id_to_column.empty()) {
                 for (const auto& col : columns) {
-                    id_to_column.insert(std::pair {col.unique_id(), &col});
+                    id_to_column.insert(std::pair {col->unique_id(), col.get()});
                 }
             } else {
                 for (const auto& col : columns) {
-                    auto it = id_to_column.find(col.unique_id());
-                    if (it == id_to_column.end() || *(it->second) != col) {
+                    auto it = id_to_column.find(col->unique_id());
+                    if (it == id_to_column.end() || *(it->second) != *col) {
                         ColumnPB prev_col_pb;
                         ColumnPB curr_col_pb;
                         if (it != id_to_column.end()) {
                             it->second->to_schema_pb(&prev_col_pb);
                         }
-                        col.to_schema_pb(&curr_col_pb);
+                        col->to_schema_pb(&curr_col_pb);
                         std::stringstream ss;
                         ss << "consistency check failed: index{ " << index_id << " }"
                            << " got inconsistent schema, prev column: " << prev_col_pb.DebugString()
@@ -865,7 +927,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         entry->set_index_id(index_id);
         auto col_name_to_id = entry->mutable_col_name_to_id();
         for (const auto& column : columns) {
-            (*col_name_to_id)[column.name()] = column.unique_id();
+            (*col_name_to_id)[column->name()] = column->unique_id();
         }
     }
     response->mutable_status()->set_status_code(TStatusCode::OK);
@@ -1530,6 +1592,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                       << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
                       << ", txn_id=" << rowset_meta->txn_id();
 
+        auto tablet_scheme = rowset_meta->tablet_schema();
         for (auto& segment : segments_size) {
             uint64_t file_size = segment.second;
             uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
@@ -1567,15 +1630,27 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                     auto index_id = index_size.indexid();
                     auto size = index_size.size();
                     auto suffix_path = index_size.suffix_path();
-                    std::string remote_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id,
-                                                                         suffix_path);
-                    std::string remote_inverted_index_file_url = construct_url(
-                            get_host_port(host, http_port), token, remote_inverted_index_file);
+                    std::string remote_inverted_index_file;
+                    std::string local_inverted_index_file;
+                    std::string remote_inverted_index_file_url;
+                    if (tablet_scheme->get_inverted_index_storage_format() !=
+                        InvertedIndexStorageFormatPB::V1) {
+                        remote_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_name(remote_file_path);
+                        remote_inverted_index_file_url = construct_url(
+                                get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                    std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id,
-                                                                         suffix_path);
+                        local_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_name(local_file_path);
+                    } else {
+                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                                remote_file_path, index_id, suffix_path);
+                        remote_inverted_index_file_url = construct_url(
+                                get_host_port(host, http_port), token, remote_inverted_index_file);
+
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                                local_file_path, index_id, suffix_path);
+                    }
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);
                     if (!st.ok()) {
@@ -1589,6 +1664,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                                     rowset_meta->tablet_id(), node_id, false);
                         return;
                     }
+
                     VLOG_CRITICAL
                             << "succeed to download inverted index file for slave replica. url="
                             << remote_inverted_index_file_url

@@ -39,15 +39,12 @@ namespace doris {
 class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
+class WorkloadGroup;
 
 namespace pipeline {
 class ScanLocalStateBase;
 class Dependency;
 } // namespace pipeline
-
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 
 namespace vectorized {
 
@@ -160,7 +157,6 @@ public:
     std::string ctx_id;
     TUniqueId _query_id;
     int32_t queue_idx = -1;
-    ThreadPoolToken* thread_token = nullptr;
 
     bool _should_reset_thread_name = true;
 

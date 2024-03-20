@@ -23,7 +23,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_query_statistics_mgr.h"
-#include "runtime/task_group/task_group_manager.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
 
 namespace doris {
@@ -38,12 +38,13 @@ public:
 
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline)
+                           bool is_pipeline, bool is_nereids)
         : fragment_num(total_fragment_num),
           timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
+          _is_nereids(is_nereids),
           _query_options(query_options) {
     this->coord_addr = coord_addr;
     _start_time = VecDateTimeValue::local_time();
@@ -101,22 +102,14 @@ QueryContext::~QueryContext() {
                 MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
     }
     uint64_t group_id = 0;
-    if (_task_group) {
-        group_id = _task_group->id(); // before remove
-        _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _task_group->remove_query(_query_id);
+    if (_workload_group) {
+        group_id = _workload_group->id(); // before remove
+        _workload_group->remove_mem_tracker_limiter(query_mem_tracker);
+        _workload_group->remove_query(_query_id);
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
-    // Not release the the thread token in query context's dector method, because the query
-    // conext may be dectored in the thread token it self. It is very dangerous and may core.
-    // And also thread token need shutdown, it may take some time, may cause the thread that
-    // release the token hang, the thread maybe a pipeline task scheduler thread.
-    if (_thread_token) {
-        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
-    }
 
     //TODO: check if pipeline and tracing both enabled
     if (_is_pipeline && ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
@@ -129,7 +122,7 @@ QueryContext::~QueryContext() {
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
-    _execution_dependency->set_ready();
+    set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
         if (!_is_cancelled) {
@@ -144,12 +137,16 @@ void QueryContext::set_ready_to_execute(bool is_cancelled) {
 }
 
 void QueryContext::set_ready_to_execute_only() {
-    _execution_dependency->set_ready();
+    set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
         _ready_to_execute = true;
     }
     _start_cond.notify_all();
+}
+
+void QueryContext::set_execution_dependency_ready() {
+    _execution_dependency->set_ready();
 }
 
 bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragment_id) {
@@ -161,15 +158,46 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
 
     set_ready_to_execute(true);
     {
-        std::lock_guard<std::mutex> plock(pipeline_lock);
-        for (auto& ctx : fragment_id_to_pipeline_ctx) {
-            if (fragment_id == ctx.first) {
+        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+        for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+            if (fragment_id == f_id) {
                 continue;
             }
-            ctx.second->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
+            if (auto pipeline_ctx = f_context.lock()) {
+                pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
+            }
         }
     }
     return true;
+}
+
+void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
+                                               const std::string& msg) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+        if (auto pipeline_ctx = f_context.lock()) {
+            pipeline_ctx->cancel(reason, msg);
+        }
+    }
+}
+
+Status QueryContext::cancel_pipeline_context(const int fragment_id,
+                                             const PPlanFragmentCancelReason& reason,
+                                             const std::string& msg) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    if (!_fragment_id_to_pipeline_ctx.contains(fragment_id)) {
+        return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
+    }
+    if (auto pipeline_ctx = _fragment_id_to_pipeline_ctx[fragment_id].lock()) {
+        pipeline_ctx->cancel(reason, msg);
+    }
+    return Status::OK();
+}
+
+void QueryContext::set_pipeline_context(
+        const int fragment_id, std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx) {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
 }
 
 void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
@@ -204,7 +232,7 @@ void QueryContext::register_cpu_statistics() {
 }
 
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
-    if (_task_group) {
+    if (_workload_group) {
         if (_task_scheduler) {
             return _task_scheduler;
         }
@@ -213,21 +241,21 @@ doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
 }
 
 ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
-    if (_task_group) {
+    if (_workload_group) {
         return _non_pipe_thread_pool;
     } else {
         return nullptr;
     }
 }
 
-Status QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
-    _task_group = tg;
-    // Should add query first, then the task group will not be deleted.
-    // see task_group_manager::delete_task_group_by_ids
-    RETURN_IF_ERROR(_task_group->add_query(_query_id));
-    _task_group->add_mem_tracker_limiter(query_mem_tracker);
-    _task_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
-                                     &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
+Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
+    _workload_group = tg;
+    // Should add query first, then the workload group will not be deleted.
+    // see task_group_manager::delete_workload_group_by_ids
+    RETURN_IF_ERROR(_workload_group->add_query(_query_id));
+    _workload_group->add_mem_tracker_limiter(query_mem_tracker);
+    _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
+                                         &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
     return Status::OK();
 }
 

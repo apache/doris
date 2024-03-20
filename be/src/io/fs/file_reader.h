@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "io/fs/path.h"
+#include "util/profile_collector.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -62,7 +63,7 @@ struct FileReaderOptions {
 
 inline const FileReaderOptions FileReaderOptions::DEFAULT;
 
-class FileReader {
+class FileReader : public doris::ProfileCollector {
 public:
     FileReader() = default;
     virtual ~FileReader() = default;

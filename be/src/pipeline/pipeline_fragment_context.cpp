@@ -35,6 +35,7 @@
 #include <typeinfo>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -59,6 +60,7 @@
 #include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/hive_table_sink_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/mysql_scan_operator.h" // IWYU pragma: keep
@@ -244,19 +246,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state = RuntimeState::create_unique(
             local_params.fragment_instance_id, request.query_id, request.fragment_id,
             request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
-    if (idx == 0) {
-        if (local_params.__isset.runtime_filter_params) {
-            if (local_params.__isset.runtime_filter_params) {
-                _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                        local_params.runtime_filter_params);
-            }
-        }
-        if (local_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
-        }
-    }
 
     _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
@@ -338,7 +327,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             auto* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
-            static_cast<void>(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
+            RETURN_IF_ERROR(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
             VLOG_CRITICAL << "query " << print_id(get_query_id())
                           << " scan_node_id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
@@ -655,7 +644,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
                     node->child(1)->id(), node->child(1)->row_desc(), node->child(1));
-            static_cast<void>(new_pipe->add_operator(builder));
+            RETURN_IF_ERROR(new_pipe->add_operator(builder));
         }
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(node->id(), join_node);
@@ -783,7 +772,7 @@ void PipelineFragmentContext::close_sink() {
     }
 }
 
-void PipelineFragmentContext::close_if_prepare_failed() {
+void PipelineFragmentContext::close_if_prepare_failed(Status /*st*/) {
     if (_tasks.empty()) {
         if (_root_plan) {
             static_cast<void>(_root_plan->close(_runtime_state.get()));
@@ -820,7 +809,8 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     case TDataSinkType::OLAP_TABLE_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
+            !config::is_cloud_mode()) {
             sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
                                                                      _sink.get());
         } else {
@@ -834,12 +824,14 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                                                                       _sink.get());
         break;
     }
-    case TDataSinkType::MYSQL_TABLE_SINK:
-    case TDataSinkType::JDBC_TABLE_SINK:
-    case TDataSinkType::ODBC_TABLE_SINK: {
-        sink_ = std::make_shared<TableSinkOperatorBuilder>(next_operator_builder_id(), _sink.get());
+    case TDataSinkType::HIVE_TABLE_SINK: {
+        sink_ = std::make_shared<HiveTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                               _sink.get());
         break;
     }
+    case TDataSinkType::MYSQL_TABLE_SINK:
+    case TDataSinkType::JDBC_TABLE_SINK:
+    case TDataSinkType::ODBC_TABLE_SINK:
     case TDataSinkType::RESULT_FILE_SINK: {
         sink_ = std::make_shared<ResultFileSinkOperatorBuilder>(
                 thrift_sink.result_file_sink.dest_node_id, _sink.get());

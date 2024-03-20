@@ -32,6 +32,7 @@ import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
 
 public class AuditLogHelper {
@@ -43,6 +44,8 @@ public class AuditLogHelper {
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         CatalogIf catalog = ctx.getCurrentCatalog();
+
+        String cluster = Config.isCloudMode() ? ctx.getCloudCluster(false) : "";
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         auditEventBuilder.reset();
@@ -66,6 +69,7 @@ public class AuditLogHelper {
                 .setReturnRows(ctx.getReturnRows())
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
+                .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
 

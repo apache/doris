@@ -55,6 +55,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
@@ -762,8 +763,8 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.compaction_policy) {
-            if (tablet_meta_info.compaction_policy != "size_based" &&
-                tablet_meta_info.compaction_policy != "time_series") {
+            if (tablet_meta_info.compaction_policy != CUMULATIVE_SIZE_BASED_POLICY &&
+                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "invalid compaction policy, only support for size_based or "
                         "time_series");
@@ -773,7 +774,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -783,7 +784,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -793,7 +794,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -803,13 +804,23 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_empty_rowsets_threshold) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
             }
             tablet->tablet_meta()->set_time_series_compaction_empty_rowsets_threshold(
                     tablet_meta_info.time_series_compaction_empty_rowsets_threshold);
+            need_to_save = true;
+        }
+        if (tablet_meta_info.__isset.time_series_compaction_level_threshold) {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+                status = Status::InvalidArgument(
+                        "only time series compaction policy support time series config");
+                continue;
+            }
+            tablet->tablet_meta()->set_time_series_compaction_level_threshold(
+                    tablet_meta_info.time_series_compaction_level_threshold);
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.replica_id) {
@@ -986,6 +997,31 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
     if (!succ) [[unlikely]] {
         report_disk_failed << 1;
     }
+}
+
+void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info) {
+    // Random sleep 1~5 seconds before doing report.
+    // In order to avoid the problem that the FE receives many report requests at the same time
+    // and can not be processed.
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
+    (void)engine; // To be used in the future
+
+    TReportRequest request;
+    request.__set_backend(BackendOptions::get_local_backend());
+    request.__isset.disks = true;
+
+    // TODO(deardeng): report disk info in cloud mode. And make it more clear
+    //                 that report CPU by using a separte report procedure
+    //                 or abstracting disk report as "host info report"
+    request.__set_num_cores(CpuInfo::num_cores());
+    request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
+                                                 ? config::pipeline_executor_size
+                                                 : CpuInfo::num_cores());
+    bool succ = handle_report(request, master_info, "disk");
+    report_disk_total << 1;
+    report_disk_failed << !succ;
 }
 
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info) {

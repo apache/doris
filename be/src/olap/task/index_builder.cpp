@@ -19,14 +19,14 @@
 
 #include "common/status.h"
 #include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/thread_context.h"
 #include "util/trace.h"
 
 namespace doris {
@@ -67,39 +67,53 @@ Status IndexBuilder::update_inverted_index_info() {
         TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
         const auto& input_rs_tablet_schema = input_rowset->tablet_schema();
         output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
+        size_t total_index_size = 0;
+        auto* beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
+        auto size_st = beta_rowset->get_inverted_index_size(&total_index_size);
+        if (!size_st.ok() && !size_st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() &&
+            !size_st.is<ErrorCode::NOT_FOUND>()) {
+            return size_st;
+        }
+        auto num_segments = input_rowset->num_segments();
+        size_t drop_index_size = 0;
+
         if (_is_drop_op) {
-            size_t total_index_size = 0;
             for (const auto& t_inverted_index : _alter_inverted_indexes) {
-                auto* beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
-                size_t index_size = 0;
-                RETURN_IF_ERROR(beta_rowset->get_inverted_index_size_by_index_id(
-                        t_inverted_index.index_id, &index_size));
-                total_index_size += index_size;
+                DCHECK_EQ(t_inverted_index.columns.size(), 1);
+                auto column_name = t_inverted_index.columns[0];
+                auto column_idx = output_rs_tablet_schema->field_index(column_name);
+                if (column_idx < 0) {
+                    LOG(WARNING) << "referenced column was missing. "
+                                 << "[column=" << column_name << " referenced_column=" << column_idx
+                                 << "]";
+                    continue;
+                }
+                auto column = output_rs_tablet_schema->column(column_idx);
+                const auto* index_meta = output_rs_tablet_schema->get_inverted_index(column);
+                if (index_meta == nullptr) {
+                    LOG(ERROR) << "failed to find column: " << column_name
+                               << " index_id: " << t_inverted_index.index_id;
+                    continue;
+                }
+                if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    for (int seg_id = 0; seg_id < num_segments; seg_id++) {
+                        auto segment_full_path =
+                                io::Path(static_cast<BetaRowset*>(input_rowset.get())
+                                                 ->segment_file_path(seg_id));
+                        auto index_file_full_path = InvertedIndexDescriptor::get_index_file_name(
+                                segment_full_path, index_meta->index_id(),
+                                index_meta->get_index_suffix());
+                        int64_t index_size = 0;
+                        RETURN_IF_ERROR(input_rowset->rowset_meta()->fs()->file_size(
+                                index_file_full_path, &index_size));
+                        VLOG_DEBUG << "inverted index file:" << index_file_full_path
+                                   << " size:" << index_size;
+                        drop_index_size += index_size;
+                    }
+                }
                 output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
             }
-
-            auto input_rowset_meta = input_rowset->rowset_meta();
-            auto update_disk_size = [&](size_t& disk_size, const std::string& size_type) {
-                if (disk_size >= total_index_size) {
-                    disk_size -= total_index_size;
-                } else {
-                    LOG(WARNING) << "rowset " << input_rowset_meta->rowset_id() << " " << size_type
-                                 << " size:" << disk_size
-                                 << " is less than index size:" << total_index_size;
-                }
-            };
-
-            size_t before_size = input_rowset_meta->total_disk_size();
-            update_disk_size(before_size, "total disk");
-            input_rowset_meta->set_total_disk_size(before_size);
-
-            before_size = input_rowset_meta->data_disk_size();
-            update_disk_size(before_size, "data disk");
-            input_rowset_meta->set_data_disk_size(before_size);
-
-            before_size = input_rowset_meta->index_disk_size();
-            update_disk_size(before_size, "index");
-            input_rowset_meta->set_index_disk_size(before_size);
         } else {
             // base on input rowset's tablet_schema to build
             // output rowset's tablet_schema which only add
@@ -125,7 +139,6 @@ Status IndexBuilder::update_inverted_index_info() {
         // construct input rowset reader
         RowsetReaderSharedPtr input_rs_reader;
         RETURN_IF_ERROR(input_rowset->create_reader(&input_rs_reader));
-
         // construct output rowset writer
         RowsetWriterContext context;
         context.version = input_rs_reader->version();
@@ -151,15 +164,53 @@ Status IndexBuilder::update_inverted_index_info() {
         auto input_rowset_meta = input_rowset->rowset_meta();
         RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
         rowset_meta->set_num_rows(input_rowset_meta->num_rows());
-        rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size());
-        rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size());
-        rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size());
+        if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::V1) {
+            if (_is_drop_op) {
+                VLOG_DEBUG << "data_disk_size:" << input_rowset_meta->data_disk_size()
+                           << " total_disk_size:" << input_rowset_meta->data_disk_size()
+                           << " index_disk_size:" << input_rowset_meta->index_disk_size()
+                           << " drop_index_size:" << drop_index_size;
+                rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
+                                                 drop_index_size);
+                rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() -
+                                                drop_index_size);
+                rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() -
+                                                 drop_index_size);
+            } else {
+                rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size());
+                rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size());
+                rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size());
+            }
+        } else {
+            for (int seg_id = 0; seg_id < num_segments; seg_id++) {
+                auto segment_full_path = io::Path(
+                        static_cast<BetaRowset*>(input_rowset.get())->segment_file_path(seg_id));
+                std::string segment_filename = segment_full_path.filename().native();
+                auto segment_dir = segment_full_path.parent_path();
+                auto idx_file_reader = std::make_unique<InvertedIndexFileReader>(
+                        context.fs, segment_dir, segment_filename,
+                        output_rs_tablet_schema->get_inverted_index_storage_format());
+                auto st = idx_file_reader->init();
+                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+                    return st;
+                }
+                _inverted_index_file_readers.emplace(
+                        std::make_pair(output_rs_writer->rowset_id().to_string(), seg_id),
+                        std::move(idx_file_reader));
+            }
+            rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
+                                             total_index_size);
+            rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() - total_index_size);
+            rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() -
+                                             total_index_size);
+        }
         rowset_meta->set_empty(input_rowset_meta->empty());
         rowset_meta->set_num_segments(input_rowset_meta->num_segments());
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
         rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
         std::vector<KeyBoundsPB> key_bounds;
-        static_cast<void>(input_rowset->get_segments_key_bounds(&key_bounds));
+        RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds(key_bounds);
         auto output_rowset = output_rs_writer->manual_build(rowset_meta);
         if (input_rowset_meta->has_delete_predicate()) {
@@ -175,7 +226,72 @@ Status IndexBuilder::update_inverted_index_info() {
 Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta,
                                           std::vector<segment_v2::SegmentSharedPtr>& segments) {
     if (_is_drop_op) {
-        // delete invertd index file by gc thread when gc input rowset
+        auto output_rs_tablet_schema = output_rowset_meta->tablet_schema();
+        if (output_rs_tablet_schema->get_inverted_index_storage_format() !=
+            InvertedIndexStorageFormatPB::V1) {
+            std::string segment_dir = _tablet->tablet_path();
+            auto fs = output_rowset_meta->fs();
+            auto output_rowset_schema = output_rowset_meta->tablet_schema();
+            size_t inverted_index_size = 0;
+            for (auto& seg_ptr : segments) {
+                std::string segment_filename = fmt::format(
+                        "{}_{}.dat", output_rowset_meta->rowset_id().to_string(), seg_ptr->id());
+
+                auto idx_file_reader_iter = _inverted_index_file_readers.find(
+                        std::make_pair(output_rowset_meta->rowset_id().to_string(), seg_ptr->id()));
+                if (idx_file_reader_iter == _inverted_index_file_readers.end()) {
+                    LOG(ERROR) << "idx_file_reader_iter" << output_rowset_meta->rowset_id() << ":"
+                               << seg_ptr->id() << " cannot be found";
+                    continue;
+                }
+                auto dirs = DORIS_TRY(idx_file_reader_iter->second->get_all_directories());
+                auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                        fs, segment_dir, segment_filename,
+                        output_rowset_schema->get_inverted_index_storage_format());
+                RETURN_IF_ERROR(inverted_index_file_writer->initialize(dirs));
+                // create inverted index writer
+                for (const auto& t_inverted_index : _alter_inverted_indexes) {
+                    DCHECK_EQ(t_inverted_index.columns.size(), 1);
+                    auto column_name = t_inverted_index.columns[0];
+                    auto column_idx = output_rs_tablet_schema->field_index(column_name);
+                    if (column_idx < 0) {
+                        LOG(WARNING) << "referenced column was missing. "
+                                     << "[column=" << column_name
+                                     << " referenced_column=" << column_idx << "]";
+                        continue;
+                    }
+                    auto column = output_rs_tablet_schema->column(column_idx);
+                    const auto* index_meta = output_rs_tablet_schema->get_inverted_index(column);
+                    if (index_meta == nullptr) {
+                        LOG(ERROR) << "failed to find column: " << column_name
+                                   << " index_id: " << t_inverted_index.index_id;
+                        continue;
+                    }
+                    RETURN_IF_ERROR(inverted_index_file_writer->delete_index(index_meta));
+                }
+                _inverted_index_file_writers.emplace(seg_ptr->id(),
+                                                     std::move(inverted_index_file_writer));
+            }
+            for (auto& kv : _inverted_index_file_writers) {
+                auto* inverted_index_writer = kv.second.get();
+                LOG(INFO) << "close inverted index file "
+                          << inverted_index_writer->get_index_file_name();
+                auto st = inverted_index_writer->close();
+                if (!st.ok()) {
+                    LOG(ERROR) << "close inverted index file "
+                               << inverted_index_writer->get_index_file_name() << " error:" << st;
+                }
+                inverted_index_size += inverted_index_writer->get_index_file_size();
+            }
+            _inverted_index_file_writers.clear();
+            output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
+                                                   inverted_index_size);
+            output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
+                                                    inverted_index_size);
+            output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
+                                                    inverted_index_size);
+        }
+        LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
         return Status::OK();
     } else {
         // create inverted index writer
@@ -189,6 +305,27 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             std::vector<ColumnId> return_columns;
             std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
             _olap_data_convertor->reserve(_alter_inverted_indexes.size());
+
+            std::unique_ptr<InvertedIndexFileWriter> inverted_index_file_writer = nullptr;
+            if (output_rowset_schema->get_inverted_index_storage_format() !=
+                InvertedIndexStorageFormatPB::V1) {
+                auto idx_file_reader_iter = _inverted_index_file_readers.find(
+                        std::make_pair(output_rowset_meta->rowset_id().to_string(), seg_ptr->id()));
+                if (idx_file_reader_iter == _inverted_index_file_readers.end()) {
+                    LOG(ERROR) << "idx_file_reader_iter" << output_rowset_meta->rowset_id() << ":"
+                               << seg_ptr->id() << " cannot be found";
+                    continue;
+                }
+                auto dirs = DORIS_TRY(idx_file_reader_iter->second->get_all_directories());
+                inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                        fs, segment_dir, segment_filename,
+                        output_rowset_schema->get_inverted_index_storage_format());
+                RETURN_IF_ERROR(inverted_index_file_writer->initialize(dirs));
+            } else {
+                inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                        fs, segment_dir, segment_filename,
+                        output_rowset_schema->get_inverted_index_storage_format());
+            }
             // create inverted index writer
             for (auto inverted_index : _alter_inverted_indexes) {
                 DCHECK_EQ(inverted_index.columns.size(), 1);
@@ -206,12 +343,12 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
-                auto index_meta = output_rowset_schema->get_inverted_index(column);
+                const auto* index_meta = output_rowset_schema->get_inverted_index(column);
                 std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
                 try {
                     RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
-                            field.get(), &inverted_index_builder, segment_filename, segment_dir,
-                            index_meta, fs));
+                            field.get(), &inverted_index_builder, inverted_index_file_writer.get(),
+                            index_meta));
                 } catch (const std::exception& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "CLuceneError occured: {}", e.what());
@@ -224,6 +361,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     inverted_index_writer_signs.emplace_back(writer_sign);
                 }
             }
+            _inverted_index_file_writers.emplace(seg_ptr->id(),
+                                                 std::move(inverted_index_file_writer));
 
             // create iterator for each segment
             StorageReadOptions read_options;
@@ -243,14 +382,14 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             std::shared_ptr<vectorized::Block> block = std::make_shared<vectorized::Block>(
                     output_rowset_schema->create_block(return_columns));
             while (true) {
-                auto st = iter->next_batch(block.get());
-                if (!st.ok()) {
-                    if (st.is<ErrorCode::END_OF_FILE>()) {
+                auto status = iter->next_batch(block.get());
+                if (!status.ok()) {
+                    if (status.is<ErrorCode::END_OF_FILE>()) {
                         break;
                     }
                     LOG(WARNING)
                             << "failed to read next block when schema change for inverted index."
-                            << ", err=" << st.to_string();
+                            << ", err=" << status.to_string();
                 }
 
                 // write inverted index data
@@ -266,18 +405,29 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             for (auto& writer_sign : inverted_index_writer_signs) {
                 try {
                     if (_inverted_index_builders[writer_sign]) {
-                        static_cast<void>(_inverted_index_builders[writer_sign]->finish());
+                        RETURN_IF_ERROR(_inverted_index_builders[writer_sign]->finish());
                     }
                 } catch (const std::exception& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "CLuceneError occured: {}", e.what());
                 }
-                inverted_index_size += _inverted_index_builders[writer_sign]->file_size();
             }
 
             _olap_data_convertor->reset();
         }
+        for (auto& kv : _inverted_index_file_writers) {
+            auto* inverted_index_file_writer = kv.second.get();
+            LOG(INFO) << "close inverted index file "
+                      << inverted_index_file_writer->get_index_file_name();
+            auto st = inverted_index_file_writer->close();
+            if (!st.ok()) {
+                LOG(ERROR) << "close inverted index file "
+                           << inverted_index_file_writer->get_index_file_name() << " error:" << st;
+            }
+            inverted_index_size += inverted_index_file_writer->get_index_file_size();
+        }
         _inverted_index_builders.clear();
+        _inverted_index_file_writers.clear();
         output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
                                                inverted_index_size);
         output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
@@ -348,11 +498,11 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
     if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(field->get_sub_field_count() == 1);
         // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
-        auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+        const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
         // total number length
-        size_t element_cnt = size_t((unsigned long)(*data_ptr));
+        auto element_cnt = size_t((unsigned long)(*data_ptr));
         auto offset_data = *(data_ptr + 1);
-        const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
+        const auto* offsets_ptr = (const uint8_t*)offset_data;
         try {
             if (element_cnt > 0) {
                 auto data = *(data_ptr + 2);
@@ -395,9 +545,9 @@ Status IndexBuilder::_add_data(const std::string& column_name,
         if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             DCHECK(field->get_sub_field_count() == 1);
             // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
-            auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+            const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
             // total number length
-            size_t element_cnt = size_t((unsigned long)(*data_ptr));
+            auto element_cnt = size_t((unsigned long)(*data_ptr));
             auto offset_data = *(data_ptr + 1);
             const auto* offsets_ptr = (const uint8_t*)offset_data;
             if (element_cnt > 0) {

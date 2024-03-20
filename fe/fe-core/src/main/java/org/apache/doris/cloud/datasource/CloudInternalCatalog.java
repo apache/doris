@@ -118,6 +118,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         long version = partition.getVisibleVersion();
 
+        final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
+        boolean storageVaultIdSet = false;
+        // We don't need to set the vault name if the table has no property
+        if (storageVaultName == null || storageVaultName.isEmpty()) {
+            storageVaultIdSet = true;
+        }
+
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
@@ -145,11 +152,18 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
                 requestBuilder.addTabletMetas(builder);
             }
+            if (!storageVaultIdSet) {
+                requestBuilder.setStorageVaultName(storageVaultName);
+            }
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
                     + "indexId: {}",
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
-            sendCreateTabletsRpc(requestBuilder);
+            Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
+            if (resp.hasStorageVaultId() && !storageVaultIdSet) {
+                tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
+                storageVaultIdSet = true;
+            }
             if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
                 partition.createRollupIndex(index);
@@ -479,7 +493,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
+    public Cloud.CreateTabletsResponse
+            sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
 
@@ -498,6 +513,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             throw new DdlException(response.getStatus().getMsg());
         }
+        return response;
     }
 
     // END CREATE TABLE

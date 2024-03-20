@@ -206,12 +206,12 @@ TaskScheduler::~TaskScheduler() {
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
     // Must be mutil number of cpu cores
-    static_cast<void>(ThreadPoolBuilder(_name)
-                              .set_min_threads(cores)
-                              .set_max_threads(cores)
-                              .set_max_queue_size(0)
-                              .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
-                              .build(&_fix_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder(_name)
+                            .set_min_threads(cores)
+                            .set_max_threads(cores)
+                            .set_max_queue_size(0)
+                            .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
+                            .build(&_fix_thread_pool));
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));
@@ -237,8 +237,13 @@ void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status
     // for pending finish now. So that could call close directly.
     Status status = task->close(exec_status);
     if (!status.ok() && state != PipelineTaskState::CANCELED) {
-        task->query_context()->cancel(true, status.to_string(),
-                                      Status::Cancelled(status.to_string()));
+        if (task->is_pipelineX()) { //should call fragment context cancel, in it will call query context cancel
+            task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                             std::string(status.msg()));
+        } else {
+            task->query_context()->cancel(true, status.to_string(),
+                                          Status::Cancelled(status.to_string()));
+        }
         state = PipelineTaskState::CANCELED;
     }
     task->set_state(state);

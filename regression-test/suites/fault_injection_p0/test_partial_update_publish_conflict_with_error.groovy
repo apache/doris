@@ -45,7 +45,9 @@ suite("test_partial_update_publish_conflict_with_error", "nonConcurrent") {
         v2 varchar(20),
         v3 varchar(20),
         v4 varchar(20),
-        v5 varchar(20))
+        v5 varchar(20),
+        v6 bigint not null auto_increment(100)
+        )
         UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES(
             "replication_num" = "1",
@@ -65,7 +67,8 @@ suite("test_partial_update_publish_conflict_with_error", "nonConcurrent") {
         time 10000 // limit inflight 10s
     }
     sql "sync;"
-    qt_sql """ select * from ${tableName} order by k1;"""
+    qt_sql """ select k1, v1, v2, v3, v4, v5 from ${tableName} order by k1;"""
+    qt_sql """ select v6, count(*) from ${tableName} group by v6 having count(*) > 1;"""
 
     // NOTE: use streamload 2pc to construct the conflict of publish
     def do_streamload_2pc_commit = { txnId ->
@@ -167,5 +170,6 @@ suite("test_partial_update_publish_conflict_with_error", "nonConcurrent") {
     wait_for_publish(txnId2, 20)
 
     sql "sync;"
-    qt_sql """ select * from ${tableName} order by k1;"""
+    qt_sql """ select k1, v1, v2, v3, v4, v5 from ${tableName} order by k1;"""
+    qt_sql """ select v6, count(*) from ${tableName} group by v6 having count(*) > 1;"""
 }

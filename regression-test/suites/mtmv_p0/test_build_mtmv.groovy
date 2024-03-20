@@ -492,13 +492,15 @@ suite("test_build_mtmv") {
     }
 
     // not allow use mv modify property of table
-    try {
-        sql """
-            alter Materialized View ${mvName} set("replication_num" = "1");
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
+    if (!isCloudMode()) {
+        try {
+            sql """
+                alter Materialized View ${mvName} set("replication_num" = "1");
+                """
+            Assert.fail();
+        } catch (Exception e) {
+            log.info(e.getMessage())
+        }
     }
 
     // alter rename

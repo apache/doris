@@ -420,6 +420,9 @@ public:
     bool is_streaming_preagg() const { return _is_streaming_preagg; }
     bool is_aggregate_evaluators_empty() const { return _aggregate_evaluators.empty(); }
     void _make_nullable_output_key(Block* block);
+    /// Return true if we should keep expanding hash tables in the preagg. If false,
+    /// the preagg should pass through any rows it can't fit in its tables.
+    bool _should_expand_preagg_hash_tables();
 
 protected:
     bool _is_streaming_preagg;
@@ -498,14 +501,11 @@ private:
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
     void _release_self_resource(RuntimeState* state);
-    /// Return true if we should keep expanding hash tables in the preagg. If false,
-    /// the preagg should pass through any rows it can't fit in its tables.
-    bool _should_expand_preagg_hash_tables();
 
     size_t _get_hash_table_size();
 
     Status _create_agg_status(AggregateDataPtr data);
-    Status _destroy_agg_status(AggregateDataPtr data);
+    void _destroy_agg_status(AggregateDataPtr data);
 
     Status _get_without_key_result(RuntimeState* state, Block* block, bool* eos);
     Status _serialize_without_key(RuntimeState* state, Block* block, bool* eos);

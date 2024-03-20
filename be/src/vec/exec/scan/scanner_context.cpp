@@ -76,7 +76,8 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
     _max_thread_num = _state->num_scanner_threads() > 0
                               ? _state->num_scanner_threads()
                               : config::doris_scanner_thread_pool_thread_num /
-                                        state->query_parallel_instance_num();
+                                        (_local_state ? num_parallel_instances
+                                                      : state->query_parallel_instance_num());
     _max_thread_num *= num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
@@ -123,7 +124,6 @@ Status ScannerContext::init() {
 #ifndef BE_TEST
     // 3. get thread token
     if (_state->get_query_ctx()) {
-        thread_token = _state->get_query_ctx()->get_token();
         _simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
         if (_simple_scan_scheduler) {
             _should_reset_thread_name = false;
@@ -134,12 +134,10 @@ Status ScannerContext::init() {
 
     if (_parent) {
         COUNTER_SET(_parent->_max_scanner_thread_num, (int64_t)_max_thread_num);
-        _parent->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                   thread_token == nullptr ? "False" : "True");
+        _parent->_runtime_profile->add_info_string("UseSpecificThreadToken", "False");
     } else {
         COUNTER_SET(_local_state->_max_scanner_thread_num, (int64_t)_max_thread_num);
-        _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                        thread_token == nullptr ? "False" : "True");
+        _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken", "False");
     }
 
     // submit `_max_thread_num` running scanners to `ScannerScheduler`

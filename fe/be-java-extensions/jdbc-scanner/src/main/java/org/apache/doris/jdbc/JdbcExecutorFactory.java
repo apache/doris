@@ -26,6 +26,8 @@ public class JdbcExecutorFactory {
                 return "org/apache/doris/jdbc/MySQLJdbcExecutor";
             case ORACLE:
                 return "org/apache/doris/jdbc/OracleJdbcExecutor";
+            case POSTGRESQL:
+                return "org/apache/doris/jdbc/PostgreSQLJdbcExecutor";
             case SQLSERVER:
                 return "org/apache/doris/jdbc/SQLServerJdbcExecutor";
             case DB2:
