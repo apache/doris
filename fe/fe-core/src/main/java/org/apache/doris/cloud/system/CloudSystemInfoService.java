@@ -19,7 +19,6 @@ package org.apache.doris.cloud.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
@@ -324,7 +323,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new UserException("cluster name is empty");
         }
 
-        ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
+        //((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
 
         return getBackendsByClusterName(cluster);
     }

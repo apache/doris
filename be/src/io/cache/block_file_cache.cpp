@@ -27,6 +27,7 @@
 #endif
 
 #include <chrono> // IWYU pragma: keep
+#include <mutex>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -1250,9 +1251,9 @@ void BlockFileCache::change_cache_type(const UInt128Wrapper& hash, size_t offset
     }
 }
 
-// @brief: get a path's disk capacity used percent, inode remain percent
+// @brief: get a path's disk capacity used percent, inode used percent
 // @param: path
-// @param: percent.first disk used percent, percent.second inode remain percent
+// @param: percent.first disk used percent, percent.second inode used percent
 int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) {
     struct statfs stat;
     int ret = statfs(path.c_str(), &stat);
@@ -1270,7 +1271,7 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
     unsigned long long inode_total = stat.f_files;
     int inode_percentage = (inode_free * 1.0 / inode_total) * 100;
     percent->first = capacity_percentage;
-    percent->second = inode_percentage;
+    percent->second = 100 - inode_percentage;
     return 0;
 }
 
@@ -1507,5 +1508,7 @@ Status BlockFileCache::clear_file_cache_directly() {
             .tag("use_time", static_cast<int64_t>(use_time.count()));
     return Status::OK();
 }
-
+template void BlockFileCache::remove(FileBlockSPtr file_block,
+                                     std::lock_guard<std::mutex>& cache_lock,
+                                     std::lock_guard<std::mutex>& block_lock);
 } // namespace doris::io

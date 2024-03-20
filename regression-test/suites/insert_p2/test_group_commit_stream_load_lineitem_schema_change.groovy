@@ -231,6 +231,7 @@ PROPERTIES (
         for (int i = 1; i <= 10; i++) {
             logger.info("process file:" + i)
             if (i == 5) {
+                getRowCount(total, table_name)
                 def retry = 0
                 while (retry < 10) {
                     try {
