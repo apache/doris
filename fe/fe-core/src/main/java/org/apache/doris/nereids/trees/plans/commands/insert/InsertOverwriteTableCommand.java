@@ -90,7 +90,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     }
 
     public boolean isAutoDetectOverwrite() {
-        return ((UnboundTableSink<?>) this.logicalQuery).isAutoDetectPartition();
+        return (logicalQuery instanceof UnboundTableSink)
+                && ((UnboundTableSink<?>) this.logicalQuery).isAutoDetectPartition();
     }
 
     @Override
