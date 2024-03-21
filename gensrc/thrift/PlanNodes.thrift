@@ -366,6 +366,7 @@ struct TLakeSoulFileDesc {
     2: optional list<string> primary_keys;
     3: optional list<string> partition_descs;
     4: optional string table_schema;
+    5: optional string options;
 }
 
 struct TTransactionalHiveDeleteDeltaDesc {

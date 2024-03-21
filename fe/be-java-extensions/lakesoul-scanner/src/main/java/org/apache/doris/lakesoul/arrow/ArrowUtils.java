@@ -17,18 +17,18 @@
 
 package org.apache.doris.lakesoul.arrow;
 
-import org.apache.arrow.memory.ArrowBuf;
-import org.apache.arrow.vector.types.pojo.ArrowType;
-import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.utils.TypeNativeBytes;
+
+import org.apache.arrow.memory.ArrowBuf;
+import org.apache.arrow.util.Preconditions;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-
-import static org.apache.arrow.util.Preconditions.checkArgument;
 
 public class ArrowUtils {
     public static long reloadTimeStampSecVectorBuffer(final ArrowBuf sourceDataBuffer,
@@ -36,20 +36,19 @@ public class ArrowUtils {
         long address = OffHeap.allocateMemory((long) valueCount << 3 + 1);
         long offset = 0;
         for (int sourceIdx = 0; sourceIdx < valueCount; sourceIdx++) {
-            long sourceData = sourceDataBuffer.getLong((long) sourceIdx << 3);
-            long epochSec = sourceData;
+            long epochSec = sourceDataBuffer.getLong((long) sourceIdx << 3);
             LocalDateTime v = LocalDateTime.ofEpochSecond(epochSec, 0, ZoneOffset.UTC);
             OffHeap.putLong(null, address + offset,
-                TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                v.getMinute(), v.getSecond(), v.getNano() / 1000));
-            offset +=8;
+                    TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
+                            v.getMinute(), v.getSecond(), v.getNano() / 1000));
+            offset += 8;
 
         }
         return address;
     }
 
     public static long reloadTimeStampMilliVectorBuffer(final ArrowBuf sourceDataBuffer,
-                                                      final int valueCount) {
+                                                        final int valueCount) {
         long address = OffHeap.allocateMemory((long) valueCount << 3 + 1);
         long offset = 0;
         for (int sourceIdx = 0; sourceIdx < valueCount; sourceIdx++) {
@@ -58,9 +57,9 @@ public class ArrowUtils {
             long nanoSec = sourceData % 1000 * 1000000;
             LocalDateTime v = LocalDateTime.ofEpochSecond(epochSec, (int) nanoSec, ZoneOffset.UTC);
             OffHeap.putLong(null, address + offset,
-                TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                    v.getMinute(), v.getSecond(), v.getNano() / 1000));
-            offset +=8;
+                    TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
+                            v.getMinute(), v.getSecond(), v.getNano() / 1000));
+            offset += 8;
 
         }
         return address;
@@ -76,9 +75,9 @@ public class ArrowUtils {
             long nanoSec = sourceData % 1000000 * 1000;
             LocalDateTime v = LocalDateTime.ofEpochSecond(epochSec, (int) nanoSec, ZoneOffset.UTC);
             OffHeap.putLong(null, address + offset,
-                TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                    v.getMinute(), v.getSecond(), v.getNano() / 1000));
-            offset +=8;
+                    TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
+                            v.getMinute(), v.getSecond(), v.getNano() / 1000));
+            offset += 8;
 
         }
         return address;
@@ -94,22 +93,22 @@ public class ArrowUtils {
             long nanoSec = sourceData % 1000000000;
             LocalDateTime v = LocalDateTime.ofEpochSecond(epochSec, (int) nanoSec, ZoneOffset.UTC);
             OffHeap.putLong(null, address + offset,
-                TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                    v.getMinute(), v.getSecond(), v.getNano() / 1000));
-            offset +=8;
+                    TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
+                            v.getMinute(), v.getSecond(), v.getNano() / 1000));
+            offset += 8;
 
         }
         return address;
     }
 
     public static long reloadDecimal128Buffer(final ArrowBuf sourceDataBuffer,
-                                                       final int valueCount) {
+                                              final int valueCount) {
         long address = OffHeap.allocateMemory((long) valueCount << 3 + 1);
         long offset = 0;
         for (int sourceIdx = 0; sourceIdx < valueCount; sourceIdx++) {
             long sourceData = sourceDataBuffer.getLong((long) sourceIdx << 4);
             OffHeap.putLong(null, address + offset, sourceData);
-            offset +=8;
+            offset += 8;
 
         }
         return address;
@@ -124,7 +123,7 @@ public class ArrowUtils {
 
             LocalDate v = LocalDate.ofEpochDay(sourceData);
             OffHeap.putInt(null, address + offset,
-                TypeNativeBytes.convertToDateV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth()));
+                    TypeNativeBytes.convertToDateV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth()));
             offset += 4;
 
         }
@@ -134,7 +133,7 @@ public class ArrowUtils {
 
     public static long reloadBitVectorBuffer(final ArrowBuf sourceDataBuffer,
                                              final int valueCount) {
-        long address = OffHeap.allocateMemory(valueCount  + 1);
+        long address = OffHeap.allocateMemory(valueCount + 1);
         long offset = 0;
         for (int newIdx = 0, sourceIdx = 0; newIdx < valueCount; newIdx += 8, sourceIdx++) {
             byte sourceByte = sourceDataBuffer.getByte(sourceIdx);
@@ -142,7 +141,9 @@ public class ArrowUtils {
                 OffHeap.putByte(null, address + offset, (byte) (sourceByte & 1));
                 sourceByte >>= 1;
                 offset++;
-                if (offset == valueCount) break;
+                if (offset == valueCount) {
+                    break;
+                }
             }
         }
         return address;
@@ -160,7 +161,9 @@ public class ArrowUtils {
                     OffHeap.putBoolean(null, address + offset, (sourceByte & 1) == 0);
                     sourceByte >>= 1;
                     offset++;
-                    if (offset == valueCount) break;
+                    if (offset == valueCount) {
+                        break;
+                    }
                 }
             }
         } else {
@@ -170,7 +173,7 @@ public class ArrowUtils {
     }
 
     public static long loadComplexTypeOffsetBuffer(final ArrowBuf sourceOffsetBuffer,
-                                            final int valueCount) {
+                                                   final int valueCount) {
         int length = valueCount << 4;
         long address = OffHeap.allocateMemory(length);
         long offset = 0;
@@ -178,7 +181,7 @@ public class ArrowUtils {
 
             int sourceInt = sourceOffsetBuffer.getInt((long) sourceIdx << 2);
             OffHeap.putLong(null, address + offset, sourceInt);
-            offset +=8;
+            offset += 8;
 
         }
         return address;
@@ -189,14 +192,14 @@ public class ArrowUtils {
         List<Field> children = field.getChildren();
         switch (hiveType.toString()) {
             case "array":
-                checkArgument(children.size() == 1,
-                    "Lists have one child Field. Found: %s", children.isEmpty() ? "none" : children);
+                Preconditions.checkArgument(children.size() == 1,
+                        "Lists have one child Field. Found: %s", children.isEmpty() ? "none" : children);
                 hiveType.append("<").append(hiveTypeFromArrowField(children.get(0))).append(">");
                 break;
             case "struct":
                 hiveType.append("<");
                 boolean first = true;
-                for (Field child: children) {
+                for (Field child : children) {
                     if (!first) {
                         hiveType.append(",");
                     } else {
@@ -206,15 +209,17 @@ public class ArrowUtils {
                 }
                 hiveType.append(">");
                 break;
+            default:
+                break;
         }
         return hiveType.toString();
     }
 
     private static class ArrowTypeToHiveTypeConverter
-        implements ArrowType.ArrowTypeVisitor<String> {
+            implements ArrowType.ArrowTypeVisitor<String> {
 
         private static final ArrowTypeToHiveTypeConverter INSTANCE =
-            new ArrowTypeToHiveTypeConverter();
+                new ArrowTypeToHiveTypeConverter();
 
         @Override
         public String visit(ArrowType.Null type) {
@@ -254,9 +259,15 @@ public class ArrowUtils {
         @Override
         public String visit(ArrowType.Int type) {
             int bitWidth = type.getBitWidth();
-            if (bitWidth <= 8) return "tinyint";
-            if (bitWidth <= 2 * 8) return "smallint";
-            if (bitWidth <= 4 * 8) return "int";
+            if (bitWidth <= 8) {
+                return "tinyint";
+            }
+            if (bitWidth <= 2 * 8) {
+                return "smallint";
+            }
+            if (bitWidth <= 4 * 8) {
+                return "int";
+            }
             return "bigint";
         }
 
@@ -268,6 +279,8 @@ public class ArrowUtils {
                     return "float";
                 case DOUBLE:
                     return "double";
+                default:
+                    break;
             }
             return "double";
         }
@@ -304,7 +317,7 @@ public class ArrowUtils {
 
         @Override
         public String visit(ArrowType.Decimal type) {
-            return String.format("decimal64(%d, %d)",type.getPrecision(), type.getScale());
+            return String.format("decimal64(%d, %d)", type.getPrecision(), type.getScale());
         }
 
         @Override
@@ -314,20 +327,6 @@ public class ArrowUtils {
 
         @Override
         public String visit(ArrowType.Time type) {
-            int precision = 0;
-            switch (type.getUnit()) {
-                case SECOND:
-                    precision = 0;
-                    break;
-                case MILLISECOND:
-                    precision = 3;
-                    break;
-                case MICROSECOND:
-                    precision = 6;
-                    break;
-                case NANOSECOND:
-                    precision = 9;
-            }
             return "datetimev2";
         }
 
@@ -335,9 +334,6 @@ public class ArrowUtils {
         public String visit(ArrowType.Timestamp type) {
             int precision = 0;
             switch (type.getUnit()) {
-                case SECOND:
-                    precision = 0;
-                    break;
                 case MILLISECOND:
                     precision = 3;
                     break;
@@ -346,6 +342,9 @@ public class ArrowUtils {
                     break;
                 case NANOSECOND:
                     precision = 9;
+                    break;
+                default:
+                    break;
             }
             return String.format("timestamp(%d)", precision);
         }

@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external.lakesoul;
+package org.apache.doris.datasource.lakesoul.source;
+
+import org.apache.doris.datasource.FileSplit;
 
 import com.dmetasoul.lakesoul.meta.jnr.SplitDesc;
-
-import org.apache.doris.planner.external.FileSplit;
-
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
@@ -30,8 +29,16 @@ import java.util.Map;
 @Data
 public class LakeSoulSplit extends FileSplit {
 
+    private final List<String> paths;
 
-    public LakeSoulSplit(SplitDesc splitDesc, long start, long length, long fileLength, String[] hosts, List<String> partitionValues) {
+    private final List<String> primaryKeys;
+
+    private final Map<String, String> partitionDesc;
+
+    private final String tableSchema;
+
+    public LakeSoulSplit(SplitDesc splitDesc, long start, long length, long fileLength, String[] hosts,
+                         List<String> partitionValues) {
         super(new Path(splitDesc.getFilePaths().get(0)), start, length, fileLength, hosts, partitionValues);
         this.paths = splitDesc.getFilePaths();
         this.primaryKeys = splitDesc.getPrimaryKeys();
@@ -55,13 +62,5 @@ public class LakeSoulSplit extends FileSplit {
         this.partitionDesc = partitionDesc;
         this.tableSchema = tableSchema;
     }
-
-    final private List<String> paths;
-
-    final private List<String> primaryKeys;
-
-    final private Map<String, String> partitionDesc;
-
-    final private String tableSchema;
 }
 

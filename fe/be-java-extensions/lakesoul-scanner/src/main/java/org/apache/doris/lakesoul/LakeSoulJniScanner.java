@@ -17,21 +17,24 @@
 
 package org.apache.doris.lakesoul;
 
+import org.apache.doris.common.jni.vec.ScanPredicate;
+import org.apache.doris.lakesoul.arrow.LakeSoulArrowJniScanner;
+import org.apache.doris.lakesoul.parquet.ParquetFilter;
+
 import com.dmetasoul.lakesoul.LakeSoulArrowReader;
 import com.dmetasoul.lakesoul.lakesoul.io.NativeIOReader;
 import com.google.common.base.Preconditions;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.doris.common.jni.vec.ScanPredicate;
-import org.apache.doris.lakesoul.arrow.LakeSoulArrowJniScanner;
-import org.apache.doris.lakesoul.parquet.ParquetFilter;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
-
-import static org.apache.doris.lakesoul.LakeSoulUtils.*;
 
 public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
 
@@ -59,19 +62,19 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         nativeIOReader.setBatchSize(batchSize);
 
         // add files
-        for (String file : params.get(FILE_NAMES).split(LIST_DELIM)) {
+        for (String file : params.get(LakeSoulUtils.FILE_NAMES).split(LakeSoulUtils.LIST_DELIM)) {
             nativeIOReader.addFile(file);
         }
 
         // set primary keys
-        String primaryKeys = params.getOrDefault(PRIMARY_KEYS, "");
+        String primaryKeys = params.getOrDefault(LakeSoulUtils.PRIMARY_KEYS, "");
         if (!primaryKeys.isEmpty()) {
             nativeIOReader.setPrimaryKeys(
-                Arrays.stream(primaryKeys.split(LIST_DELIM)).collect(Collectors.toList()));
+                    Arrays.stream(primaryKeys.split(LakeSoulUtils.LIST_DELIM)).collect(Collectors.toList()));
         }
 
-        Schema schema = Schema.fromJSON(params.get(SCHEMA_JSON));
-        String[] requiredFieldNames = params.get(REQUIRED_FIELDS).split(LIST_DELIM);
+        Schema schema = Schema.fromJSON(params.get(LakeSoulUtils.SCHEMA_JSON));
+        String[] requiredFieldNames = params.get(LakeSoulUtils.REQUIRED_FIELDS).split(LakeSoulUtils.LIST_DELIM);
 
         List<Field> requiredFields = new ArrayList<>();
         for (String fieldName : requiredFieldNames) {
@@ -83,9 +86,12 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         nativeIOReader.setSchema(requiredSchema);
 
         HashSet<String> partitionColumn = new HashSet<>();
-        for (String partitionKV:params.getOrDefault(PARTITION_DESC, "").split(LIST_DELIM)) {
-            if (partitionKV.isEmpty()) break;
-            String[] kv = partitionKV.split(PARTITIONS_KV_DELIM);
+        for (String partitionKV : params.getOrDefault(LakeSoulUtils.PARTITION_DESC, "")
+                .split(LakeSoulUtils.LIST_DELIM)) {
+            if (partitionKV.isEmpty()) {
+                break;
+            }
+            String[] kv = partitionKV.split(LakeSoulUtils.PARTITIONS_KV_DELIM);
             Preconditions.checkArgument(kv.length == 2, "Invalid partition column = " + partitionKV);
             partitionColumn.add(kv[0]);
         }

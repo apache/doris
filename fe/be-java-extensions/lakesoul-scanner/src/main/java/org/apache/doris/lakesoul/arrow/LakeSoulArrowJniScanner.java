@@ -17,18 +17,34 @@
 
 package org.apache.doris.lakesoul.arrow;
 
-import org.apache.arrow.memory.ArrowBuf;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.*;
-import org.apache.arrow.vector.complex.ListVector;
-import org.apache.arrow.vector.complex.StructVector;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.VectorTable;
+
+import org.apache.arrow.memory.ArrowBuf;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.DateDayVector;
+import org.apache.arrow.vector.DecimalVector;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.TimeStampMicroTZVector;
+import org.apache.arrow.vector.TimeStampMicroVector;
+import org.apache.arrow.vector.TimeStampMilliTZVector;
+import org.apache.arrow.vector.TimeStampMilliVector;
+import org.apache.arrow.vector.TimeStampNanoTZVector;
+import org.apache.arrow.vector.TimeStampNanoVector;
+import org.apache.arrow.vector.TimeStampSecTZVector;
+import org.apache.arrow.vector.TimeStampSecVector;
+import org.apache.arrow.vector.TimeStampVector;
+import org.apache.arrow.vector.ValueVector;
+import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.ListVector;
+import org.apache.arrow.vector.complex.StructVector;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
@@ -53,14 +69,6 @@ public class LakeSoulArrowJniScanner extends JniScanner {
     public LakeSoulArrowJniScanner(BufferAllocator allocator) {
         metaAddress = 0;
         withAllocator(allocator);
-    }
-
-    // for test
-    public LakeSoulArrowJniScanner(BufferAllocator allocator, VectorSchemaRoot batch) {
-        this(allocator);
-        batchSize = batch.getRowCount();
-        initTableInfo(batch.getSchema(), batchSize);
-        vectorTable = loadVectorSchemaRoot(batch);
     }
 
     public void withAllocator(BufferAllocator allocator) {
@@ -93,12 +101,12 @@ public class LakeSoulArrowJniScanner extends JniScanner {
         String[] requiredFields = new String[fields.size()];
         for (int i = 0; i < fields.size(); i++) {
             columnTypes[i] =
-                ColumnType.parseType(fields.get(i).getName(), ArrowUtils.hiveTypeFromArrowField(fields.get(i)));
+                    ColumnType.parseType(fields.get(i).getName(), ArrowUtils.hiveTypeFromArrowField(fields.get(i)));
             requiredFields[i] = fields.get(i).getName();
         }
-        ScanPredicate[] predicates = new ScanPredicate[0];
+        predicates = new ScanPredicate[0];
 
-        super.initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+        super.initTableInfo(columnTypes, requiredFields, batchSize);
     }
 
     protected void initTableInfo(Map<String, String> params) {
@@ -108,8 +116,8 @@ public class LakeSoulArrowJniScanner extends JniScanner {
         String[] requiredFields = new String[fields.size()];
         for (int i = 0; i < fields.size(); i++) {
             columnTypes[i] =
-                ColumnType.parseType(fields.get(i).getName(),
-                    ArrowUtils.hiveTypeFromArrowField(fields.get(i)));
+                    ColumnType.parseType(fields.get(i).getName(),
+                            ArrowUtils.hiveTypeFromArrowField(fields.get(i)));
             requiredFields[i] = fields.get(i).getName();
         }
 
@@ -135,9 +143,9 @@ public class LakeSoulArrowJniScanner extends JniScanner {
                                           ValueVector valueVector) {
         // nullMap
         long
-            validityBuffer =
-            ArrowUtils.loadValidityBuffer(valueVector.getValidityBuffer(), batchSize,
-                valueVector.getField().isNullable());
+                validityBuffer =
+                ArrowUtils.loadValidityBuffer(valueVector.getValidityBuffer(), batchSize,
+                        valueVector.getField().isNullable());
         extraOffHeap.add(validityBuffer);
         OffHeap.putLong(null, metaAddress + (offset++) * 8, validityBuffer);
 
@@ -164,7 +172,7 @@ public class LakeSoulArrowJniScanner extends JniScanner {
                     continue;
                 }
                 offset = fillMetaAddressVector(batchSize, columnType.getChildTypes().get(i), metaAddress, offset,
-                    childrenVector);
+                        childrenVector);
             }
 
         } else if (columnType.isStringType()) {
@@ -180,17 +188,17 @@ public class LakeSoulArrowJniScanner extends JniScanner {
             if (valueVector instanceof BitVector) {
                 addr = ArrowUtils.reloadBitVectorBuffer(valueVector.getDataBuffer(), batchSize);
             } else if (valueVector instanceof TimeStampVector) {
-                if (valueVector instanceof TimeStampSecVector ||
-                    valueVector instanceof TimeStampSecTZVector) {
+                if (valueVector instanceof TimeStampSecVector
+                        || valueVector instanceof TimeStampSecTZVector) {
                     addr = ArrowUtils.reloadTimeStampSecVectorBuffer(valueVector.getDataBuffer(), batchSize);
-                } else if (valueVector instanceof TimeStampMilliVector ||
-                    valueVector instanceof TimeStampMilliTZVector) {
+                } else if (valueVector instanceof TimeStampMilliVector
+                        || valueVector instanceof TimeStampMilliTZVector) {
                     addr = ArrowUtils.reloadTimeStampMilliVectorBuffer(valueVector.getDataBuffer(), batchSize);
-                } else if (valueVector instanceof TimeStampMicroVector ||
-                    valueVector instanceof TimeStampMicroTZVector) {
+                } else if (valueVector instanceof TimeStampMicroVector
+                        || valueVector instanceof TimeStampMicroTZVector) {
                     addr = ArrowUtils.reloadTimeStampMicroVectorBuffer(valueVector.getDataBuffer(), batchSize);
-                } else if (valueVector instanceof TimeStampNanoVector ||
-                    valueVector instanceof TimeStampNanoTZVector) {
+                } else if (valueVector instanceof TimeStampNanoVector
+                        || valueVector instanceof TimeStampNanoTZVector) {
                     addr = ArrowUtils.reloadTimeStampNanoVectorBuffer(valueVector.getDataBuffer(), batchSize);
                 }
             } else if (valueVector instanceof DateDayVector) {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.lakesoul;
 
-import com.dmetasoul.lakesoul.meta.DBUtil;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -25,9 +24,8 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.dmetasoul.lakesoul.meta.DBManager;
+import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,22 +33,20 @@ import java.util.Map;
 
 public class LakeSoulExternalCatalog extends ExternalCatalog {
 
-    private static final Logger LOG = LogManager.getLogger(LakeSoulExternalCatalog.class);
-
-    private DBManager dbManager ;
+    private DBManager dbManager;
 
     public LakeSoulExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                    String comment) {
         super(catalogId, name, InitCatalogLog.Type.LAKESOUL, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
-        if(props.containsKey(DBUtil.urlKey)){
+        if (props.containsKey(DBUtil.urlKey)) {
             System.setProperty(DBUtil.urlKey, props.get(DBUtil.urlKey));
         }
-        if(props.containsKey(DBUtil.usernameKey)){
+        if (props.containsKey(DBUtil.usernameKey)) {
             System.setProperty(DBUtil.usernameKey, props.get(DBUtil.usernameKey));
         }
-        if(props.containsKey(DBUtil.passwordKey)){
+        if (props.containsKey(DBUtil.passwordKey)) {
             System.setProperty(DBUtil.passwordKey, props.get(DBUtil.passwordKey));
         }
         dbManager = new DBManager();
@@ -76,8 +72,7 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        TableInfo tableInfo =
-                dbManager.getTableInfoByNameAndNamespace(dbName, tblName);
+        TableInfo tableInfo = dbManager.getTableInfoByNameAndNamespace(dbName, tblName);
 
         return null != tableInfo;
     }

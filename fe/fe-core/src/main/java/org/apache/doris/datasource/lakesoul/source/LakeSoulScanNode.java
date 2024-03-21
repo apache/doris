@@ -15,26 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external.lakesoul;
+package org.apache.doris.datasource.lakesoul.source;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
-import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
-import com.dmetasoul.lakesoul.meta.jnr.NativeMetadataJavaClient;
-import com.dmetasoul.lakesoul.meta.jnr.SplitDesc;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.LakeSoulExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.external.FileQueryScanNode;
-import org.apache.doris.planner.external.TableFormatType;
-import org.apache.doris.planner.external.hudi.HudiSplit;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -44,14 +35,14 @@ import org.apache.doris.thrift.TLakeSoulFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.dmetasoul.lakesoul.meta.DBUtil;
-import com.dmetasoul.lakesoul.meta.DataFileInfo;
-import com.dmetasoul.lakesoul.meta.DataOperation;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
-import lombok.Setter;
-import org.apache.hadoop.fs.Path;
-import shade.doris.hive.com.google.common.collect.Lists;
+import com.dmetasoul.lakesoul.meta.jnr.NativeMetadataJavaClient;
+import com.dmetasoul.lakesoul.meta.jnr.SplitDesc;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LakeSoulScanNode extends FileQueryScanNode {
@@ -59,9 +50,6 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     protected final LakeSoulExternalTable lakeSoulExternalTable;
 
     protected final TableInfo table;
-
-    @Setter
-    private LogicalFileScan.SelectedPartitions selectedPartitions = null;
 
     public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv);
@@ -77,8 +65,8 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileType getLocationType(String location) throws UserException {
-        return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
-            new DdlException("Unknown file location " + location + " for lakesoul table "));
+        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
+                new DdlException("Unknown file location " + location + " for lakesoul table "));
     }
 
     @Override
@@ -116,18 +104,20 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         fileDesc.setPrimaryKeys(lakeSoulSplit.getPrimaryKeys());
         fileDesc.setTableSchema(lakeSoulSplit.getTableSchema());
         fileDesc.setPartitionDescs(lakeSoulSplit.getPartitionDesc()
-            .entrySet().stream().map(entry ->
-                String.format("%s=%s", entry.getKey(), entry.getValue())).collect(Collectors.toList()));
+                .entrySet().stream().map(entry ->
+                        String.format("%s=%s", entry.getKey(), entry.getValue())).collect(Collectors.toList()));
         tableFormatFileDesc.setLakesoulParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
     protected List<Split> getSplits() throws UserException {
         List<Split> splits = new ArrayList<>();
-        List<SplitDesc> splitDescs = NativeMetadataJavaClient.getInstance().createSplitDescArray(this.table.getTableName(), this.table.getTableNamespace());
+        List<SplitDesc> splitDescs =
+                NativeMetadataJavaClient.getInstance()
+                        .createSplitDescArray(this.table.getTableName(), this.table.getTableNamespace());
         for (SplitDesc sd : splitDescs) {
-            LakeSoulSplit lakeSoulSplit =  new LakeSoulSplit(
-                sd, 0, 0, 0, new String[0], null
+            LakeSoulSplit lakeSoulSplit = new LakeSoulSplit(
+                    sd, 0, 0, 0, new String[0], null
             );
             lakeSoulSplit.setTableFormatType(TableFormatType.LAKESOUL);
             splits.add(lakeSoulSplit);

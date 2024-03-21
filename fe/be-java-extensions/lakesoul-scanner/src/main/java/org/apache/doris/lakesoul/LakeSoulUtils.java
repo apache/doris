@@ -26,5 +26,4 @@ public class LakeSoulUtils {
 
     public static String LIST_DELIM = ";";
     public static String PARTITIONS_KV_DELIM = "=";
-
 }

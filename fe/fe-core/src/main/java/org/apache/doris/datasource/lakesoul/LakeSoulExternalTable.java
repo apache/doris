@@ -15,28 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.external;
+package org.apache.doris.datasource.lakesoul;
+
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.thrift.TLakeSoulTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
-import org.apache.arrow.vector.types.FloatingPointPrecision;
+import org.apache.arrow.util.Preconditions;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.doris.catalog.*;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
-import org.apache.doris.thrift.TLakeSoulTable;
-import org.apache.doris.thrift.TTableDescriptor;
-import org.apache.doris.thrift.TTableType;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
-import static org.apache.arrow.util.Preconditions.checkArgument;
 
 public class LakeSoulExternalTable extends ExternalTable {
 
@@ -62,8 +66,10 @@ public class LakeSoulExternalTable extends ExternalTable {
                 case 64:
                     return Type.BIGINT;
                 default:
-                    throw new IllegalArgumentException("Invalid integer bit width: " + type.getBitWidth() +
-                        " for LakeSoul table: " + getTableIdentifier());
+                    throw new IllegalArgumentException("Invalid integer bit width: "
+                            + type.getBitWidth()
+                            + " for LakeSoul table: "
+                            + getTableIdentifier());
             }
         } else if (dt instanceof ArrowType.FloatingPoint) {
             ArrowType.FloatingPoint type = (ArrowType.FloatingPoint) dt;
@@ -73,14 +79,17 @@ public class LakeSoulExternalTable extends ExternalTable {
                 case DOUBLE:
                     return Type.DOUBLE;
                 default:
-                    throw new IllegalArgumentException("Invalid floating point precision: " + type.getPrecision() +
-                        " for LakeSoul table: " + getTableIdentifier());
+                    throw new IllegalArgumentException("Invalid floating point precision: "
+                            + type.getPrecision()
+                            + " for LakeSoul table: "
+                            + getTableIdentifier());
             }
         } else if (dt instanceof ArrowType.Utf8) {
             return Type.STRING;
         } else if (dt instanceof ArrowType.Decimal) {
             ArrowType.Decimal decimalType = (ArrowType.Decimal) dt;
-            return ScalarType.createDecimalType(PrimitiveType.DECIMAL64, decimalType.getPrecision(), decimalType.getScale());
+            return ScalarType.createDecimalType(PrimitiveType.DECIMAL64, decimalType.getPrecision(),
+                    decimalType.getScale());
         } else if (dt instanceof ArrowType.Date) {
             return ScalarType.createDateV2Type();
         } else if (dt instanceof ArrowType.Timestamp) {
@@ -99,19 +108,24 @@ public class LakeSoulExternalTable extends ExternalTable {
                 case NANOSECOND:
                     scale = 9;
                     break;
+                default:
+                    break;
             }
             return ScalarType.createDatetimeV2Type(scale);
         } else if (dt instanceof ArrowType.List) {
             List<Field> children = field.getChildren();
-            checkArgument(children.size() == 1,
-                "Lists have one child Field. Found: %s", children.isEmpty() ? "none" : children);
+            Preconditions.checkArgument(children.size() == 1,
+                    "Lists have one child Field. Found: %s", children.isEmpty() ? "none" : children);
             return ArrayType.create(arrowFiledToDorisType(children.get(0)), children.get(0).isNullable());
         } else if (dt instanceof ArrowType.Struct) {
             List<Field> children = field.getChildren();
             return new StructType(children.stream().map(this::arrowFiledToDorisType).collect(Collectors.toList()));
         }
-        throw new IllegalArgumentException("Cannot transform type " + dt + " to doris type" +
-            " for LakeSoul table " + getTableIdentifier());
+        throw new IllegalArgumentException("Cannot transform type "
+                + dt
+                + " to doris type"
+                + " for LakeSoul table "
+                + getTableIdentifier());
     }
 
     @Override
@@ -119,7 +133,7 @@ public class LakeSoulExternalTable extends ExternalTable {
         List<Column> schema = getFullSchema();
         TLakeSoulTable tLakeSoulTable = new TLakeSoulTable(dbName, name, new HashMap<>());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
-            getName(), dbName);
+                getName(), dbName);
         tTableDescriptor.setLakesoulTable(tLakeSoulTable);
         return tTableDescriptor;
 
@@ -140,12 +154,15 @@ public class LakeSoulExternalTable extends ExternalTable {
 
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.getFields().size());
         for (Field field : schema.getFields()) {
-            boolean isKey = partitionKeys.primaryKeys.contains(field.getName()) || partitionKeys.rangeKeys.contains(field.getName());
+            boolean
+                    isKey =
+                    partitionKeys.primaryKeys.contains(field.getName())
+                            || partitionKeys.rangeKeys.contains(field.getName());
             tmpSchema.add(new Column(field.getName(), arrowFiledToDorisType(field),
-                isKey,
-                null, field.isNullable(),
+                    isKey,
+                    null, field.isNullable(),
                     field.getMetadata().getOrDefault("comment", null),
-                true, schema.getFields().indexOf(field)));
+                    true, schema.getFields().indexOf(field)));
         }
         return tmpSchema;
     }

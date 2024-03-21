@@ -15,36 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.external;
+package org.apache.doris.datasource.lakesoul;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.Comparator;
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class LakeSoulExternalDatabase extends ExternalDatabase<LakeSoulExternalTable> {
-
-    private static final Logger LOG = LogManager.getLogger(LakeSoulExternalDatabase.class);
 
     public LakeSoulExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
         super(extCatalog, id, name, InitDatabaseLog.Type.LAKESOUL);
     }
 
     @Override
-    protected LakeSoulExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected LakeSoulExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new LakeSoulExternalTable(tblId, tableName, name, (LakeSoulExternalCatalog) catalog);
-    }
-
-    @Override
-    public List<LakeSoulExternalTable> getTablesOnIdOrder() {
-        return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
     }
 }
 
