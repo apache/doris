@@ -144,10 +144,8 @@ public class StreamLoadPlanner {
         boolean negative = taskInfo.getNegative();
         // get partial update related info
         boolean isPartialUpdate = taskInfo.isPartialUpdate();
-        if (isPartialUpdate && (
-                !destTable.getKeysType().isAggregationFamily() || (destTable.getKeysType() == KeysType.UNIQUE_KEYS
-                        && !destTable.getEnableUniqueKeyMergeOnWrite())
-        )) {
+        if (isPartialUpdate && (!destTable.getKeysType().isAggregationFamily() || (
+                destTable.getKeysType() == KeysType.UNIQUE_KEYS && !destTable.getEnableUniqueKeyMergeOnWrite()))) {
             throw new UserException("Only unique key merge on write or agg key support partial update");
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
@@ -374,10 +372,8 @@ public class StreamLoadPlanner {
         boolean negative = taskInfo.getNegative();
         // get partial update related info
         boolean isPartialUpdate = taskInfo.isPartialUpdate();
-        if (isPartialUpdate && (
-                !destTable.getKeysType().isAggregationFamily() || (destTable.getKeysType() == KeysType.UNIQUE_KEYS
-                        && !destTable.getEnableUniqueKeyMergeOnWrite())
-        )) {
+        if (isPartialUpdate && (!destTable.getKeysType().isAggregationFamily() || (
+                destTable.getKeysType() == KeysType.UNIQUE_KEYS && !destTable.getEnableUniqueKeyMergeOnWrite()))) {
             throw new UserException("Only unique key merge on write or agg key support partial update");
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();

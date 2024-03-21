@@ -539,8 +539,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitionSpec.second, // partition names
                 isAutoDetect,
                 isOverwrite,
-                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate() ||
-                        ConnectContext.get().getSessionVariable().isEnableAggregateKeyPartialUpdate(),
+                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate()
+                        || ConnectContext.get().getSessionVariable().isEnableAggregateKeyPartialUpdate(),
                 DMLCommandType.INSERT,
                 plan);
         LogicalPlan command;
