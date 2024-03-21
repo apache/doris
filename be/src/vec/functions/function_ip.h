@@ -830,41 +830,26 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        ColumnWithTypeAndName& ip_column = block.get_by_position(arguments[0]);
-        ColumnWithTypeAndName& cidr_column = block.get_by_position(arguments[1]);
+        const auto& [addr_column, addr_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [cidr_column, cidr_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        const ColumnPtr& ip_column_ptr = ip_column.column->convert_to_full_column_if_const();
-        const ColumnPtr& cidr_column_ptr = cidr_column.column->convert_to_full_column_if_const();
+        const auto* col_addr_column = check_and_get_column<ColumnIPv4>(addr_column.get());
+        const auto* col_cidr_column = check_and_get_column<ColumnInt16>(cidr_column.get());
+        ColumnPtr col_res = nullptr;
 
-        const auto* col_ip_column = check_and_get_column<ColumnVector<IPv4>>(ip_column_ptr.get());
-        const auto* col_cidr_column =
-                check_and_get_column<ColumnVector<Int16>>(cidr_column_ptr.get());
-
-        const typename ColumnVector<IPv4>::Container& vec_ip_input = col_ip_column->get_data();
-        const ColumnInt16::Container& vec_cidr_input = col_cidr_column->get_data();
-        auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
-        auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
-
-        ColumnIPv4::Container& vec_lower_range_output = col_lower_range_output->get_data();
-        ColumnIPv4::Container& vec_upper_range_output = col_upper_range_output->get_data();
-
-        static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto ip = vec_ip_input[i];
-            auto cidr = vec_cidr_input[i];
-            if (0 <= cidr && cidr <= max_cidr_mask) {
-                auto range = apply_cidr_mask(ip, cidr);
-                vec_lower_range_output[i] = range.first;
-                vec_upper_range_output[i] = range.second;
-            } else {
-                return Status::InvalidArgument("Invalid row {}, cidr is out of range", i);
-            }
+        if (!addr_const && cidr_const) {
+            Int16 cidr = col_cidr_column->get_int(0);
+            col_res = vector_scalar(*col_addr_column, cidr, input_rows_count);
+        } else if (addr_const && !cidr_const) {
+            IPv4 addr = col_addr_column->get_int(0);
+            col_res = scalar_vector(addr, *col_cidr_column, input_rows_count);
+        } else {
+            col_res = vector_vector(*col_addr_column, *col_cidr_column, input_rows_count);
         }
 
-        block.replace_by_position(
-                result, ColumnStruct::create(Columns {std::move(col_lower_range_output),
-                                                      std::move(col_upper_range_output)}));
+        block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 
@@ -883,11 +868,92 @@ private:
         return {lower, upper};
     }
 
-    static void vector_vector() {}
+    static ColumnPtr vector_vector(const ColumnIPv4& addr_column, const ColumnInt16& cidr_column,
+                                   size_t input_rows_count) {
+        DCHECK(addr_column.size() == input_rows_count);
+        DCHECK(cidr_column.size() == input_rows_count);
 
-    static void vector_scalar() {}
+        static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
 
-    static void scalar_vector() {}
+        const auto& vec_addr_input = addr_column.get_data();
+        const auto& vec_cidr_input = cidr_column.get_data();
+        auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
+        auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
+        auto& vec_lower_range_output = col_lower_range_output->get_data();
+        auto& vec_upper_range_output = col_upper_range_output->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto addr = vec_addr_input[i];
+            auto cidr = vec_cidr_input[i];
+            if (0 <= cidr && cidr <= max_cidr_mask) {
+                auto range = apply_cidr_mask(addr, cidr);
+                vec_lower_range_output[i] = range.first;
+                vec_upper_range_output[i] = range.second;
+            } else {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid row {}, cidr is out of range",
+                                i);
+            }
+        }
+
+        return ColumnStruct::create(
+                Columns {std::move(col_lower_range_output), std::move(col_upper_range_output)});
+    }
+
+    static ColumnPtr vector_scalar(const ColumnIPv4& addr_column, Int16 cidr,
+                                   size_t input_rows_count) {
+        DCHECK(addr_column.size() == input_rows_count);
+
+        static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
+
+        if (cidr < 0 || cidr > max_cidr_mask) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                            std::to_string(cidr));
+        }
+
+        const auto& vec_addr_input = addr_column.get_data();
+        auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
+        auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
+        auto& vec_lower_range_output = col_lower_range_output->get_data();
+        auto& vec_upper_range_output = col_upper_range_output->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto addr = vec_addr_input[i];
+            auto range = apply_cidr_mask(addr, cidr);
+            vec_lower_range_output[i] = range.first;
+            vec_upper_range_output[i] = range.second;
+        }
+
+        return ColumnStruct::create(
+                Columns {std::move(col_lower_range_output), std::move(col_upper_range_output)});
+    }
+
+    static ColumnPtr scalar_vector(IPv4 addr, const ColumnInt16& cidr_column,
+                                   size_t input_rows_count) {
+        DCHECK(cidr_column.size() == input_rows_count);
+
+        static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
+
+        const auto& vec_cidr_input = cidr_column.get_data();
+        auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
+        auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
+        auto& vec_lower_range_output = col_lower_range_output->get_data();
+        auto& vec_upper_range_output = col_upper_range_output->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto cidr = vec_cidr_input[i];
+            if (0 <= cidr && cidr <= max_cidr_mask) {
+                auto range = apply_cidr_mask(addr, cidr);
+                vec_lower_range_output[i] = range.first;
+                vec_upper_range_output[i] = range.second;
+            } else {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid row {}, cidr is out of range",
+                                i);
+            }
+        }
+
+        return ColumnStruct::create(
+                Columns {std::move(col_lower_range_output), std::move(col_upper_range_output)});
+    }
 };
 
 class FunctionIPv6CIDRToRange : public IFunction {
