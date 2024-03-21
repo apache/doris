@@ -419,7 +419,8 @@ public class BindExpression implements AnalysisRuleFactory {
                 if (boundInAggFuncs.size() == 1) {
                     return boundInAggFuncs;
                 }
-                return analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
+
+                return bindByAggChild.get().bindSlot(analyzer, unboundSlot);
             };
         });
 
