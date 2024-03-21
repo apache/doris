@@ -18,17 +18,6 @@
 import org.junit.Assert;
 
 suite("test_account") {
-    // todo: test account management, such as role, user, grant, revoke ...
-    sql "show roles"
-
-    try {
-        sql "show grants for 'non_existent_user_1'"
-        fail()
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains('not exist'))
-    }
-
     // test comment
     def user = "test_account_comment_user";
     sql """drop user if exists ${user}"""
@@ -44,7 +33,11 @@ suite("test_account") {
     assertTrue(user_alter.toString().contains("test_account_comment_user_comment_alter"))
     // drop user
     sql """drop user if exists ${user}"""
-    def user_drop = sql "show grants for ${user}"
-    logger.info("user_drop: " + user_drop.toString())
-    assertFalse(user_drop.toString().contains("test_account_comment_user_comment_alter"))
+    try {
+        sql "show grants for ${user}"
+        fail()
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains('not exist'))
+    }
 }
