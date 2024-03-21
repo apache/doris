@@ -150,6 +150,7 @@ HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
+BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
@@ -382,6 +383,24 @@ if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
     fi
 fi
 
+if [[ -n "${DISABLE_BUILD_UI}" ]]; then
+    if [[ "${DISABLE_BUILD_UI}" == "ON" ]]; then
+        BUILD_UI=0
+    fi
+fi
+
+if [[ -n "${DISABLE_BUILD_SPARK_DPP}" ]]; then
+    if [[ "${DISABLE_BUILD_SPARK_DPP}" == "ON" ]]; then
+        BUILD_SPARK_DPP=0
+    fi
+fi
+
+if [[ -n "${DISABLE_BUILD_HIVE_UDF}" ]]; then
+    if [[ "${DISABLE_BUILD_HIVE_UDF}" == "ON" ]]; then
+        BUILD_HIVE_UDF=0
+    fi
+fi
+
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
@@ -574,7 +593,9 @@ function build_ui() {
 
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
-    build_ui
+    if [[ "${BUILD_UI}" -eq 1 ]]; then
+        build_ui
+    fi
 fi
 
 # Clean and build Frontend
