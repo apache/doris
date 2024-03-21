@@ -19,7 +19,6 @@ suite("test_agg_state_nereids") {
     sql "set enable_agg_state=true"
     sql "set enable_nereids_planner=true;"
     sql "set enable_fallback_to_original_planner=false;"
-    sql "set enable_fold_constant_by_be=false;"
 
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """
