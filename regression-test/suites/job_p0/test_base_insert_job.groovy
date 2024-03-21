@@ -274,33 +274,4 @@ suite("test_base_insert_job") {
     def jobCountRsp = sql """select count(1) from jobs("type"="insert") where name in ('JOB','DO','SCHEDULE','AT','STARTS','ENDS')"""
     assert jobCountRsp.get(0).get(0) == 6
 
-    sql """
-        DROP JOB IF EXISTS where jobname =  '${jobName}'
-    """
-    sql """
-       DROP JOB IF EXISTS where jobname =  'JOB'
-    """
-    sql """
-       DROP JOB IF EXISTS where jobname =  'DO'
-    """
-    sql """
-       DROP JOB IF EXISTS where jobname =  'AT'
-    """
-    sql """
-       DROP JOB IF EXISTS where jobname =  'SCHEDULE'
-    """
-    sql """
-       DROP JOB IF EXISTS where jobname =  'STARTS'
-    """
-    sql """
-       DROP JOB IF EXISTS where jobname =  'ENDS'
-    """
-    sql """
-        DROP JOB IF EXISTS where jobname =  '${jobMixedName}'
-    """
-
-    sql """
-        DROP JOB IF EXISTS where jobname =  '${jobName}'
-    """
-
 }
