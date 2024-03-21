@@ -59,7 +59,7 @@ public class AlterRoleStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER ROLE ");
         sb.append(role);
-        sb.append(" MODIFY COMMENT \"").append(comment).append("\"");
+        sb.append(" COMMENT \"").append(comment).append("\"");
         return sb.toString();
     }
 }

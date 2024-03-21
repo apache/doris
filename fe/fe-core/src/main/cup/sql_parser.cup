@@ -1899,7 +1899,7 @@ create_stmt ::=
     {:
         RESULT = new CreateRoleStmt(ifNotExists, role, comment);
     :}
-    | KW_ALTER KW_ROLE ident:role KW_MODIFY KW_COMMENT STRING_LITERAL:comment
+    | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new AlterRoleStmt(role, comment);
     :}
