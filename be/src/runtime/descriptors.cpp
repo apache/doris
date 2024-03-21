@@ -211,6 +211,17 @@ std::string MaxComputeTableDescriptor::debug_string() const {
     return out.str();
 }
 
+TrinoConnectorTableDescriptor::TrinoConnectorTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+TrinoConnectorTableDescriptor::~TrinoConnectorTableDescriptor() = default;
+
+std::string TrinoConnectorTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "TrinoConnectorTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
 EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
 EsTableDescriptor::~EsTableDescriptor() = default;
