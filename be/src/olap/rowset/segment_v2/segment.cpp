@@ -74,6 +74,8 @@
 namespace doris {
 
 namespace segment_v2 {
+
+bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
 class InvertedIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -94,9 +96,12 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
           _tablet_schema(tablet_schema),
-          _segment_meta_mem_tracker(StorageEngine::instance()->segment_meta_mem_tracker()) {}
+          _segment_meta_mem_tracker(StorageEngine::instance()->segment_meta_mem_tracker()) {
+    g_total_segment_num << 1;
+}
 
 Segment::~Segment() {
+    g_total_segment_num << -1;
 #ifndef BE_TEST
     _segment_meta_mem_tracker->release(_meta_mem_usage);
 #endif
