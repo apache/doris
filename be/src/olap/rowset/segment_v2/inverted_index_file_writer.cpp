@@ -142,7 +142,7 @@ Status InvertedIndexFileWriter::close() {
                     auto mem_tracker =
                             std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
                     auto index_file_path = InvertedIndexDescriptor::get_index_file_name(
-                            _index_file_dir / _segment_file_name, index_id, index_suffix);
+                            _segment_file_name, index_id, index_suffix);
                     InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_path);
 
                     auto* index_dir =
