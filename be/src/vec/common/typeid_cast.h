@@ -43,14 +43,8 @@
   */
 template <typename To, typename From>
     requires std::is_reference_v<To>
-To typeid_cast(From& from) {
-    try {
-        if (typeid(from) == typeid(To)) {
-            return static_cast<To>(from);
-        }
-    } catch (const std::exception& e) {
-        throw doris::Exception(doris::ErrorCode::BAD_CAST, e.what());
-    }
+To typeid_cast(From& from) noexcept(false) {
+    if ((typeid(From) == typeid(To)) || (typeid(from) == typeid(To))) return static_cast<To>(from);
 
     throw doris::Exception(doris::ErrorCode::BAD_CAST,
                            "Bad cast from type " + demangle(typeid(from).name()) + " to " +
@@ -58,19 +52,11 @@ To typeid_cast(From& from) {
 }
 
 template <typename To, typename From>
-To typeid_cast(From* from) {
-#ifndef NDEBUG
-    try {
-        if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
-            return static_cast<To>(from);
-        }
-    } catch (const std::exception& e) {
-        throw doris::Exception(doris::ErrorCode::BAD_CAST, e.what());
-    }
-#else
-    if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
+    requires std::is_pointer_v<To>
+To typeid_cast(From* from) noexcept {
+    if ((typeid(From) == typeid(std::remove_pointer_t<To>)) ||
+        (from && typeid(*from) == typeid(std::remove_pointer_t<To>)))
         return static_cast<To>(from);
-    }
-#endif
-    return nullptr;
+    else
+        return nullptr;
 }
