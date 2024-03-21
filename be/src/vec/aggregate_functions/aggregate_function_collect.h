@@ -596,7 +596,7 @@ public:
                                             Arena* arena, const size_t num_rows) const override {
         if constexpr (ShowNull::value) {
             for (size_t i = 0; i != num_rows; ++i) {
-                if (static_cast<AggregateDataPtr>(places[i] + offset)) {
+                if (places[i]) {
                     this->data(places[i] + offset)
                             .deserialize_and_merge(*assert_cast<const IColumn*>(column), i);
                 }
