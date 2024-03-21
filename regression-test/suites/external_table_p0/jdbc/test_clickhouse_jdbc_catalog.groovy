@@ -101,6 +101,32 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
 
             order_qt_dt_with_tz """ select * from dt_with_tz order by id; """
 
+            sql  """create catalog if not exists clickhouse_catalog_test_conn_correct properties(
+                        "type"="jdbc",
+                        "user"="default",
+                        "password"="123456",
+                        "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${clickhouse_port}/doris_test",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver",
+                        "test_connection" = "true"
+                    );
+                 """
+            order_qt_test_conn_correct """ select * from clickhouse_catalog_test_conn_correct.doris_test.type; """
+
+            test {
+                  sql  """create catalog if not exists clickhouse_catalog_test_conn_mistake properties(
+                              "type"="jdbc",
+                              "user"="default",
+                              "password"="1234567",
+                              "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${clickhouse_port}/doris_test",
+                              "driver_url" = "${driver_url}",
+                              "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver",
+                              "test_connection" = "true"
+                          );
+                       """
+                  exception "Test FE Connection to JDBC Failed: Can not connect to jdbc due to error: Code: 516. DB::Exception: default: Authentication failed: password is incorrect, or there is no user with such name."
+            }
+
         }finally {
 			res_dbs_log = sql "show databases;"
 			for(int i = 0;i < res_dbs_log.size();i++) {
@@ -108,7 +134,9 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
 				log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
 			}
 		}
-        
+
         sql """ drop catalog if exists ${catalog_name} """
+        sql """ drop catalog if exists clickhouse_catalog_test_conn_correct """
+        sql """ drop catalog if exists clickhouse_catalog_test_conn_mistake """
     }
 }

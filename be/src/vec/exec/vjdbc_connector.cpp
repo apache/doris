@@ -156,7 +156,11 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_jdbc_password(_conn_param.passwd);
         ctor_params.__set_jdbc_driver_class(_conn_param.driver_class);
         ctor_params.__set_driver_path(local_location);
-        ctor_params.__set_batch_size(read ? state->batch_size() : 0);
+        if (state == nullptr) {
+            ctor_params.__set_batch_size(read ? 1 : 0);
+        } else {
+            ctor_params.__set_batch_size(read ? state->batch_size() : 0);
+        }
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
         ctor_params.__set_table_type(_conn_param.table_type);
         ctor_params.__set_connection_pool_min_size(_conn_param.connection_pool_min_size);
@@ -183,6 +187,23 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _executor_obj, &_executor_obj));
     _is_open = true;
     return Status::OK();
+}
+
+Status JdbcConnector::test_connection() {
+    RETURN_IF_ERROR(open(nullptr, true));
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_test_connection_id);
+    return JniUtil::GetJniExceptionMsg(env);
+}
+
+Status JdbcConnector::clean_datasource() {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_clean_datasource_id);
+    return JniUtil::GetJniExceptionMsg(env);
 }
 
 Status JdbcConnector::query() {
@@ -840,6 +861,10 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 JDBC_EXECUTOR_TRANSACTION_SIGNATURE, _executor_abort_trans_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "getResultColumnTypeNames",
                                 JDBC_EXECUTOR_GET_TYPES_SIGNATURE, _executor_get_types_id));
+    RETURN_IF_ERROR(
+            register_id(_executor_clazz, "testConnection", "()V", _executor_test_connection_id));
+    RETURN_IF_ERROR(
+            register_id(_executor_clazz, "cleanDataSource", "()V", _executor_clean_datasource_id));
     return Status::OK();
 }
 
