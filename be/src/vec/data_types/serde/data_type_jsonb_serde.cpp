@@ -112,7 +112,7 @@ Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice
 
 void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                arrow::ArrayBuilder* array_builder, int start,
-                                               int end) const {
+                                               int end, const cctz::time_zone& ctz) const {
     const auto& string_column = assert_cast<const ColumnString&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {

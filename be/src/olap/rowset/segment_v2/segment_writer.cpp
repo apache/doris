@@ -533,10 +533,12 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             return st;
         }
 
-        // if the delete sign is marked, it means that the value columns of the row
-        // will not be read. So we don't need to read the missing values from the previous rows.
-        // But we still need to mark the previous row on delete bitmap
-        if (have_delete_sign) {
+        // 1. if the delete sign is marked, it means that the value columns of the row will not
+        //    be read. So we don't need to read the missing values from the previous rows.
+        // 2. the one exception is when there are sequence columns in the table, we need to read
+        //    the sequence columns, otherwise it may cause the merge-on-read based compaction
+        //    policy to produce incorrect results
+        if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
         } else {
@@ -722,7 +724,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             (delete_sign_column_data != nullptr &&
              delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
             for (auto i = 0; i < cids_missing.size(); ++i) {
-                // if the column has default value, fiil it with default value
+                // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
                 const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
                 if (tablet_column.has_default_value()) {
