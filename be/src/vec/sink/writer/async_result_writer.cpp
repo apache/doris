@@ -202,6 +202,9 @@ void AsyncResultWriter::force_close(Status s) {
     if (_dependency && _is_finished()) {
         _dependency->set_ready();
     }
+    if (_finish_dependency) {
+        _finish_dependency->set_ready();
+    }
     _cv.notify_one();
 }
 
