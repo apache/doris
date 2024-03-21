@@ -81,6 +81,11 @@ public:
 
     void set_contain_null() { _contain_null = true; }
 
+    void set_contain_null_and_null_aware() {
+        _contain_null = true;
+        _null_aware = true;
+    }
+
     bool contain_null() const { return _null_aware && _contain_null; }
 
 private:
@@ -166,7 +171,7 @@ public:
                     _bloom_filter_alloced, other_func->_bloom_filter_alloced);
         }
         if (other_func->_bloom_filter->contain_null()) {
-            _bloom_filter->set_contain_null();
+            _bloom_filter->set_contain_null_and_null_aware();
         }
         return _bloom_filter->merge(other_func->_bloom_filter.get());
     }
@@ -195,7 +200,7 @@ public:
         return _bloom_filter->contain_null();
     }
 
-    void set_contain_null() { _bloom_filter->set_contain_null(); }
+    void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
 
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
 

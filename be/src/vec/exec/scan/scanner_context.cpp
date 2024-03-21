@@ -124,6 +124,7 @@ Status ScannerContext::init() {
 #ifndef BE_TEST
     // 3. get thread token
     if (_state->get_query_ctx()) {
+        thread_token = _state->get_query_ctx()->get_token();
         _simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
         if (_simple_scan_scheduler) {
             _should_reset_thread_name = false;
@@ -134,10 +135,12 @@ Status ScannerContext::init() {
 
     if (_parent) {
         COUNTER_SET(_parent->_max_scanner_thread_num, (int64_t)_max_thread_num);
-        _parent->_runtime_profile->add_info_string("UseSpecificThreadToken", "False");
+        _parent->_runtime_profile->add_info_string("UseSpecificThreadToken",
+                                                   thread_token == nullptr ? "False" : "True");
     } else {
         COUNTER_SET(_local_state->_max_scanner_thread_num, (int64_t)_max_thread_num);
-        _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken", "False");
+        _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
+                                                        thread_token == nullptr ? "False" : "True");
     }
 
     // submit `_max_thread_num` running scanners to `ScannerScheduler`

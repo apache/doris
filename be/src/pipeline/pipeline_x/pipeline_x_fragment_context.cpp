@@ -127,6 +127,7 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
+    std::lock_guard<std::mutex> l(_cancel_lock);
     LOG_INFO("PipelineXFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
@@ -1031,7 +1032,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                                        tnode.hash_join_node.is_broadcast_join;
         const auto enable_join_spill = _runtime_state->enable_join_spill();
         if (enable_join_spill && !is_broadcast_join) {
-            const uint32_t partition_count = 16;
+            const uint32_t partition_count = 32;
             op.reset(new PartitionedHashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs,
                                                            partition_count));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
