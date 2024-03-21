@@ -147,7 +147,8 @@ public class SchemaTable extends Table {
                             .column("SCHEMA_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_CHARACTER_SET_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_COLLATION_NAME", ScalarType.createVarchar(32))
-                            .column("SQL_PATH", ScalarType.createVarchar(512)).build()))
+                            .column("SQL_PATH", ScalarType.createVarchar(512))
+                            .column("DEFAULT_ENCRYPTION", ScalarType.createVarchar(3)).build()))
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
