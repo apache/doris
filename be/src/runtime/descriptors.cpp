@@ -628,6 +628,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         case TTableType::MAX_COMPUTE_TABLE:
             desc = pool->add(new MaxComputeTableDescriptor(tdesc));
             break;
+        case TTableType::TRINO_CONNECTOR_TABLE:
+            desc = pool->add(new TrinoConnectorTableDescriptor(tdesc));
+            break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
         }
