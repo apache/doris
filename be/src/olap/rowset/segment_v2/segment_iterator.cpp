@@ -362,6 +362,12 @@ Status SegmentIterator::_lazy_init() {
         _segment->_tablet_schema->cluster_key_idxes().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
+    _is_common_expr_column.resize(_schema->columns().size(), false);
+    if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
+        for (auto expr : _remaining_conjunct_roots) {
+            RETURN_IF_ERROR(_extract_common_expr_columns(expr));
+        }
+    }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
     // Remove rows that have been marked deleted
@@ -814,6 +820,17 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
     return true;
 }
 
+bool SegmentIterator::_check_apply_by_inverted_index(ColumnId col_id) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return false;
+    }
+    if (_inverted_index_iterators[col_id] == nullptr) {
+        //this column without inverted index
+        return false;
+    }
+    return true;
+}
+
 bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return false;
@@ -1203,6 +1220,33 @@ Status SegmentIterator::_apply_inverted_index() {
         }
     }
 
+    // support expr to evaluate inverted index
+    std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
+            iter_map;
+
+    for (auto col_id : _common_expr_columns) {
+        if (_check_apply_by_inverted_index(col_id)) {
+            iter_map[col_id] = std::make_pair(_storage_name_and_type[col_id],
+                                              _inverted_index_iterators[col_id].get());
+        }
+    }
+    for (auto exprCtx : _common_expr_ctxs_push_down) {
+        // _inverted_index_iterators has all column ids which has inverted index
+        // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
+        // if current bitmap is already empty just return
+        if (_row_bitmap.isEmpty()) {
+            break;
+        }
+        roaring::Roaring bitmap = _row_bitmap;
+        const Status st = exprCtx->eval_inverted_indexs(iter_map, num_rows(), &bitmap);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to evaluate index in expr" << exprCtx->root()->debug_string()
+                         << ", error msg: " << st;
+        } else {
+            _row_bitmap &= bitmap;
+        }
+    }
+
     _col_predicates = std::move(remaining_predicates);
     _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     return Status::OK();
@@ -1574,11 +1618,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // Step2: extract columns that can execute expr context
-    _is_common_expr_column.resize(_schema->columns().size(), false);
     if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
-        for (auto expr : _remaining_conjunct_roots) {
-            RETURN_IF_ERROR(_extract_common_expr_columns(expr));
-        }
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema->column_ids()) {

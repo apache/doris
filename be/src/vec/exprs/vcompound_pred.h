@@ -53,6 +53,56 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    bool is_all_ones(const roaring::Roaring& r) {
+        return r.contains(0);
+        for (roaring::RoaringSetBitForwardIterator i = r.begin(); i != r.end(); ++i) {
+            if (*i == 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    //   1. when meet 'or' conjunct: a or b, if b can apply index, return all rows, so b should not be extracted
+    //   2. when meet 'and' conjunct, function with column b can not apply inverted index
+    //      eg. a and hash(b)=1, if b can apply index, but hash(b)=1 is not for index, so b should not be extracted
+    //          but a and array_contains(b, 1), b can be applied inverted index, which b can be extracted
+    Status eval_inverted_index(
+            VExprContext* context,
+            const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+                                                         segment_v2::InvertedIndexIterator*>>&
+                    colId_invertedIndexIter_mapping,
+            uint32_t num_rows, roaring::Roaring* bitmap) const override {
+        if (_op == TExprOpcode::COMPOUND_OR) {
+            for (auto child : _children) {
+                Status st = child->eval_inverted_index(context, colId_invertedIndexIter_mapping,
+                                                       num_rows, bitmap);
+                if (!st.ok()) {
+                    return st;
+                }
+                if (!bitmap->contains(
+                            0)) { // the left expr no need to be extracted by inverted index
+                    return Status::OK();
+                }
+            }
+        } else if (_op == TExprOpcode::COMPOUND_AND) {
+            for (auto child : _children) {
+                Status st = child->eval_inverted_index(context, colId_invertedIndexIter_mapping,
+                                                       num_rows, bitmap);
+                if (!st.ok()) {
+                    return st;
+                }
+                if (bitmap->isEmpty()) { // the left expr no need to be extracted by inverted index
+                    return Status::OK();
+                }
+            }
+        } else {
+            return Status::InternalError(
+                    "Compound operator must be AND or OR can execute with inverted index.");
+        }
+        return Status::OK();
+    }
+
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
             return VectorizedFnCall::execute(context, block, result_column_id);

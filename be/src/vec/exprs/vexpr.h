@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
@@ -113,6 +114,16 @@ public:
     }
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+
+    // execute current expr with inverted index to filter block. Given a roaringbitmap of match rows
+    virtual Status eval_inverted_index(
+            VExprContext* context,
+            const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+                                                         segment_v2::InvertedIndexIterator*>>&
+                    colId_invertedIndexIter_mapping,
+            uint32_t num_rows, roaring::Roaring* bitmap) const {
+        return Status::NotSupported("Not supported execute_with_inverted_index");
+    }
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
