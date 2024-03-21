@@ -524,7 +524,7 @@ public:
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
-                    RETURN_IF_ERROR(change_to_bloom_filter(!_build_bf_exactly));
+                    RETURN_IF_ERROR(change_to_bloom_filter(false));
                     RETURN_IF_ERROR(_context->bloom_filter_func->merge(
                             wrapper->_context->bloom_filter_func.get()));
                 }
