@@ -96,10 +96,11 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     }
     auto outcome = client->GetObject(request);
     if (!outcome.IsSuccess()) {
-        return Status::IOError("failed to read from {}: {}, exception {}, error code {}",
-                               _path.native(), outcome.GetError().GetMessage(),
-                               outcome.GetError().GetExceptionName(),
-                               outcome.GetError().GetResponseCode());
+        return Status::IOError(
+                "failed to read from {}: {}, exception {}, error code {}, request id {}",
+                _path.native(), outcome.GetError().GetMessage(),
+                outcome.GetError().GetExceptionName(), outcome.GetError().GetResponseCode(),
+                outcome.GetError().GetRequestId());
     }
     *bytes_read = outcome.GetResult().GetContentLength();
     if (*bytes_read != bytes_req) {
