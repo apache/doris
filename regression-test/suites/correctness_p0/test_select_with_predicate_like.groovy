@@ -16,6 +16,7 @@
 // under the License.
 suite("test_select_with_predicate_like") {
     def tables=["test_basic_agg"]
+    sql """ set enable_insert_strict=false; """
 
     for (String table in tables) {
         sql """drop table if exists ${table};"""

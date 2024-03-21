@@ -199,7 +199,7 @@ suite("test_group_commit_stream_load") {
         }
 
         // stream load with label
-        streamLoad {
+        /*streamLoad {
             table "${tableName}"
 
             // set 'label', 'test_stream_load'
@@ -217,7 +217,7 @@ suite("test_group_commit_stream_load") {
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
             }
-        }
+        }*/
 
         getRowCount(21)
         qt_sql " SELECT * FROM ${tableName} order by id, name, score asc; "

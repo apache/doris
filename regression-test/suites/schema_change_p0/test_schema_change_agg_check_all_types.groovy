@@ -171,7 +171,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
         time 60
     }
     sql """ insert into ${tableName3} values (10007, 2, 3, 4, 5, 6.6, 1.7, 8.8,
-    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1,1.21,1) """
 
     qt_add_tinyint""" select * from ${tableName3} """
 
@@ -184,7 +184,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     }
 
     sql """ insert into ${tableName3} values (10008, 2, 3, 4, 5, 6.6, 1.7, 8.8,
-    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1,1.21,1) """
 
 
     qt_tinyint_to_int""" select * from ${tableName3} """
@@ -197,7 +197,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
         time 60
     }
 
-    sql """ insert into ${tableName3} values (10009, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+    sql """ insert into ${tableName3} values (10009, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1,1.21,1) """
 
     qt_int_to_bigint""" select * from ${tableName3} """
 
@@ -209,7 +209,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
         time 60
     }
 
-    sql """ insert into ${tableName3} values (10010, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
+    sql """ insert into ${tableName3} values (10010, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1,1.21,1) """
 
     qt_bigint_to_largeint""" select * from ${tableName3} """
 

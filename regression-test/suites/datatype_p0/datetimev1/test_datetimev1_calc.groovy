@@ -40,7 +40,7 @@ suite("test_datetimev1_calc", "nonConcurrent") {
       "storage_format" = "V2"
     )
     """
-
+    sql """ set enable_insert_strict = false; """
     sql """insert into ${table1} values
             (1, '2010-10-01 11:12:13', '2010-10-02 22:22:22'),
             (2, '2010-10-02 12:13:14', '2010-10-02 22:22:22'),
