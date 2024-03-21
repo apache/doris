@@ -135,33 +135,6 @@ Status InvertedIndexFileWriter::close() {
                     compound_dir->deleteDirectory();
                 }
                 _CLDELETE(cfsWriter)
-                if (config::enable_write_index_searcher_cache) {
-                    auto index_id = entry.first.first;
-                    auto index_suffix = entry.first.second;
-                    // open index searcher into cache
-                    auto mem_tracker =
-                            std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
-                    auto index_file_path = InvertedIndexDescriptor::get_index_file_name(
-                            _segment_file_name, index_id, index_suffix);
-                    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_path);
-
-                    auto* index_dir =
-                            DorisFSDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
-                    auto compound_reader = std::make_unique<DorisCompoundReader>(
-                            index_dir, index_file_path.c_str(),
-                            config::inverted_index_read_buffer_size, false);
-                    IndexSearcherPtr searcher;
-                    auto st = InvertedIndexReader::create_index_searcher(
-                            compound_reader.release(), &searcher, mem_tracker.get(),
-                            InvertedIndexReaderType::FULLTEXT);
-                    if (UNLIKELY(!st.ok())) {
-                        LOG(ERROR) << "insert inverted index searcher cache error:" << st;
-                        return st;
-                    }
-                    auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
-                            std::move(searcher), mem_tracker->consumption(), UnixMillis());
-                    InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
-                }
             }
         } else {
             _file_size = write();
