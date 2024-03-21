@@ -1089,17 +1089,20 @@ public class ConnectContext {
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
             choseWay = "use @cluster";
+            LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
+                    cloudCluster, getCurrentUserIdentity(), choseWay);
+            return cluster;
+        }
+
+        String defaultCluster = getDefaultCloudCluster();
+        if (!Strings.isNullOrEmpty(defaultCluster)) {
+            cluster = defaultCluster;
+            choseWay = "default cluster";
         } else {
-            String defaultCluster = getDefaultCloudCluster();
-            if (!Strings.isNullOrEmpty(defaultCluster)) {
-                cluster = defaultCluster;
-                choseWay = "default cluster";
-            } else {
-                String authorizedCluster = getAuthorizedCloudCluster();
-                if (!Strings.isNullOrEmpty(authorizedCluster)) {
-                    cluster = authorizedCluster;
-                    choseWay = "authorized cluster";
-                }
+            String authorizedCluster = getAuthorizedCloudCluster();
+            if (!Strings.isNullOrEmpty(authorizedCluster)) {
+                cluster = authorizedCluster;
+                choseWay = "authorized cluster";
             }
         }
 
