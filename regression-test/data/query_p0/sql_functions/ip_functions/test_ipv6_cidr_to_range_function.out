@@ -23,6 +23,17 @@
 -- !sql --
 1	::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 2	2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff
+3	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+4	2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff
+5	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+6	2000::	20ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+7	2000::	2fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+8	2000::	20ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+9	\N	\N
+
+-- !sql --
+1	::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+2	2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff
 3	ffff::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 4	2001:df8::	2001:df8:ffff:ffff:ffff:ffff:ffff:ffff
 5	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
@@ -43,6 +54,17 @@
 9	ffff::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
 -- !sql --
+1	::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+2	2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff
+3	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+4	2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff
+5	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+6	2000::	20ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+7	2000::	2fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+8	2000::	20ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+9	\N	\N
+
+-- !sql --
 {"min": "::", "max": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
 
 -- !sql --
@@ -56,3 +78,12 @@
 
 -- !sql --
 {"min": "f000::", "max": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
