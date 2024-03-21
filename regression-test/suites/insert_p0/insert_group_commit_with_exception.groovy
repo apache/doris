@@ -74,7 +74,7 @@ suite("insert_group_commit_with_exception") {
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
-                //sql """ set enable_fallback_to_original_planner=false; """
+                sql """ set enable_fallback_to_original_planner=false; """
             } else {
                 sql """ set enable_nereids_dml = false; """
             }
@@ -84,22 +84,22 @@ suite("insert_group_commit_with_exception") {
                 def result = sql """ insert into ${table} values(1, 'a', 10, 100)  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
+                if (item == "nereids") {
                     assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {*/
+                } else {
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                //}
+                }
             }
 
             try {
                 def result = sql """ insert into ${table} values(2, 'b')  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
+                if (item == "nereids") {
                     assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {*/
+                } else {
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                //}
+                }
             }
 
             result = sql """ insert into ${table} values(3, 'c', 30)  """
@@ -115,33 +115,33 @@ suite("insert_group_commit_with_exception") {
                 result = sql """ insert into ${table}(id, name) values(5, 'd', 50)  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
+                if (item == "nereids") {
                     assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {*/
+                } else {
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                //}
+                }
             }
 
             try {
                 result = sql """ insert into ${table}(id, name) values(6)  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
+                if (item == "nereids") {
                     assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {*/
+                } else {
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                //}
+                }
             }
 
             try {
                 result = sql """ insert into ${table}(id, names) values(7, 'd')  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
+                if (item == "nereids") {
                     assertTrue(e.getMessage().contains("column names is not found in table"))
-                } else {*/
+                } else {
                     assertTrue(e.getMessage().contains("Unknown column 'names'"))
-                //}
+                }
             }
 
 
