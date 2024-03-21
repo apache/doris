@@ -25,4 +25,13 @@ suite("test_account") {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains('not exist'))
     }
+
+    // test comment
+    def user = "test_account_comment_user";
+    sql """drop user if exists ${user}"""
+    sql """create user ${user} comment 'test_account_comment_user_comment_create'"""
+    qt_create "show grants for ${user}"
+    sql """alter user ${user} comment 'test_account_comment_user_comment_alter'"""
+    qt_alter "show grants for ${user}"
+    sql """drop user if exists ${user}"""
 }
