@@ -50,7 +50,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
@@ -249,12 +248,18 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // verify project used slots are all coming from agg's output
         List<Slot> slots = collectAllUsedSlots(upperProjects);
         if (!slots.isEmpty()) {
-            Set<ExprId> aggOutput = normalizedAggOutput.stream()
-                    .map(NamedExpression::getExprId)
-                    .collect(Collectors.toSet());
-            slots = slots.stream()
-                    .filter(s -> !aggOutput.contains(s.getExprId()))
-                    .collect(Collectors.toList());
+            ImmutableSet.Builder<ExprId> aggOutput = ImmutableSet.builder();
+            for (NamedExpression expression : normalizedAggOutput) {
+                aggOutput.add(expression.getExprId());
+            }
+            ImmutableSet<ExprId> aggOutputExprIds = aggOutput.build();
+            ImmutableList.Builder<Slot> errorSlots = ImmutableList.builder();
+            for (Slot slot : slots) {
+                if (!aggOutputExprIds.contains(slot.getExprId())) {
+                    errorSlots.add(slot);
+                }
+            }
+            slots = errorSlots.build();
             if (!slots.isEmpty()) {
                 throw new AnalysisException(String.format("%s not in aggregate's output", slots
                         .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
@@ -305,9 +310,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
     }
 
     private List<Slot> collectAllUsedSlots(List<NamedExpression> expressions) {
-        return Stream.concat(
-                ExpressionUtils.collectAll(expressions, SubqueryExpr.class::isInstance).stream()
-                        .flatMap(expr -> ((SubqueryExpr) expr).getCorrelateSlots().stream()),
-                ExpressionUtils.getInputSlotSet(expressions).stream()).collect(Collectors.toList());
+        List<SubqueryExpr> subqueries = ExpressionUtils.collectAll(expressions, SubqueryExpr.class::isInstance);
+        ImmutableList.Builder<Slot> slots = ImmutableList.builder();
+        for (SubqueryExpr subqueryExpr : subqueries) {
+            slots.addAll(subqueryExpr.getCorrelateSlots());
+        }
+        slots.addAll(ExpressionUtils.getInputSlotSet(expressions));
+        return slots.build();
     }
 }
