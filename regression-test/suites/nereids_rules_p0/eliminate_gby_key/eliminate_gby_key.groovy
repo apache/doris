@@ -122,7 +122,7 @@ suite("eliminate_gby_key") {
         select cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(partial_count(*)#22) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(*) AS `cnt`#20]")
     }
 
     explain {
@@ -202,7 +202,7 @@ suite("eliminate_gby_key") {
         select t2_c1, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(partial_count(*)#22) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(*) AS `cnt`#20]")
     }
 
     explain {
@@ -222,7 +222,7 @@ suite("eliminate_gby_key") {
         select c3, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(partial_count(*)#22) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(*) AS `cnt`#20]")
     }
 
     explain {
@@ -242,7 +242,7 @@ suite("eliminate_gby_key") {
         select t2_c1, c3, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(partial_count(*)#22) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(*) AS `cnt`#20]")
     }
 
     explain {
@@ -282,6 +282,6 @@ suite("eliminate_gby_key") {
         select t2_c2, c3, t2_c1, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18, t2_c2#19], outputExpr=[c1#13, c3#18, t2_c2#19, count(partial_count(*)#22) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18, t2_c2#19], outputExpr=[c1#13, c3#18, t2_c2#19, count(*) AS `cnt`#20]")
     }
 }
