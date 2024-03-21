@@ -95,14 +95,18 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
     }
 
     if (tnode.__isset.hash_join_node) {
-        _output_row_desc.reset(
-                new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        if (!_output_row_descriptor) {
+            _output_row_desc.reset(
+                    new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        }
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size())));
     } else if (tnode.__isset.nested_loop_join_node) {
-        _output_row_desc.reset(
-                new RowDescriptor(descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+        if (!_output_row_descriptor) {
+            _output_row_desc.reset(new RowDescriptor(
+                    descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+        }
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size())));
@@ -166,6 +170,14 @@ void VJoinNodeBase::_construct_mutable_join_block() {
 Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block,
                                           bool keep_origin) {
     SCOPED_TIMER(_build_output_block_timer);
+    if (!_projections.empty()) {
+        *output_block = *origin_block;
+        if (_is_outer_join) {
+            DCHECK(output_block->columns() >= 2);
+            output_block->erase_tail(output_block->columns() - 2);
+        }
+        return Status::OK();
+    }
     auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
             is_mem_reuse
