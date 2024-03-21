@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.junit.Assert;
+
 suite("test_role", "account") {
     def role= 'account_role_test'
     def user = 'acount_role_user_test'
@@ -44,5 +46,16 @@ suite("test_role", "account") {
     sql """DROP USER ${user}"""
     sql """DROP ROLE ${role}"""
     sql """DROP DATABASE ${dbName}"""
+
+    // test comment
+    sql """CREATE ROLE ${role} comment 'account_p0_account_role_test_comment_create'"""
+    def roles_create = """show roles"""
+    assertTrue(roles_create.toString().contains("account_p0_account_role_test_comment_create"))
+    sql """ALTER ROLE ${role} comment 'account_p0_account_role_test_comment2'"""
+    def roles_alter = """show roles"""
+    assertTrue(roles_alter.toString().contains("account_p0_account_role_test_comment_alter"))
+    sql """DROP ROLE ${role}"""
+    def roles_drop = """show roles"""
+    assertFalse(roles_drop.toString().contains("account_p0_account_role_test_comment_alter"))
 }
 
