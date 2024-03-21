@@ -110,6 +110,12 @@ public abstract class Policy implements Writable, GsonPostProcessable {
             case STORAGE:
                 StoragePolicy storagePolicy = new StoragePolicy(policyId, stmt.getPolicyName());
                 storagePolicy.init(stmt.getProperties(), stmt.isIfNotExists());
+                long currentTimeMs = System.currentTimeMillis();
+                if (storagePolicy.getCooldownTimestampMs() <= currentTimeMs) {
+                    throw new AnalysisException(
+                    "create a remote storage cooldown time: " + storagePolicy.getCooldownTimestampMs()
+                    + " should later than now: " + currentTimeMs);
+                }
                 return storagePolicy;
             case ROW:
                 // stmt must be analyzed.

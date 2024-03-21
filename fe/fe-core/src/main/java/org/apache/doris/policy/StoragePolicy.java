@@ -338,6 +338,13 @@ public class StoragePolicy extends Policy {
                 try {
                     cooldownTimestampMs = LocalDateTime.parse(properties.get(COOLDOWN_DATETIME),
                             TimeUtils.DATETIME_FORMAT).atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+                    long currentTimeMs = System.currentTimeMillis();
+                    if (cooldownTimestampMs <= currentTimeMs) {
+                        throw new AnalysisException(
+                            "alter a remote storage cooldown time: " + cooldownTimestampMs
+                                + " should later than now: " + currentTimeMs);
+                    }
+
                 } catch (DateTimeParseException e) {
                     throw new RuntimeException(e);
                 }
