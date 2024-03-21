@@ -804,9 +804,10 @@ metaServiceToken = "greedisgood9999"
             f.write(base_conf.format(fe_ip=fe_ip))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
-                    "{}:{}:{}:{}:{}".format(be.get_ip(), CLUSTER.BE_PORT,
+                    "{}:{}:{}:{}:{}".format(be.get_ip(),
+                                            CLUSTER.BE_HEARTBEAT_PORT,
                                             CLUSTER.BE_WEBSVR_PORT,
-                                            be.get_cluster_name(),
+                                            be.cloud_unique_id(),
                                             CLUSTER.BE_BRPC_PORT)
                     for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE)
                 ])
