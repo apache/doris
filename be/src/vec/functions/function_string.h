@@ -32,6 +32,7 @@
 #include <ostream>
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -948,7 +949,7 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtilOld::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
@@ -1439,6 +1440,14 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
+    std::string error_msg(int default_value, int repeat_value) const {
+        auto error_msg = fmt::format(
+                "The second parameter of repeat function exceeded maximum default value, "
+                "default_value is {}, and now input is {} . you could try change default value "
+                "greater than value eg: set repeat_max_num = {}.",
+                default_value, repeat_value, repeat_value + 10);
+        return error_msg;
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -1456,17 +1465,20 @@ public:
 
         if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
             if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
-                vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
-                              res->get_chars(), res->get_offsets(), null_map->get_data(),
-                              context->state()->repeat_max_num());
+                RETURN_IF_ERROR(vector_vector(col1->get_chars(), col1->get_offsets(),
+                                              col2->get_data(), res->get_chars(),
+                                              res->get_offsets(), null_map->get_data(),
+                                              context->state()->repeat_max_num()));
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
             } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = 0;
-                repeat = std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
-
+                int repeat = col2_const->get_int(0);
+                if (repeat > context->state()->repeat_max_num()) {
+                    return Status::InvalidArgument(
+                            error_msg(context->state()->repeat_max_num(), repeat));
+                }
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1484,10 +1496,10 @@ public:
                                     argument_ptr[0]->get_name(), argument_ptr[1]->get_name());
     }
 
-    void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
-                       const int repeat_max_num) const {
+    Status vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
+                         ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
+                         const int repeat_max_num) const {
         size_t input_row_size = offsets.size();
 
         fmt::memory_buffer buffer;
@@ -1497,8 +1509,10 @@ public:
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
-            int repeat = 0;
-            repeat = std::min<int>(repeats[i], repeat_max_num);
+            int repeat = repeats[i];
+            if (repeat > repeat_max_num) {
+                return Status::InvalidArgument(error_msg(repeat_max_num, repeat));
+            }
 
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
@@ -1512,6 +1526,7 @@ public:
                                             res_data, res_offsets);
             }
         }
+        return Status::OK();
     }
 
     // TODO: 1. use pmr::vector<char> replace fmt_buffer may speed up the code

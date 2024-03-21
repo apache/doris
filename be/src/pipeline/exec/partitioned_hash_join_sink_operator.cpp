@@ -36,6 +36,11 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
     _partition_timer = ADD_TIMER(profile(), "PartitionTime");
     _partition_shuffle_timer = ADD_TIMER(profile(), "PartitionShuffleTime");
 
+    _spill_serialize_block_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillSerializeBlockTime", 1);
+    _spill_write_disk_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillWriteDiskTime", 1);
+    _spill_data_size = ADD_COUNTER_WITH_LEVEL(profile(), "SpillWriteDataSize", TUnit::BYTES, 1);
+    _spill_block_count = ADD_COUNTER_WITH_LEVEL(profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
+
     return _partitioner->prepare(state, p._child_x->row_desc());
 }
 
@@ -51,7 +56,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
 
-        if (!mutable_block || mutable_block->rows() == 0) {
+        if (!mutable_block || mutable_block->rows() < state->batch_size()) {
+            --_spilling_streams_count;
             continue;
         }
 
@@ -61,6 +67,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
                     _parent->id(), std::numeric_limits<int32_t>::max(),
                     std::numeric_limits<size_t>::max(), _profile));
             RETURN_IF_ERROR(spilling_stream->prepare_spill());
+            spilling_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
+                                                _spill_data_size, _spill_write_disk_timer);
         }
 
         auto* spill_io_pool =
@@ -79,9 +87,14 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
     }
 
     if (_spilling_streams_count > 0) {
+        _shared_state->need_to_spill = true;
         std::unique_lock<std::mutex> lock(_spill_lock);
         if (_spilling_streams_count > 0) {
             _dependency->block();
+        } else if (_child_eos) {
+            LOG(INFO) << "sink eos, set_ready_to_read, node id: " << _parent->id()
+                      << ", task id: " << state->task_id();
+            _dependency->set_ready_to_read();
         }
     }
     return Status::OK();
@@ -108,6 +121,11 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
     if (_spilling_streams_count == 0) {
         std::unique_lock<std::mutex> lock(_spill_lock);
         _dependency->set_ready();
+        if (_child_eos) {
+            LOG(INFO) << "sink eos, set_ready_to_read, node id: " << _parent->id()
+                      << ", task id: " << state()->task_id();
+            _dependency->set_ready_to_read();
+        }
     }
 }
 
@@ -157,6 +175,8 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         return local_state._spill_status;
     }
 
+    local_state._child_eos = eos;
+
     const auto rows = in_block->rows();
 
     if (rows > 0) {
@@ -190,9 +210,18 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
             partitioned_blocks[i]->add_rows(in_block, &(partition_indexes[i][0]),
                                             &(partition_indexes[i][count]));
         }
+
+        if (local_state._shared_state->need_to_spill) {
+            const auto revocable_size = revocable_mem_size(state);
+            if (revocable_size > state->min_revocable_mem()) {
+                return local_state.revoke_memory(state);
+            }
+        }
     }
 
     if (eos) {
+        LOG(INFO) << "sink eos, set_ready_to_read, node id: " << id()
+                  << ", task id: " << state->task_id();
         local_state._dependency->set_ready_to_read();
     }
 
@@ -207,7 +236,7 @@ size_t PartitionedHashJoinSinkOperatorX::revocable_mem_size(RuntimeState* state)
     size_t mem_size = 0;
     for (uint32_t i = 0; i != _partition_count; ++i) {
         auto& block = partitioned_blocks[i];
-        if (block) {
+        if (block && block->rows() >= state->batch_size()) {
             mem_size += block->allocated_bytes();
         }
     }

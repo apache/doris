@@ -97,6 +97,7 @@ public:
     int block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
 
     TabletSchemaSPtr tablet_schema = nullptr;
+    bool enable_unique_key_merge_on_write = false;
     bool record_rowids = false;
     // flag for enable topn opt
     bool use_topn_opt = false;

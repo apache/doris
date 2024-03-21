@@ -54,7 +54,7 @@ public class NullSafeEqualToEqual extends DefaultExpressionRewriter<ExpressionRe
             } else {
                 return BooleanLiteral.FALSE;
             }
-        } else if (!nullSafeEqual.left().nullable() || !nullSafeEqual.right().nullable()) {
+        } else if (!nullSafeEqual.left().nullable() && !nullSafeEqual.right().nullable()) {
             return new EqualTo(nullSafeEqual.left(), nullSafeEqual.right());
         }
         return nullSafeEqual;

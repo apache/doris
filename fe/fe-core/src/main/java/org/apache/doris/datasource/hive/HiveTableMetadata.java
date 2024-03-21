@@ -20,32 +20,45 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.TableMetadata;
 
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class HiveTableMetadata implements TableMetadata {
-    private String dbName;
-    private String tableName;
-    private List<Column> columns;
-    private List<FieldSchema> partitionKeys;
-    private String fileFormat;
-    private Map<String, String> properties;
+    private final String dbName;
+    private final String tableName;
+    private final List<Column> columns;
+    private final List<String> partitionKeys;
+    private final String fileFormat;
+    private final Map<String, String> properties;
+    private List<String> bucketCols;
+    private int numBuckets;
     // private String viewSql;
 
     public HiveTableMetadata(String dbName,
                              String tblName,
                              List<Column> columns,
-                             List<FieldSchema> partitionKeys,
+                             List<String> partitionKeys,
+                             Map<String, String> props,
+                             String fileFormat) {
+        this(dbName, tblName, columns, partitionKeys, new ArrayList<>(), 0, props, fileFormat);
+    }
+
+    public HiveTableMetadata(String dbName, String tableName,
+                             List<Column> columns,
+                             List<String> partitionKeys,
+                             List<String> bucketCols,
+                             int numBuckets,
                              Map<String, String> props,
                              String fileFormat) {
         this.dbName = dbName;
-        this.tableName = tblName;
+        this.tableName = tableName;
         this.columns = columns;
         this.partitionKeys = partitionKeys;
-        this.fileFormat = fileFormat;
+        this.bucketCols = bucketCols;
+        this.numBuckets = numBuckets;
         this.properties = props;
+        this.fileFormat = fileFormat;
     }
 
     @Override
@@ -67,7 +80,7 @@ public class HiveTableMetadata implements TableMetadata {
         return columns;
     }
 
-    public List<FieldSchema> getPartitionKeys() {
+    public List<String> getPartitionKeys() {
         return partitionKeys;
     }
 
@@ -75,12 +88,32 @@ public class HiveTableMetadata implements TableMetadata {
         return fileFormat;
     }
 
+    public List<String> getBucketCols() {
+        return bucketCols;
+    }
+
+    public int getNumBuckets() {
+        return numBuckets;
+    }
+
     public static HiveTableMetadata of(String dbName,
                                        String tblName,
                                        List<Column> columns,
-                                       List<FieldSchema> partitionKeys,
+                                       List<String> partitionKeys,
                                        Map<String, String> props,
                                        String fileFormat) {
         return new HiveTableMetadata(dbName, tblName, columns, partitionKeys, props, fileFormat);
+    }
+
+    public static HiveTableMetadata of(String dbName,
+                                       String tblName,
+                                       List<Column> columns,
+                                       List<String> partitionKeys,
+                                       List<String> bucketCols,
+                                       int numBuckets,
+                                       Map<String, String> props,
+                                       String fileFormat) {
+        return new HiveTableMetadata(dbName, tblName, columns, partitionKeys,
+                bucketCols, numBuckets, props, fileFormat);
     }
 }

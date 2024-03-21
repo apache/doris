@@ -2217,6 +2217,11 @@ public class Config extends ConfigBase {
     public static boolean enable_external_ddl = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "启用Hive分桶表",
+            "Enable external hive bucket table"})
+    public static boolean enable_create_hive_bucket_table = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Hive创建外部表默认指定的文件格式",
             "Default hive file format for creating table."})
     public static String hive_default_file_format = "orc";
@@ -2515,6 +2520,9 @@ public class Config extends ConfigBase {
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
 
+    @ConfField(mutable = true)
+    public static boolean fix_tablet_partition_id_eq_0 = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "倒排索引默认存储格式",
             "Default storage format of inverted index, the default value is V1."
@@ -2526,6 +2534,7 @@ public class Config extends ConfigBase {
             "Whether to enable proxy protocol"
     })
     public static boolean enable_proxy_protocol = false;
+
 
     //==========================================================================
     //                    begin of cloud config

@@ -66,7 +66,7 @@ public class ScheduleRule {
         if (jobRoutine.pauseReason != null
                 && jobRoutine.pauseReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
                 && jobRoutine.pauseReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
-                && jobRoutine.pauseReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR) {
+                && jobRoutine.pauseReason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR) {
             int dead = deadBeCount();
             if (dead > Config.max_tolerable_backend_down_num) {
                 if (LOG.isDebugEnabled()) {
