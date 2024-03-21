@@ -20,71 +20,69 @@
 // and modified by Doris.
 
 suite("explode_json_array") {
-    def tableName = "person"
-
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS person """
     sql """
-        CREATE TABLE IF NOT EXISTS ${tableName} 
+        CREATE TABLE IF NOT EXISTS person 
         (id INT, name STRING, age INT, class INT, address STRING) 
         UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 8  
         PROPERTIES("replication_num" = "1")
     """
 
-    sql """ INSERT INTO ${tableName} VALUES
+    sql """ INSERT INTO person VALUES
         (100, 'John', 30, 1, 'Street 1'),
         (200, 'Mary', NULL, 1, 'Street 2'),
         (300, 'Mike', 80, 3, 'Street 3'),
         (400, 'Dan', 50, 4, 'Street 4')  """
-    qt_explode_json_array7 """ SELECT id, name, age, class, address, d_age, c_age FROM ${tableName}
+    qt_explode_json_array7 """ SELECT id, name, age, class, address, d_age, c_age FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
                         ORDER BY id, c_age, d_age """
 
-    qt_explode_json_array8 """ SELECT c_age, COUNT(1) FROM ${tableName}
+    qt_explode_json_array8 """ SELECT c_age, COUNT(1) FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
                         GROUP BY c_age ORDER BY c_age """
 
-    qt_explode_json_array_8_invalid """ SELECT c_age, COUNT(1) FROM ${tableName}
+    qt_explode_json_array_8_invalid """ SELECT c_age, COUNT(1) FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('["1", 60]') t1 as c_age 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('["b", "c"]') t2 as d_age 
                         GROUP BY c_age ORDER BY c_age """
 
-    qt_explode_json_array9 """ SELECT * FROM ${tableName}
+    qt_explode_json_array9 """ SELECT * FROM person
                             LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age 
                             ORDER BY id, c_age """
 
-    qt_explode_json_array10 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+    qt_explode_json_array10 """ SELECT id, name, age, class, address, d, c FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", -3]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """
 
     qt_outer_join_explode_json_array11 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM 
-                                        ${tableName} a LEFT JOIN ${tableName} b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]')
+                                        person a LEFT JOIN person b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]')
                                         TMP AS e1) AS T ORDER BY age, e1"""
     qt_outer_join_explode_json_array11 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM
-                                        ${tableName} a LEFT JOIN ${tableName} b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_JSON('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]')
+                                        person a LEFT JOIN person b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_JSON('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]')
                                         TMP AS e1) AS T ORDER BY age, e1"""
 
-    qt_explode_json_array12 """ SELECT c_age, COUNT(1) FROM ${tableName}
+    qt_explode_json_array12 """ SELECT c_age, COUNT(1) FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[9223372036854775807,9223372036854775808]') t1 as c_age 
                         GROUP BY c_age ORDER BY c_age """
 
-    qt_explode_json_array13 """ SELECT c_age, COUNT(1) FROM ${tableName}
+    qt_explode_json_array13 """ SELECT c_age, COUNT(1) FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[-92233720368547758071,-92233720368547758081]') t1 as c_age 
                         GROUP BY c_age ORDER BY c_age """
 
-    qt_explode_json_array14 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+    qt_explode_json_array14 """ SELECT id, name, age, class, address, d, c FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1182381637816312, "b", -1273982982312333]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """
 
-    qt_explode_json_array15 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+    qt_explode_json_array15 """ SELECT id, name, age, class, address, d, c FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[true, "b", false]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """    
 
-    qt_explode_json_array16 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+    qt_explode_json_array16 """ SELECT id, name, age, class, address, d, c FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[null, "b", null]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """        

@@ -17,6 +17,11 @@
 
 #include "join_probe_operator.h"
 
+#include <memory>
+
+#include "common/exception.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/operator.h"
@@ -82,6 +87,14 @@ template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
         vectorized::Block* origin_block, vectorized::Block* output_block, bool keep_origin) {
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
+    if (!Base::_projections.empty()) {
+        *output_block = *origin_block;
+        if (p._is_outer_join) {
+            DCHECK(output_block->columns() >= 2);
+            output_block->erase_tail(output_block->columns() - 2);
+        }
+        return Status::OK();
+    }
     SCOPED_TIMER(_build_output_block_timer);
     auto is_mem_reuse = output_block->mem_reuse();
     vectorized::MutableBlock mutable_block =
@@ -93,10 +106,10 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
     // TODO: After FE plan support same nullable of output expr and origin block and mutable column
     // we should replace `insert_column_datas` by `insert_range_from`
 
-    auto insert_column_datas = [keep_origin](auto& to, vectorized::ColumnPtr& from, size_t rows) {
+    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
+                auto& null_column = assert_cast<vectorized::ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
             } else {
@@ -109,7 +122,48 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
                 to = from->assume_mutable();
             }
         }
+
+        if (to->is_nullable()) {
+            auto& null_column = assert_cast<vectorized::ColumnNullable&>(*to);
+            bool all_null = true;
+            for (int i = 0; i < null_column.size(); i++) {
+                if (!null_column.is_null_at(i)) {
+                    all_null = false;
+                }
+            }
+            LOG_WARNING("yxc test null").tag("null node id", p._node_id).tag("all null", all_null);
+        }
     };
+
+    LOG_WARNING("yxc test empty copy");
+
+    auto print = [](vectorized::VExprContextSPtrs& ctxs) {
+        std::string s = "[    ";
+        for (auto& ctx : ctxs) {
+            s += ctx->root()->debug_string() + "\t\t\t";
+        }
+        return s + "    ]";
+    };
+
+    auto print_desc = [](std::unique_ptr<RowDescriptor>& desc) {
+        std::string ret;
+        if (!desc) {
+            ret = "is null";
+        } else {
+            ret = desc->debug_string();
+        }
+        return ret;
+    };
+
+    LOG_WARNING("yxc  test  ")
+            .tag("node id", p._node_id)
+            .tag("Base::_projections", print(Base::_projections))
+            .tag("_output_expr_ctxs", print(_output_expr_ctxs))
+            .tag("output_block", mutable_block.dump_names() + "   " + mutable_block.dump_types())
+            .tag("orgin block ", origin_block->dump_structure())
+            .tag("_intermediate_row_desc", print_desc(p._intermediate_row_desc))
+            .tag("plan node", print_desc(p._output_row_descriptor))
+            .tag("join node", print_desc(p._output_row_desc));
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
@@ -197,17 +251,31 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size())));
-        _output_row_desc.reset(
-                new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        if (!Base::_output_row_descriptor) {
+            _output_row_desc.reset(
+                    new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        } else {
+            if (tnode.hash_join_node.__isset.voutput_tuple_id) {
+                throw Exception {ErrorCode::INTERNAL_ERROR,
+                                 "yxc test error .__isset.voutput_tuple_id"};
+            }
+        }
+
     } else if (tnode.__isset.nested_loop_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size())));
-        _output_row_desc.reset(
-                new RowDescriptor(descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+        if (!Base::_output_row_descriptor) {
+            _output_row_desc.reset(new RowDescriptor(
+                    descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+        }
     } else {
         // Iff BE has been upgraded and FE has not yet, we should keep origin logics for CROSS JOIN.
         DCHECK_EQ(_join_op, TJoinOp::CROSS_JOIN);
+    }
+
+    if (Base::_node_id == 13) {
+        LOG_WARNING("yxc test");
     }
 }
 
