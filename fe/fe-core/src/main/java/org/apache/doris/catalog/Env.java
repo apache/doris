@@ -1672,7 +1672,7 @@ public class Env {
     }
 
     // start threads that should running on all FE
-    private void startNonMasterDaemonThreads() {
+    protected void startNonMasterDaemonThreads() {
         // start load manager thread
         loadManager.start();
         tabletStatMgr.start();
