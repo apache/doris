@@ -756,7 +756,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         _build_block = std::make_shared<Block>(_build_side_mutable_block.to_block());
         COUNTER_UPDATE(_build_blocks_memory_usage, _build_block->bytes());
         _runtime_filter_slots =
-                std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, runtime_filters(), false);
+                std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, runtime_filters());
         RETURN_IF_ERROR(_process_build_block(state, *_build_block));
         RETURN_IF_ERROR(process_runtime_filter_build(state, _build_block.get(), this));
         if (_shared_hashtable_controller) {

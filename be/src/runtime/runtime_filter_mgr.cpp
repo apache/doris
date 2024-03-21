@@ -432,6 +432,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
             } else {
                 apply_request.set_ignored(true);
+                apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
             }
 
             if (data != nullptr && len > 0) {
@@ -504,6 +505,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
             } else {
                 apply_request.set_ignored(true);
+                apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
             }
 
             if (data != nullptr && len > 0) {

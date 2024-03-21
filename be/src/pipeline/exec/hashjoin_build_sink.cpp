@@ -108,9 +108,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                 _build_expr_ctxs.size() == 1));
     }
 
-    _runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            _build_expr_ctxs, runtime_filters(),
-            _parent->cast<HashJoinBuildSinkOperatorX>()._need_local_merge);
+    _runtime_filter_slots =
+            std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, runtime_filters());
 
     return Status::OK();
 }
@@ -429,7 +428,7 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
           _partition_exprs(tnode.__isset.distribute_expr_lists && !_is_broadcast_join
                                    ? tnode.distribute_expr_lists[1]
                                    : std::vector<TExpr> {}),
-          _need_local_merge(need_local_merge) {}
+          _need_local_merge(need_local_merge && !_is_broadcast_join) {}
 
 Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     if (_is_broadcast_join) {

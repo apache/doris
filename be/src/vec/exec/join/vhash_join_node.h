@@ -73,17 +73,6 @@ struct ProcessHashTableProbe;
 class HashJoinNode;
 
 template <typename Parent>
-Status send_runtime_filter_size(RuntimeState* state, Block* block, Parent* parent,
-                                bool is_global = false) {
-    if (parent->runtime_filters().empty()) {
-        return Status::OK();
-    }
-    SCOPED_TIMER(parent->_runtime_filter_init_timer);
-    RETURN_IF_ERROR(parent->_runtime_filter_slots->send_filter_size(state, block->rows(), false));
-    return Status::OK();
-}
-
-template <typename Parent>
 Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* parent,
                                     bool is_global = false) {
     if (parent->runtime_filters().empty()) {
@@ -410,10 +399,6 @@ private:
     template <typename Parent>
     friend Status process_runtime_filter_build(RuntimeState* state, vectorized::Block* block,
                                                Parent* parent, bool is_global);
-
-    template <typename Parent>
-    friend Status send_runtime_filter_size(RuntimeState* state, vectorized::Block* block,
-                                           Parent* parent, bool is_global);
 
     std::atomic_bool _probe_open_finish = false;
     std::vector<int> _build_col_ids;

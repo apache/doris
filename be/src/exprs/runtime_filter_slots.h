@@ -34,10 +34,8 @@ class VRuntimeFilterSlots {
 public:
     VRuntimeFilterSlots(
             const std::vector<std::shared_ptr<vectorized::VExprContext>>& build_expr_ctxs,
-            const std::vector<IRuntimeFilter*>& runtime_filters, bool need_local_merge = false)
-            : _build_expr_context(build_expr_ctxs),
-              _runtime_filters(runtime_filters),
-              _need_local_merge(need_local_merge) {
+            const std::vector<IRuntimeFilter*>& runtime_filters)
+            : _build_expr_context(build_expr_ctxs), _runtime_filters(runtime_filters) {
         for (auto* runtime_filter : _runtime_filters) {
             _runtime_filters_map[runtime_filter->expr_order()].push_back(runtime_filter);
         }
@@ -61,32 +59,6 @@ public:
         return Status::OK();
     }
 
-    Status ignore_filter(RuntimeState* state, IRuntimeFilter* runtime_filter) const {
-        if (runtime_filter->has_remote_target()) {
-            if (_need_local_merge) {
-                runtime_filter->set_ignored();
-                RETURN_IF_ERROR(runtime_filter->publish());
-            }
-        } else {
-            runtime_filter->set_ignored();
-            auto* runtime_filter_mgr = _need_local_merge ? state->global_runtime_filter_mgr()
-                                                         : state->local_runtime_filter_mgr();
-
-            std::vector<IRuntimeFilter*> filters;
-            RETURN_IF_ERROR(
-                    runtime_filter_mgr->get_consume_filters(runtime_filter->filter_id(), filters));
-            if (filters.empty()) {
-                throw Exception(ErrorCode::INTERNAL_ERROR, "filters empty, filter_id={}",
-                                runtime_filter->filter_id());
-            }
-            for (auto* filter : filters) {
-                filter->set_ignored();
-                filter->signal();
-            }
-        }
-        return Status::OK();
-    }
-
     static uint64_t get_real_size(IRuntimeFilter* runtime_filter, uint64_t hash_table_size) {
         return runtime_filter->isset_global_size() ? runtime_filter->get_global_size()
                                                    : hash_table_size;
@@ -100,7 +72,7 @@ public:
                 continue;
             }
             if (has_in_filter.contains(filter->expr_order())) {
-                RETURN_IF_ERROR(ignore_filter(state, filter));
+                filter->set_ignored();
                 continue;
             }
             has_in_filter.insert(filter->expr_order());
@@ -112,7 +84,7 @@ public:
                 !has_in_filter.contains(filter->expr_order())) {
                 continue;
             }
-            RETURN_IF_ERROR(ignore_filter(state, filter));
+            filter->set_ignored();
         }
         return Status::OK();
     }
@@ -154,9 +126,6 @@ public:
     Status publish(bool publish_local = false) {
         for (auto& pair : _runtime_filters_map) {
             for (auto& filter : pair.second) {
-                if (filter->get_ignored()) {
-                    continue;
-                }
                 RETURN_IF_ERROR(filter->publish(publish_local));
             }
         }
@@ -190,7 +159,6 @@ public:
 private:
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
     std::vector<IRuntimeFilter*> _runtime_filters;
-    const bool _need_local_merge = false;
     // prob_contition index -> [IRuntimeFilter]
     std::map<int, std::list<IRuntimeFilter*>> _runtime_filters_map;
 };

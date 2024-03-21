@@ -462,7 +462,7 @@ public:
                           const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
-        if (is_ignored()|| wrapper->is_ignored()) {
+        if (is_ignored() || wrapper->is_ignored()) {
             _context->ignored = true;
             return Status::OK();
         }
@@ -980,7 +980,7 @@ Status IRuntimeFilter::publish(bool publish_local) {
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
         DCHECK(!filters.empty());
         // push down
-        for (auto filter : filters) {
+        for (auto* filter : filters) {
             filter->_wrapper = wrapper;
             filter->update_runtime_filter_type_to_profile();
             filter->signal();
@@ -1089,9 +1089,8 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     std::shared_ptr<PBackendService_Stub> stub(
             _state->exec_env->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
-        std::string msg =
-                fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);
-        return Status::InternalError(msg);
+        return Status::InternalError(
+                fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port));
     }
 
     auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
@@ -1102,11 +1101,11 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     void* data = nullptr;
     int len = 0;
 
-    auto pquery_id = merge_filter_request->mutable_query_id();
+    auto* pquery_id = merge_filter_request->mutable_query_id();
     pquery_id->set_hi(_state->query_id.hi());
     pquery_id->set_lo(_state->query_id.lo());
 
-    auto pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
+    auto* pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
     pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
     pfragment_instance_id->set_lo((int64_t)this);
 
@@ -1118,6 +1117,7 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
 
     if (get_ignored()) {
+        merge_filter_request->set_filter_type(PFilterType::UNKNOW_FILTER);
         merge_filter_request->set_ignored(true);
     } else {
         RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
@@ -1500,10 +1500,6 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
-    if (wrapper->is_ignored() || get_ignored()) {
-        set_ignored();
-        return Status::OK();
-    }
     return _wrapper->merge(wrapper);
 }
 
