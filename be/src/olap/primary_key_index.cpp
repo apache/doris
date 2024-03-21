@@ -109,6 +109,13 @@ Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));
     RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));
+    segment_v2::g_pk_total_bloom_filter_num << 1;
+    segment_v2::g_pk_total_bloom_filter_total_bytes << _bf->size();
+    segment_v2::g_pk_read_bloom_filter_num << 1;
+    segment_v2::g_pk_read_bloom_filter_total_bytes << _bf->size();
+    _bf_num += 1;
+    _bf_bytes += _bf->size();
+
     _bf_parsed = true;
 
     return Status::OK();

@@ -98,6 +98,9 @@ public class OriginalPlanner extends Planner {
     public void plan(StatementBase queryStmt, TQueryOptions queryOptions)
             throws UserException {
         createPlanFragments(queryStmt, analyzer, queryOptions);
+
+        // update scan nodes visible version at the end of plan phase.
+        ScanNode.setVisibleVersionForOlapScanNodes(getScanNodes());
     }
 
     @Override
