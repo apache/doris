@@ -526,10 +526,10 @@ Status S3FileSystem::get_key(const Path& path, std::string* key) const {
 
 template <typename AwsOutcome>
 std::string S3FileSystem::error_msg(const std::string& key, const AwsOutcome& outcome) const {
-    return fmt::format("(endpoint: {}, bucket: {}, key:{}, {}), {}, error code {}",
+    return fmt::format("(endpoint: {}, bucket: {}, key:{}, {}), {}, error code {}, request id {}",
                        _s3_conf.endpoint, _s3_conf.bucket, key,
                        outcome.GetError().GetExceptionName(), outcome.GetError().GetMessage(),
-                       outcome.GetError().GetResponseCode());
+                       outcome.GetError().GetResponseCode(), outcome.GetError().GetRequestId());
 }
 
 std::string S3FileSystem::error_msg(const std::string& key, const std::string& err) const {

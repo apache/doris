@@ -120,9 +120,10 @@ Status S3FileWriter::_create_multi_upload_request() {
     }
     return Status::IOError(
             "failed to create multipart upload(bucket={}, key={}, upload_id={}): {}, exception {}, "
-            "error code {}",
+            "error code {}, request id {}",
             _bucket, _path.native(), _upload_id, outcome.GetError().GetMessage(),
-            outcome.GetError().GetExceptionName(), outcome.GetError().GetResponseCode());
+            outcome.GetError().GetExceptionName(), outcome.GetError().GetResponseCode(),
+            outcome.GetError().GetRequestId());
 }
 
 void S3FileWriter::_wait_until_finish(std::string_view task_name) {
@@ -174,9 +175,10 @@ Status S3FileWriter::abort() {
     }
     return Status::IOError(
             "failed to abort multipart upload(bucket={}, key={}, upload_id={}): {}, exception {}, "
-            "error code {}",
+            "error code {}, request id {}",
             _bucket, _path.native(), _upload_id, outcome.GetError().GetMessage(),
-            outcome.GetError().GetExceptionName(), outcome.GetError().GetResponseCode());
+            outcome.GetError().GetExceptionName(), outcome.GetError().GetResponseCode(),
+            outcome.GetError().GetRequestId());
 }
 
 Status S3FileWriter::close() {
@@ -306,11 +308,12 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
     if (!upload_part_outcome.IsSuccess()) {
         auto s = Status::IOError(
                 "failed to upload part (bucket={}, key={}, part_num={}, up_load_id={}): {}, "
-                "exception {}, error code {}",
+                "exception {}, error code {}, request id {}",
                 _bucket, _path.native(), part_num, _upload_id,
                 upload_part_outcome.GetError().GetMessage(),
                 upload_part_outcome.GetError().GetExceptionName(),
-                upload_part_outcome.GetError().GetResponseCode());
+                upload_part_outcome.GetError().GetResponseCode(),
+                upload_part_outcome.GetError().GetRequestId());
         LOG_WARNING(s.to_string());
         buf._on_failed(s);
         return;
@@ -357,10 +360,11 @@ Status S3FileWriter::_complete() {
     if (!compute_outcome.IsSuccess()) {
         auto s = Status::IOError(
                 "failed to create complete multi part upload (bucket={}, key={}): {}, exception "
-                "{}, error code {}",
+                "{}, error code {}, request id {}",
                 _bucket, _path.native(), compute_outcome.GetError().GetMessage(),
                 compute_outcome.GetError().GetExceptionName(),
-                compute_outcome.GetError().GetResponseCode());
+                compute_outcome.GetError().GetResponseCode(),
+                compute_outcome.GetError().GetRequestId());
         LOG_WARNING(s.to_string());
         return s;
     }
@@ -399,9 +403,11 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
     auto response = _client->PutObject(request);
     if (!response.IsSuccess()) {
         _st = Status::InternalError(
-                "failed to put object (bucket={}, key={}), Error: [{}:{}, responseCode:{}]",
+                "failed to put object (bucket={}, key={}), Error: [{}:{}, responseCode:{}, request "
+                "id:{}]",
                 _bucket, _path.native(), response.GetError().GetExceptionName(),
-                response.GetError().GetMessage(), response.GetError().GetResponseCode());
+                response.GetError().GetMessage(), response.GetError().GetResponseCode(),
+                response.GetError().GetRequestId());
         LOG(WARNING) << _st;
         buf._on_failed(_st);
         return;
