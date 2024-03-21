@@ -129,6 +129,8 @@ distribution_desc
         ```SQL
             // 只用于DATETIME类型，导入数据缺失该值时系统将赋予当前时间
             dt DATETIME DEFAULT CURRENT_TIMESTAMP
+            // 只用于DATE类型，导入数据缺失该值时系统将赋予当前日期
+            dt DATE DEFAULT CURRENT_DATE
         ```
   * <version since="2.1" type="inline">`on update current_timestamp`</version>
 

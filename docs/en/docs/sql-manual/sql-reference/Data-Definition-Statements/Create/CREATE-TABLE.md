@@ -141,6 +141,8 @@ Column definition list:
         ```SQL
             // This keyword is used only for DATETIME type. If the value is missing, the system assigns the current timestamp.
             dt DATETIME DEFAULT CURRENT_TIMESTAMP
+            // This keyword is used only for DATE type. If the value is missing, the system assigns the current date.
+            dt DATE DEFAULT CURRENT_DATE
         ```
 
     * <version since="2.1" type="inline">`on update current_timestamp`</version>
