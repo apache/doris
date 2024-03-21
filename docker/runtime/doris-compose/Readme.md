@@ -131,4 +131,5 @@ steps:
 2. Add two backends with cluster-1: `python doris-compose.py up my-cluster --add-be-num 2  --be-cluster cluster-1`
 3. Add two backends with cluster-2: `python doris-compose.py up my-cluster --add-be-num 2  --be-cluster cluster-2`
 4. Generate regression-conf-custom.groovy: `python doris-compose.py config my-cluster`
+5. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
 
