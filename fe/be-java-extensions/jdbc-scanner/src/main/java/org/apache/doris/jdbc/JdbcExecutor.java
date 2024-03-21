@@ -180,6 +180,27 @@ public class JdbcExecutor {
         return false;
     }
 
+
+    public void cleanDataSource() {
+        if (druidDataSource != null) {
+            druidDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+            druidDataSource = null;
+        }
+    }
+
+    public void testConnection() throws UdfRuntimeException {
+        try {
+            resultSet = ((PreparedStatement) stmt).executeQuery();
+            if (!resultSet.next()) {
+                throw new UdfRuntimeException(
+                        "Failed to test connection in BE: query executed but returned no results.");
+            }
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("Failed to test connection in BE: ", e);
+        }
+    }
+
     public int read() throws UdfRuntimeException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
