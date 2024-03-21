@@ -444,7 +444,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/add_obj_info", process_alter_obj_store_info},
             {"v1/legacy_update_ak_sk", process_alter_obj_store_info},
             {"v1/update_ak_sk", process_update_ak_sk},
-            {"show_storage_vaults", process_storage_vault},
+            {"show_storage_vaults", process_get_obj_store_info},
             {"drop_hdfs_vault", process_alter_obj_store_info},
             // for tools
             {"decode_key", process_decode_key},
