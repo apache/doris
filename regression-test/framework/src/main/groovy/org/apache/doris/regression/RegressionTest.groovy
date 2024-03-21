@@ -30,6 +30,7 @@ import org.apache.doris.regression.suite.event.StackEventListeners
 import org.apache.doris.regression.suite.SuiteScript
 import org.apache.doris.regression.suite.event.TeamcityEventListener
 import org.apache.doris.regression.util.Recorder
+import org.apache.doris.regression.util.TeamcityUtils
 import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
@@ -65,6 +66,11 @@ class RegressionTest {
         boolean success = true
         for (int i = 0; i < config.times; i++) {
             log.info("=== run ${i} time ===")
+
+            if (config.caseNamePrefix) {
+                TeamcityUtils.prefix = config.caseNamePrefix.toString()
+            }
+
             Recorder recorder = runScripts(config)
             success = printResult(config, recorder)
         }
