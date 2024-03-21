@@ -496,7 +496,7 @@ public class StmtExecutor {
                 execute(queryId);
                 return;
             } catch (UserException e) {
-                if (!e.getMessage().contains("E-230") || i == retryTime) {
+                if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
                     throw e;
                 }
                 TUniqueId lastQueryId = queryId;
@@ -782,7 +782,7 @@ public class StmtExecutor {
                 handleQueryStmt();
                 break;
             } catch (RpcException | UserException e) {
-                if (Config.isCloudMode() && e.getMessage().contains("E-230")) {
+                if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
                     throw e;
                 }
                 // cloud mode retry
@@ -977,7 +977,7 @@ public class StmtExecutor {
             throw e;
         } catch (UserException e) {
             // insert into select
-            if (Config.isCloudMode() && e.getMessage().contains("E-230")) {
+            if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
                 throw e;
             }
             // analysis exception only print message, not print the stack
@@ -2260,7 +2260,7 @@ public class StmtExecutor {
                 }
 
                 // cloud mode, insert into select meet -230, retry
-                if (Config.isCloudMode() && t.getMessage().contains("E-230")) {
+                if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
                     LOG.warn("insert into select meet E-230, retry again");
                     resetAnalyzerAndStmt();
                     if (insertStmt instanceof NativeInsertStmt) {

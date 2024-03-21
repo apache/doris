@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -186,7 +187,7 @@ public abstract class AbstractInsertExecutor {
         } catch (Throwable t) {
             onFail(t);
             // retry insert into from select when meet E-230 in cloud
-            if (Config.isCloudMode() && t.getMessage().contains("E-230")) {
+            if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
                 throw t;
             }
             return;

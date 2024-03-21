@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -213,7 +214,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             }
         }
         // retry insert into from select when meet E-230 in cloud
-        if (Config.isCloudMode() && t.getMessage().contains("E-230")) {
+        if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
             return;
         }
         StringBuilder sb = new StringBuilder(t.getMessage());
