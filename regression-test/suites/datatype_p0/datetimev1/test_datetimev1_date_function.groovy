@@ -52,7 +52,8 @@ suite("test_datetimev1_date_function", "nonConcurrent") {
                     ('2020-01-06 21:02:03'),
                     ('2020-01-07 09:29:39'),
                     ('2020-01-08 11:33:55'),
-                    ('2020-01-09 14:43:42');
+                    ('2020-01-09 14:43:42'),
+                    ('2020-01-10 23:59:59');
         """
     }
 
@@ -66,9 +67,9 @@ suite("test_datetimev1_date_function", "nonConcurrent") {
                 `${table_name}`
             where
                 date(`${col}`) > ${col_value}
-            order by 1, 2, 3, 4;
+            order by 1;
         """
-        quickTest("date_function_test_datetimev1_gt_${table_name}", query1)
+        quickTest("date_function_test_datetimev1_gt", query1)
 
         def query2 = """
             select
@@ -77,9 +78,9 @@ suite("test_datetimev1_date_function", "nonConcurrent") {
                 `${table_name}`
             where
                 date(`${col}`) >= ${col_value}
-            order by 1, 2, 3, 4;
+            order by 1;
         """
-        quickTest("date_function_test_datetimev1_gte_${table_name}", query2)
+        quickTest("date_function_test_datetimev1_gte", query2)
 
         def query3 = """
             select
@@ -88,9 +89,9 @@ suite("test_datetimev1_date_function", "nonConcurrent") {
                 `${table_name}`
             where
                 date(`${col}`) < ${col_value}
-            order by 1, 2, 3, 4;
+            order by 1;
         """
-        quickTest("date_function_test_datetimev1_lt_${table_name}", query3)
+        quickTest("date_function_test_datetimev1_lt", query3)
 
         def query4 = """
             select
@@ -99,15 +100,23 @@ suite("test_datetimev1_date_function", "nonConcurrent") {
                 `${table_name}`
             where
                 date(`${col}`) <= ${col_value}
-            order by 1, 2, 3, 4;
+            order by 1;
         """
-        quickTest("date_function_test_datetimev1_lte_${table_name}", query4)
+        quickTest("date_function_test_datetimev1_lte", query4)
+
+        def query5 = """
+            select
+                *
+            from
+                `${table_name}`
+            where
+                date(`${col}`) = ${col_value}
+            order by 1;
+        """
+        quickTest("date_function_test_datetimev1_eq", query5)
     }
 
-    run_compare_test(table_dup, "date_key1", "'2020-01-05 17:58:59'");
-    run_compare_test(table_dup, "date_key1", "'2022-05-02 00:00:00'");
-    run_compare_test(table_dup, "date_key1", "'2020-01-05 17:58:59'");
-    run_compare_test(table_dup, "date_key1", "'2022-05-02 00:00:00'");
+    run_compare_test(table_dup, "date_key1", "'2020-01-05'")
 
     sql """
         admin set frontend config("enable_date_conversion" = "true");
