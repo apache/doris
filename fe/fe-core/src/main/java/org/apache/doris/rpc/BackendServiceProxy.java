@@ -284,6 +284,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PJdbcTestConnectionResult> testJdbcConnection(
+            TNetworkAddress address, InternalService.PJdbcTestConnectionRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.testJdbcConnection(request);
+        } catch (Throwable e) {
+            LOG.warn("test jdbc connection catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(
             TNetworkAddress address, InternalService.PUpdateCacheRequest request) throws RpcException {
         try {

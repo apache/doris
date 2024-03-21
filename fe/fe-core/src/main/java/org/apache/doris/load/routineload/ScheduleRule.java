@@ -55,11 +55,16 @@ public class ScheduleRule {
         /*
          * Handle all backends are down.
          */
-        LOG.debug("try to auto reschedule routine load {}, firstResumeTimestamp: {}, autoResumeCount: {}, "
-                        + "pause reason: {}",
-                jobRoutine.id, jobRoutine.firstResumeTimestamp, jobRoutine.autoResumeCount,
-                jobRoutine.pauseReason == null ? "null" : jobRoutine.pauseReason.getCode().name());
-        if (jobRoutine.pauseReason != null && jobRoutine.pauseReason.getCode() == InternalErrorCode.REPLICA_FEW_ERR) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to auto reschedule routine load {}, firstResumeTimestamp: {}, autoResumeCount: {}, "
+                            + "pause reason: {}",
+                    jobRoutine.id, jobRoutine.firstResumeTimestamp, jobRoutine.autoResumeCount,
+                    jobRoutine.pauseReason == null ? "null" : jobRoutine.pauseReason.getCode().name());
+        }
+        if (jobRoutine.pauseReason != null
+                && jobRoutine.pauseReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
+                && jobRoutine.pauseReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
+                && jobRoutine.pauseReason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR) {
             int dead = deadBeCount(jobRoutine.clusterName);
             if (dead > Config.max_tolerable_backend_down_num) {
                 LOG.debug("dead backend num {} is larger than config {}, "

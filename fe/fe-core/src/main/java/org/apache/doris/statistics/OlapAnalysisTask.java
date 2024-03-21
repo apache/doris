@@ -39,6 +39,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -250,7 +251,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<Long> sampleTabletIds = new ArrayList<>();
         long actualSampledRowCount = 0;
         boolean enough = false;
-        for (Partition p : olapTable.getPartitions()) {
+        List<Partition> sortedPartitions = olapTable.getPartitions().stream().sorted(
+                Comparator.comparing(Partition::getName)).collect(Collectors.toList());
+        for (Partition p : sortedPartitions) {
             MaterializedIndex materializedIndex = info.indexId == -1 ? p.getBaseIndex() : p.getIndex(info.indexId);
             if (materializedIndex == null) {
                 continue;

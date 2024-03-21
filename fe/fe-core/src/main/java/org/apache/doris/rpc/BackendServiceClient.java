@@ -114,6 +114,11 @@ public class BackendServiceClient {
         return stub.fetchTableSchema(request);
     }
 
+    public Future<InternalService.PJdbcTestConnectionResult> testJdbcConnection(
+            InternalService.PJdbcTestConnectionRequest request) {
+        return stub.testJdbcConnection(request);
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(InternalService.PUpdateCacheRequest request) {
         return stub.updateCache(request);
     }

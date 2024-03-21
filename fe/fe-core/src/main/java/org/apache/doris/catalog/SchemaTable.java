@@ -147,7 +147,8 @@ public class SchemaTable extends Table {
                             .column("SCHEMA_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_CHARACTER_SET_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_COLLATION_NAME", ScalarType.createVarchar(32))
-                            .column("SQL_PATH", ScalarType.createVarchar(512)).build()))
+                            .column("SQL_PATH", ScalarType.createVarchar(512))
+                            .column("DEFAULT_ENCRYPTION", ScalarType.createVarchar(3)).build()))
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
@@ -443,6 +444,17 @@ public class SchemaTable extends Table {
                             .column("SOURCE_FUNCTION", ScalarType.createVarchar(30))
                             .column("SOURCE_FILE", ScalarType.createVarchar(20))
                             .column("SOURCE_LINE", ScalarType.createType(PrimitiveType.INT))
+                            .build()))
+            .put("processlist", new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
+                    builder().column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
+                            .column("USER", ScalarType.createVarchar(32))
+                            .column("HOST", ScalarType.createVarchar(261))
+                            .column("CATALOG", ScalarType.createVarchar(64))
+                            .column("DB", ScalarType.createVarchar(64))
+                            .column("COMMAND", ScalarType.createVarchar(16))
+                            .column("TIME", ScalarType.createType(PrimitiveType.INT))
+                            .column("STATE", ScalarType.createVarchar(64))
+                            .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                             .build()))
             .build();
 
