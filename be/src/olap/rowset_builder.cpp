@@ -49,6 +49,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"

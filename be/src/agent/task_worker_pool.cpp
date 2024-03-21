@@ -54,6 +54,7 @@
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -1076,10 +1077,16 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     }
     request.__isset.storage_policy = true;
     auto& resource_list = request.resource;
-    for (auto [id, version] : get_storage_resource_ids()) {
+    for (auto [id_str, version] : get_storage_resource_ids()) {
         auto& resource = resource_list.emplace_back();
-        resource.__set_id(id);
-        resource.__set_version(version);
+        int64_t id = -1;
+        if (auto [_, ec] = std::from_chars(id_str.data(), id_str.data() + id_str.size(), id);
+            ec == std::errc {}) [[unlikely]] {
+            LOG(ERROR) << "invalid resource id format: " << id_str;
+        } else {
+            resource.__set_id(id);
+            resource.__set_version(version);
+        }
     }
     request.__isset.resource = true;
 
@@ -1327,64 +1334,105 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
     }
 }
 
+namespace {
+
+void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr existed_fs) {
+    Status st;
+    io::RemoteFileSystemSPtr fs;
+
+    if (!existed_fs) {
+        // No such FS instance on BE
+        S3Conf s3_conf {
+                .bucket = param.s3_storage_param.bucket,
+                .prefix = param.s3_storage_param.root_path,
+                .client_conf = {
+                        .endpoint = param.s3_storage_param.endpoint,
+                        .region = param.s3_storage_param.region,
+                        .ak = param.s3_storage_param.ak,
+                        .sk = param.s3_storage_param.sk,
+                        .max_connections = param.s3_storage_param.max_conn,
+                        .request_timeout_ms = param.s3_storage_param.request_timeout_ms,
+                        .connect_timeout_ms = param.s3_storage_param.conn_timeout_ms,
+                        // When using cold heat separation in minio, user might use ip address directly,
+                        // which needs enable use_virtual_addressing to true
+                        .use_virtual_addressing = !param.s3_storage_param.use_path_style,
+                }};
+        auto res = io::S3FileSystem::create(std::move(s3_conf), std::to_string(param.id));
+        if (!res.has_value()) {
+            st = std::move(res).error();
+        } else {
+            fs = std::move(res).value();
+        }
+    } else {
+        DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
+        auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
+        S3ClientConf conf {
+                .ak = param.s3_storage_param.ak,
+                .sk = param.s3_storage_param.sk,
+        };
+        st = client->reset(conf);
+        fs = std::move(existed_fs);
+    }
+
+    if (!st.ok()) {
+        LOG(WARNING) << "update s3 resource failed: " << st;
+    } else {
+        LOG_INFO("successfully update hdfs resource")
+                .tag("resource_id", param.id)
+                .tag("resource_name", param.name);
+        put_storage_resource(param.id, {std::move(fs), param.version});
+    }
+}
+
+void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPtr existed_fs) {
+    Status st;
+    io::RemoteFileSystemSPtr fs;
+
+    if (!existed_fs) {
+        // No such FS instance on BE
+        auto res = io::HdfsFileSystem::create(param.hdfs_storage_param,
+                                              param.hdfs_storage_param.fs_name,
+                                              std::to_string(param.id), nullptr);
+        if (!res.has_value()) {
+            st = std::move(res).error();
+        } else {
+            fs = std::move(res).value();
+        }
+
+    } else {
+        DCHECK_EQ(existed_fs->type(), io::FileSystemType::HDFS) << param.id << ' ' << param.name;
+        // TODO(plat1ko): update hdfs conf
+        fs = std::move(existed_fs);
+    }
+
+    if (!st.ok()) {
+        LOG(WARNING) << "update hdfs resource failed: " << st;
+    } else {
+        LOG_INFO("successfully update hdfs resource")
+                .tag("resource_id", param.id)
+                .tag("resource_name", param.name);
+        put_storage_resource(param.id, {std::move(fs), param.version});
+    }
+}
+
+} // namespace
+
 void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& push_storage_policy_req = req.push_storage_policy_req;
     // refresh resource
-    for (auto& resource : push_storage_policy_req.resource) {
-        auto existed_resource = get_storage_resource(resource.id);
-        if (existed_resource.version >= resource.version) {
+    for (auto&& param : push_storage_policy_req.resource) {
+        auto existed_resource = get_storage_resource(param.id);
+        if (existed_resource.version >= param.version) {
+            // Stale request, ignore
             continue;
         }
-        if (resource.__isset.s3_storage_param) {
-            Status st;
-            S3Conf s3_conf;
-            s3_conf.ak = std::move(resource.s3_storage_param.ak);
-            s3_conf.sk = std::move(resource.s3_storage_param.sk);
-            s3_conf.endpoint = std::move(resource.s3_storage_param.endpoint);
-            s3_conf.region = std::move(resource.s3_storage_param.region);
-            s3_conf.prefix = std::move(resource.s3_storage_param.root_path);
-            s3_conf.bucket = std::move(resource.s3_storage_param.bucket);
-            s3_conf.connect_timeout_ms = resource.s3_storage_param.conn_timeout_ms;
-            s3_conf.max_connections = resource.s3_storage_param.max_conn;
-            s3_conf.request_timeout_ms = resource.s3_storage_param.request_timeout_ms;
-            // When using cold heat separation in minio, user might use ip address directly,
-            // which needs enable use_virtual_addressing to true
-            s3_conf.use_virtual_addressing = !resource.s3_storage_param.use_path_style;
-            std::shared_ptr<io::S3FileSystem> fs;
-            if (existed_resource.fs == nullptr) {
-                st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
-            } else {
-                fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
-                fs->set_conf(s3_conf);
-            }
-            if (!st.ok()) {
-                LOG(WARNING) << "update s3 resource failed: " << st;
-            } else {
-                LOG_INFO("successfully update s3 resource")
-                        .tag("resource_id", resource.id)
-                        .tag("resource_name", resource.name)
-                        .tag("s3_conf", s3_conf.to_string());
-                put_storage_resource(resource.id, {std::move(fs), resource.version});
-            }
-        } else if (resource.__isset.hdfs_storage_param) {
-            Status st;
-            std::shared_ptr<io::HdfsFileSystem> fs;
-            if (existed_resource.fs == nullptr) {
-                st = io::HdfsFileSystem::create(resource.hdfs_storage_param,
-                                                std::to_string(resource.id), "", nullptr, &fs);
-            } else {
-                fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
-            }
-            if (!st.ok()) {
-                LOG(WARNING) << "update hdfs resource failed: " << st;
-            } else {
-                LOG_INFO("successfully update hdfs resource")
-                        .tag("resource_id", resource.id)
-                        .tag("resource_name", resource.name);
-                put_storage_resource(resource.id, {std::move(fs), resource.version});
-            }
+
+        if (param.__isset.s3_storage_param) {
+            update_s3_resource(param, std::move(existed_resource.fs));
+        } else if (param.__isset.hdfs_storage_param) {
+            update_hdfs_resource(param, std::move(existed_resource.fs));
         } else {
-            LOG(WARNING) << "unknown resource=" << resource;
+            LOG(WARNING) << "unknown resource=" << param;
         }
     }
     // drop storage policy
@@ -1392,12 +1440,12 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
         delete_storage_policy(policy_id);
     }
     // refresh storage policy
-    for (auto& storage_policy : push_storage_policy_req.storage_policy) {
+    for (auto&& storage_policy : push_storage_policy_req.storage_policy) {
         auto existed_storage_policy = get_storage_policy(storage_policy.id);
         if (existed_storage_policy == nullptr ||
             existed_storage_policy->version < storage_policy.version) {
             auto storage_policy1 = std::make_shared<StoragePolicy>();
-            storage_policy1->name = std::move(storage_policy.name);
+            storage_policy1->name = storage_policy.name;
             storage_policy1->version = storage_policy.version;
             storage_policy1->cooldown_datetime = storage_policy.cooldown_datetime;
             storage_policy1->cooldown_ttl = storage_policy.cooldown_ttl;
