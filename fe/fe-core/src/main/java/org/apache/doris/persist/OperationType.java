@@ -382,6 +382,8 @@ public class OperationType {
 
     public static final short OP_DROP_PLSQL_PACKAGE = 474;
 
+    public static final short OP_ALTER_ROLE = 475;
+
     /**
      * Get opcode name by op code.
      **/
