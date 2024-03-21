@@ -137,6 +137,10 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             if (expr.isLiteral()) {
                 return;
             }
+            // eg: avg_state(1) return is agg function serialize data
+            if (expr.getDataType().isAggStateType()) {
+                return;
+            }
             if (skipSleepFunction(expr)) {
                 return;
             }
