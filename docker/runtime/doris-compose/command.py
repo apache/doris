@@ -764,6 +764,7 @@ metaServiceHttpAddress = "{ms_endpoint}"
 recycleServiceHttpAddress = "{recycle_endpoint}"
 multiClusterInstance = "default_instance_id"
 multiClusterBes = "{multi_cluster_bes}"
+metaServiceToken = "greedisgood9999"
 '''
 
         def confirm_custom_file_path(doris_root_dir):
@@ -771,14 +772,14 @@ multiClusterBes = "{multi_cluster_bes}"
             regression_conf_custom = os.path.join(doris_root_dir,
                                                   relative_custom_file_path)
             ans = input(
-                "write file {} ?\n   y / n / c(change custom conf path):  ".
+                "\nwrite file {} ?  y / n / c(change custom conf path):  ".
                 format(regression_conf_custom))
             if ans == 'y':
                 return regression_conf_custom
             elif ans == 'c':
                 return confirm_custom_file_path(
-                    input(
-                        "input your doris or selectdb-core root path (ie. the regression-test 's parent path, for save the custom conf file: \n\t"
+                    input("\ninput your doris or selectdb-core root path (ie. the regression-test 's "\
+                        "parent path, for save the custom conf file): "
                     ).strip())
             else:
                 return ""
@@ -795,7 +796,7 @@ multiClusterBes = "{multi_cluster_bes}"
 
         regression_conf_custom = confirm_custom_file_path(doris_root_dir)
         if not regression_conf_custom:
-            print("No write regression custom file.")
+            print("\nNo write regression custom file.")
             return
 
         with open(regression_conf_custom, "w") as f:
@@ -803,20 +804,19 @@ multiClusterBes = "{multi_cluster_bes}"
             f.write(base_conf.format(fe_ip=fe_ip))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
-                    "{}:{}:{}:{}".format(be.get_ip(), CLUSTER.BE_PORT,
-                                         CLUSTER.BE_WEBSVR_PORT,
-                                         be.get_cluster_name(),
-                                         CLUSTER.BE_BRPC_PORT)
+                    "{}:{}:{}:{}:{}".format(be.get_ip(), CLUSTER.BE_PORT,
+                                            CLUSTER.BE_WEBSVR_PORT,
+                                            be.get_cluster_name(),
+                                            CLUSTER.BE_BRPC_PORT)
                     for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE)
                 ])
-                f.write("\n")
                 f.write(
                     cloud_conf.format(
                         fe_ip=fe_ip,
                         ms_endpoint=cluster.get_meta_server_addr(),
                         recycle_endpoint=cluster.get_recycle_addr(),
                         multi_cluster_bes=multi_cluster_bes))
-        print("Write succ: " + regression_conf_custom)
+        print("\nWrite succ: " + regression_conf_custom)
 
 
 class ListCommand(Command):
