@@ -41,9 +41,9 @@ class Config {
     public String jdbcPassword
     public String defaultDb
 
-    public String downstreamUrl
-    public String downstreamUser
-    public String downstreamPassword
+    public String ccrccrDownstreamUrl
+    public String ccrccrDownstreamUser
+    public String ccrccrDownstreamPassword
 
     public String feSourceThriftAddress
     public String feTargetThriftAddress
@@ -313,9 +313,9 @@ class Config {
             configToString(obj.sslCertificatePath)
         )
 
-        config.downstreamUrl = configToString(obj.downstreamUrl)
-        config.downstreamUser = configToString(obj.downstreamUser)
-        config.downstreamPassword = configToString(obj.downstreamPassword)
+        config.ccrDownstreamUrl = configToString(obj.ccrDownstreamUrl)
+        config.ccrDownstreamUser = configToString(obj.ccrDownstreamUser)
+        config.ccrDownstreamPassword = configToString(obj.ccrDownstreamPassword)
         config.image = configToString(obj.image)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
@@ -560,7 +560,7 @@ class Config {
 
         return urlWithDb
     }
-    
+
     Connection getConnectionByArrowFlightSql(String dbName) {
         Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
         String arrowFlightSqlHost = otherConfigs.get("extArrowFlightSqlHost")
@@ -577,10 +577,10 @@ class Config {
     }
 
     Connection getDownstreamConnectionByDbName(String dbName) {
-        String dbUrl = buildUrlWithDb(downstreamUrl, dbName)
+        String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
-        return DriverManager.getConnection(dbUrl, downstreamUser, downstreamPassword)
+        return DriverManager.getConnection(dbUrl, ccrDownstreamUser, ccrDownstreamPassword)
     }
 
     String getDbNameByFile(File suiteFile) {
