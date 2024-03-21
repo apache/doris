@@ -93,4 +93,5 @@ suite("test_tokenize"){
     qt_sql "SELECT TOKENIZE(c, \"'parser'='chinese','parser_mode'='fine_grained'\") FROM $indexTblName3";
 
     qt_tokenize_sql """SELECT TOKENIZE('GET /images/hm_bg.jpg HTTP/1.0 test:abc=bcd','"parser"="unicode","char_filter_type" = "char_replace","char_filter_pattern" = "._=:,","char_filter_replacement" = " "');"""
+    qt_tokenize_sql """SELECT TOKENIZE('GET /images/hm_bg.jpg HTTP/1.0 test:abc=bcd','"parser"="unicode", "char_filter_type" = "char_replace", "char_filter_pattern" = "._=:,", "char_filter_replacement" = " " ');"""
 }

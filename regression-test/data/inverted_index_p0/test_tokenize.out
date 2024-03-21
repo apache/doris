@@ -22,3 +22,6 @@
 -- !tokenize_sql --
 ["get", "images", "hm", "bg", "jpg", "http", "1", "0", "test", "abc", "bcd"]
 
+-- !tokenize_sql --
+["get", "images", "hm", "bg", "jpg", "http", "1", "0", "test", "abc", "bcd"]
+
