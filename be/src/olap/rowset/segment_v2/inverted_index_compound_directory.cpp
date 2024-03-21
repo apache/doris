@@ -257,7 +257,12 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
     }
     auto* h = _CLNEW SharedHandle(path);
 
-    if (!fs->open_file(path, &h->_reader).ok()) {
+    io::FileDescription fd;
+    fd.path = path;
+    io::FileBlockCachePathPolicy cache_policy;
+    auto type = config::enable_file_cache ? config::file_cache_type : "";
+    io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
+    if (!fs->open_file(fd, reader_options, &h->_reader).ok()) {
         error.set(CL_ERR_IO, "open file error");
     }
 
@@ -295,6 +300,7 @@ DorisCompoundDirectory::FSIndexInput::FSIndexInput(const FSIndexInput& other)
     std::lock_guard<std::mutex> wlock(*other._handle->_shared_lock);
     _handle = _CL_POINTER(other._handle);
     _pos = other._handle->_fpos; //note where we are currently...
+    _io_ctx = other._io_ctx;
 }
 
 DorisCompoundDirectory::FSIndexInput::SharedHandle::SharedHandle(const char* path) {
@@ -361,7 +367,7 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
 
     Slice result {b, (size_t)len};
     size_t bytes_read = 0;
-    if (!_handle->_reader->read_at(_pos, result, &bytes_read).ok()) {
+    if (!_handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx).ok()) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
     bufferLength = len;
