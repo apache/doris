@@ -369,7 +369,7 @@ public:
             }
         }
         if (_context.hybrid_set->contain_null()) {
-            bloom_filter->set_contain_null();
+            bloom_filter->set_contain_null_and_null_aware();
         }
     }
 
@@ -744,7 +744,6 @@ public:
                                                                      : _column_return_type));
         RETURN_IF_ERROR(_context.bloom_filter_func->assign(data, bloom_filter->filter_length(),
                                                            contain_null));
-
         return Status::OK();
     }
 
