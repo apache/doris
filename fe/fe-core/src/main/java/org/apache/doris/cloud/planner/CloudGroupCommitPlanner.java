@@ -75,7 +75,7 @@ public class CloudGroupCommitPlanner extends GroupCommitPlanner {
         }
 
         List<String> backendsInfo = backends.stream()
-                .map(be -> "{ beId=" + be.getId() + "alive=" + be.isAlive() + ", active=" + be.isActive()
+                .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive() + ", active=" + be.isActive()
                         + ", decommission=" + be.isDecommissioned() + " }")
                 .collect(Collectors.toList());
         throw new DdlException("No suitable backend for cloud cluster=" + cluster + ", backends = " + backendsInfo);
