@@ -1086,6 +1086,12 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
+    // only support DUP_KEYS and UNIQUE_KEYS with MOW
+    if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
+           (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
+            _opts.enable_unique_key_merge_on_write)))) {
+        return true;
+    }
     // if there is delete predicate, we always need to read data
     if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
         return true;
