@@ -19,6 +19,8 @@
 
 #include <arrow/array/builder_nested.h>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -224,33 +226,40 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
     result.writeEndBinary();
 }
 
-void DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                                rapidjson::Document::AllocatorType& allocator,
-                                                int row_num) const {
-    // vectorized::Field array = column[row_num];
+Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                  rapidjson::Document::AllocatorType& allocator,
+                                                  int row_num) const {
     // Use allocator instead of stack memory, since rapidjson hold the reference of String value
     // otherwise causes stack use after free
     auto& column_array = static_cast<const ColumnArray&>(column);
+    if (row_num > column_array.size()) {
+        return Status::InternalError("row num {} out of range {}!", row_num, column_array.size());
+    }
     void* mem = allocator.Malloc(sizeof(vectorized::Field));
+    if (!mem) {
+        return Status::InternalError("Malloc failed");
+    }
     vectorized::Field* array = new (mem) vectorized::Field(column_array[row_num]);
 
     convert_field_to_rapidjson(*array, result, allocator);
+    return Status::OK();
 }
 
-void DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
-                                                 const rapidjson::Value& result) const {
+Status DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
+                                                   const rapidjson::Value& result) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
     auto& nested_data = column_array.get_data();
     if (!result.IsArray()) {
         column_array.insert_default();
-        return;
+        return Status::OK();
     }
     // TODO this is slow should improve performance
     for (const rapidjson::Value& v : result.GetArray()) {
-        nested_serde->read_one_cell_from_json(nested_data, v);
+        RETURN_IF_ERROR(nested_serde->read_one_cell_from_json(nested_data, v));
     }
     offsets_data.emplace_back(result.GetArray().Size());
+    return Status::OK();
 }
 
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
