@@ -2724,40 +2724,12 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("0.0", result_sample[1][2])
     assertEquals("SAMPLE", result_sample[1][9])
 
-    // Test show task
-    result_sample = sql """analyze table trigger_test with sample percent 10"""
-    String jobId = result_sample[0][0]
-    result_sample = sql """show analyze task status ${jobId}"""
-    assertEquals(2, result_sample.size())
-    Thread.sleep(1000)
-    sql """drop stats trigger_test"""
-
     // Test trigger type
+    sql """drop stats trigger_test"""
     sql """insert into trigger_test values(1,'name1') """
     sql """insert into trigger_test values(2,'name2') """
     sql """insert into trigger_test values(3,'name3') """
     sql """insert into trigger_test values(4,'name4') """
-
-    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
-
-    int i = 0;
-    for (0; i < 10; i++) {
-        def result = sql """show column stats trigger_test"""
-        if (result.size() != 2) {
-            Thread.sleep(1000)
-            continue;
-        }
-        assertEquals(result[0][11], "SYSTEM")
-        assertEquals(result[1][11], "SYSTEM")
-        break
-    }
-    if (i < 10) {
-        sql """analyze table trigger_test with sync"""
-        def result = sql """show column stats trigger_test"""
-        assertEquals(result.size(), 2)
-        assertEquals(result[0][11], "MANUAL")
-        assertEquals(result[1][11], "MANUAL")
-    }
 
     // Test analyze default full.
     sql """analyze table trigger_test with sync"""
@@ -2768,7 +2740,7 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("4.0", result[1][2])
     assertEquals("FULL", result[1][9])
 
-    // Test analyze hive health value
+    // Test manual analyze ignore health value
     sql """insert into trigger_test values(5,'name5') """
     sql """analyze table trigger_test with sync"""
     result = sql """show column stats trigger_test"""
@@ -2776,6 +2748,33 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("5.0", result[0][2])
     assertEquals("5.0", result[1][2])
 
+    // Test auto analyze with job type SYSTEM
+    sql """drop stats trigger_test"""
+    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+    int i = 0;
+    for (0; i < 10; i++) {
+        result = sql """show column stats trigger_test"""
+        if (result.size() != 2) {
+            Thread.sleep(1000)
+            continue;
+        }
+        assertEquals(result[0][11], "SYSTEM")
+        assertEquals(result[1][11], "SYSTEM")
+        break
+    }
+    if (i < 10) {
+        sql """analyze table trigger_test with sync"""
+        result = sql """show column stats trigger_test"""
+        assertEquals(result.size(), 2)
+        assertEquals(result[0][11], "MANUAL")
+        assertEquals(result[1][11], "MANUAL")
+    }
+
+    // Test show task
+    result_sample = sql """analyze table trigger_test with sample percent 10"""
+    String jobId = result_sample[0][0]
+    result_sample = sql """show analyze task status ${jobId}"""
+    assertEquals(2, result_sample.size())
 
     sql """DROP DATABASE IF EXISTS trigger"""
 }

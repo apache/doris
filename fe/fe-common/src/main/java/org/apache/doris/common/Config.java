@@ -2520,6 +2520,9 @@ public class Config extends ConfigBase {
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
 
+    @ConfField(mutable = true)
+    public static boolean fix_tablet_partition_id_eq_0 = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "倒排索引默认存储格式",
             "Default storage format of inverted index, the default value is V1."
@@ -2531,6 +2534,7 @@ public class Config extends ConfigBase {
             "Whether to enable proxy protocol"
     })
     public static boolean enable_proxy_protocol = false;
+
 
     //==========================================================================
     //                    begin of cloud config
