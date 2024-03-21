@@ -713,5 +713,15 @@ function warehouse_add_be() {
 }
 
 function check_if_need_gcore() {
-    echo
+    exit_flag="$1"
+    if [[ ${exit_flag} == "124" ]]; then # 124 is from command timeout
+        echo "INFO: run regression timeout, gcore to find out reason"
+        be_pid=$(pgrep "doris_be")
+        if [[ -n "${be_pid}" ]]; then
+            kill -ABRT "${be_pid}"
+            sleep 10
+        fi
+    else
+        echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
+    fi
 }
