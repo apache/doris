@@ -1133,7 +1133,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                         + " with reason: " + txnStatusChangeReasonString
                                         + " please check the jsonpaths";
                                 updateState(JobState.PAUSED,
-                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR, msg),
                                         false /* not replay */);
                                 return;
                             case OFFSET_OUT_OF_RANGE:
@@ -1146,14 +1146,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                         + " using the Alter ROUTINE LOAD command to modify it,"
                                         + " and resume the job";
                                 updateState(JobState.PAUSED,
-                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR, msg),
                                         false /* not replay */);
                                 return;
                             case PAUSE:
                                 msg = "be " + taskBeId + " abort task "
                                         + "with reason: " + txnStatusChangeReasonString;
                                 updateState(JobState.PAUSED,
-                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR, msg),
                                         false /* not replay */);
                                 return;
                             default:
