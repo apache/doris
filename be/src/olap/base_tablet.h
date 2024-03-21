@@ -236,6 +236,8 @@ public:
     // end MoW functions
     ////////////////////////////////////////////////////////////////////////////
 
+    RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
+
 protected:
     // Find the missed versions until the spec_version.
     //
