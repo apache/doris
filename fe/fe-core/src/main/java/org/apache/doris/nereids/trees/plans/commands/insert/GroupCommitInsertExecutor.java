@@ -20,10 +20,12 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
@@ -34,11 +36,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionStatus;
@@ -49,13 +53,23 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 /**
  * Handle group commit
  */
-public class GroupCommitInserter {
-    public static final Logger LOG = LogManager.getLogger(GroupCommitInserter.class);
+public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
+    public static final Logger LOG = LogManager.getLogger(GroupCommitInsertExecutor.class);
+
+    protected final NereidsPlanner planner;
+
+    public GroupCommitInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
+                                     Optional<InsertCommandContext> insertCtx) {
+        super(ctx, table, labelName, planner, insertCtx);
+        this.planner = planner;
+    }
 
     /**
      * Handle group commit
@@ -65,9 +79,6 @@ public class GroupCommitInserter {
         PhysicalOlapTableSink<?> olapSink = (PhysicalOlapTableSink<?>) physicalSink;
         boolean can = canGroupCommit(ctx, sink, olapSink);
         ctx.setGroupCommit(can);
-        if (can) {
-            handleGroupCommit(ctx, sink, olapSink);
-        }
         return can;
     }
 
@@ -95,7 +106,7 @@ public class GroupCommitInserter {
 
     private static void handleGroupCommit(ConnectContext ctx, DataSink sink,
             PhysicalOlapTableSink<?> physicalOlapTableSink)
-            throws UserException, RpcException, TException, ExecutionException, InterruptedException {
+                throws UserException, TException, RpcException, ExecutionException, InterruptedException {
         // TODO we should refactor this to remove rely on UnionNode
         List<InternalService.PDataRow> rows = new ArrayList<>();
         List<List<Expr>> materializedConstExprLists = ((UnionNode) sink.getFragment()
@@ -137,5 +148,44 @@ public class GroupCommitInserter {
                 txnStatus, response.getLoadedRows(), (int) response.getFilteredRows());
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) response.getLoadedRows());
+    }
+
+    @Override
+    public void beginTransaction() {
+
+    }
+
+    @Override
+    protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
+
+    }
+
+    @Override
+    protected void beforeExec() {
+
+    }
+
+    @Override
+    protected void onComplete() throws UserException {
+        Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
+                .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+                .findAny();
+        PhysicalOlapTableSink<?> olapSink = plan.get();
+        DataSink sink = planner.getFragments().get(0).getSink();
+        try {
+            handleGroupCommit(ctx, sink, olapSink);
+        } catch (TException | RpcException | ExecutionException | InterruptedException e) {
+            LOG.warn("errors when group commit insert. {}", e);
+        }
+    }
+
+    @Override
+    protected void onFail(Throwable t) {
+
+    }
+
+    @Override
+    protected void afterExec(StmtExecutor executor) {
+
     }
 }

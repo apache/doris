@@ -171,13 +171,19 @@ public abstract class AbstractInsertExecutor {
         return true;
     }
 
+    private boolean checkGroupCommitMode() {
+        return ctx.isGroupCommit();
+    }
+
     /**
      * execute insert txn for insert into select command.
      */
     public void executeSingleInsert(StmtExecutor executor, long jobId) {
         beforeExec();
         try {
-            execImpl(executor, jobId);
+            if (!checkGroupCommitMode()) {
+                execImpl(executor, jobId);
+            }
             if (!checkStrictMode()) {
                 return;
             }

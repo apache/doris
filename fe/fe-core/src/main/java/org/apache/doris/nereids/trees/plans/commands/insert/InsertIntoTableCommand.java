@@ -156,8 +156,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
-                if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    return null;
+                if (GroupCommitInsertExecutor.groupCommit(ctx, sink, physicalSink)) {
+                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx);
+                    return insertExecutor;
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
@@ -190,9 +191,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
-        if (insertExecutor != null) {
-            insertExecutor.executeSingleInsert(executor, jobId);
-        }
+        insertExecutor.executeSingleInsert(executor, jobId);
     }
 
     @Override
