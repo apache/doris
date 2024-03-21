@@ -41,9 +41,9 @@ class Config {
     public String jdbcPassword
     public String defaultDb
 
-    public String ccrccrDownstreamUrl
-    public String ccrccrDownstreamUser
-    public String ccrccrDownstreamPassword
+    public String ccrDownstreamUrl
+    public String ccrDownstreamUser
+    public String ccrDownstreamPassword
 
     public String feSourceThriftAddress
     public String feTargetThriftAddress
