@@ -15,12 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_trino_hive_other", "p0,external,hive,external_docker,external_docker_hive") {
-    def plugins_compression = "trino-connectors.tar.gz"
-    def plugins_dir = "connectors"
+suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hive") {
+    def trino_connector_download_dir = context.config.otherConfigs.get("trinoPluginsPath")
+
+    // mkdir trino_connector_download_dir
+    logger.info("start create dir ${trino_connector_download_dir} ...")
+    def mkdir_connectors_tar = "mkdir -p ${trino_connector_download_dir}".execute().getText()
+    logger.info("finish create dir, result: ${mkdir_connectors_tar} ...")
+
+
+    def plugins_compression =  "${trino_connector_download_dir}/trino-connectors.tar.gz"
+    def plugins_dir = "${trino_connector_download_dir}/connectors"
 
     // download trino-connectors.tar.gz
-    File path = new File("./${plugins_compression}")
+    File path = new File("${plugins_compression}")
     if (path.exists() && path.isFile()) {
         logger.info("${plugins_compression} has been downloaded")
     } else {
@@ -30,17 +38,20 @@ suite("test_trino_hive_other", "p0,external,hive,external_docker,external_docker
         def s3_url = getS3Url()
 
         logger.info("getS3Url ==== ${s3_url}")
-        def download_connectors_tar = "/usr/bin/curl ${s3_url}/regression/${plugins_compression} --output ${plugins_compression}".execute().getText()
+        def download_connectors_tar = "/usr/bin/curl ${s3_url}/regression/trino-connectors.tar.gz --output ${plugins_compression}"
+        logger.info("download cmd : ${download_connectors_tar}")
+        def run_download_connectors_cmd = download_connectors_tar.execute().getText()
+        logger.info("result: ${run_download_connectors_cmd}")
         logger.info("finish download ${plugins_compression} ...")
     }
 
     // decompression trino-plugins.tar.gz
-    File dir = new File("./${plugins_dir}")
+    File dir = new File("${plugins_dir}")
     if (dir.exists() && dir.isDirectory()) {
         logger.info("${plugins_dir} dir has been decompressed")
     } else {
         if (path.exists() && path.isFile()) {
-            def run_cmd = "tar -zxvf ${plugins_compression}"
+            def run_cmd = "tar -zxvf ${plugins_compression} -C ${trino_connector_download_dir}"
             logger.info("run_cmd : $run_cmd")
             def run_decompress_cmd = run_cmd.execute().getText()
             logger.info("result: $run_decompress_cmd")
