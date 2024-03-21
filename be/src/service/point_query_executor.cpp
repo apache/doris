@@ -189,6 +189,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                 &t_output_exprs));
         _reusable = reusable_ptr;
         TQueryOptions t_query_options;
+        len = request->query_options().size();
         if (request->has_query_options()) {
             RETURN_IF_ERROR(deserialize_thrift_msg(
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
