@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -26,12 +27,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 
 /**
  * sink visitor
@@ -54,6 +57,10 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(unboundTableSink, context);
     }
 
+    default R visitUnboundHiveTableSink(UnboundHiveTableSink<? extends Plan> unboundTableSink, C context) {
+        return visitLogicalSink(unboundTableSink, context);
+    }
+
     default R visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink, C context) {
         return visitLogicalSink(unboundResultSink, context);
     }
@@ -66,12 +73,16 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(fileSink, context);
     }
 
+    default R visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, C context) {
+        return visitLogicalSink(logicalTableSink, context);
+    }
+
     default R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
-        return visitLogicalSink(olapTableSink, context);
+        return visitLogicalTableSink(olapTableSink, context);
     }
 
     default R visitLogicalHiveTableSink(LogicalHiveTableSink<? extends Plan> hiveTableSink, C context) {
-        return visitLogicalSink(hiveTableSink, context);
+        return visitLogicalTableSink(hiveTableSink, context);
     }
 
     default R visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, C context) {
@@ -91,12 +102,16 @@ public interface SinkVisitor<R, C> {
         return visitPhysicalSink(fileSink, context);
     }
 
+    default R visitPhysicalTableSink(PhysicalTableSink<? extends Plan> physicalTableSink, C context) {
+        return visitPhysicalSink(physicalTableSink, context);
+    }
+
     default R visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, C context) {
-        return visitPhysicalSink(olapTableSink, context);
+        return visitPhysicalTableSink(olapTableSink, context);
     }
 
     default R visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink, C context) {
-        return visitPhysicalSink(hiveTableSink, context);
+        return visitPhysicalTableSink(hiveTableSink, context);
     }
 
     default R visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, C context) {

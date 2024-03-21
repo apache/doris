@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "olap/olap_common.h"
+#include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
@@ -139,7 +140,7 @@ public:
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
-            static_cast<void>(bf_writer.add(&data));
+            RETURN_IF_ERROR(bf_writer.add(&data));
         }
         RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
         return Status::OK();
@@ -194,6 +195,10 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::flush() {
         bf->add_bytes(s->data, s->size);
     }
     _bf_buffer_size += bf->size();
+    g_pk_total_bloom_filter_num << 1;
+    g_pk_total_bloom_filter_total_bytes << bf->size();
+    g_pk_write_bloom_filter_num << 1;
+    g_pk_write_bloom_filter_total_bytes << bf->size();
     _bfs.push_back(std::move(bf));
     _values.clear();
     _has_null = false;
@@ -220,7 +225,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        static_cast<void>(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(&data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
@@ -277,7 +282,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        static_cast<void>(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(&data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();

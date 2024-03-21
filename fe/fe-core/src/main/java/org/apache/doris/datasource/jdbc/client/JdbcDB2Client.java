@@ -21,6 +21,13 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
+import com.google.common.collect.Lists;
+
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
+
 public class JdbcDB2Client extends JdbcClient {
 
     protected JdbcDB2Client(JdbcClientConfig jdbcClientConfig) {
@@ -28,8 +35,26 @@ public class JdbcDB2Client extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SELECT schemaname FROM syscat.schemata WHERE DEFINER = CURRENT USER;";
+    public List<String> getDatabaseNameList() {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<String> remoteDatabaseNames = Lists.newArrayList();
+        try {
+            if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+                String currentDatabase = conn.getSchema().trim();
+                remoteDatabaseNames.add(currentDatabase);
+            } else {
+                rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
+                while (rs.next()) {
+                    remoteDatabaseNames.add(rs.getString("TABLE_SCHEM").trim());
+                }
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get database name list from jdbc", e);
+        } finally {
+            close(rs, conn);
+        }
+        return filterDatabaseNames(remoteDatabaseNames);
     }
 
     @Override
@@ -75,6 +100,7 @@ public class JdbcDB2Client extends JdbcClient {
             case "CLOB":
             case "VARGRAPHIC":
             case "LONG VARGRAPHIC":
+            case "XML":
                 return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;

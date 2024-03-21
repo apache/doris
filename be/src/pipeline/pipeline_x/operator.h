@@ -372,6 +372,35 @@ protected:
     SharedStateArg* _shared_state = nullptr;
 };
 
+template <typename SharedStateArg>
+class PipelineXSpillLocalState : public PipelineXLocalState<SharedStateArg> {
+public:
+    using Base = PipelineXLocalState<SharedStateArg>;
+    PipelineXSpillLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<SharedStateArg>(state, parent) {}
+    ~PipelineXSpillLocalState() override = default;
+
+    Status init(RuntimeState* state, LocalStateInfo& info) override {
+        RETURN_IF_ERROR(PipelineXLocalState<SharedStateArg>::init(state, info));
+        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
+        _spill_recover_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", "Spill", 1);
+        _spill_read_data_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadDataTime", "Spill", 1);
+        _spill_deserialize_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", "Spill", 1);
+        _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
+                                                         TUnit::BYTES, "Spill", 1);
+        return Status::OK();
+    }
+
+    RuntimeProfile::Counter* _spill_counters = nullptr;
+    RuntimeProfile::Counter* _spill_recover_time;
+    RuntimeProfile::Counter* _spill_read_data_time;
+    RuntimeProfile::Counter* _spill_deserialize_time;
+    RuntimeProfile::Counter* _spill_read_bytes;
+};
+
 class DataSinkOperatorXBase;
 
 class PipelineXSinkLocalStateBase {
@@ -638,6 +667,38 @@ protected:
     SharedStateType* _shared_state = nullptr;
 };
 
+template <typename SharedStateArg>
+class PipelineXSpillSinkLocalState : public PipelineXSinkLocalState<SharedStateArg> {
+public:
+    using Base = PipelineXSinkLocalState<SharedStateArg>;
+    PipelineXSpillSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : Base(parent, state) {}
+    ~PipelineXSpillSinkLocalState() override = default;
+
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
+        RETURN_IF_ERROR(Base::init(state, info));
+
+        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
+        _spill_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", "Spill", 1);
+        _spill_serialize_block_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", "Spill", 1);
+        _spill_write_disk_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", "Spill", 1);
+        _spill_data_size = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize",
+                                                        TUnit::BYTES, "Spill", 1);
+        _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
+                                                          TUnit::UNIT, "Spill", 1);
+        return Status::OK();
+    }
+
+    RuntimeProfile::Counter* _spill_counters = nullptr;
+    RuntimeProfile::Counter* _spill_timer = nullptr;
+    RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
+    RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
+    RuntimeProfile::Counter* _spill_data_size = nullptr;
+    RuntimeProfile::Counter* _spill_block_count = nullptr;
+};
+
 /**
  * StreamingOperatorX indicates operators which always processes block in streaming way (one-in-one-out).
  */
@@ -672,7 +733,8 @@ public:
 
     using OperatorX<LocalStateType>::get_local_state;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) final;
+    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
+                                   bool* eos) override;
 
     [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* block,
                                       bool* eos) const = 0;
@@ -707,6 +769,8 @@ public:
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos);
+
+    std::string debug_string(int indentation_level) const override;
 
     std::vector<Dependency*> dependencies() const override {
         return {_async_writer_dependency.get()};

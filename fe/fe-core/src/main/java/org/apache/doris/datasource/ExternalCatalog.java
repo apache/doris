@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -45,6 +46,7 @@ import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.test.TestExternalDatabase;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -133,6 +135,11 @@ public abstract class ExternalCatalog
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
+    }
+
+    // only for test
+    public void setInitialized() {
+        initialized = true;
     }
 
     /**
@@ -390,6 +397,16 @@ public abstract class ExternalCatalog
         }
     }
 
+    public TableName getTableNameByTableId(Long tableId) {
+        for (DatabaseIf<?> db : idToDb.values()) {
+            TableIf table = db.getTableNullable(tableId);
+            if (table != null) {
+                return new TableName(getName(), db.getFullName(), table.getName());
+            }
+        }
+        return null;
+    }
+
     @Override
     public String getResource() {
         return catalogProperty.getResource();
@@ -546,6 +563,8 @@ public abstract class ExternalCatalog
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
                 return new PaimonExternalDatabase(this, dbId, dbName);
+            case TRINO_CONNECTOR:
+                return new TrinoConnectorExternalDatabase(this, dbId, dbName);
             default:
                 break;
         }

@@ -188,6 +188,12 @@ Status RowsetBuilder::init() {
 
     RETURN_IF_ERROR(prepare_txn());
 
+    DBUG_EXECUTE_IF("BaseRowsetBuilder::init.check_partial_update_column_num", {
+        if (_req.table_schema_param->partial_update_input_columns().size() !=
+            dp->param<int>("column_num")) {
+            return Status::InternalError("partial update input column num wrong!");
+        };
+    })
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                  *_tablet->tablet_schema());
@@ -197,7 +203,6 @@ Status RowsetBuilder::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
-    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _req.tablet_id;
     context.index_id = _req.index_id;

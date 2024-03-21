@@ -125,7 +125,10 @@ enum TSchemaTableType {
     SCH_COLUMN_STATISTICS,
     SCH_PARAMETERS,
     SCH_METADATA_NAME_IDS,
-    SCH_PROFILING;
+    SCH_PROFILING,
+    SCH_BACKEND_ACTIVE_TASKS,
+    SCH_ACTIVE_QUERIES,
+    SCH_WORKLOAD_GROUPS;
 }
 
 enum THdfsCompression {
@@ -202,6 +205,9 @@ struct TOlapTablePartitionParam {
     8: optional list<Exprs.TExpr> partition_function_exprs
     9: optional bool enable_automatic_partition
     10: optional Partitions.TPartitionType partition_type
+    // insert overwrite partition(*)
+    11: optional bool enable_auto_detect_overwrite
+    12: optional i64 overwrite_group_id
 }
 
 struct TOlapTableIndex {
@@ -344,6 +350,12 @@ struct TMCTable {
   8: optional string tunnel_url
 }
 
+struct TTrinoConnectorTable {
+  1: optional string db_name
+  2: optional string table_name
+  3: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -367,6 +379,7 @@ struct TTableDescriptor {
   19: optional THudiTable hudiTable
   20: optional TJdbcTable jdbcTable
   21: optional TMCTable mcTable
+  22: optional TTrinoConnectorTable trinoConnectorTable
 }
 
 struct TDescriptorTable {

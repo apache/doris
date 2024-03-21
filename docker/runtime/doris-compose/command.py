@@ -235,6 +235,16 @@ class UpCommand(Command):
                             type=str,
                             help="Specify be configs for be.conf. "\
                                     "Example: --be-config \"enable_debug_points = true\" \"enable_auth = true\".")
+        group1.add_argument("--ms-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify ms configs for doris_cloud.conf. "\
+                                    "Example: --ms-config \"log_level = warn\".")
+        group1.add_argument("--recycle-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify recycle configs for doris_cloud.conf. "\
+                                    "Example: --recycle-config \"log_level = warn\".")
         group1.add_argument("--be-disks",
                             nargs="*",
                             default=["HDD=1"],
@@ -278,13 +288,27 @@ class UpCommand(Command):
 
         parser.add_argument("--coverage-dir",
                             default="",
-                            help="code coverage output directory")
+                            help="Set code coverage output directory")
 
         parser.add_argument(
             "--fdb-version",
             type=str,
             default="7.1.26",
             help="fdb image version. Only use in cloud cluster.")
+
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--detach",
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help="Detached mode: Run containers in the background. If specific --no-detach, "\
+                "will run containers in frontend. ")
+        else:
+            parser.add_argument("--no-detach",
+                                dest='detach',
+                                default=True,
+                                action=self._get_parser_bool_action(False),
+                                help="Run containers in frontend. ")
 
     def run(self, args):
         if not args.NAME:
@@ -344,6 +368,7 @@ class UpCommand(Command):
 
             cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE, args.cloud,
                                           args.fe_config, args.be_config,
+                                          args.ms_config, args.recycle_config,
                                           args.be_disks, args.be_cluster,
                                           args.coverage_dir,
                                           cloud_store_config)
@@ -401,7 +426,9 @@ class UpCommand(Command):
         if not args.start:
             options.append("--no-start")
         else:
-            options = ["-d", "--remove-orphans"]
+            options += ["--remove-orphans"]
+            if args.detach:
+                options.append("-d")
             if args.force_recreate:
                 options.append("--force-recreate")
 
@@ -410,8 +437,12 @@ class UpCommand(Command):
             related_node_num = cluster.get_all_nodes_num()
             related_nodes = None
 
-        utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
-                                          options, related_nodes)
+        output_real_time = args.start and not args.detach
+        utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                          "up",
+                                          options,
+                                          related_nodes,
+                                          output_real_time=output_real_time)
 
         ls_cmd = "python docker/runtime/doris-compose/doris-compose.py ls " + cluster.name
         LOG.info("Inspect command: " + utils.render_green(ls_cmd) + "\n")

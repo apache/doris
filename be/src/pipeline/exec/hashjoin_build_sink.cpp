@@ -22,7 +22,6 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -176,7 +175,15 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
         vectorized::Block& block, vectorized::ColumnUInt8::MutablePtr& null_map,
         vectorized::ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids) {
     auto& shared_state = *_shared_state;
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
+        if (p._should_convert_to_nullable[i]) {
+            _key_columns_holder.emplace_back(
+                    vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
+            raw_ptrs[i] = _key_columns_holder.back().get();
+            continue;
+        }
+
         if (shared_state.is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
@@ -412,7 +419,11 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
                                         eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
 
+        const bool should_convert_to_nullable = is_null_safe_equal &&
+                                                !eq_join_conjunct.right.nodes[0].is_nullable &&
+                                                eq_join_conjunct.left.nodes[0].is_nullable;
         _is_null_safe_eq_join.push_back(is_null_safe_equal);
+        _should_convert_to_nullable.emplace_back(should_convert_to_nullable);
 
         // if is null aware, build join column and probe join column both need dispose null value
         _store_null_in_hash_table.emplace_back(

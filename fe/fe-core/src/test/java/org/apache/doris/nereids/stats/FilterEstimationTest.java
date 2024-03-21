@@ -1100,7 +1100,7 @@ class FilterEstimationTest {
         Or or = new Or(greaterThanEqual, isNull);
         Statistics stats = new Statistics(10, new HashMap<>());
         stats.addColumnStats(a, builder.build());
-        FilterEstimation filterEstimation = new FilterEstimation();
+        FilterEstimation filterEstimation = new FilterEstimation(true);
         Statistics result = filterEstimation.estimate(or, stats);
         Assertions.assertEquals(result.getRowCount(), 10.0, 0.01);
     }

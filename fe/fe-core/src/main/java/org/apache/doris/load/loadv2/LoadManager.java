@@ -402,14 +402,10 @@ public class LoadManager implements Writable {
     /**
      * Get load job num, used by metric.
      **/
-    public long getLoadJobNum(JobState jobState, EtlJobType jobType) {
-        readLock();
-        try {
-            return idToLoadJob.values().stream().filter(j -> j.getState() == jobState && j.getJobType() == jobType)
-                    .count();
-        } finally {
-            readUnlock();
-        }
+    public Map<Pair<EtlJobType, JobState>, Long> getLoadJobNum() {
+        return idToLoadJob.values().stream().collect(Collectors.groupingBy(
+                loadJob -> Pair.of(loadJob.getJobType(), loadJob.getState()),
+                Collectors.counting()));
     }
 
     /**

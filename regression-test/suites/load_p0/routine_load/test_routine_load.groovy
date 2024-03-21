@@ -22,6 +22,10 @@ import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load","p0") {
 
+    sql "create workload group if not exists create_routine_load_group properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists alter_routine_load_group properties ( 'cpu_share'='123');"
+    Thread.sleep(5000) // wait publish workload group to be
+
     def tables = [
                   "dup_tbl_basic",
                   "uniq_tbl_basic",
@@ -226,7 +230,8 @@ suite("test_routine_load","p0") {
                         "send_batch_parallelism" = "2",
                         "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200"
+                        "max_batch_size" = "209715200",
+                        "workload_group" = "create_routine_load_group"
                     )
                     FROM KAFKA
                     (
@@ -1932,6 +1937,7 @@ suite("test_routine_load","p0") {
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"timezone\" = \"Asia/Shanghai\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"num_as_string\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"fuzzy_parse\" = \"true\");"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
                 res = sql "show routine load for ${jobs[i]}"
                 log.info("routine load job properties: ${res[0][11].toString()}".toString())
 

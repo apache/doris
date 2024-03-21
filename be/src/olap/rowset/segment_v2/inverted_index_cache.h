@@ -17,16 +17,6 @@
 
 #pragma once
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-#include <CLucene.h> // IWYU pragma: keep
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-#include <CLucene/config/repl_wchar.h>
-#include <CLucene/util/Misc.h>
 #include <butil/macros.h>
 #include <glog/logging.h>
 #include <stddef.h>
@@ -34,18 +24,14 @@
 
 #include <atomic>
 #include <memory>
-#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
-#include <utility>
-#include <variant>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
-#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
@@ -53,23 +39,9 @@
 #include "util/slice.h"
 #include "util/time.h"
 
-namespace lucene {
-namespace search {
-class IndexSearcher;
-} // namespace search
-
-namespace util::bkd {
-class bkd_reader;
-}
-
-} // namespace lucene
-
 namespace doris {
-struct OlapReaderStatistics;
-
 namespace segment_v2 {
 class InvertedIndexCacheHandle;
-class DorisCompoundReader;
 
 class InvertedIndexSearcherCache {
 public:
@@ -81,14 +53,16 @@ public:
 
     // The cache value of index_searcher lru cache.
     // Holding an opened index_searcher.
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
         IndexSearcherPtr index_searcher;
         size_t size = 0;
         int64_t last_visit_time;
 
-        CacheValue() = default;
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE) {}
         explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
-                : index_searcher(std::move(searcher)) {
+                : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE),
+                  index_searcher(std::move(searcher)) {
             size = mem_size;
             last_visit_time = visit_time;
         }
@@ -119,7 +93,7 @@ public:
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
 
-    void release(Cache::Handle* handle) { _policy->cache()->release(handle); }
+    void release(Cache::Handle* handle) { _policy->release(handle); }
 
     int64_t mem_consumption();
 
@@ -162,7 +136,7 @@ using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValu
 class InvertedIndexCacheHandle {
 public:
     InvertedIndexCacheHandle() = default;
-    InvertedIndexCacheHandle(Cache* cache, Cache::Handle* handle)
+    InvertedIndexCacheHandle(LRUCachePolicy* cache, Cache::Handle* handle)
             : _cache(cache), _handle(handle) {}
 
     ~InvertedIndexCacheHandle() {
@@ -197,7 +171,7 @@ public:
     }
 
 private:
-    Cache* _cache = nullptr;
+    LRUCachePolicy* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 
     // Don't allow copy and assign
@@ -232,7 +206,10 @@ public:
         }
     };
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE) {}
+
         std::shared_ptr<roaring::Roaring> bitmap;
     };
 
@@ -267,7 +244,7 @@ class InvertedIndexQueryCacheHandle {
 public:
     InvertedIndexQueryCacheHandle() = default;
 
-    InvertedIndexQueryCacheHandle(Cache* cache, Cache::Handle* handle)
+    InvertedIndexQueryCacheHandle(LRUCachePolicy* cache, Cache::Handle* handle)
             : _cache(cache), _handle(handle) {}
 
     ~InvertedIndexQueryCacheHandle() {
@@ -288,8 +265,7 @@ public:
         return *this;
     }
 
-    Cache* cache() const { return _cache; }
-    Slice data() const { return _cache->value_slice(_handle); }
+    LRUCachePolicy* cache() const { return _cache; }
 
     std::shared_ptr<roaring::Roaring> get_bitmap() const {
         if (!_cache) {
@@ -299,7 +275,7 @@ public:
     }
 
 private:
-    Cache* _cache = nullptr;
+    LRUCachePolicy* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 
     // Don't allow copy and assign

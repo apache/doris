@@ -104,6 +104,80 @@ ll
 -- !select_18 --
 zzz
 
+-- !select_mor_0 --
+1	asd	cc
+2	qwe	vvx
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_mor_1 --
+1
+
+-- !select_mor_2 --
+5
+
+-- !select_mor_3 --
+asd
+
+-- !select_mor_4 --
+qwe
+
+-- !select_mor_5 --
+cc
+
+-- !select_mor_6 --
+vvx
+
+-- !select_mor_00 --
+1	asd	zzz
+2	qwe	vvx
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_mor_7 --
+1
+
+-- !select_mor_8 --
+5
+
+-- !select_mor_9 --
+asd
+
+-- !select_mor_10 --
+qwe
+
+-- !select_mor_11 --
+cc
+
+-- !select_mor_12 --
+zzz
+
+-- !select_mor_000 --
+1	asd	zzz
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_mor_13 --
+1
+
+-- !select_mor_14 --
+5
+
+-- !select_mor_15 --
+asd
+
+-- !select_mor_16 --
+qdf
+
+-- !select_mor_17 --
+cc
+
+-- !select_mor_18 --
+zzz
+
 -- !select_19 --
 1
 

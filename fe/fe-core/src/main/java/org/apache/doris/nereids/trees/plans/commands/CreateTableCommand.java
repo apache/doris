@@ -25,7 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -153,8 +153,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
 
-        query = new UnboundTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), query);
+        query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
             new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
@@ -184,5 +184,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreateTableCommand(this, context);
+    }
+
+    // for test
+    public CreateTableInfo getCreateTableInfo() {
+        return createTableInfo;
     }
 }

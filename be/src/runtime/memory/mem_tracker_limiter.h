@@ -45,11 +45,9 @@ class RuntimeProfile;
 
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
-namespace taskgroup {
-struct TgTrackerLimiterGroup;
-class TaskGroup;
-using TaskGroupPtr = std::shared_ptr<TaskGroup>;
-} // namespace taskgroup
+struct WgTrackerLimiterGroup;
+class WorkloadGroup;
+using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.
@@ -195,8 +193,7 @@ public:
             RuntimeProfile* profile, GCType gctype);
 
     static int64_t tg_free_top_memory_query(
-            int64_t min_free_mem, Type type,
-            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_groups,
+            int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype);
 
@@ -219,8 +216,7 @@ public:
             RuntimeProfile* profile, GCType gctype);
 
     static int64_t tg_free_top_overcommit_query(
-            int64_t min_free_mem, Type type,
-            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_groups,
+            int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype);
 

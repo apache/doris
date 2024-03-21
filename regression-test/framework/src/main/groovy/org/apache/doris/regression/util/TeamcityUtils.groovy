@@ -25,13 +25,16 @@ import org.apache.tools.ant.util.DateUtils
 @CompileStatic
 class TeamcityUtils {
     static String postfix = ""
+    static String prefix = ""
 
     static String getSuiteName(String name) {
-        if (postfix == "") {
-            return name
-        } else {
-            return name+"-"+postfix
+        if (prefix != "") {
+            name = prefix + "-" + name
         }
+        if (postfix != "") {
+            name = name + "-" + postfix
+        }
+        return name
     }
 
     static String formatNow() {

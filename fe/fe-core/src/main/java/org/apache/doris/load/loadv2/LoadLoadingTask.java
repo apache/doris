@@ -130,6 +130,7 @@ public class LoadLoadingTask extends LoadTask {
     protected void executeTask() throws Exception {
         LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
+
         retryTime--;
         beginTime = System.currentTimeMillis();
         if (!((BrokerLoadJob) callback).updateState(JobState.LOADING)) {
@@ -139,13 +140,13 @@ public class LoadLoadingTask extends LoadTask {
         executeOnce();
     }
 
-    private void executeOnce() throws Exception {
+    protected void executeOnce() throws Exception {
         // New one query id,
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         if (this.jobProfile != null) {
-            this.jobProfile.setExecutionProfile(curCoordinator.getExecutionProfile());
+            this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);

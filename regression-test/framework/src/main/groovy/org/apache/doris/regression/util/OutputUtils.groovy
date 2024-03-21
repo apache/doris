@@ -141,7 +141,7 @@ class OutputUtils {
 
                     def res = checkCell(info, line, expectCell, realCell, dataType)
                     if(res != null) {
-                        res += "line ${line} mismatch\nExpectRow: ${expectRaw}\nRealRow: ${realRaw}";
+                        res += "\nline ${line} mismatch\nExpectRow: ${expectRaw}\nRealRow: ${realRaw}";
                         return res
                     }
                 }

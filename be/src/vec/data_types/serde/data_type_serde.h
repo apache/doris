@@ -276,10 +276,10 @@ public:
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 
     // rapidjson
-    virtual void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                        rapidjson::Document::AllocatorType& allocator,
-                                        int row_num) const;
-    virtual void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
+    virtual Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                          rapidjson::Document::AllocatorType& allocator,
+                                          int row_num) const;
+    virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
 protected:
     bool _return_object_as_string = false;

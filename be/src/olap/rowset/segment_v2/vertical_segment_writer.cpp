@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "gutil/port.h"
+#include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
@@ -39,6 +40,7 @@
 #include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -104,6 +106,12 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                 _tablet_schema->db_id(), _tablet_schema->table_id(),
                 _tablet_schema->column(_tablet_schema->auto_increment_column()).unique_id());
     }
+    if (_tablet_schema->has_inverted_index()) {
+        _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                _file_writer->fs(), _file_writer->path().parent_path(),
+                _file_writer->path().filename(),
+                _tablet_schema->get_inverted_index_storage_format());
+    }
 }
 
 VerticalSegmentWriter::~VerticalSegmentWriter() {
@@ -121,8 +129,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
     meta->set_frac(column.frac());
-    if (!column.path_info().empty()) {
-        column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    if (column.has_path_info()) {
+        column.path_info_ptr()->to_protobuf(meta->mutable_column_path_info(),
+                                            column.parent_unique_id());
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
@@ -169,14 +178,19 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         (column.is_extracted_column() && column.is_array_type())) {
         // variant and jsonb type skip write index
         opts.indexes.clear();
+        opts.need_zone_map = false;
+        opts.need_bloom_filter = false;
+        opts.need_bitmap_index = false;
     }
     for (auto index : opts.indexes) {
-        if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
+        if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
             opts.inverted_index = index;
+            opts.need_inverted_index = true;
             // TODO support multiple inverted index
             break;
         }
     }
+    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
 
 #define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
@@ -194,7 +208,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     CHECK_FIELD_TYPE(JSONB, "jsonb")
     CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
     CHECK_FIELD_TYPE(MAP, "map")
-    CHECK_FIELD_TYPE(VARIANT, "variant")
     CHECK_FIELD_TYPE(OBJECT, "object")
     CHECK_FIELD_TYPE(HLL, "hll")
     CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
@@ -875,11 +888,10 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
 }
 
 size_t VerticalSegmentWriter::_calculate_inverted_index_file_size() {
-    size_t total_size = 0;
-    for (auto& column_writer : _column_writers) {
-        total_size += column_writer->get_inverted_index_size();
+    if (_inverted_index_file_writer != nullptr) {
+        return _inverted_index_file_writer->get_index_file_size();
     }
-    return total_size;
+    return 0;
 }
 
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
@@ -974,6 +986,9 @@ Status VerticalSegmentWriter::_write_bitmap_index() {
 Status VerticalSegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
+    }
+    if (_inverted_index_file_writer != nullptr) {
+        RETURN_IF_ERROR(_inverted_index_file_writer->close());
     }
     return Status::OK();
 }

@@ -45,8 +45,10 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_block.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
@@ -95,8 +97,8 @@ S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
 
     Aws::Http::SetCompliantRfc3986Encoding(true);
     if (config::enable_file_cache && _write_file_cache) {
-        _cache_key = IFileCache::hash(_path.filename().native());
-        _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
+        _cache_hash = BlockFileCache::hash(_path.filename().native());
+        _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
     }
 
     _create_empty_file = opts ? opts->create_empty_file : true;
@@ -107,9 +109,8 @@ S3FileWriter::~S3FileWriter() {
         // if we don't abort multi part upload, the uploaded part in object
         // store will not automatically reclaim itself, it would cost more money
         static_cast<void>(_abort());
-        _bytes_written = 0;
     }
-    s3_bytes_written_total << _bytes_written;
+    s3_bytes_written_total << _bytes_appended;
     s3_file_being_written << -1;
 }
 
@@ -180,13 +181,14 @@ Status S3FileWriter::_abort() {
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         LOG(INFO) << "Abort multipart upload successfully"
                   << "bucket=" << _bucket << ", key=" << _path.native()
-                  << ", upload_id=" << _upload_id;
+                  << ", upload_id=" << _upload_id << ", whole parts=" << _dump_completed_part();
         _aborted = true;
         return Status::OK();
     }
-    return s3fs_error(outcome.GetError(),
-                      fmt::format("failed to abort multipart upload {} upload_id={}",
-                                  _path.native(), _upload_id));
+    return s3fs_error(
+            outcome.GetError(),
+            fmt::format("failed to abort multipart upload {} upload_id={}, whole parts={}",
+                        _path.native(), _upload_id, _dump_completed_part()));
 }
 
 Status S3FileWriter::close() {
@@ -207,8 +209,10 @@ Status S3FileWriter::close() {
             auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
             DCHECK(buf != nullptr);
             buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
-        } else if (_create_empty_file) {
-            // if there is no pending buffer, we need to create an empty file
+        }
+
+        if (_bytes_appended == 0 && _create_empty_file) {
+            // No data written, but need to create an empty file
             auto builder = FileBufferBuilder();
             builder.set_type(BufferType::UPLOAD)
                     .set_upload_callback([this](UploadFileBuffer& buf) { _put_object(buf); })
@@ -291,11 +295,12 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                     // that this instance of S3FileWriter might have been destructed when we
                     // try to do writing into file cache, so we make the lambda capture the variable
                     // we need by value to extend their lifetime
-                    builder.set_allocate_file_segments_holder(
-                            [cache = _cache, k = _cache_key, offset = _bytes_appended,
+                    builder.set_allocate_file_blocks_holder(
+                            [cache = _cache, k = _cache_hash, offset = _bytes_appended,
                              t = _expiration_time, cold = _is_cold_data]() -> FileBlocksHolderPtr {
                                 CacheContext ctx;
-                                ctx.cache_type = t == 0 ? CacheType::NORMAL : CacheType::TTL;
+                                ctx.cache_type =
+                                        t == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
                                 ctx.expiration_time = t;
                                 ctx.is_cold_data = cold;
                                 auto holder = cache->get_or_set(k, offset,
@@ -390,7 +395,6 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
 
     std::unique_lock<std::mutex> lck {_completed_lock};
     _completed_parts.emplace_back(std::move(completed_part));
-    _bytes_written += buf.get_size();
 }
 
 Status S3FileWriter::_complete() {
@@ -409,8 +413,9 @@ Status S3FileWriter::_complete() {
     _wait_until_finish("Complete");
     DBUG_EXECUTE_IF("s3_file_writer::_complete:1", { _cur_part_num++; });
     if (_failed || _completed_parts.size() != _cur_part_num) {
-        _st = Status::InternalError("error status {}, complete parts {}, cur part num {}", _st,
-                                    _completed_parts.size(), _cur_part_num);
+        _st = Status::InternalError(
+                "error status {}, complete parts {}, cur part num {}, whole parts {}", _st,
+                _completed_parts.size(), _cur_part_num, _dump_completed_part());
         LOG(WARNING) << _st;
         return _st;
     }
@@ -423,8 +428,9 @@ Status S3FileWriter::_complete() {
     for (size_t i = 0; i < _completed_parts.size(); i++) {
         if (_completed_parts[i]->GetPartNumber() != i + 1) [[unlikely]] {
             auto st = Status::InternalError(
-                    "error status {}, part num not continous, expected num {}, actual num {}", _st,
-                    i + 1, _completed_parts[i]->GetPartNumber());
+                    "error status {}, part num not continous, expected num {}, actual num {}, "
+                    "whole parts {}",
+                    _st, i + 1, _completed_parts[i]->GetPartNumber(), _dump_completed_part());
             LOG(WARNING) << st;
             _st = st;
             return st;
@@ -445,9 +451,10 @@ Status S3FileWriter::_complete() {
     auto complete_outcome = _client->CompleteMultipartUpload(complete_request);
 
     if (!complete_outcome.IsSuccess()) {
-        _st = s3fs_error(complete_outcome.GetError(),
-                         fmt::format("failed to complete multi part upload {}, upload_id={}",
-                                     _path.native(), _upload_id));
+        _st = s3fs_error(
+                complete_outcome.GetError(),
+                fmt::format("failed to complete multi part upload {}, upload_id={}, whole parts={}",
+                            _path.native(), _upload_id, _dump_completed_part()));
         LOG(WARNING) << _st;
         return _st;
     }
@@ -501,8 +508,15 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         buf.set_status(_st);
         return;
     }
-    _bytes_written += buf.get_size();
     s3_file_created_total << 1;
+}
+
+std::string S3FileWriter::_dump_completed_part() const {
+    std::string view;
+    for (const auto& part : _completed_parts) {
+        view.append(fmt::format("part {}, ", view, part->GetPartNumber()));
+    }
+    return view;
 }
 
 } // namespace doris::io

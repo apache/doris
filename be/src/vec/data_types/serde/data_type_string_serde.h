@@ -228,23 +228,25 @@ public:
         cur_batch->numElements = end - start;
         return Status::OK();
     }
-    void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                rapidjson::Document::AllocatorType& allocator,
-                                int row_num) const override {
+    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                  rapidjson::Document::AllocatorType& allocator,
+                                  int row_num) const override {
         const auto& col = assert_cast<const ColumnType&>(column);
         const auto& data_ref = col.get_data_at(row_num);
         result.SetString(data_ref.data, data_ref.size);
+        return Status::OK();
     }
-    void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {
+    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {
         auto& col = assert_cast<ColumnType&>(column);
         if (!result.IsString()) {
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             result.Accept(writer);
             col.insert_data(buffer.GetString(), buffer.GetSize());
-            return;
+            return Status::OK();
         }
         col.insert_data(result.GetString(), result.GetStringLength());
+        return Status::OK();
     }
 
 private:
