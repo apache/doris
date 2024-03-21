@@ -47,7 +47,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class HiveTableSink extends DataSink {
@@ -153,7 +152,7 @@ public class HiveTableSink extends DataSink {
 
     private String createTempPath(String location) {
         String user = ConnectContext.get().getUserIdentity().getUser();
-        return location + "/.doris_staging/" + user + "/" + UUID.randomUUID().toString().replace("-", "");
+        return LocationPath.getTempWritePath(location, "/tmp/.doris_staging/" + user);
     }
 
     private void setCompressType(THiveTableSink tSink, TFileFormatType formatType) {
