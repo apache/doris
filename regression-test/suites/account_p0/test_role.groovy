@@ -48,14 +48,20 @@ suite("test_role", "account") {
     sql """DROP DATABASE ${dbName}"""
 
     // test comment
+    // create role with comment
     sql """CREATE ROLE ${role} comment 'account_p0_account_role_test_comment_create'"""
-    def roles_create = """show roles"""
+    def roles_create = sql """show roles"""
+    logger.info("roles_create: " + roles_create.toString())
     assertTrue(roles_create.toString().contains("account_p0_account_role_test_comment_create"))
-    sql """ALTER ROLE ${role} comment 'account_p0_account_role_test_comment2'"""
-    def roles_alter = """show roles"""
+    // alter role with comment
+    sql """ALTER ROLE ${role} comment 'account_p0_account_role_test_comment_alter'"""
+    def roles_alter = sql """show roles"""
+    logger.info("roles_alter: " + roles_alter.toString())
     assertTrue(roles_alter.toString().contains("account_p0_account_role_test_comment_alter"))
+    // drop role
     sql """DROP ROLE ${role}"""
-    def roles_drop = """show roles"""
+    def roles_drop = sql """show roles"""
+    logger.info("roles_drop: " + roles_drop.toString())
     assertFalse(roles_drop.toString().contains("account_p0_account_role_test_comment_alter"))
 }
 
