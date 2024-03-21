@@ -174,15 +174,20 @@ TEST(function_string_test, function_string_repeat_test) {
     std::string func_name = "repeat";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
 
-    DataSet data_set = {
-            {{std::string("a"), 3}, std::string("aaa")},
-            {{std::string("hel lo"), 2}, std::string("hel lohel lo")},
-            {{std::string("hello word"), -1}, std::string("")},
-            {{std::string(""), 1}, std::string("")},
-            {{std::string("a"), 1073741825}, std::string("aaaaaaaaaa")}, // ut repeat max num 10
-            {{std::string("HELLO,!^%"), 2}, std::string("HELLO,!^%HELLO,!^%")},
-            {{std::string("你"), 2}, std::string("你你")}};
+    DataSet data_set = {{{std::string("a"), 3}, std::string("aaa")},
+                        {{std::string("hel lo"), 2}, std::string("hel lohel lo")},
+                        {{std::string("hello word"), -1}, std::string("")},
+                        {{std::string(""), 1}, std::string("")},
+                        {{std::string("HELLO,!^%"), 2}, std::string("HELLO,!^%HELLO,!^%")},
+                        {{std::string("你"), 2}, std::string("你你")}};
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    {
+        DataSet data_set = {{{std::string("a"), 1073741825},
+                             std::string("aaaaaaaaaa")}}; // ut repeat max num 10
+        Status st = check_function<DataTypeString, true>(func_name, input_types, data_set, true);
+        EXPECT_NE(Status::OK(), st);
+    }
 }
 
 TEST(function_string_test, function_string_reverse_test) {
