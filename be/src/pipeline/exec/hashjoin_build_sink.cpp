@@ -428,7 +428,7 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
           _partition_exprs(tnode.__isset.distribute_expr_lists && !_is_broadcast_join
                                    ? tnode.distribute_expr_lists[1]
                                    : std::vector<TExpr> {}),
-          _need_local_merge(need_local_merge && !_is_broadcast_join) {}
+          _need_local_merge(need_local_merge) {}
 
 Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     if (_is_broadcast_join) {
