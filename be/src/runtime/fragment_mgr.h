@@ -198,7 +198,8 @@ private:
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
-    std::unique_ptr<ThreadPool> _async_report_thread_pool = nullptr; // used for pipeliine context report
+    std::unique_ptr<ThreadPool> _async_report_thread_pool =
+            nullptr; // used for pipeliine context report
 };
 
 } // namespace doris
