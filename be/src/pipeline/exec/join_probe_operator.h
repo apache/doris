@@ -114,6 +114,8 @@ protected:
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     OperatorXPtr _build_side_child = nullptr;
     const bool _short_circuit_for_null_in_build_side;
+
+    bool _is_nereids = false;
 };
 
 } // namespace pipeline

@@ -82,6 +82,7 @@ template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
         vectorized::Block* origin_block, vectorized::Block* output_block, bool keep_origin) {
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
+
     SCOPED_TIMER(_build_output_block_timer);
     auto is_mem_reuse = output_block->mem_reuse();
     vectorized::MutableBlock mutable_block =
@@ -213,6 +214,7 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
 
 template <typename LocalStateType>
 Status JoinProbeOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
+    _is_nereids = state->is_nereids();
     RETURN_IF_ERROR(Base::init(tnode, state));
     if (tnode.__isset.hash_join_node || tnode.__isset.nested_loop_join_node) {
         const auto& output_exprs = tnode.__isset.hash_join_node
