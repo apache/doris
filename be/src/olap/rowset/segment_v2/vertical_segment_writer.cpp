@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <memory>
 #include <ostream>
 #include <unordered_map>
 #include <utility>
@@ -33,6 +34,7 @@
 #include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -76,7 +78,8 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir, uint32_t max_row_per_segment,
                                              const VerticalSegmentWriterOptions& opts,
-                                             std::shared_ptr<MowContext> mow_context)
+                                             std::shared_ptr<MowContext> mow_context,
+                                             const io::FileSystemSPtr& fs)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
@@ -108,7 +111,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
     }
     if (_tablet_schema->has_inverted_index()) {
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                _file_writer->fs(), _file_writer->path().parent_path(),
+                fs ? fs : io::global_local_filesystem(), _file_writer->path().parent_path(),
                 _file_writer->path().filename(),
                 _tablet_schema->get_inverted_index_storage_format());
     }
@@ -165,7 +168,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
         // skip write inverted index for index compaction
-        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
+        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.contains(column.unique_id());
     }
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
@@ -182,7 +185,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         opts.need_bloom_filter = false;
         opts.need_bitmap_index = false;
     }
-    for (auto index : opts.indexes) {
+    for (const auto* index : opts.indexes) {
         if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
             opts.inverted_index = index;
             opts.need_inverted_index = true;

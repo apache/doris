@@ -66,8 +66,6 @@ public:
 
     bool closed() const override { return _reader->closed(); }
 
-    std::shared_ptr<io::FileSystem> fs() const override { return _reader->fs(); }
-
 private:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext* io_ctx) override {
@@ -95,8 +93,6 @@ public:
     size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
-
-    std::shared_ptr<io::FileSystem> fs() const override { return nullptr; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

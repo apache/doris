@@ -20,6 +20,7 @@
 #include "io/file_factory.h"
 #include "io/fs/benchmark/base_benchmark.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_system.h"
@@ -42,7 +43,8 @@ public:
         S3Conf s3_conf;
         RETURN_IF_ERROR(
                 S3ClientFactory::convert_properties_to_s3_conf(_conf_map, s3_uri, &s3_conf));
-        return io::S3FileSystem::create(std::move(s3_conf), "", fs);
+        *fs = DORIS_TRY(io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID));
+        return Status::OK();
     }
 };
 
@@ -67,10 +69,7 @@ public:
         io::FileReaderSPtr reader;
         io::FileReaderOptions reader_opts;
         FileDescription fd;
-        fd.path = file_path;
-        RETURN_IF_ERROR(FileFactory::create_s3_reader(
-                _conf_map, fd, reader_opts, reinterpret_cast<std::shared_ptr<io::FileSystem>*>(&fs),
-                &reader));
+        RETURN_IF_ERROR(fs->open_file(file_path, &reader, &reader_opts));
         return read(state, reader);
     }
 };
@@ -114,13 +113,11 @@ public:
         FileDescription fd;
         fd.path = get_file_path(state);
         fd.file_size = _file_size;
-        std::shared_ptr<io::FileSystem> fs;
-        io::FileReaderSPtr reader;
         io::FileReaderOptions reader_options;
         IOContext io_ctx;
-        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                nullptr, fs_props, fd, reader_options, &fs, &reader,
-                io::DelegateReader::AccessMode::SEQUENTIAL, &io_ctx));
+        auto reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                nullptr, fs_props, fd, reader_options, io::DelegateReader::AccessMode::SEQUENTIAL,
+                &io_ctx));
         return read(state, reader);
     }
 };

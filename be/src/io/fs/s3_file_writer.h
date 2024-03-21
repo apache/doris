@@ -37,19 +37,26 @@ class S3Client;
 } // namespace Aws::S3
 
 namespace doris {
+struct S3Conf;
+
 namespace io {
 struct S3FileBuffer;
 class S3FileSystem;
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs, const FileWriterOptions* opts);
+    S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
+                 const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
     Status close() override;
 
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
+
+    const Path& path() const override { return _path; }
+    size_t bytes_appended() const override { return _bytes_appended; }
+    bool closed() const override { return _closed; }
 
 private:
     Status _abort();
@@ -60,9 +67,9 @@ private:
     void _put_object(UploadFileBuffer& buf);
     void _upload_one_part(int64_t part_num, UploadFileBuffer& buf);
 
+    Path _path;
     std::string _bucket;
     std::string _key;
-    bool _aborted = false;
 
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::string _upload_id;
@@ -79,7 +86,10 @@ private:
     bthread::CountdownEvent _countdown_event {0};
 
     std::atomic_bool _failed = false;
+
+    bool _closed = false;
     Status _st;
+    size_t _bytes_appended = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
     uint64_t _expiration_time;
