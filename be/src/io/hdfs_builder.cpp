@@ -46,16 +46,16 @@ Status HDFSCommonBuilder::run_kinit() {
     if (hdfs_kerberos_principal.empty() || hdfs_kerberos_keytab.empty()) {
         return Status::InvalidArgument("Invalid hdfs_kerberos_principal or hdfs_kerberos_keytab");
     }
-    std::string ticket_path = TICKET_CACHE_PATH + generate_uuid_string();
+    hdfs_kerberos_ticket_path = TICKET_CACHE_PATH + generate_uuid_string();
     const char* krb_home = getenv("KRB_HOME");
     std::string krb_home_str(krb_home ? krb_home : "");
     fmt::memory_buffer kinit_command;
     if (krb_home_str.empty()) {
-        fmt::format_to(kinit_command, "kinit -c {} -R -t {} -k {}", ticket_path,
+        fmt::format_to(kinit_command, "kinit -c {} -R -t {} -k {}", hdfs_kerberos_ticket_path,
                        hdfs_kerberos_keytab, hdfs_kerberos_principal);
     } else {
         // Assign kerberos home in env, get kinit in kerberos home
-        fmt::format_to(kinit_command, krb_home_str + "/bin/kinit -c {} -R -t {} -k {}", ticket_path,
+        fmt::format_to(kinit_command, krb_home_str + "/bin/kinit -c {} -R -t {} -k {}", hdfs_kerberos_ticket_path,
                        hdfs_kerberos_keytab, hdfs_kerberos_principal);
     }
     VLOG_NOTICE << "kinit command: " << fmt::to_string(kinit_command);
@@ -68,8 +68,7 @@ Status HDFSCommonBuilder::run_kinit() {
 #ifdef USE_LIBHDFS3
     hdfsBuilderSetPrincipal(hdfs_builder, hdfs_kerberos_principal.c_str());
 #endif
-    hdfsBuilderConfSetStr(hdfs_builder, "hadoop.security.kerberos.ticket.cache.path",
-                          ticket_path.c_str());
+    hdfsBuilderSetKerbTicketCachePath(hdfs_builder, hdfs_kerberos_ticket_path.c_str());
     LOG(INFO) << "finish to run kinit: " << fmt::to_string(kinit_command);
     return Status::OK();
 }
