@@ -82,14 +82,15 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
     }
 }
 
-void DataTypeSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                           rapidjson::Document::AllocatorType& allocator,
-                                           int row_num) const {
-    LOG(FATAL) << fmt::format("Not support write {} to rapidjson", column.get_name());
+Status DataTypeSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                             rapidjson::Document::AllocatorType& allocator,
+                                             int row_num) const {
+    return Status::InternalError("Not support write {} to rapidjson", column.get_name());
 }
 
-void DataTypeSerDe::read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const {
-    LOG(FATAL) << fmt::format("Not support read {} from rapidjson", column.get_name());
+Status DataTypeSerDe::read_one_cell_from_json(IColumn& column,
+                                              const rapidjson::Value& result) const {
+    return Status::NotSupported("Not support read {} from rapidjson", column.get_name());
 }
 
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";

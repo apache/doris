@@ -770,6 +770,8 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos);
 
+    std::string debug_string(int indentation_level) const override;
+
     std::vector<Dependency*> dependencies() const override {
         return {_async_writer_dependency.get()};
     }

@@ -425,6 +425,9 @@ class BE(Node):
                 "meta_service_endpoint = {}".format(
                     self.cluster.get_meta_server_addr()),
                 'tmp_file_dirs = [ {"path":"./storage/tmp","max_cache_bytes":10240000," "max_upload_bytes":10240000}]',
+                'enable_file_cache = true',
+                'file_cache_path = [ {{"path": "{}/storage/file_cache", "total_size":53687091200, "query_limit": 10737418240}}]'
+                .format(self.docker_home_dir()),
             ]
         return cfg
 
@@ -463,6 +466,8 @@ class BE(Node):
 
         for dir in dirs:
             os.makedirs(dir, exist_ok=True)
+
+        os.makedirs(path + "/storage/file_cache", exist_ok=True)
 
         with open("{}/conf/{}".format(path, self.conf_file_name()), "a") as f:
             storage_root_path = ";".join(dir_descs) if dir_descs else '""'
@@ -510,6 +515,12 @@ class CLOUD(Node):
 
 class MS(CLOUD):
 
+    def get_add_init_config(self):
+        cfg = super().get_add_init_config()
+        if self.cluster.ms_config:
+            cfg += self.cluster.ms_config
+        return cfg
+
     def entrypoint(self):
         return [
             "bash",
@@ -528,6 +539,12 @@ class MS(CLOUD):
 
 
 class RECYCLE(CLOUD):
+
+    def get_add_init_config(self):
+        cfg = super().get_add_init_config()
+        if self.cluster.recycle_config:
+            cfg += self.cluster.recycle_config
+        return cfg
 
     def entrypoint(self):
         return [
@@ -573,13 +590,16 @@ class FDB(Node):
 class Cluster(object):
 
     def __init__(self, name, subnet, image, is_cloud, fe_config, be_config,
-                 be_disks, be_cluster, coverage_dir, cloud_store_config):
+                 ms_config, recycle_config, be_disks, be_cluster, coverage_dir,
+                 cloud_store_config):
         self.name = name
         self.subnet = subnet
         self.image = image
         self.is_cloud = is_cloud
         self.fe_config = fe_config
         self.be_config = be_config
+        self.ms_config = ms_config
+        self.recycle_config = recycle_config
         self.be_disks = be_disks
         self.be_cluster = be_cluster
         self.coverage_dir = coverage_dir
@@ -590,14 +610,15 @@ class Cluster(object):
         }
 
     @staticmethod
-    def new(name, image, is_cloud, fe_config, be_config, be_disks, be_cluster,
-            coverage_dir, cloud_store_config):
+    def new(name, image, is_cloud, fe_config, be_config, ms_config,
+            recycle_config, be_disks, be_cluster, coverage_dir,
+            cloud_store_config):
         os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
         with filelock.FileLock(os.path.join(LOCAL_DORIS_PATH, "lock")):
             subnet = gen_subnet_prefix16()
             cluster = Cluster(name, subnet, image, is_cloud, fe_config,
-                              be_config, be_disks, be_cluster, coverage_dir,
-                              cloud_store_config)
+                              be_config, ms_config, recycle_config, be_disks,
+                              be_cluster, coverage_dir, cloud_store_config)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()
