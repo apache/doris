@@ -18,7 +18,7 @@ for i in {1..43}; do
             is_ok=true
         else
             is_ok=false
-            echo "ERRPR: query_${i} result is error"
+            echo "ERROR: query_${i} result is error"
             echo "**** target result **********************************************"
             cat "query-result-target/doris-q${i}.result"
             echo "**** actual result **********************************************"
