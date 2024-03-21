@@ -66,7 +66,6 @@ class TeamcityUtils {
     static void testFinished(SuiteContext suiteContext, long elapsed) {
         String timestamp = formatNow()
         String name = getSuiteName(suiteContext.flowName)
-        String name = getSuiteName(suiteContext.flowName)
         println("##teamcity[testFinished name='${name}' flowId='${suiteContext.flowId}' duration='${elapsed}' timestamp='${timestamp}']")
         println("##teamcity[flowFinished flowId='${suiteContext.flowId}' timestamp='${timestamp}']")
     }
