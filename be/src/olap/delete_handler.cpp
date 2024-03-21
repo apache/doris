@@ -77,6 +77,13 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
                       << "condition size=" << in_pred->values().size();
         } else {
             string condition_str = construct_sub_predicates(condition);
+            if (TCondition tmp; !DeleteHandler::parse_delete_condition(condition_str, &tmp)) {
+                LOG(WARNING) << "failed to parse condition_str, condtion="
+                             << ThriftDebugString(condition);
+                return Status::Error<DELETE_INVALID_CONDITION>(
+                        "failed to parse condition_str, condtion={}", ThriftDebugString(condition));
+            }
+            VLOG_NOTICE << __PRETTY_FUNCTION__ << " condition_str: " << condition_str;
             del_pred->add_sub_predicates(condition_str);
             LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
         }
@@ -95,8 +102,9 @@ std::string DeleteHandler::construct_sub_predicates(const TCondition& condition)
     }
     string condition_str;
     if ("IS" == op) {
-        condition_str = condition.column_name + " " + op + " " + condition.condition_values[0];
-    } else {
+        // ATTN: tricky! Surround IS with spaces to make it "special"
+        condition_str = condition.column_name + " IS " + condition.condition_values[0];
+    } else { // multi-elements IN expr has been processed with InPredicatePB
         if (op == "*=") {
             op = "=";
         } else if (op == "!*=") {
@@ -195,43 +203,48 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     return Status::OK();
 }
 
-bool DeleteHandler::_parse_condition(const std::string& condition_str, TCondition* condition) {
-    bool matched = true;
-    boost::smatch what;
+// clang-format off
+// Condition string format, the format is (column_name)(op)(value)
+// eg: condition_str="c1 = 1597751948193618247 and length(source)<1;\n;\n"
+// column_name: matches "c1", must include FeNameFormat.java COLUMN_NAME_REGEX
+//              and compactible with any the lagacy
+// operator: matches "="
+// value: matches "1597751948193618247  and length(source)<1;\n;\n"
+//
+// For more info, see DeleteHandler::construct_sub_predicates
+// FIXME(gavin): support unicode. And this is a tricky implementation, it should
+//               not be the final resolution, refactor it.
+const char* const CONDITION_STR_PATTERN =
+    // .----------------- column-name ----------------.   .----------------------- operator ------------------------.   .------------ value ----------.
+    R"(([_a-zA-Z@0-9\s/][.a-zA-Z0-9_+-/?@#$%^&*"\s,:]*)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?: IS ))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
+    // '----------------- group 1 --------------------'   '--------------------- group 2 ---------------------------'   | '-- group 4--'              |
+    //                                                         match any of: = != >> << >= <= *= " IS "                 '----------- group 3 ---------'
+    //                                                                                                                   match **ANY THING** without(4)
+    //                                                                                                                   or with(3) single quote
+boost::regex DELETE_HANDLER_REGEX(CONDITION_STR_PATTERN);
+// clang-format on
 
+bool DeleteHandler::parse_delete_condition(const std::string& condition_str,
+                                           TCondition* condition) {
+    bool matched = false;
+    boost::smatch what;
     try {
-        // Condition string format, the format is (column_name)(op)(value)
-        // eg:  condition_str="c1 = 1597751948193618247  and length(source)<1;\n;\n"
-        //  group1:  (\w+) matches "c1"
-        //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matches  "="
-        //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
-        const char* const CONDITION_STR_PATTERN =
-                R"(([\w$#%]+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
-        boost::regex ex(CONDITION_STR_PATTERN);
-        if (boost::regex_match(condition_str, what, ex)) {
-            if (condition_str.size() != what[0].str().size()) {
-                matched = false;
-            }
-        } else {
-            matched = false;
-        }
+        VLOG_NOTICE << "condition_str: " << condition_str;
+        matched = boost::regex_match(condition_str, what, DELETE_HANDLER_REGEX) &&
+                  condition_str.size() == what[0].str().size(); // exact match
     } catch (boost::regex_error& e) {
         VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what()
                     << "]";
-        matched = false;
     }
+    if (!matched) return false;
 
-    if (!matched) {
-        return false;
-    }
     condition->column_name = what[1].str();
-    condition->condition_op = what[2].str();
-    if (what[4].matched) { // match string with single quotes, eg. a = 'b'
-        condition->condition_values.push_back(what[4].str());
-    } else { // match string without quote, compat with old conditions, eg. a = b
-        condition->condition_values.push_back(what[3].str());
-    }
-
+    condition->condition_op = what[2].str() == " IS " ? "IS" : what[2].str();
+    // match string with single quotes, a = b  or a = 'b'
+    condition->condition_values.push_back(what[3 + !!what[4].matched].str());
+    VLOG_NOTICE << "parsed condition_str: col_name={" << condition->column_name << "} op={"
+                << condition->condition_op << "} val={" << condition->condition_values.back()
+                << "}";
     return true;
 }
 
@@ -253,7 +266,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         temp.filter_version = delete_pred->version().first;
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
-            if (!_parse_condition(sub_predicate, &condition)) {
+            if (!parse_delete_condition(sub_predicate, &condition)) {
                 return Status::Error<DELETE_INVALID_PARAMETERS>(
                         "fail to parse condition. condition={}", sub_predicate);
             }

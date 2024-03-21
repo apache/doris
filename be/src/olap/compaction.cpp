@@ -461,9 +461,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             // src index files
             // format: rowsetId_segmentId
             std::vector<std::string> src_index_files(src_segment_num);
+            std::vector<RowsetId> src_rowset_ids;
             for (const auto& m : src_seg_to_id_map) {
                 std::pair<RowsetId, uint32_t> p = m.first;
                 src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
+                src_rowset_ids.push_back(p.first);
             }
 
             // dest index files
@@ -530,43 +532,58 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                     ctx.skip_inverted_index.cbegin(), ctx.skip_inverted_index.cend(),
                     [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
                      &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
-                     &status, this](int32_t column_uniq_id) {
+                     &status, &src_rowset_ids, this](int32_t column_uniq_id) {
+                        auto error_handler = [this](int64_t index_id, int64_t column_uniq_id) {
+                            LOG(WARNING) << "failed to do index compaction"
+                                         << ". tablet=" << _tablet->tablet_id()
+                                         << ". column uniq id=" << column_uniq_id
+                                         << ". index_id=" << index_id;
+                            for (auto& rowset : _input_rowsets) {
+                                rowset->set_skip_index_compaction(column_uniq_id);
+                                LOG(INFO) << "mark skipping inverted index compaction next time"
+                                          << ". tablet=" << _tablet->tablet_id()
+                                          << ", rowset=" << rowset->rowset_id()
+                                          << ", column uniq id=" << column_uniq_id
+                                          << ", index_id=" << index_id;
+                            }
+                        };
+
                         auto index_id =
                                 _cur_tablet_schema->get_inverted_index(column_uniq_id)->index_id();
+
+                        // if index properties are different, index compaction maybe needs to be skipped.
+                        std::optional<std::map<std::string, std::string>> first_properties;
+                        for (const auto& rowset_id : src_rowset_ids) {
+                            auto rowset_ptr = _tablet->get_rowset(rowset_id);
+                            const auto* tablet_index =
+                                    rowset_ptr->tablet_schema()->get_inverted_index(column_uniq_id);
+                            const auto& properties = tablet_index->properties();
+                            if (!first_properties.has_value()) {
+                                first_properties = properties;
+                            } else {
+                                if (properties != first_properties.value()) {
+                                    error_handler(index_id, column_uniq_id);
+                                    status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
+                                            "if index properties are different, index compaction "
+                                            "needs to be "
+                                            "skipped.");
+                                    return;
+                                }
+                            }
+                        }
+
                         try {
                             auto st = compact_column(index_id, src_segment_num, dest_segment_num,
                                                      src_index_files, dest_index_files, fs,
                                                      index_writer_path, tablet_path, trans_vec,
                                                      dest_segment_num_rows);
                             if (!st.ok()) {
-                                LOG(WARNING) << "failed to do index compaction"
-                                             << ". tablet=" << _tablet->full_name()
-                                             << ". column uniq id=" << column_uniq_id
-                                             << ". index_id=" << index_id;
-                                for (auto& rowset : _input_rowsets) {
-                                    rowset->set_skip_index_compaction(column_uniq_id);
-                                    LOG(INFO) << "mark skipping inverted index compaction next time"
-                                              << ". tablet=" << _tablet->full_name()
-                                              << ", rowset=" << rowset->rowset_id()
-                                              << ", column uniq id=" << column_uniq_id
-                                              << ", index_id=" << index_id;
-                                }
+                                error_handler(index_id, column_uniq_id);
                                 status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
                                         st.msg());
                             }
                         } catch (CLuceneError& e) {
-                            LOG(WARNING) << "failed to do index compaction"
-                                         << ". tablet=" << _tablet->full_name()
-                                         << ", column uniq id=" << column_uniq_id
-                                         << ", index_id=" << index_id;
-                            for (auto& rowset : _input_rowsets) {
-                                rowset->set_skip_index_compaction(column_uniq_id);
-                                LOG(INFO) << "mark skipping inverted index compaction next time"
-                                          << ". tablet=" << _tablet->full_name()
-                                          << ", rowset=" << rowset->rowset_id()
-                                          << ", column uniq id=" << column_uniq_id
-                                          << ", index_id=" << index_id;
-                            }
+                            error_handler(index_id, column_uniq_id);
                             status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
                                     e.what());
                         }

@@ -36,3 +36,28 @@ all	2
 4	5
 6	6
 
+-- !having_bind_child --
+1	10
+
+-- !having_bind_child2 --
+2	10
+
+-- !having_bind_child3 --
+2	10
+
+-- !having_bind_project --
+2	10
+
+-- !having_bind_project2 --
+
+-- !having_bind_project3 --
+
+-- !having_bind_project4 --
+2	11
+
+-- !having_bind_child4 --
+2	11
+
+-- !having_bind_child5 --
+2	11
+

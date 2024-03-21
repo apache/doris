@@ -148,8 +148,16 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         }
         cur_col++;
     }
-
+    auto rows = _child_block.rows();
     // Fill grouping ID to block
+    RETURN_IF_ERROR(add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
+    DCHECK_EQ(cur_col, column_size);
+    output_block->set_columns(std::move(columns));
+    return Status::OK();
+}
+
+Status VRepeatNode::add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
+                                           vectorized::MutableColumns& columns, int repeat_id_idx) {
     for (auto slot_idx = 0; slot_idx < _grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, _output_tuple_desc->slots().size());
         const SlotDescriptor* _virtual_slot_desc = _output_tuple_desc->slots()[cur_col];
@@ -158,15 +166,10 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         int64_t val = _grouping_list[slot_idx][repeat_id_idx];
         auto* column_ptr = columns[cur_col].get();
         DCHECK(!_output_slots[cur_col]->is_nullable());
-
         auto* col = assert_cast<ColumnVector<Int64>*>(column_ptr);
-        for (size_t i = 0; i < child_block->rows(); ++i) {
-            col->insert_value(val);
-        }
+        col->insert_raw_integers(val, rows);
         cur_col++;
     }
-
-    DCHECK_EQ(cur_col, column_size);
 
     return Status::OK();
 }
@@ -191,6 +194,17 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
             release_block_memory(_child_block);
             _repeat_id_idx = 0;
         }
+    } else if (_expr_ctxs.empty()) {
+        auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+                                                                                  _output_slots);
+        auto rows = _child_block.rows();
+        auto& columns = m_block.mutable_columns();
+
+        for (int repeat_id_idx = 0; repeat_id_idx < _repeat_id_list.size(); repeat_id_idx++) {
+            std::size_t cur_col = 0;
+            RETURN_IF_ERROR(add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
+        }
+        release_block_memory(_child_block);
     }
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     *eos = _child_eos && _child_block.rows() == 0;
@@ -202,7 +216,6 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
 Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     _child_eos = eos;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
-    DCHECK(!_expr_ctxs.empty());
 
     if (input_block->rows() > 0) {
         _intermediate_block = Block::create_unique();

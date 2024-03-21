@@ -485,10 +485,32 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalHaving(aggregate()).when(Plan::canBind).thenApply(ctx -> {
                     LogicalHaving<Aggregate<Plan>> having = ctx.root;
                     Aggregate<Plan> childPlan = having.child();
+
+                    FunctionRegistry functionRegistry
+                            = ctx.cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
+
+                    List<Expression> groupByExprs = childPlan.getGroupByExpressions();
+                    Builder<Slot> groupBySlotsBuilder = ImmutableList.builderWithExpectedSize(groupByExprs.size());
+                    for (Expression groupBy : groupByExprs) {
+                        if (groupBy instanceof Slot) {
+                            groupBySlotsBuilder.add((Slot) groupBy);
+                        }
+                    }
+                    List<Slot> groupBySlots = groupBySlotsBuilder.build();
+
                     Set<Expression> boundConjuncts = having.getConjuncts().stream()
                             .map(expr -> {
-                                expr = bindSlot(expr, childPlan.child(), ctx.cascadesContext, false);
-                                return bindSlot(expr, childPlan, ctx.cascadesContext, false);
+                                if (hasAggregateFunction(expr, functionRegistry)) {
+                                    expr = bindSlot(expr, childPlan.child(), ctx.cascadesContext, false);
+                                } else {
+                                    expr = new SlotBinder(toScope(ctx.cascadesContext, groupBySlots),
+                                            ctx.cascadesContext, false, false
+                                    ).bind(expr);
+
+                                    expr = bindSlot(expr, childPlan, ctx.cascadesContext, false);
+                                    expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
+                                }
+                                return expr;
                             })
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
@@ -550,7 +572,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     // we need to do cast before set operation, because we maybe use these slot to do shuffle
                     // so, we must cast it before shuffle to get correct hash code.
                     List<List<NamedExpression>> childrenProjections = setOperation.collectChildrenProjections();
-                    ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
+                    Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
                     Builder<Plan> newChildren = ImmutableList.builder();
                     for (int i = 0; i < childrenProjections.size(); i++) {
                         Plan newChild;
@@ -823,5 +845,24 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         });
         return expression;
+    }
+
+    private boolean hasAggregateFunction(Expression expression, FunctionRegistry functionRegistry) {
+        return expression.anyMatch(expr -> {
+            if (expr instanceof AggregateFunction) {
+                return true;
+            } else if (expr instanceof UnboundFunction) {
+                UnboundFunction unboundFunction = (UnboundFunction) expr;
+                boolean isAggregateFunction = functionRegistry
+                        .isAggregateFunction(
+                                unboundFunction.getDbName(),
+                                unboundFunction.getName()
+                        );
+                if (isAggregateFunction) {
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 }
