@@ -44,5 +44,7 @@ suite("test_account") {
     assertTrue(user_alter.toString().contains("test_account_comment_user_comment_alter"))
     // drop user
     sql """drop user if exists ${user}"""
-    assertFalse(user_alter.toString().contains("test_account_comment_user_comment_alter"))
+    def user_drop = sql "show grants for ${user}"
+    logger.info("user_drop: " + user_drop.toString())
+    assertFalse(user_drop.toString().contains("test_account_comment_user_comment_alter"))
 }
