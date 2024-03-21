@@ -49,7 +49,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     public KafkaTaskInfo(UUID id, long jobId, String clusterName,
                         long timeoutMs, int timeoutBackOffCount,
                         Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
-        super(id, jobId, timeoutMs, timeoutBackOffCount, isMultiTable);
+        super(id, jobId, clusterName, timeoutMs, timeoutBackOffCount, isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
