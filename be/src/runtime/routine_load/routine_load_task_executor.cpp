@@ -216,6 +216,12 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if (task.__isset.memtable_on_sink_node) {
         ctx->memtable_on_sink_node = task.memtable_on_sink_node;
     }
+    if (task.__isset.qualified_user) {
+        ctx->qualified_user = task.qualified_user;
+    }
+    if (task.__isset.cloud_cluster) {
+        ctx->cloud_cluster = task.cloud_cluster;
+    }
 
     // set execute plan params (only for non-single-stream-multi-table load)
     TStreamLoadPutResult put_result;

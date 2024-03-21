@@ -103,12 +103,12 @@ public class OneRangePartitionEvaluator
 
         PartitionRangeExpander expander = new PartitionRangeExpander();
         this.partitionSlotTypes = expander.computePartitionSlotTypes(lowers, uppers);
-        this.slotToType = Maps.newHashMapWithExpectedSize(partitionSlots.size() * 2);
+        this.slotToType = Maps.newHashMapWithExpectedSize(16);
         for (int i = 0; i < partitionSlots.size(); i++) {
             slotToType.put(partitionSlots.get(i), partitionSlotTypes.get(i));
         }
 
-        this.partitionSlotContainsNull = Maps.newHashMapWithExpectedSize(partitionSlots.size() * 2);
+        this.partitionSlotContainsNull = Maps.newHashMapWithExpectedSize(16);
         for (int i = 0; i < partitionSlots.size(); i++) {
             Slot slot = partitionSlots.get(i);
             if (!slot.nullable()) {
@@ -612,7 +612,7 @@ public class OneRangePartitionEvaluator
             Map<Slot, PartitionSlotInput> inputs) {
 
         Builder<Slot, ColumnRange> allColumnRangesBuilder =
-                ImmutableMap.builderWithExpectedSize(inputs.size() * 2);
+                ImmutableMap.builderWithExpectedSize(16);
         for (Entry<Slot, PartitionSlotInput> entry : inputs.entrySet()) {
             allColumnRangesBuilder.put(entry.getKey(), entry.getValue().columnRanges.get(entry.getKey()));
         }
@@ -620,7 +620,7 @@ public class OneRangePartitionEvaluator
         Map<Slot, ColumnRange> allColumnRanges = allColumnRangesBuilder.build();
 
         Builder<Slot, PartitionSlotInput> partitionSlotInputs =
-                ImmutableMap.builderWithExpectedSize(inputs.size() * 2);
+                ImmutableMap.builderWithExpectedSize(16);
         for (Slot slot : inputs.keySet()) {
             partitionSlotInputs.put(slot, new PartitionSlotInput(inputs.get(slot).result, allColumnRanges));
         }

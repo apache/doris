@@ -41,7 +41,7 @@ import java.util.Optional;
 /**
  * logical olap table sink for insert command
  */
-public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
     // bound data sink
     private final Database database;

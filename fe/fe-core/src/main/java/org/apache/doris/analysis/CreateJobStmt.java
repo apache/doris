@@ -83,6 +83,8 @@ public class CreateJobStmt extends DdlStmt {
 
     private final String comment;
 
+    private String jobName;
+
     public static final String CURRENT_TIMESTAMP_STRING = "current_timestamp";
     private JobExecuteType executeType;
 
@@ -155,11 +157,11 @@ public class CreateJobStmt extends DdlStmt {
             timerDefinition.setEndTimeMs(TimeUtils.timeStringToLong(endsTimeStamp));
         }
         checkJobName(labelName.getLabelName());
+        this.jobName = labelName.getLabelName();
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
         String originStmt = getOrigStmt().originStmt;
-        String executeSql = parseExecuteSql(originStmt);
+        String executeSql = parseExecuteSql(originStmt, jobName, comment);
         // create job use label name as its job name
-        String jobName = labelName.getLabelName();
         InsertJob job = new InsertJob(jobName,
                 JobStatus.RUNNING,
                 labelName.getDbName(),
@@ -208,10 +210,24 @@ public class CreateJobStmt extends DdlStmt {
      * parse execute sql from create job stmt
      * Some stmt not implement toSql method,so we need to parse sql from originStmt
      */
-    private String parseExecuteSql(String sql) throws AnalysisException {
+    private static String parseExecuteSql(String sql, String jobName, String comment) throws AnalysisException {
         String lowerCaseSql = sql.toLowerCase();
-        int executeSqlIndex = lowerCaseSql.indexOf(" do ");
-        String executeSql = sql.substring(executeSqlIndex + 4).trim();
+        String lowerCaseJobName = jobName.toLowerCase();
+        // Find the end position of the job name in the SQL statement.
+        int jobNameEndIndex = lowerCaseSql.indexOf(lowerCaseJobName) + lowerCaseJobName.length();
+        String subSqlStmt = lowerCaseSql.substring(jobNameEndIndex);
+        String originSubSqlStmt = sql.substring(jobNameEndIndex);
+        // If the comment is not empty, extract the SQL statement from the end position of the comment.
+        if (StringUtils.isNotBlank(comment)) {
+
+            String lowerCaseComment = comment.toLowerCase();
+            int splitDoIndex = subSqlStmt.indexOf(lowerCaseComment) + lowerCaseComment.length();
+            subSqlStmt = subSqlStmt.substring(splitDoIndex);
+            originSubSqlStmt = originSubSqlStmt.substring(splitDoIndex);
+        }
+        // Find the position of the "do" keyword and extract the execution SQL statement from this position.
+        int executeSqlIndex = subSqlStmt.indexOf("do");
+        String executeSql = originSubSqlStmt.substring(executeSqlIndex + 2).trim();
         if (StringUtils.isBlank(executeSql)) {
             throw new AnalysisException("execute sql has invalid format");
         }

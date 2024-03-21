@@ -83,6 +83,14 @@ public:
         return _writer_status;
     }
 
+    std::string debug_string() const {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "{}, _eos = {}, _writer_thread_closed = {}, _writer_status = {}", _eos,
+                       _writer_thread_closed, _writer_status.to_string());
+        return fmt::to_string(debug_string_buffer);
+    }
+
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
@@ -95,6 +103,7 @@ private:
     void process_block(RuntimeState* state, RuntimeProfile* profile);
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
+    void _set_ready_to_finish();
 
     std::unique_ptr<Block> _get_block_from_queue();
 

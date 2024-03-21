@@ -246,7 +246,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
-        context.original_tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = _cloud_storage_engine.latest_fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
@@ -254,7 +253,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
 
         RowsetMetaSharedPtr existed_rs_meta;
         auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(),
-                                                                  true, &existed_rs_meta);
+                                                                  &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "
@@ -285,7 +284,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                                          st.to_string());
         }
 
-        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(), true,
+        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(),
                                                             &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {

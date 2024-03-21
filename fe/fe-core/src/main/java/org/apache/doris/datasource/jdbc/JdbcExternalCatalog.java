@@ -17,26 +17,44 @@
 
 package org.apache.doris.datasource.jdbc;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.client.JdbcClientException;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PJdbcTestConnectionRequest;
+import org.apache.doris.proto.InternalService.PJdbcTestConnectionResult;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.protobuf.ByteString;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 @Getter
 public class JdbcExternalCatalog extends ExternalCatalog {
@@ -57,6 +75,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             throws DdlException {
         super(catalogId, name, InitCatalogLog.Type.JDBC, comment);
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props, isReplay));
+        testJdbcConnection(isReplay);
     }
 
     @Override
@@ -67,13 +86,16 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
-
-        Map<String, String> propertiesWithoutCheckSum = Maps.newHashMap(catalogProperty.getProperties());
-        propertiesWithoutCheckSum.remove(JdbcResource.CHECK_SUM);
-        JdbcResource.validateProperties(propertiesWithoutCheckSum);
+        Map<String, String> propertiesIncludeRequired = Maps.newHashMap(catalogProperty.getProperties());
+        propertiesIncludeRequired.remove(JdbcResource.CHECK_SUM);
+        propertiesIncludeRequired.remove(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+        JdbcResource.validateProperties(propertiesIncludeRequired);
 
         JdbcResource.checkBooleanProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, getOnlySpecifiedDatabase());
         JdbcResource.checkBooleanProperty(JdbcResource.LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
+        JdbcResource.checkBooleanProperty(JdbcResource.CONNECTION_POOL_KEEP_ALIVE,
+                String.valueOf(isConnectionPoolKeepAlive()));
+        JdbcResource.checkBooleanProperty(JdbcResource.TEST_CONNECTION, String.valueOf(isTestConnection()));
         JdbcResource.checkDatabaseListProperties(getOnlySpecifiedDatabase(), getIncludeDatabaseMap(),
                 getExcludeDatabaseMap());
         JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
@@ -190,6 +212,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_KEEP_ALIVE)));
     }
 
+    public boolean isTestConnection() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.TEST_CONNECTION, "false"));
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
@@ -267,5 +293,79 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public void executeStmt(String stmt) {
         makeSureInitialized();
         jdbcClient.executeStmt(stmt);
+    }
+
+    private void testJdbcConnection(boolean isReplay) throws DdlException {
+        if (!isReplay) {
+            if (isTestConnection()) {
+                try {
+                    initLocalObjectsImpl();
+                    testFeToJdbcConnection();
+                    testBeToJdbcConnection();
+                } finally {
+                    jdbcClient.closeClient();
+                    jdbcClient = null;
+                }
+            }
+        }
+    }
+
+    private void testFeToJdbcConnection() throws DdlException {
+        try {
+            jdbcClient.testConnection();
+        } catch (JdbcClientException e) {
+            String errorMessage = "Test FE Connection to JDBC Failed: " + e.getMessage();
+            LOG.error(errorMessage, e);
+            throw new DdlException(errorMessage, e);
+        }
+    }
+
+    private void testBeToJdbcConnection() throws DdlException {
+        Backend aliveBe = null;
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+            if (be.isAlive()) {
+                aliveBe = be;
+            }
+        }
+        if (aliveBe == null) {
+            throw new DdlException("Test BE Connection to JDBC Failed: No Alive backends");
+        }
+        TNetworkAddress address = new TNetworkAddress(aliveBe.getHost(), aliveBe.getBrpcPort());
+        try {
+            JdbcTable jdbcTable = getTestConnectionJdbcTable();
+            PJdbcTestConnectionRequest request = InternalService.PJdbcTestConnectionRequest.newBuilder()
+                    .setJdbcTable(ByteString.copyFrom(new TSerializer().serialize(jdbcTable.toThrift())))
+                    .setJdbcTableType(jdbcTable.getJdbcTableType().getValue())
+                    .setQueryStr(jdbcClient.getTestQuery()).build();
+            InternalService.PJdbcTestConnectionResult result = null;
+            Future<PJdbcTestConnectionResult> future = BackendServiceProxy.getInstance()
+                    .testJdbcConnection(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                throw new DdlException("Test BE Connection to JDBC Failed: " + result.getStatus().getErrorMsgs(0));
+            }
+        } catch (TException | RpcException | ExecutionException | InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private JdbcTable getTestConnectionJdbcTable() throws DdlException {
+        JdbcTable jdbcTable = new JdbcTable(0, "test_jdbc_connection", Lists.newArrayList(),
+                TableType.JDBC_EXTERNAL_TABLE);
+        jdbcTable.setCatalogId(this.getId());
+        jdbcTable.setJdbcTypeName(this.getDatabaseTypeName());
+        jdbcTable.setJdbcUrl(this.getJdbcUrl());
+        jdbcTable.setJdbcUser(this.getJdbcUser());
+        jdbcTable.setJdbcPasswd(this.getJdbcPasswd());
+        jdbcTable.setDriverClass(this.getDriverClass());
+        jdbcTable.setDriverUrl(this.getDriverUrl());
+        jdbcTable.setCheckSum(JdbcResource.computeObjectChecksum(this.getDriverUrl()));
+        jdbcTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
+        jdbcTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
+        jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
+        jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
+        jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
+        return jdbcTable;
     }
 }

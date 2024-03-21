@@ -168,8 +168,8 @@ suite("aggregate_with_roll_up") {
         explain {
             sql("${query_sql}")
             check {result ->
-                def splitResult = result.split("MaterializedViewRewriteSuccessButNotChose")
-                splitResult.length == 2 ? splitResult[1].contains(mv_name) : false
+                def splitResult = result.split("MaterializedViewRewriteFail")
+                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
             }
         }
     }

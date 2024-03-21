@@ -39,15 +39,12 @@ namespace doris {
 class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
+class WorkloadGroup;
 
 namespace pipeline {
 class ScanLocalStateBase;
 class Dependency;
 } // namespace pipeline
-
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 
 namespace vectorized {
 

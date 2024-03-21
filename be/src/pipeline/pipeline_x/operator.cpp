@@ -37,6 +37,7 @@
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/hive_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
@@ -49,6 +50,10 @@
 #include "pipeline/exec/olap_table_sink_v2_operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
+#include "pipeline/exec/partitioned_aggregation_sink_operator.h"
+#include "pipeline/exec/partitioned_aggregation_source_operator.h"
+#include "pipeline/exec/partitioned_hash_join_probe_operator.h"
+#include "pipeline/exec/partitioned_hash_join_sink_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
@@ -59,7 +64,11 @@
 #include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/spill_sort_sink_operator.h"
+#include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
+#include "pipeline/exec/streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
@@ -440,7 +449,8 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
                                                     bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
-        local_state._child_block->clear_column_data();
+        local_state._child_block->clear_column_data(
+                OperatorX<LocalStateType>::_child_x->row_desc().num_materialized_slots());
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
                 state, local_state._child_block.get(), &local_state._child_eos));
         *eos = local_state._child_eos;
@@ -482,7 +492,6 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
-    _finish_dependency->block();
     return Status::OK();
 }
 
@@ -499,6 +508,15 @@ template <typename Writer, typename Parent>
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              bool eos) {
     return _writer->sink(block, eos);
+}
+
+template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+std::string AsyncWriterSink<Writer, Parent>::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, writer : {}", Base::debug_string(indentation_level),
+                   _writer->debug_string());
+    return fmt::to_string(debug_string_buffer);
 }
 
 template <typename Writer, typename Parent>
@@ -533,10 +551,13 @@ DECLARE_OPERATOR_X(JdbcTableSinkLocalState)
 DECLARE_OPERATOR_X(ResultFileSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkV2LocalState)
+DECLARE_OPERATOR_X(HiveTableSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
+DECLARE_OPERATOR_X(SpillSortSinkLocalState)
 DECLARE_OPERATOR_X(LocalExchangeSinkLocalState)
 DECLARE_OPERATOR_X(AggSinkLocalState)
+DECLARE_OPERATOR_X(PartitionedAggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(UnionSinkLocalState)
@@ -546,6 +567,7 @@ DECLARE_OPERATOR_X(SetProbeSinkLocalState<true>)
 DECLARE_OPERATOR_X(SetProbeSinkLocalState<false>)
 DECLARE_OPERATOR_X(SetSinkLocalState<true>)
 DECLARE_OPERATOR_X(SetSinkLocalState<false>)
+DECLARE_OPERATOR_X(PartitionedHashJoinSinkLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -557,7 +579,9 @@ DECLARE_OPERATOR_X(FileScanLocalState)
 DECLARE_OPERATOR_X(EsScanLocalState)
 DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
+DECLARE_OPERATOR_X(SpillSortLocalState)
 DECLARE_OPERATOR_X(AggLocalState)
+DECLARE_OPERATOR_X(PartitionedAggLocalState)
 DECLARE_OPERATOR_X(TableFunctionLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
 DECLARE_OPERATOR_X(RepeatLocalState)
@@ -573,6 +597,7 @@ DECLARE_OPERATOR_X(DataGenLocalState)
 DECLARE_OPERATOR_X(SchemaScanLocalState)
 DECLARE_OPERATOR_X(MetaScanLocalState)
 DECLARE_OPERATOR_X(LocalExchangeSourceLocalState)
+DECLARE_OPERATOR_X(PartitionedHashJoinProbeLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -580,6 +605,7 @@ template class StreamingOperatorX<AssertNumRowsLocalState>;
 template class StreamingOperatorX<SelectLocalState>;
 
 template class StatefulOperatorX<HashJoinProbeLocalState>;
+template class StatefulOperatorX<PartitionedHashJoinProbeLocalState>;
 template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<StreamingAggLocalState>;
 template class StatefulOperatorX<DistinctStreamingAggLocalState>;
@@ -587,10 +613,13 @@ template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 template class StatefulOperatorX<TableFunctionLocalState>;
 
 template class PipelineXSinkLocalState<HashJoinSharedState>;
+template class PipelineXSinkLocalState<PartitionedHashJoinSharedState>;
 template class PipelineXSinkLocalState<SortSharedState>;
+template class PipelineXSinkLocalState<SpillSortSharedState>;
 template class PipelineXSinkLocalState<NestedLoopJoinSharedState>;
 template class PipelineXSinkLocalState<AnalyticSharedState>;
 template class PipelineXSinkLocalState<AggSharedState>;
+template class PipelineXSinkLocalState<PartitionedAggSharedState>;
 template class PipelineXSinkLocalState<FakeSharedState>;
 template class PipelineXSinkLocalState<UnionSharedState>;
 template class PipelineXSinkLocalState<PartitionSortNodeSharedState>;
@@ -600,10 +629,13 @@ template class PipelineXSinkLocalState<LocalExchangeSharedState>;
 template class PipelineXSinkLocalState<BasicSharedState>;
 
 template class PipelineXLocalState<HashJoinSharedState>;
+template class PipelineXLocalState<PartitionedHashJoinSharedState>;
 template class PipelineXLocalState<SortSharedState>;
+template class PipelineXLocalState<SpillSortSharedState>;
 template class PipelineXLocalState<NestedLoopJoinSharedState>;
 template class PipelineXLocalState<AnalyticSharedState>;
 template class PipelineXLocalState<AggSharedState>;
+template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
 template class PipelineXLocalState<MultiCastSharedState>;
@@ -616,5 +648,6 @@ template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileS
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
+template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 
 } // namespace doris::pipeline

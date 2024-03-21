@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.trinoconnector;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -188,7 +187,6 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         trinoConnectorProperties.putAll(catalogProperty.getProperties());
         trinoConnectorProperties.remove("create_time");
         trinoConnectorProperties.remove("type");
-
         String connectorNameString = trinoConnectorProperties.remove("connector.name");
         Objects.requireNonNull(connectorNameString, "connectorName is null");
         if (connectorNameString.indexOf('-') >= 0) {
@@ -197,6 +195,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
             LOG.warn("You are using the deprecated connector name '{}'. The correct connector name is '{}'",
                     deprecatedConnectorName, connectorNameString);
         }
+
         ConnectorName connectorName = new ConnectorName(connectorNameString);
 
         // 2. create CatalogFactory
@@ -210,18 +209,17 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                 accessControl,
                 new InMemoryNodeManager(),
                 new PagesIndexPageSorter(new PagesIndex.TestingFactory(false)),
-                new GroupByHashPageIndexerFactory(new JoinCompiler(
-                        Env.getCurrentEnv().getTypeRegistry().getTypeOperators())),
+                new GroupByHashPageIndexerFactory(new JoinCompiler(TrinoConnectorPluginLoader.getTypeOperators())),
                 new NodeInfo("test"),
                 EmbedVersion.testingVersionEmbedder(),
                 OpenTelemetry.noop(),
                 noOpTransactionManager,
-                new InternalTypeManager(Env.getCurrentEnv().getTypeRegistry()),
+                new InternalTypeManager(TrinoConnectorPluginLoader.getTypeRegistry()),
                 new NodeSchedulerConfig().setIncludeCoordinator(true),
                 new OptimizerConfig()));
 
         Optional<ConnectorFactory> connectorFactory = Optional.ofNullable(
-                Env.getCurrentEnv().getTrinoConnectorPluginManager().getConnectorFactories().get(connectorName));
+                TrinoConnectorPluginLoader.getTrinoConnectorPluginManager().getConnectorFactories().get(connectorName));
         if (!connectorFactory.isPresent()) {
             throw new RuntimeException("Can not find connectorFactory, did you forget to install plugins?");
         }
@@ -233,22 +231,10 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                 trinoConnectorProperties, MoreExecutors.directExecutor());
         trinoConnectorServicesProvider.loadInitialCatalogs();
         return trinoConnectorServicesProvider;
-
-        // solution 2: not need ConnectorServicesProvider, desc table has bug
-        // CatalogProperties catalogProperties = new CatalogProperties(
-        //         createRootCatalogHandle(trinoCatalogName.getCatalogName(), new CatalogVersion("default")),
-        //         connectorName, ImmutableMap.copyOf(trinoConnectorProperties));
-        // LOG.info("-- Loading catalog {} --", trinoCatalogName.getCatalogName());
-        // CatalogConnector trinoCatalog = catalogFactory.createCatalog(catalogProperties);
-        // LOG.info("-- Added catalog {} using connector {} --",
-        //         trinoCatalogName.getCatalogName(), trinoCatalog.getConnectorName());
-        // this.connector = trinoCatalog.getMaterializedConnector(trinoCatalogHandle.getType()).getConnector();
     }
 
     private SessionPropertyManager createTrinoSessionPropertyManager(
             ConnectorServicesProvider trinoConnectorServicesProvider) {
-
-        // solution 1: need ConnectorServicesProvider
         Set<SystemSessionPropertiesProvider> extraSessionProperties = ImmutableSet.of();
         Set<SystemSessionPropertiesProvider> systemSessionProperties =
                 ImmutableSet.<SystemSessionPropertiesProvider>builder()
@@ -257,7 +243,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                                 new QueryManagerConfig(),
                                 new TaskManagerConfig(),
                                 new MemoryManagerConfig(),
-                                Env.getCurrentEnv().getFeaturesConfig(),
+                                TrinoConnectorPluginLoader.getFeaturesConfig(),
                                 new OptimizerConfig(),
                                 new NodeMemoryConfig(),
                                 new DynamicFilterConfig(),
@@ -266,18 +252,6 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
         return CatalogServiceProviderModule.createSessionPropertyManager(systemSessionProperties,
                 trinoConnectorServicesProvider);
-
-        // solution 2: not need ConnectorServicesProvider, desc table has bug
-        // SystemSessionPropertiesProvider systemSessionProperties = new SystemSessionProperties(
-        //                 new QueryManagerConfig(),
-        //                 new TaskManagerConfig(),
-        //                 new MemoryManagerConfig(),
-        //                 Env.getCurrentEnv().getFeaturesConfig(),
-        //                 new OptimizerConfig(),
-        //                 new NodeMemoryConfig(),
-        //                 new DynamicFilterConfig(),
-        //                 new NodeSchedulerConfig());
-        // return new SessionPropertyManager(systemSessionProperties);
     }
 
     private List<QualifiedObjectName> trinoListTables(QualifiedTablePrefix prefix) {

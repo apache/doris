@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/exception.h"
+#include "common/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -62,6 +63,8 @@ LocalFileSystem::~LocalFileSystem() = default;
 
 Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                          const FileWriterOptions* opts) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::create_file_impl",
+                                      Status::IOError("inject io error"));
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
     DBUG_EXECUTE_IF("LocalFileSystem.create_file_impl.open_file_failed", {
         // spare '.testfile' to make bad disk checker happy
@@ -81,6 +84,8 @@ Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer
 
 Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
                                        const FileReaderOptions* opts) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::open_file_impl",
+                                      Status::IOError("inject io error"));
     int64_t fsize = opts ? opts->file_size : -1;
     if (fsize < 0) {
         RETURN_IF_ERROR(file_size_impl(file, &fsize));
@@ -238,6 +243,8 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
 }
 
 Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::rename",
+                                      Status::IOError("inject io error"));
     std::error_code ec;
     std::filesystem::rename(orig_name, new_name, ec);
     if (ec) {

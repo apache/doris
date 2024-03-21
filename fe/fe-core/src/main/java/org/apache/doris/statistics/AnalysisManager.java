@@ -144,6 +144,9 @@ public class AnalysisManager implements Writable {
         if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
             throw new DdlException("Stats table not available, please make sure your cluster status is normal");
         }
+        if (Config.force_sample_analyze) {
+            analyzeStmt.checkAndSetSample();
+        }
         if (analyzeStmt instanceof AnalyzeDBStmt) {
             createAnalysisJobs((AnalyzeDBStmt) analyzeStmt, proxy);
         } else if (analyzeStmt instanceof AnalyzeTblStmt) {
@@ -345,7 +348,7 @@ public class AnalysisManager implements Writable {
         Set<String> partitionNames = stmt.getPartitionNames();
         boolean partitionOnly = stmt.isPartitionOnly();
         boolean isSamplingPartition = stmt.isSamplingPartition();
-        boolean isAllPartition = stmt.isAllPartitions();
+        boolean isAllPartition = stmt.isStarPartition();
         long partitionCount = stmt.getPartitionCount();
         int samplePercent = stmt.getSamplePercent();
         int sampleRows = stmt.getSampleRows();

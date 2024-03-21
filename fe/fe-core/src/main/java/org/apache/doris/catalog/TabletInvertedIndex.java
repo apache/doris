@@ -167,6 +167,15 @@ public class TabletInvertedIndex {
                                     tabletMetaInfo.setIsInMemory(!backendTabletInfo.isIsInMemory());
                                 }
                             }
+                            if (Config.fix_tablet_partition_id_eq_0
+                                    && tabletMeta.getPartitionId() > 0
+                                    && backendTabletInfo.getPartitionId() == 0) {
+                                LOG.warn("be report tablet partition id not eq fe, in be {} but in fe {}",
+                                        backendTabletInfo, tabletMeta);
+                                // Need to update partition id in BE
+                                tabletMetaInfo = new TTabletMetaInfo();
+                                tabletMetaInfo.setPartitionId(tabletMeta.getPartitionId());
+                            }
                             // 1. (intersection)
                             if (needSync(replica, backendTabletInfo)) {
                                 // need sync
@@ -589,9 +598,11 @@ public class TabletInvertedIndex {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, replica " + replica.getId()
                     + ", backend " + replica.getBackendId());
-            replicaMetaTable.put(tabletId, replica.getBackendId(), replica);
+            // cloud mode, create table not need backendId, represent with -1.
+            long backendId = Config.isCloudMode() ? -1 : replica.getBackendId();
+            replicaMetaTable.put(tabletId, backendId, replica);
             replicaToTabletMap.put(replica.getId(), tabletId);
-            backingReplicaMetaTable.put(replica.getBackendId(), tabletId, replica);
+            backingReplicaMetaTable.put(backendId, tabletId, replica);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add replica {} of tablet {} in backend {}",
                         replica.getId(), tabletId, replica.getBackendId());

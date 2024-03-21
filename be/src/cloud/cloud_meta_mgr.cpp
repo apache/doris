@@ -21,6 +21,7 @@
 #include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
 #include <atomic>
@@ -147,6 +148,9 @@ private:
                     if (config::meta_service_connection_pooled) {
                         num_proxies = config::meta_service_connection_pool_size;
                     }
+                    if (config::meta_service_endpoint.find(',') != std::string::npos) {
+                        is_meta_service_endpoint_list = true;
+                    }
                     proxies = std::make_unique<MetaServiceProxy[]>(num_proxies);
                 });
 
@@ -163,19 +167,28 @@ private:
     static Status init_channel(brpc::Channel* channel) {
         static std::atomic<size_t> index = 1;
 
-        std::string ip;
-        uint16_t port;
-        Status s = get_meta_service_ip_and_port(&ip, &port);
-        if (!s.ok()) {
-            LOG(WARNING) << "fail to get meta service ip and port: " << s;
-            return s;
+        const char* load_balancer_name = nullptr;
+        std::string endpoint;
+        if (is_meta_service_endpoint_list) {
+            endpoint = fmt::format("list://{}", config::meta_service_endpoint);
+            load_balancer_name = "random";
+        } else {
+            std::string ip;
+            uint16_t port;
+            Status s = get_meta_service_ip_and_port(&ip, &port);
+            if (!s.ok()) {
+                LOG(WARNING) << "fail to get meta service ip and port: " << s;
+                return s;
+            }
+
+            endpoint = get_host_port(ip, port);
         }
 
-        size_t next_id = index.fetch_add(1, std::memory_order_relaxed);
         brpc::ChannelOptions options;
-        options.connection_group = fmt::format("ms_{}", next_id);
-        if (channel->Init(ip.c_str(), port, &options) != 0) {
-            return Status::InternalError("fail to init brpc channel, ip: {}, port: {}", ip, port);
+        options.connection_group =
+                fmt::format("ms_{}", index.fetch_add(1, std::memory_order_relaxed));
+        if (channel->Init(endpoint.c_str(), load_balancer_name, &options) != 0) {
+            return Status::InvalidArgument("failed to init brpc channel, endpoint: {}", endpoint);
         }
         return Status::OK();
     }
@@ -195,7 +208,8 @@ private:
 
     bool is_idle_timeout(long now) {
         auto idle_timeout_ms = config::meta_service_idle_connection_timeout_ms;
-        return idle_timeout_ms > 0 &&
+        // idle timeout only works without list endpoint.
+        return !is_meta_service_endpoint_list && idle_timeout_ms > 0 &&
                _last_access_at_ms.load(std::memory_order_relaxed) + idle_timeout_ms < now;
     }
 
@@ -222,7 +236,9 @@ private:
                                                    google::protobuf::Service::STUB_OWNS_CHANNEL);
 
         long deadline = now;
-        if (config::meta_service_connection_age_base_minutes > 0) {
+        // connection age only works without list endpoint.
+        if (!is_meta_service_endpoint_list &&
+            config::meta_service_connection_age_base_minutes > 0) {
             std::default_random_engine rng(static_cast<uint32_t>(now));
             std::uniform_int_distribution<> uni(
                     config::meta_service_connection_age_base_minutes,
@@ -240,11 +256,15 @@ private:
         return Status::OK();
     }
 
+    static std::atomic_bool is_meta_service_endpoint_list;
+
     std::shared_mutex _mutex;
     std::atomic<long> _last_access_at_ms {0};
     long _deadline_ms {0};
     std::shared_ptr<MetaService_Stub> _stub;
 };
+
+std::atomic_bool MetaServiceProxy::is_meta_service_endpoint_list = false;
 
 template <typename T, typename... Ts>
 struct is_any : std::disjunction<std::is_same<T, Ts>...> {};
@@ -617,15 +637,14 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(
     return Status::OK();
 }
 
-Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id() << ", is_tmp: " << is_tmp;
+               << ", rowset_id: " << rs_meta.rowset_id();
 
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_temporary(is_tmp);
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -643,14 +662,13 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id() << ", is_tmp: " << is_tmp;
+               << ", rowset_id: " << rs_meta.rowset_id();
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_temporary(is_tmp);
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -783,11 +801,13 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s3_infos) {
+Status CloudMetaMgr::get_storage_vault_info(
+        std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>>* vault_infos) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    Status s = retry_rpc("get s3 info", req, &resp, &MetaService_Stub::get_obj_store_info);
+    Status s =
+            retry_rpc("get storage vault info", req, &resp, &MetaService_Stub::get_obj_store_info);
     if (!s.ok()) {
         return s;
     }
@@ -802,7 +822,21 @@ Status CloudMetaMgr::get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s
         s3_conf.prefix = obj_store.prefix();
         s3_conf.sse_enabled = obj_store.sse_enabled();
         s3_conf.provider = obj_store.provider();
-        s3_infos->emplace_back(obj_store.id(), std::move(s3_conf));
+        vault_infos->emplace_back(obj_store.id(), std::move(s3_conf));
+    }
+    for (const auto& vault : resp.storage_vault()) {
+        THdfsParams params;
+        params.fs_name = vault.hdfs_info().build_conf().fs_name();
+        params.user = vault.hdfs_info().build_conf().user();
+        params.hdfs_kerberos_keytab = vault.hdfs_info().build_conf().hdfs_kerberos_keytab();
+        params.hdfs_kerberos_principal = vault.hdfs_info().build_conf().hdfs_kerberos_principal();
+        for (const auto& confs : vault.hdfs_info().build_conf().hdfs_confs()) {
+            THdfsConf conf;
+            conf.key = confs.key();
+            conf.value = confs.value();
+            params.hdfs_conf.emplace_back(std::move(conf));
+        }
+        vault_infos->emplace_back(vault.id(), std::move(params));
     }
     return Status::OK();
 }

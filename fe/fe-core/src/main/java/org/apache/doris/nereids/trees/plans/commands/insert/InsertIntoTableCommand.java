@@ -146,14 +146,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             if (ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
-
-            Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+            Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
+                    .<Set<PhysicalSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
             PhysicalSink physicalSink = plan.get();
             DataSink sink = planner.getFragments().get(0).getSink();
-            String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
+            // Transaction insert should reuse the label in the transaction.
+            String label = this.labelName.orElse(
+                    ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 if (GroupCommitInsertExecutor.groupCommit(ctx, sink, physicalSink)) {
@@ -161,6 +162,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     return insertExecutor;
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
+                // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()
@@ -171,6 +173,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner, insertCtx);
+                // set hive query options
             } else {
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support olap table");

@@ -17,17 +17,27 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+
+import com.google.common.collect.Lists;
+
+import java.util.stream.Collectors;
 
 /**
  * The cache for materialized view cache
@@ -54,18 +64,33 @@ public class MTMVCache {
 
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
-        // this will be removed in the future when support join derivation
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES, ELIMINATE_OUTER_JOIN");
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
-        Plan mvRewrittenPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
-        // TODO: should use visitor or a new rule to remove result sink node
-        Plan mvPlan = mvRewrittenPlan instanceof LogicalResultSink
-                ? (Plan) ((LogicalResultSink) mvRewrittenPlan).child() : mvRewrittenPlan;
-        return new MTMVCache(mvPlan, mvRewrittenPlan);
+        unboundMvPlan = unboundMvPlan.accept(new DefaultPlanVisitor<LogicalPlan, Void>() {
+            // convert to table sink to eliminate sort under table sink, because sort under result sink can not be
+            // eliminated
+            @Override
+            public LogicalPlan visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink,
+                    Void context) {
+                return new UnboundTableSink<>(mtmv.getFullQualifiers(),
+                        mtmv.getBaseSchema().stream().map(Column::getName).collect(Collectors.toList()),
+                        Lists.newArrayList(),
+                        mtmv.getPartitions().stream().map(Partition::getName).collect(Collectors.toList()),
+                        unboundResultSink.child());
+            }
+        }, null);
+        Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        // eliminate logicalTableSink because sink operator is useless in query rewrite by materialized view
+        Plan mvPlan = planner.getCascadesContext().getRewritePlan().accept(new DefaultPlanRewriter<Object>() {
+            @Override
+            public Plan visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, Object context) {
+                return logicalTableSink.child().accept(this, context);
+            }
+        }, null);
+        return new MTMVCache(mvPlan, originPlan);
     }
 }

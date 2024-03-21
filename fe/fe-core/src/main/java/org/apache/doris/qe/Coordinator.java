@@ -22,8 +22,6 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -90,6 +88,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -149,7 +148,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 public class Coordinator implements CoordInterface {
@@ -211,7 +209,7 @@ public class Coordinator implements CoordInterface {
     private final List<BackendExecState> needCheckBackendExecStates = Lists.newArrayList();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private ResultReceiver receiver;
-    private final List<ScanNode> scanNodes;
+    protected final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
     // number of backends executing plan fragments on behalf of this query;
@@ -232,6 +230,9 @@ public class Coordinator implements CoordInterface {
 
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
+
+    // TODO moved to ExternalTransactionManager
+    private final List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -489,6 +490,10 @@ public class Coordinator implements CoordInterface {
         return errorTabletInfos;
     }
 
+    public List<THivePartitionUpdate> getHivePartitionUpdates() {
+        return hivePartitionUpdates;
+    }
+
     public Map<String, Integer> getBeToInstancesNum() {
         Map<String, Integer> result = Maps.newTreeMap();
         if (enablePipelineEngine) {
@@ -511,7 +516,7 @@ public class Coordinator implements CoordInterface {
     }
 
     // Initialize
-    protected void prepare() {
+    protected void prepare() throws UserException {
         for (PlanFragment fragment : fragments) {
             fragmentExecParamsMap.put(fragment.getFragmentId(), new FragmentExecParams(fragment));
         }
@@ -527,7 +532,8 @@ public class Coordinator implements CoordInterface {
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
 
-        this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
+        this.idToBackend = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+
         if (LOG.isDebugEnabled()) {
             int backendNum = idToBackend.size();
             StringBuilder backendInfos = new StringBuilder("backends info:");
@@ -2195,11 +2201,7 @@ public class Coordinator implements CoordInterface {
 
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
-    private void computeScanRangeAssignment() throws Exception {
-        if (Config.isCloudMode() && Config.enable_cloud_snapshot_version) {
-            setVisibleVersionForOlapScanNode();
-        }
-
+    protected void computeScanRangeAssignment() throws Exception {
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
         Collections.shuffle(scanNodes);
@@ -2415,56 +2417,12 @@ public class Coordinator implements CoordInterface {
         // TODO: more ranges?
     }
 
-    // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
-    // After all scan node are collected, it is possible to gain a snapshot of the partition version.
-    private void setVisibleVersionForOlapScanNode() throws RpcException, UserException {
-        List<CloudPartition> partitions = new ArrayList<>();
-        Set<Long> partitionSet = new HashSet<>();
-        for (ScanNode node : scanNodes) {
-            if (!(node instanceof OlapScanNode)) {
-                continue;
-            }
-
-            OlapScanNode scanNode = (OlapScanNode) node;
-            OlapTable table = scanNode.getOlapTable();
-            for (Long id : scanNode.getSelectedPartitionIds()) {
-                if (!partitionSet.contains(id)) {
-                    partitionSet.add(id);
-                    partitions.add((CloudPartition) table.getPartition(id));
-                }
-            }
-        }
-
-        if (partitions.isEmpty()) {
-            return;
-        }
-
-        List<Long> versions = CloudPartition.getSnapshotVisibleVersion(partitions);
-        assert versions.size() == partitions.size() : "the got num versions is not equals to acquired num versions";
-        if (versions.stream().anyMatch(x -> x <= 0)) {
-            int size = versions.size();
-            for (int i = 0; i < size; ++i) {
-                if (versions.get(i) <= 0) {
-                    LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
-                            partitions.get(i).getId(), versions.get(i));
-                    throw new UserException("partition " + partitions.get(i).getId()
-                            + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
-                }
-            }
-        }
-
-        // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
-        Map<Long, Long> visibleVersionMap = IntStream.range(0, versions.size())
-                .boxed()
-                .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
-
-        for (ScanNode node : scanNodes) {
-            if (!(node instanceof OlapScanNode)) {
-                continue;
-            }
-
-            OlapScanNode scanNode = (OlapScanNode) node;
-            scanNode.updateScanRangeVersions(visibleVersionMap);
+    private void updateHivePartitionUpdates(List<THivePartitionUpdate> hivePartitionUpdates) {
+        lock.lock();
+        try {
+            this.hivePartitionUpdates.addAll(hivePartitionUpdates);
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -2515,6 +2473,9 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
+            }
+            if (params.isSetHivePartitionUpdates()) {
+                updateHivePartitionUpdates(params.getHivePartitionUpdates());
             }
 
             Preconditions.checkArgument(params.isSetDetailedReport());
@@ -2580,6 +2541,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
+                }
+                if (params.isSetHivePartitionUpdates()) {
+                    updateHivePartitionUpdates(params.getHivePartitionUpdates());
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} instance {} is marked done",
@@ -2657,6 +2621,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
+                }
+                if (params.isSetHivePartitionUpdates()) {
+                    updateHivePartitionUpdates(params.getHivePartitionUpdates());
                 }
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             }
@@ -3665,7 +3632,10 @@ public class Coordinator implements CoordInterface {
 
         List<TExecPlanFragmentParams> toThrift(int backendNum) {
             List<TExecPlanFragmentParams> paramsList = Lists.newArrayList();
-
+            Set<Integer> topnFilterSources = scanNodes.stream()
+                    .filter(scanNode -> scanNode instanceof OlapScanNode)
+                    .flatMap(scanNode -> ((OlapScanNode) scanNode).getTopnFilterSortNodes().stream())
+                    .map(sort -> sort.getId().asInt()).collect(Collectors.toSet());
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 TExecPlanFragmentParams params = new TExecPlanFragmentParams();
@@ -3677,11 +3647,17 @@ public class Coordinator implements CoordInterface {
                 params.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 params.params.setQueryId(queryId);
                 params.params.setFragmentInstanceId(instanceExecParam.instanceId);
+
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
                 }
-
+                if (!topnFilterSources.isEmpty()) {
+                    // topn_filter_source_node_ids is used by nereids not by legacy planner.
+                    // if there is no topnFilterSources, do not set it.
+                    // topn_filter_source_node_ids=null means legacy planner
+                    params.params.topn_filter_source_node_ids = Lists.newArrayList(topnFilterSources);
+                }
                 params.params.setPerNodeScanRanges(scanRanges);
                 params.params.setPerExchNumSenders(perExchNumSenders);
 
@@ -3752,7 +3728,6 @@ public class Coordinator implements CoordInterface {
                                 rf.getFilterId().asInt(), rf.toThrift());
                     }
                 }
-
                 params.setFileScanParams(fileScanRangeParamsMap);
                 paramsList.add(params);
             }
@@ -3766,7 +3741,10 @@ public class Coordinator implements CoordInterface {
                 int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceExecParams.size());
                 memLimit = queryOptions.getMemLimit() / rate;
             }
-
+            Set<Integer> topnFilterSources = scanNodes.stream()
+                    .filter(scanNode -> scanNode instanceof OlapScanNode)
+                    .flatMap(scanNode -> ((OlapScanNode) scanNode).getTopnFilterSortNodes().stream())
+                    .map(sort -> sort.getId().asInt()).collect(Collectors.toSet());
             Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();
@@ -3835,6 +3813,12 @@ public class Coordinator implements CoordInterface {
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
+                if (!topnFilterSources.isEmpty()) {
+                    // topn_filter_source_node_ids is used by nereids not by legacy planner.
+                    // if there is no topnFilterSources, do not set it.
+                    // topn_filter_source_node_ids=null means legacy planner
+                    localParams.topn_filter_source_node_ids = Lists.newArrayList(topnFilterSources);
+                }
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
                             .map(r -> r.getFilterId().asInt()).collect(Collectors.toSet());
@@ -3953,6 +3937,10 @@ public class Coordinator implements CoordInterface {
             sb.append("]"); // end of instances
             sb.append("}");
         }
+    }
+
+    public QueueToken getQueueToken() {
+        return queueToken;
     }
 
     // fragment instance exec param, it is used to assemble

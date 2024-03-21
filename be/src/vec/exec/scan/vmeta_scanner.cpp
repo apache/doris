@@ -34,7 +34,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/thrift_rpc_helper.h"
@@ -96,12 +95,7 @@ Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
         return Status::InternalError("Logical error, VMetaScanner do not allow ColumnNullable");
     }
 
-    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ACTIVE_BE_TASKS) {
-        // tvf active_be_tasks fetch data in be directly, it does not need to request FE for data
-        RETURN_IF_ERROR(_build_active_be_tasks_data());
-    } else {
-        RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
-    }
+    RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
 
@@ -241,9 +235,6 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::FRONTENDS_DISKS:
         RETURN_IF_ERROR(_build_frontends_disks_metadata_request(meta_scan_range, &request));
         break;
-    case TMetadataType::WORKLOAD_GROUPS:
-        RETURN_IF_ERROR(_build_workload_groups_metadata_request(meta_scan_range, &request));
-        break;
     case TMetadataType::WORKLOAD_SCHED_POLICY:
         RETURN_IF_ERROR(_build_workload_sched_policy_metadata_request(meta_scan_range, &request));
         break;
@@ -258,9 +249,6 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         break;
     case TMetadataType::TASKS:
         RETURN_IF_ERROR(_build_tasks_metadata_request(meta_scan_range, &request));
-        break;
-    case TMetadataType::QUERIES:
-        RETURN_IF_ERROR(_build_queries_metadata_request(meta_scan_range, &request));
         break;
     default:
         _meta_eos = true;
@@ -291,20 +279,6 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return status;
     }
     _batch_data = std::move(result.data_batch);
-    return Status::OK();
-}
-
-Status VMetaScanner::_build_active_be_tasks_data() {
-    std::vector<std::string> filter_columns;
-    for (const auto& slot : _tuple_desc->slots()) {
-        filter_columns.emplace_back(slot->col_name_lower_case());
-    }
-
-    std::vector<TRow> ret =
-            ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_active_be_tasks_statistics(
-                    filter_columns);
-    _batch_data = std::move(ret);
-
     return Status::OK();
 }
 
@@ -380,23 +354,6 @@ Status VMetaScanner::_build_frontends_disks_metadata_request(
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::FRONTENDS_DISKS);
     metadata_table_params.__set_frontends_metadata_params(meta_scan_range.frontends_params);
-
-    request->__set_metada_table_params(metadata_table_params);
-    return Status::OK();
-}
-
-Status VMetaScanner::_build_workload_groups_metadata_request(
-        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_workload_groups_metadata_request";
-
-    // create request
-    request->__set_cluster_name("");
-    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
-
-    // create TMetadataTableRequestParams
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_GROUPS);
-    metadata_table_params.__set_current_user_ident(_user_identity);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
@@ -488,25 +445,6 @@ Status VMetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_sc
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::TASKS);
     metadata_table_params.__set_tasks_metadata_params(meta_scan_range.tasks_params);
-
-    request->__set_metada_table_params(metadata_table_params);
-    return Status::OK();
-}
-
-Status VMetaScanner::_build_queries_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                     TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_queries_metadata_request";
-    if (!meta_scan_range.__isset.queries_params) {
-        return Status::InternalError("Can not find TQueriesMetadataParams from meta_scan_range.");
-    }
-    // create request
-    request->__set_cluster_name("");
-    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
-
-    // create TMetadataTableRequestParams
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::QUERIES);
-    metadata_table_params.__set_queries_metadata_params(meta_scan_range.queries_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

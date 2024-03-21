@@ -21,6 +21,7 @@
 #include "runtime/exec_env.h"
 #include "util/debug_util.h"
 #include "util/time.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -199,54 +200,52 @@ void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64
     }
 }
 
-std::vector<TRow> RuntimeQueryStatiticsMgr::get_active_be_tasks_statistics(
-        std::vector<std::string> filter_columns) {
+void RuntimeQueryStatiticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
-    std::vector<TRow> table_rows;
     int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
 
-    for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
-        TRow trow;
+    auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
+        vectorized::MutableColumnPtr mutable_col_ptr;
+        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+        auto* nullable_column =
+                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
+                int_val);
+        nullable_column->get_null_map_data().emplace_back(0);
+    };
 
+    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
+        vectorized::MutableColumnPtr mutable_col_ptr;
+        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+        auto* nullable_column =
+                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
+                                                                          str_val.size());
+        nullable_column->get_null_map_data().emplace_back(0);
+    };
+
+    // block's schema come from SchemaBackendActiveTasksScanner::_s_tbls_columns
+    for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
         TQueryStatistics tqs;
         qs_ctx_ptr->collect_query_statistics(&tqs);
+        insert_int_value(0, be_id, block);
+        insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
+        insert_string_value(2, query_id, block);
 
-        for (auto iter = filter_columns.begin(); iter != filter_columns.end(); iter++) {
-            std::string col_name = *iter;
-
-            TCell tcell;
-            if (col_name == "beid") {
-                tcell.longVal = be_id;
-            } else if (col_name == "fehost") {
-                tcell.stringVal = qs_ctx_ptr->_fe_addr.hostname;
-            } else if (col_name == "queryid") {
-                tcell.stringVal = query_id;
-            } else if (col_name == "tasktimems") {
-                if (qs_ctx_ptr->_is_query_finished) {
-                    tcell.longVal = qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time;
-                } else {
-                    tcell.longVal = MonotonicMillis() - qs_ctx_ptr->_query_start_time;
-                }
-            } else if (col_name == "taskcputimems") {
-                tcell.longVal = tqs.cpu_ms;
-            } else if (col_name == "scanrows") {
-                tcell.longVal = tqs.scan_rows;
-            } else if (col_name == "scanbytes") {
-                tcell.longVal = tqs.scan_bytes;
-            } else if (col_name == "bepeakmemorybytes") {
-                tcell.longVal = tqs.max_peak_memory_bytes;
-            } else if (col_name == "currentusedmemorybytes") {
-                tcell.longVal = tqs.current_used_memory_bytes;
-            } else if (col_name == "shufflesendbytes") {
-                tcell.longVal = tqs.shuffle_send_bytes;
-            } else if (col_name == "shufflesendRows") {
-                tcell.longVal = tqs.shuffle_send_rows;
-            }
-            trow.column_value.push_back(tcell);
-        }
-        table_rows.push_back(trow);
+        int64_t task_time = qs_ctx_ptr->_is_query_finished
+                                    ? qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time
+                                    : MonotonicMillis() - qs_ctx_ptr->_query_start_time;
+        insert_int_value(3, task_time, block);
+        insert_int_value(4, tqs.cpu_ms, block);
+        insert_int_value(5, tqs.scan_rows, block);
+        insert_int_value(6, tqs.scan_bytes, block);
+        insert_int_value(7, tqs.max_peak_memory_bytes, block);
+        insert_int_value(8, tqs.current_used_memory_bytes, block);
+        insert_int_value(9, tqs.shuffle_send_bytes, block);
+        insert_int_value(10, tqs.shuffle_send_rows, block);
     }
-    return table_rows;
 }
 
 } // namespace doris

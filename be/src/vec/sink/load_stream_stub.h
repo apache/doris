@@ -150,7 +150,7 @@ public:
 
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
-    Status close_wait(int64_t timeout_ms = 0);
+    Status close_wait(RuntimeState* state, int64_t timeout_ms = 0);
 
     // cancel the stream, abort close_wait, mark _is_closed and _is_cancelled
     void cancel(Status reason);

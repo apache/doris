@@ -381,7 +381,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                                                         )
                                                                 ))
                                                 ).when(FieldChecker.check("outputExpressions",
-                                                Lists.newArrayList(pk, pk1, sumA1, countA1, sumA1A2, v1))))
+                                                Lists.newArrayList(pk, sumA1, countA1, sumA1A2, v1))))
                                 ).when(FieldChecker.check("conjuncts",
                                         ImmutableSet.of(
                                                 new GreaterThan(pk.toSlot(), Literal.of((byte) 0)),
@@ -529,7 +529,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias minXX = new Alias(new ExprId(5), new Min(xx.toSlot()), "min(xx)");
         PlanChecker.from(connectContext).analyze(sql).printlnTree().matches(logicalProject(
                 logicalSort(logicalProject(logicalAggregate(logicalProject(logicalOlapScan())
-                        .when(FieldChecker.check("projects", Lists.newArrayList(xx, a2, a1))))))
+                        .when(FieldChecker.check("projects", Lists.newArrayList(xx, a1, a2))))))
                                 .when(FieldChecker.check("orderKeys",
                                         ImmutableList
                                                 .of(new OrderKey(minXX.toSlot(), true, true)))))
@@ -569,7 +569,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalProject(logicalSort(logicalProject(logicalAggregate(logicalProject(
                         logicalFilter(logicalJoin(logicalOlapScan(), logicalOlapScan())))).when(
-                                FieldChecker.check("outputExpressions", Lists.newArrayList(pk, pk1,
+                                FieldChecker.check("outputExpressions", Lists.newArrayList(pk,
                                         sumA1, countA1, sumA1A2, v1))))).when(FieldChecker.check(
                                                 "orderKeys",
                                                 ImmutableList.of(new OrderKey(pk, true, true),

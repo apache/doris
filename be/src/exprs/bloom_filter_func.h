@@ -81,6 +81,11 @@ public:
 
     void set_contain_null() { _contain_null = true; }
 
+    void set_contain_null_and_null_aware() {
+        _contain_null = true;
+        _null_aware = true;
+    }
+
     bool contain_null() const { return _null_aware && _contain_null; }
 
 private:
@@ -94,15 +99,16 @@ class BloomFilterFuncBase : public RuntimeFilterFuncBase {
 public:
     virtual ~BloomFilterFuncBase() = default;
 
-    void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
-
-    void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
-
-    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
+    void init_params(const RuntimeFilterParams* params) {
+        _bloom_filter_length = params->bloom_filter_size;
+        _build_bf_exactly = params->build_bf_exactly;
+        _null_aware = params->null_aware;
+        _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
+    }
 
     Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
 
-    Status init_with_cardinality(const size_t build_bf_cardinality) {
+    Status init_with_cardinality(const size_t build_bf_cardinality, int id = 0) {
         if (_build_bf_exactly) {
             // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
             constexpr double fpp = 0.05;
@@ -112,7 +118,14 @@ public:
 
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
             int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
-            _bloom_filter_length = (((int64_t)1) << log_filter_size);
+            auto be_calculate_size = (((int64_t)1) << log_filter_size);
+            // if FE do use ndv stat to predict the bf size, BE only use the row count. FE have more
+            // exactly row count stat. which one is min is more correctly.
+            if (_bloom_filter_size_calculated_by_ndv) {
+                _bloom_filter_length = std::min(be_calculate_size, _bloom_filter_length);
+            } else {
+                _bloom_filter_length = be_calculate_size;
+            }
         }
         return init_with_fixed_length(_bloom_filter_length);
     }
@@ -139,43 +152,38 @@ public:
         // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
         // call for `merge` function. So we just reuse this bloom filter, and we don't need to
         // allocate memory again.
-        if (_inited) {
-            DCHECK(bloomfilter_func != nullptr);
+        std::lock_guard<std::mutex> l(_lock);
+        if (!_inited) {
             auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-            if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-                return Status::InvalidArgument(
-                        "bloom filter size not the same: already allocated bytes {}, expected "
-                        "allocated bytes {}",
-                        _bloom_filter_alloced, other_func->_bloom_filter_alloced);
-            }
-            return _bloom_filter->merge(other_func->_bloom_filter.get());
-        }
-        {
-            std::lock_guard<std::mutex> l(_lock);
-            if (!_inited) {
-                auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-                DCHECK(_bloom_filter == nullptr);
-                DCHECK(bloomfilter_func != nullptr);
-                _bloom_filter = bloomfilter_func->_bloom_filter;
-                _bloom_filter_alloced = other_func->_bloom_filter_alloced;
-                _inited = true;
-                return Status::OK();
-            }
+            DCHECK(_bloom_filter == nullptr);
             DCHECK(bloomfilter_func != nullptr);
-            auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-            if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-                return Status::InvalidArgument(
-                        "bloom filter size not the same: already allocated bytes {}, expected "
-                        "allocated bytes {}",
-                        _bloom_filter_alloced, other_func->_bloom_filter_alloced);
-            }
-            return _bloom_filter->merge(other_func->_bloom_filter.get());
+            _bloom_filter = bloomfilter_func->_bloom_filter;
+            _bloom_filter_alloced = other_func->_bloom_filter_alloced;
+            _inited = true;
+            return Status::OK();
         }
+        DCHECK(bloomfilter_func != nullptr);
+        auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+        if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
+            return Status::InvalidArgument(
+                    "bloom filter size not the same: already allocated bytes {}, expected "
+                    "allocated bytes {}",
+                    _bloom_filter_alloced, other_func->_bloom_filter_alloced);
+        }
+        if (other_func->_bloom_filter->contain_null()) {
+            _bloom_filter->set_contain_null_and_null_aware();
+        }
+        return _bloom_filter->merge(other_func->_bloom_filter.get());
     }
 
-    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
+    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size,
+                  bool contain_null) {
         if (_bloom_filter == nullptr) {
+            _null_aware = contain_null;
             _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
+        }
+        if (contain_null) {
+            _bloom_filter->set_contain_null();
         }
 
         _bloom_filter_alloced = data_size;
@@ -186,6 +194,13 @@ public:
         *data = _bloom_filter->data();
         *len = _bloom_filter->size();
     }
+
+    bool contain_null() const {
+        DCHECK(_bloom_filter);
+        return _bloom_filter->contain_null();
+    }
+
+    void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
 
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
 
@@ -214,7 +229,7 @@ protected:
     std::mutex _lock;
     int64_t _bloom_filter_length;
     bool _build_bf_exactly = false;
-    bool _null_aware = false;
+    bool _bloom_filter_size_calculated_by_ndv = false;
 };
 
 template <typename T, bool need_trim = false>

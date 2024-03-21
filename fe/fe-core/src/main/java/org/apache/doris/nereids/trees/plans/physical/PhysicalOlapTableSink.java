@@ -50,7 +50,7 @@ import java.util.Set;
 /**
  * physical olap table sink for insert command
  */
-public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
+public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTableSink<CHILD_TYPE> implements Sink {
 
     private final Database database;
     private final OlapTable targetTable;

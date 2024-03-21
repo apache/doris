@@ -167,7 +167,6 @@ public final class MetricRepo {
             CLOUD_CLUSTER_BACKEND_ALIVE_TOTAL = new HashMap<>();
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
-    private static Long lastCalcLoadJobTime = 0L;
 
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
@@ -246,7 +245,6 @@ public final class MetricRepo {
         }
 
         // load jobs
-        LoadManager loadManger = Env.getCurrentEnv().getLoadManager();
         for (EtlJobType jobType : EtlJobType.values()) {
             if (jobType == EtlJobType.UNKNOWN) {
                 continue;
@@ -258,7 +256,7 @@ public final class MetricRepo {
                         if (!Env.getCurrentEnv().isMaster()) {
                             return 0L;
                         }
-                        return loadManger.getLoadJobNum(state, jobType);
+                        return MetricRepo.getLoadJobNum(jobType, state);
                     }
                 };
                 gauge.addLabel(new MetricLabel("job", "load")).addLabel(new MetricLabel("type", jobType.name()))
@@ -762,6 +760,9 @@ public final class MetricRepo {
         // update the metrics first
         updateMetrics();
 
+        // update load job metrics
+        updateLoadJobMetrics();
+
         // jvm
         JvmService jvmService = new JvmService();
         JvmStats jvmStats = jvmService.stats();
@@ -798,5 +799,14 @@ public final class MetricRepo {
 
     public static synchronized List<Metric> getMetricsByName(String name) {
         return DORIS_METRIC_REGISTER.getMetricsByName(name);
+    }
+
+    private static void updateLoadJobMetrics() {
+        LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+        MetricRepo.loadJobNum = loadManager.getLoadJobNum();
+    }
+
+    private static long getLoadJobNum(EtlJobType jobType, JobState jobState) {
+        return MetricRepo.loadJobNum.getOrDefault(Pair.of(jobType, jobState), 0L);
     }
 }
