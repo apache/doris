@@ -51,6 +51,7 @@ import java.util.stream.Collectors
 import java.util.stream.LongStream
 import static org.apache.doris.regression.util.DataUtils.sortByToString
 
+import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
@@ -259,9 +260,34 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    def sql_return_maparray(String sqlStr) {
+    List<List<Object>> insert_into_sql_impl(Connection conn, String sqlStr, int num) {
+        logger.info("insert into " + num + " records")
+        def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
+        return result
+    }
+
+    List<List<Object>> jdbc_insert_into_sql(String sqlStr, int num) {
+        return insert_into_sql_impl(context.getConnection(), sqlStr, num)
+    }
+
+    List<List<Object>> arrow_flight_insert_into_sql(String sqlStr, int num) {
+        return insert_into_sql_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr), num)
+    }
+
+    List<List<Object>> insert_into_sql(String sqlStr, int num) {
+        if (context.useArrowFlightSql()) {
+            return arrow_flight_insert_into_sql(sqlStr, num)
+        } else {
+            return jdbc_insert_into_sql(sqlStr, num)
+        }
+    }
+
+    def sql_return_maparray(String sqlStr, Connection conn = null) {        
         logger.info("Execute sql: ${sqlStr}".toString())
-        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        if (conn == null) {
+            conn = context.getConnection()
+        }
+        def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
 
         // get all column names as list
         List<String> columnNames = new ArrayList<>()
@@ -516,6 +542,11 @@ class Suite implements GroovyInterceptable {
         return lines;
     }
 
+
+    Connection getTargetConnection() {
+        return context.getTargetConnection(this)
+    }
+    
     boolean deleteFile(String filePath) {
         def file = new File(filePath)
         file.delete()
