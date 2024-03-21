@@ -771,14 +771,14 @@ multiClusterBes = "{multi_cluster_bes}"
             regression_conf_custom = os.path.join(doris_root_dir,
                                                   relative_custom_file_path)
             ans = input(
-                "write file {} ?\n   y/n/c(change custom conf path):  ".format(
-                    regression_conf_custom))
+                "write file {} ?\n   y / n / c(change custom conf path):  ".
+                format(regression_conf_custom))
             if ans == 'y':
                 return regression_conf_custom
             elif ans == 'c':
                 return confirm_custom_file_path(
                     input(
-                        "input your doris or selectdb-core root directory for the conf file: "
+                        "input your doris or selectdb-core root path (ie. the regression-test 's parent path, for save the custom conf file: \n\t"
                     ).strip())
             else:
                 return ""
