@@ -540,6 +540,27 @@ class Config {
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
 
+    public static String buildUrlWithDbImpl(String jdbcUrl, String dbName) {
+        String urlWithDb = jdbcUrl
+        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+        if (urlWithoutSchema.indexOf("/") >= 0) {
+            if (jdbcUrl.contains("?")) {
+                // e.g: jdbc:mysql://locahost:8080/?a=b
+                urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("?"))
+                urlWithDb = urlWithDb.substring(0, urlWithDb.lastIndexOf("/"))
+                urlWithDb += ("/" + dbName) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
+            } else {
+                // e.g: jdbc:mysql://locahost:8080/
+                urlWithDb += dbName
+            }
+        } else {
+            // e.g: jdbc:mysql://locahost:8080
+            urlWithDb += ("/" + dbName)
+        }
+
+        return urlWithDb
+    }
+    
     Connection getConnectionByArrowFlightSql(String dbName) {
         Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
         String arrowFlightSqlHost = otherConfigs.get("extArrowFlightSqlHost")
