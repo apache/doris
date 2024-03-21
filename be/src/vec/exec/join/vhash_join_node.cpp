@@ -1290,7 +1290,7 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     }
 
                     auto is_null = data_type->is_nullable();
-                    has_null |= is_null;
+                    has_null |= is_null || _should_convert_build_side_to_nullable[i];
                     _build_key_sz[i] =
                             data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
                     _probe_key_sz[i] = _build_key_sz[i];
