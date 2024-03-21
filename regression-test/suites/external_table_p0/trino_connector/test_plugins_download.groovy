@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_plugins_download", "external") {
+suite("test_plugins_download", "external,hive,external_docker,external_docker_hive") {
     def trino_connector_download_dir = context.config.otherConfigs.get("trinoPluginsPath")
 
     // mkdir trino_connector_download_dir
