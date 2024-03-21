@@ -1051,9 +1051,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
-DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
-DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+DEFINE_Int64(max_external_file_meta_cache_num, "1000");
+
 // Apply delete pred in cumu compaction
 DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 
@@ -1134,6 +1135,16 @@ DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
+
+DEFINE_mInt32(max_s3_client_retry, "10");
+
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+DEFINE_mString(ca_cert_file_paths,
+               "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+               "/etc/ssl/ca-bundle.pem");
 
 // clang-format off
 #ifdef BE_TEST

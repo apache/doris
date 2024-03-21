@@ -79,7 +79,7 @@ std::string get_parser_phrase_support_string_from_properties(
     if (properties.find(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY);
     } else {
-        return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+        return INVERTED_INDEX_PARSER_FALSE;
     }
 }
 
@@ -123,15 +123,6 @@ std::string get_parser_ignore_above_value_from_properties(
         return properties.at(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY);
     } else {
         return INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE;
-    }
-}
-
-std::string get_parser_lowercase_from_properties(
-        const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_PARSER_LOWERCASE_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
-    } else {
-        return "";
     }
 }
 

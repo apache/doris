@@ -1189,6 +1189,15 @@ DECLARE_mInt32(query_statistics_reserve_timeout_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
+// max s3 client retry times
+DECLARE_mInt32(max_s3_client_retry);
+
+// the directory for storing the trino-connector plugins.
+DECLARE_String(trino_connector_plugin_dir);
+
+// the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
+DECLARE_mString(ca_cert_file_paths);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
