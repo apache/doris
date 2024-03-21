@@ -567,12 +567,14 @@ public class BindExpression implements AnalysisRuleFactory {
                 () -> analyzer.analyzeToSet(project.getExcepts()));
 
         Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
+        List<BoundStar> boundStars = Lists.newArrayList();
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
             if (!(expr instanceof BoundStar)) {
                 boundProjections.add((NamedExpression) expr);
             } else {
                 BoundStar boundStar = (BoundStar) expr;
+                boundStars.add(boundStar);
                 List<Slot> slots = boundStar.getSlots();
                 if (!excepts.isEmpty()) {
                     slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains(slot));
@@ -580,7 +582,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 boundProjections.addAll(slots);
             }
         }
-        return project.withProjects(boundProjections.build());
+        LogicalProject<Plan> finalProject = project.withProjects(boundProjections.build());
+        finalProject.setBoundStars(boundStars);
+        return finalProject;
     }
 
     private Plan bindFilter(MatchingContext<LogicalFilter<Plan>> ctx) {

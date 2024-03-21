@@ -28,11 +28,21 @@ import java.util.stream.Collectors;
 
 /** BoundStar is used to wrap list of slots for temporary. */
 public class BoundStar extends NamedExpression implements PropagateNullable {
+    private int indexInSqlString;
+
     public BoundStar(List<Slot> children) {
         super((List) children);
         Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
                 "BoundStar can not wrap UnboundSlot"
         );
+    }
+
+    public BoundStar(List<Slot> children, int indexInSqlString) {
+        super((List) children);
+        Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
+                "BoundStar can not wrap UnboundSlot"
+        );
+        this.indexInSqlString = indexInSqlString;
     }
 
     public String toSql() {
@@ -44,6 +54,9 @@ public class BoundStar extends NamedExpression implements PropagateNullable {
         return (List) children();
     }
 
+    public int getIndexInSqlString() {
+        return indexInSqlString;
+    }
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitBoundStar(this, context);

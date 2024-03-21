@@ -164,7 +164,8 @@ public class NereidsParser {
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
-    private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
+    /** toAst */
+    public static ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         DorisParser parser = new DorisParser(tokenStream);

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import lombok.Getter;
 
 import java.util.List;
 import java.util.Objects;
@@ -33,12 +34,19 @@ import java.util.Objects;
  * Star expression.
  */
 public class UnboundStar extends NamedExpression implements LeafExpression, Unbound, PropagateNullable {
-
     private final List<String> qualifier;
+
+    private int indexInSqlString;
 
     public UnboundStar(List<String> qualifier) {
         super(ImmutableList.of());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
+    }
+
+    public UnboundStar(List<String> qualifier, int indexInSqlString) {
+        super(ImmutableList.of());
+        this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
+        this.indexInSqlString = indexInSqlString;
     }
 
     @Override
@@ -69,6 +77,10 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
         }
         UnboundStar that = (UnboundStar) o;
         return qualifier.equals(that.qualifier);
+    }
+
+    public int getIndexInSqlString() {
+        return indexInSqlString;
     }
 
     @Override

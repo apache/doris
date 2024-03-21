@@ -96,7 +96,7 @@ public class CreateViewStmt extends BaseViewStmt {
         }
     }
 
-    public void createColumnAndViewDefsForNereids(String querySql, Plan plan) {
+    public void createColumnAndViewDefsForNereids(Plan plan) {
         List<Slot> outputs = plan.getOutput();
         if (cols.isEmpty()) {
             for (Slot output : outputs) {
@@ -110,10 +110,13 @@ public class CreateViewStmt extends BaseViewStmt {
                 finalCols.add(column);
             }
         }
+    }
+
+    public void setInlineViewDef(String querySql) {
         inlineViewDef = querySql;
     }
 
-    public List<Column> getFinalColumns() {
-        return finalCols;
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
     }
 }

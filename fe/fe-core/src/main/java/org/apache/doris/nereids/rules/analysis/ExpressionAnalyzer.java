@@ -275,7 +275,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .collect(Collectors.toList());
         switch (qualifier.size()) {
             case 0: // select *
-                return new BoundStar(slots);
+                return new BoundStar(slots, unboundStar.getIndexInSqlString());
             case 1: // select table.*
             case 2: // select db.table.*
             case 3: // select catalog.db.table.*

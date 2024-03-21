@@ -187,7 +187,7 @@ public class SlotReference extends Slot {
 
     @Override
     public String toSql() {
-        return name.get();
+        return '`' + name.get() + '`';
     }
 
     @Override

@@ -40,6 +40,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import org.json.JSONObject;
 
 import java.util.HashSet;
@@ -58,6 +59,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     private final List<NamedExpression> excepts;
     private final boolean isDistinct;
     private final boolean canEliminate;
+    private List<BoundStar> boundStars = Lists.newArrayList();
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
         this(projects, ImmutableList.of(), false, true, ImmutableList.of(child));
@@ -264,5 +266,13 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         builder.addAll(childItems);
 
         return builder.build();
+    }
+
+    public List<BoundStar> getBoundStars() {
+        return boundStars;
+    }
+
+    public void setBoundStars(List<BoundStar> boundStars) {
+        this.boundStars = boundStars;
     }
 }

@@ -36,8 +36,8 @@ public class CreateViewCommand extends Command {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        CreateViewStmt createViewStmt = createViewInfo.translateToLegacyStmt(ctx);
         createViewInfo.validate(ctx);
+        CreateViewStmt createViewStmt = createViewInfo.translateToLegacyStmt(ctx);
         Env.getCurrentEnv().createView(createViewStmt);
     }
 

@@ -1246,21 +1246,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan relation;
             if (ctx.fromClause() == null) {
                 SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
-                String sql = getOriginSql(columnCtx);
-                int startIndex = columnCtx.start.getStartIndex();
-                int stopIndex = columnCtx.stop.getStopIndex();
-                System.out.println(sql + ' ' + startIndex + ' ' + stopIndex);
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
                 relation = new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                         ImmutableList.of(new UnboundAlias(Literal.of(0))));
             } else {
-                SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
-                String sql = getOriginSql(columnCtx);
-                int startIndex = columnCtx.start.getStartIndex();
-                int stopIndex = columnCtx.stop.getStopIndex();
-                System.out.println(sql + ' ' + startIndex + ' ' + stopIndex);
                 relation = visitFromClause(ctx.fromClause());
             }
             if (ctx.intoClause() != null && !ConnectContext.get().isRunProcedure()) {
@@ -1395,9 +1386,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 target = ImmutableList.of();
             }
             int startIndex = ctx.start.getStartIndex();
-            int stopIndex = ctx.stop.getStopIndex();
-            System.out.println(startIndex + " " + stopIndex);
-            return new UnboundStar(target);
+            return new UnboundStar(target, startIndex);
         });
     }
 
