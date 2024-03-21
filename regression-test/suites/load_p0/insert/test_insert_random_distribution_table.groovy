@@ -71,19 +71,11 @@ suite("test_insert_random_distribution_table", "p0") {
         }
     }
 
-<<<<<<< HEAD
     assertEquals(rowCounts[beginIdx], 2)
     assertEquals(rowCounts[(beginIdx + 1) % 5], 2)
     assertEquals(rowCounts[(beginIdx + 2) % 5], 0)
     assertEquals(rowCounts[(beginIdx + 3) % 5], 0)
     assertEquals(rowCounts[(beginIdx + 4) % 5], 0)
-=======
-    /*assertEquals(rowCount1[0][0], 3)
-    assertEquals(rowCount2[0][0], 1)
-    assertEquals(rowCount3[0][0], 0)
-    assertEquals(rowCount4[0][0], 0)
-    assertEquals(rowCount5[0][0], 0)*/
->>>>>>> 6627ddb04c (fix)
 
     sql "set batch_size=2"
     // insert second time
@@ -92,7 +84,6 @@ suite("test_insert_random_distribution_table", "p0") {
     totalCount = sql "select count() from ${tableName}"
     assertEquals(totalCount[0][0], 8)
 
-<<<<<<< HEAD
     for (int i = 0; i < tablets.size(); i++) {
         def countResult = sql "select count() from ${tableName} tablet(${tablets[i]})"
         rowCounts[i] = countResult[0][0]
@@ -103,19 +94,6 @@ suite("test_insert_random_distribution_table", "p0") {
     assertEquals(rowCounts[(beginIdx + 2) % 5], 2)
     assertEquals(rowCounts[(beginIdx + 3) % 5], 0)
     assertEquals(rowCounts[(beginIdx + 4) % 5], 0)
-=======
-    rowCount1 = sql "select count() from ${tableName} tablet(${tabletId1})"
-    rowCount2 = sql "select count() from ${tableName} tablet(${tabletId2})"
-    rowCount3 = sql "select count() from ${tableName} tablet(${tabletId3})"
-    rowCount4 = sql "select count() from ${tableName} tablet(${tabletId4})"
-    rowCount5 = sql "select count() from ${tableName} tablet(${tabletId5})"
-
-    /*assertEquals(rowCount1[0][0], 3)
-    assertEquals(rowCount2[0][0], 4)
-    assertEquals(rowCount3[0][0], 1)
-    assertEquals(rowCount4[0][0], 0)
-    assertEquals(rowCount5[0][0], 0)*/
->>>>>>> 6627ddb04c (fix)
 
     sql "set batch_size=2"
     // insert third time
@@ -130,19 +108,11 @@ suite("test_insert_random_distribution_table", "p0") {
         log.info("tablet = ${tablets[i]}, rowCounts[${i}] = ${rowCounts[i]}")
     }
 
-<<<<<<< HEAD
     assertEquals(rowCounts[(beginIdx + 0) % 5], 2)
     assertEquals(rowCounts[(beginIdx + 1) % 5], 4)
     assertEquals(rowCounts[(beginIdx + 2) % 5], 4)
     assertEquals(rowCounts[(beginIdx + 3) % 5], 2)
     assertEquals(rowCounts[(beginIdx + 4) % 5], 0)
-=======
-    /*assertEquals(rowCount1[0][0], 3)
-    assertEquals(rowCount2[0][0], 4)
-    assertEquals(rowCount3[0][0], 4)
-    assertEquals(rowCount4[0][0], 1)
-    assertEquals(rowCount5[0][0], 0)*/
->>>>>>> 6627ddb04c (fix)
 
     // ${tableName} partitioned table
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -207,47 +177,9 @@ suite("test_insert_random_distribution_table", "p0") {
       assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + i) % 10], 0)
     }
 
-<<<<<<< HEAD
     for (int i = 0; i < 10; i++) {
       assertEquals(partitionRowCounts[2][i], 0)
     }
-=======
-    def rowCount11 = sql "select count() from ${tableName} tablet(${tabletId11})"
-    def rowCount12 = sql "select count() from ${tableName} tablet(${tabletId12})"
-    def rowCount13 = sql "select count() from ${tableName} tablet(${tabletId13})"
-    def rowCount14 = sql "select count() from ${tableName} tablet(${tabletId14})"
-    def rowCount15 = sql "select count() from ${tableName} tablet(${tabletId15})"
-
-    def rowCount21 = sql "select count() from ${tableName} tablet(${tabletId21})"
-    def rowCount22 = sql "select count() from ${tableName} tablet(${tabletId22})"
-    def rowCount23 = sql "select count() from ${tableName} tablet(${tabletId23})"
-    def rowCount24 = sql "select count() from ${tableName} tablet(${tabletId24})"
-    def rowCount25 = sql "select count() from ${tableName} tablet(${tabletId25})"
-
-    def rowCount31 = sql "select count() from ${tableName} tablet(${tabletId31})"
-    def rowCount32 = sql "select count() from ${tableName} tablet(${tabletId32})"
-    def rowCount33 = sql "select count() from ${tableName} tablet(${tabletId33})"
-    def rowCount34 = sql "select count() from ${tableName} tablet(${tabletId34})"
-    def rowCount35 = sql "select count() from ${tableName} tablet(${tabletId35})"
-
-    /*assertEquals(rowCount11[0][0], 2)
-    assertEquals(rowCount12[0][0], 1)
-    assertEquals(rowCount13[0][0], 0)
-    assertEquals(rowCount14[0][0], 0)
-    assertEquals(rowCount15[0][0], 0)
-
-    assertEquals(rowCount21[0][0], 1)
-    assertEquals(rowCount22[0][0], 1)
-    assertEquals(rowCount23[0][0], 0)
-    assertEquals(rowCount24[0][0], 0)
-    assertEquals(rowCount25[0][0], 0)
-
-    assertEquals(rowCount31[0][0], 0)
-    assertEquals(rowCount32[0][0], 0)
-    assertEquals(rowCount33[0][0], 0)
-    assertEquals(rowCount34[0][0], 0)
-    assertEquals(rowCount35[0][0], 0)*/
->>>>>>> 6627ddb04c (fix)
 
     sql "set batch_size=1"
     // insert second time
@@ -281,7 +213,6 @@ suite("test_insert_random_distribution_table", "p0") {
       assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + i) % 10], 0)
     }
 
-<<<<<<< HEAD
     assertEquals(partitionRowCounts[1][partitionBeginIdx[1]], 1)
     assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 1) % 10], 2)
     assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 2) % 10], 1)
@@ -294,25 +225,6 @@ suite("test_insert_random_distribution_table", "p0") {
     for (int i = 1; i < 10; i++) {
         assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + i) % 10], 0)
     }
-=======
-    /*assertEquals(rowCount11[0][0], 2)
-    assertEquals(rowCount12[0][0], 2)
-    assertEquals(rowCount13[0][0], 0)
-    assertEquals(rowCount14[0][0], 0)
-    assertEquals(rowCount15[0][0], 0)
-
-    assertEquals(rowCount21[0][0], 1)
-    assertEquals(rowCount22[0][0], 3)
-    assertEquals(rowCount23[0][0], 1)
-    assertEquals(rowCount24[0][0], 0)
-    assertEquals(rowCount25[0][0], 0)
-
-    assertEquals(rowCount31[0][0], 0)
-    assertEquals(rowCount32[0][0], 1)
-    assertEquals(rowCount33[0][0], 0)
-    assertEquals(rowCount34[0][0], 0)
-    assertEquals(rowCount35[0][0], 0)*/
->>>>>>> 6627ddb04c (fix)
 
     sql "set batch_size=1"
     // insert third time
@@ -348,7 +260,6 @@ suite("test_insert_random_distribution_table", "p0") {
       assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + i) % 10], 0)
     }
 
-<<<<<<< HEAD
     assertEquals(partitionRowCounts[2][partitionBeginIdx[2]], 1)
     assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + 1) % 10], 1)
     assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + 2) % 10], 1)
@@ -356,23 +267,4 @@ suite("test_insert_random_distribution_table", "p0") {
     for (int i = 4; i < 10; i++) {
       assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + i) % 10], 0)
     }
-=======
-    /*assertEquals(rowCount11[0][0], 2)
-    assertEquals(rowCount12[0][0], 2)
-    assertEquals(rowCount13[0][0], 2)
-    assertEquals(rowCount14[0][0], 0)
-    assertEquals(rowCount15[0][0], 0)
-
-    assertEquals(rowCount21[0][0], 1)
-    assertEquals(rowCount22[0][0], 3)
-    assertEquals(rowCount23[0][0], 2)
-    assertEquals(rowCount24[0][0], 0)
-    assertEquals(rowCount25[0][0], 0)
-
-    assertEquals(rowCount31[0][0], 0)
-    assertEquals(rowCount32[0][0], 1)
-    assertEquals(rowCount33[0][0], 2)
-    assertEquals(rowCount34[0][0], 1)
-    assertEquals(rowCount35[0][0], 0)*/
->>>>>>> 6627ddb04c (fix)
 }
