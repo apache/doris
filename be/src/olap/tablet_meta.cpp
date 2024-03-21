@@ -875,8 +875,8 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
 
 Status TabletMeta::set_partition_id(int64_t partition_id) {
     if ((_partition_id > 0 && _partition_id != partition_id) || partition_id < 1) {
-        LOG(FATAL) << "cur partition id=" << _partition_id << " new partition id=" << partition_id
-                   << " not equal";
+        LOG(WARNING) << "cur partition id=" << _partition_id << " new partition id=" << partition_id
+                     << " not equal";
     }
     _partition_id = partition_id;
     return Status::OK();
