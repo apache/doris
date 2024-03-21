@@ -81,13 +81,17 @@ Status CumulativeCompaction::execute_compact_impl() {
     // 4. set state to success
     _state = CompactionState::SUCCESS;
 
-    // 5. set cumulative point
+    // 5. set cumulative level
+    _tablet->cumulative_compaction_policy()->update_compaction_level(_tablet.get(), _input_rowsets,
+                                                                     _output_rowset);
+
+    // 6. set cumulative point
     _tablet->cumulative_compaction_policy()->update_cumulative_point(
             _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
-    // 6. add metric to cumulative compaction
+    // 7. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
 

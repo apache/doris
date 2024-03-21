@@ -160,6 +160,7 @@ struct TCreateTabletReq {
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
     26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
     27: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.V1
+    28: optional i64 time_series_compaction_level_threshold = 1
 }
 
 struct TDropTabletReq {
@@ -430,6 +431,7 @@ struct TTabletMetaInfo {
     15: optional bool skip_write_index_on_load
     16: optional bool disable_auto_compaction
     17: optional i64 time_series_compaction_empty_rowsets_threshold
+    18: optional i64 time_series_compaction_level_threshold
 }
 
 struct TUpdateTabletMetaInfoReq {
