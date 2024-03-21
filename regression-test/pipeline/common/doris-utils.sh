@@ -561,6 +561,9 @@ archive_doris_coredump() {
                 fi
                 mv "${coredump_file}" "${DORIS_HOME}/${archive_dir}/${p}"
                 has_core=true
+            else
+                echo -e "\n\n\n\nERROR: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
+                tail -n 100 "${DORIS_HOME}"/be/log/be.out
             fi
         fi
     done

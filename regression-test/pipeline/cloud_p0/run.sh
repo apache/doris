@@ -92,9 +92,9 @@ if [[ ${exit_flag} != "0" ]]; then
     check_if_need_gcore "${exit_flag}"
     stop_doris
     if file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
-        upload_doris_log_to_oss "${file_name}"
         print_doris_fe_log
         print_doris_be_log
+        upload_doris_log_to_oss "${file_name}"
     fi
     if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
