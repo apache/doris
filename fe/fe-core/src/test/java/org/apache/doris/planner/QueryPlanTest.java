@@ -67,6 +67,7 @@ public class QueryPlanTest extends TestWithFeService {
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+        connectContext.getSessionVariable().setEnableFoldConstantByBe(false);
         Config.enable_odbc_mysql_broker_table = true;
 
         createTable("create table test.test1\n"
