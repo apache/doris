@@ -58,7 +58,7 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
             """
 
         sql """
-                REFRESH MATERIALIZED VIEW ${mvName}
+                REFRESH MATERIALIZED VIEW ${mvName} AUTO
             """
         def jobName = getJobName(dbName, mvName);
         waitingMTMVTaskFinished(jobName)
