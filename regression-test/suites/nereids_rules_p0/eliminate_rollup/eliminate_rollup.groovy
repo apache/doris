@@ -98,6 +98,6 @@ suite("eliminate_rollup") {
     qt_order_basic_1_4 """select c4 from t4 group by rollup(c4) order by c4;"""
 
     /* ******** with not nullable column ******** */
-    qt_order_basic_1_5 """select c5 from t5 group by rollup(c5);"""
+    qt_order_basic_1_5 """select c5 from t5 group by rollup(c5) order by c5;"""
     
 }
