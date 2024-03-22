@@ -78,8 +78,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_HLL:
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_DATEV2:
-    case TYPE_DATETIMEV2:
     case TYPE_IPV4:
     case TYPE_IPV6:
     case TYPE_STRING:
