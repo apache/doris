@@ -49,6 +49,7 @@ Usage: $0 <options>
      --spark-dpp            build Spark DPP application. Default ON.
      --hive-udf             build Hive UDF library for Spark Load. Default ON.
      --be-java-extensions   build Backend java extensions. Default ON.
+     --be-extension-ignore  build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --clean                clean and build target
      --output               specify the output directory
      -j                     build Backend parallel
@@ -71,6 +72,7 @@ Usage: $0 <options>
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
+    $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hudi-scanner
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -127,6 +129,7 @@ if ! OPTS="$(getopt \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
+    -l 'be-extension-ignore:' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -237,6 +240,10 @@ else
             ;;
         --output)
             DORIS_OUTPUT="$2"
+            shift 2
+            ;;
+        --be-extension-ignore)
+            BE_EXTENSION_IGNORE="$2"
             shift 2
             ;;
         --)
@@ -482,6 +489,14 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
     modules+=("be-java-extensions/preload-extensions")
+
+    # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
+    if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
+        IFS=',' read -r -a ignore_modules <<< "${BE_EXTENSION_IGNORE}"
+        for module in "${ignore_modules[@]}"; do
+            modules=("${modules[@]/be-java-extensions\/${module}}")
+        done
+    fi
 fi
 FE_MODULES="$(
     IFS=','
@@ -762,6 +777,27 @@ EOF
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
     extensions_modules+=("preload-extensions")
+
+    if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
+        IFS=',' read -r -a ignore_modules <<< "${BE_EXTENSION_IGNORE}"
+        new_modules=()
+        for module in "${extensions_modules[@]}"; do
+            module=${module// /}
+            if [[ -n "${module}" ]]; then
+                ignore=0
+                for ignore_module in "${ignore_modules[@]}"; do
+                    if [[ "${module}" == "${ignore_module}" ]]; then
+                        ignore=1
+                        break
+                    fi
+                done
+                if [[ "${ignore}" -eq 0 ]]; then
+                    new_modules+=("${module}")
+                fi
+            fi
+        done
+        extensions_modules=("${new_modules[@]}")
+    fi
 
     BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
     rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
