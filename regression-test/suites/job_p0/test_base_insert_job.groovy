@@ -163,7 +163,7 @@ suite("test_base_insert_job") {
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10), 1001);
+          CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(5), 1001);
      """
 
     Thread.sleep(2500)
