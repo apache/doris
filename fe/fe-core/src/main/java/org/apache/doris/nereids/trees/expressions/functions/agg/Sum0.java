@@ -76,10 +76,10 @@ public class Sum0 extends AggregateFunction
         super("sum0", distinct, arg);
     }
 
-    public MultiDistinctSum convertToMultiDistinct() {
+    public MultiDistinctSum0 convertToMultiDistinct() {
         Preconditions.checkArgument(distinct,
                 "can't convert to multi_distinct_sum because there is no distinct args");
-        return new MultiDistinctSum(false, child());
+        return new MultiDistinctSum0(false, child());
     }
 
     @Override
