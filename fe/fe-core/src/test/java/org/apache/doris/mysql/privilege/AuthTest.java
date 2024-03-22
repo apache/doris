@@ -35,7 +35,6 @@ import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.DomainResolver;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -152,7 +151,6 @@ public class AuthTest {
         };
 
         resolver = new MockDomainResolver(auth);
-        Config.enable_col_auth = true;
     }
 
     @Test
