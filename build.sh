@@ -492,9 +492,9 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
-        IFS=',' read -r -a ignore_modules <<< "${BE_EXTENSION_IGNORE}"
+        IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
         for module in "${ignore_modules[@]}"; do
-            modules=("${modules[@]/be-java-extensions\/${module}}")
+            modules=("${modules[@]/be-java-extensions\/${module}/}")
         done
     fi
 fi
@@ -779,7 +779,7 @@ EOF
     extensions_modules+=("preload-extensions")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
-        IFS=',' read -r -a ignore_modules <<< "${BE_EXTENSION_IGNORE}"
+        IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
         new_modules=()
         for module in "${extensions_modules[@]}"; do
             module=${module// /}
