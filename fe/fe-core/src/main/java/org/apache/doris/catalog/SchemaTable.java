@@ -487,6 +487,17 @@ public class SchemaTable extends Table {
                             .column("SPILL_THRESHOLD_LOW_WATERMARK", ScalarType.createVarchar(256))
                             .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
                             .build()))
+            .put("processlist", new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
+                    builder().column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
+                            .column("USER", ScalarType.createVarchar(32))
+                            .column("HOST", ScalarType.createVarchar(261))
+                            .column("CATALOG", ScalarType.createVarchar(64))
+                            .column("DB", ScalarType.createVarchar(64))
+                            .column("COMMAND", ScalarType.createVarchar(16))
+                            .column("TIME", ScalarType.createType(PrimitiveType.INT))
+                            .column("STATE", ScalarType.createVarchar(64))
+                            .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
+                            .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
