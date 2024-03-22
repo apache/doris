@@ -315,11 +315,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         if (join.getJoinType() != JoinType.LEFT_SEMI_JOIN && join.getJoinType() != JoinType.CROSS_JOIN) {
             return;
         }
-        if (ctx.getSessionVariable().isIgnoreStorageDataDistribution()) {
-            // BITMAP filter is not supported to merge. So we disable this kind of runtime filter
-            // if IgnoreStorageDataDistribution is enabled.
-            return;
-        }
         List<Slot> leftSlots = join.left().getOutput();
         List<Slot> rightSlots = join.right().getOutput();
         List<Expression> bitmapRuntimeFilterConditions = JoinUtils.extractBitmapRuntimeFilterConditions(leftSlots,
