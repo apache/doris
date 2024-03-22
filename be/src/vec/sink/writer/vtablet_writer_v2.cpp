@@ -577,7 +577,8 @@ Status VTabletWriterV2::close(Status exec_status) {
                     break;
                 }
             }
-            node->streams()[0]->add_failed_tablet(tablet_id, Status::InternalError("fault injection"));
+            node->streams()[0]->add_failed_tablet(tablet_id,
+                                                  Status::InternalError("fault injection"));
         });
         RETURN_IF_ERROR(_create_commit_info(tablet_commit_infos, _streams_for_node, _num_replicas));
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
