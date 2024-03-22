@@ -934,7 +934,18 @@ public class FunctionSet<T> {
                         null,
                         null,
                         "",
-                        false, true, true, true));
+                        false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum0", Lists.newArrayList(t),
+                    t,
+                    t,
+                    "",
+                    "",
+                    "",
+                    "",
+                    null,
+                    null,
+                    "",
+                    false, true, true, true));
             }  else if (t.equals(Type.MAX_DECIMALV2_TYPE)) {
                 // vectorized
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
@@ -947,7 +958,18 @@ public class FunctionSet<T> {
                         null,
                         null,
                         "",
-                        false, true, true, true));
+                        false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum0", Lists.newArrayList(t),
+                    MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
+                    Type.MAX_DECIMALV2_TYPE,
+                    "",
+                    "",
+                    "",
+                    "",
+                    null,
+                    null,
+                    "",
+                    false, true, true, true));
             } else if (t.equals(Type.DECIMAL32)) {
                 // vectorized
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
@@ -960,7 +982,18 @@ public class FunctionSet<T> {
                         null,
                         null,
                         "",
-                        false, true, true, true));
+                        false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum0", Lists.newArrayList(t),
+                    MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
+                    Type.DECIMAL32,
+                    "",
+                    "",
+                    "",
+                    "",
+                    null,
+                    null,
+                    "",
+                    false, true, true, true));
             } else if (t.equals(Type.DECIMAL64)) {
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                         MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
@@ -972,7 +1005,18 @@ public class FunctionSet<T> {
                         null,
                         null,
                         "",
-                        false, true, true, true));
+                        false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum0", Lists.newArrayList(t),
+                    MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
+                    Type.DECIMAL64,
+                    "",
+                    "",
+                    "",
+                    "",
+                    null,
+                    null,
+                    "",
+                    false, true, true, true));
             } else if (t.equals(Type.DECIMAL128)) {
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                         MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
@@ -984,7 +1028,18 @@ public class FunctionSet<T> {
                         null,
                         null,
                         "",
-                        false, true, true, true));
+                        false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum0", Lists.newArrayList(t),
+                    MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
+                    Type.DECIMAL128,
+                    "",
+                    "",
+                    "",
+                    "",
+                    null,
+                    null,
+                    "",
+                    false, true, true, true));
             }
             // Min
             addBuiltin(AggregateFunction.createBuiltin("min",
