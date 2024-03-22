@@ -83,14 +83,6 @@ public:
         return _writer_status;
     }
 
-    std::string debug_string() const {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer,
-                       "{}, _eos = {}, _writer_thread_closed = {}, _writer_status = {}", _eos,
-                       _writer_thread_closed, _writer_status.to_string());
-        return fmt::to_string(debug_string_buffer);
-    }
-
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;

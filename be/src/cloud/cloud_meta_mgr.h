@@ -90,10 +90,9 @@ public:
                                          int64_t initiator);
 
 private:
-    Status sync_tablet_delete_bitmap(
-            CloudTablet* tablet, int64_t old_max_version,
-            const google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>& rs_metas,
-            const TabletStatsPB& stas, const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
+    Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
+                                     std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
+                                     const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
 };
 
 } // namespace cloud

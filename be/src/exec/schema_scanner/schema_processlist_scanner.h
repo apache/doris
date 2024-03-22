@@ -17,36 +17,37 @@
 
 #pragma once
 
-#include <string>
+#include <memory>
+#include <vector>
 
-#include "io/fs/hdfs.h"
-#include "io/fs/path.h"
+#include "common/status.h"
+#include "exec/schema_scanner.h"
+#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
-class HDFSCommonBuilder;
 
-namespace io {
+class RuntimeState;
 
-class HDFSHandle {
+namespace vectorized {
+class Block;
+}
+
+class SchemaProcessListScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaProcessListScanner);
+
 public:
-    ~HDFSHandle() {}
+    SchemaProcessListScanner();
+    ~SchemaProcessListScanner() override;
 
-    static HDFSHandle& instance();
+    Status start(RuntimeState* state) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
-    hdfsFS create_hdfs_fs(HDFSCommonBuilder& builder);
+    static std::vector<SchemaScanner::ColumnDesc> _s_processlist_columns;
 
 private:
-    HDFSHandle() {}
+    Status _fill_block_impl(vectorized::Block* block);
+
+    TShowProcessListResult _process_list_result;
 };
 
-// if the format of path is hdfs://ip:port/path, replace it to /path.
-// path like hdfs://ip:port/path can't be used by libhdfs3.
-Path convert_path(const Path& path, const std::string& namenode);
-
-std::string get_fs_name(const std::string& path);
-
-// return true if path_or_fs contains "hdfs://"
-bool is_hdfs(const std::string& path_or_fs);
-
-} // namespace io
 } // namespace doris

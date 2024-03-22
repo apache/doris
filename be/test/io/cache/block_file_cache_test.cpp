@@ -2806,7 +2806,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
     EXPECT_EQ(local_reader->path().native(), reader.path().native());
-    EXPECT_EQ(global_local_filesystem()->id(), reader.fs()->id());
     EXPECT_EQ(local_reader->size(), reader.size());
     EXPECT_FALSE(reader.closed());
     EXPECT_EQ(local_reader->path().native(), reader.get_remote_reader()->path().native());

@@ -225,6 +225,10 @@ Status PipelineXTask::execute(bool* eos) {
         }
     }};
     *eos = false;
+    if (has_dependency()) {
+        set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
+        return Status::OK();
+    }
     // The status must be runnable
     if (!_opened) {
         {
@@ -234,10 +238,6 @@ Status PipelineXTask::execute(bool* eos) {
                 return Status::OK();
             }
             RETURN_IF_ERROR(st);
-        }
-        if (has_dependency()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
-            return Status::OK();
         }
         if (!source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
