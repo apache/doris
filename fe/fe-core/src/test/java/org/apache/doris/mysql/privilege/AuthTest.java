@@ -152,7 +152,6 @@ public class AuthTest {
         };
 
         resolver = new MockDomainResolver(auth);
-        Config.enable_col_auth = true;
     }
 
     @Test
