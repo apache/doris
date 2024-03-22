@@ -48,12 +48,12 @@ static void get_pb_from_tablestats(TableStats& stats, TableStatsPB* stats_pb) {
     stats_pb->set_updated_row_count(stats.updated_row_count);
 }
 
-static void calc_table_stats(std::map<int64_t, TabletIndexPB>& table_ids,
+static void calc_table_stats(std::map<int64_t, TabletIndexPB>& tablet_ids,
                              std::map<int64_t, TabletStats>& tablet_stats,
                              std::map<int64_t, TableStats>& table_stats) {
     int64_t table_id;
     for (auto& [tablet_id, tablet_stat] : tablet_stats) {
-        table_id = table_ids[tablet_id].table_id();
+        table_id = tablet_ids[tablet_id].table_id();
         if (table_stats.find(table_id) == table_stats.end()) {
             table_stats[table_id] = TableStats(tablet_stat.num_rows);
         } else {
@@ -672,13 +672,13 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     std::vector<std::pair<std::string, std::string>> rowsets;
     std::map<std::string, uint64_t> new_versions;
     std::map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
-    std::map<int64_t, TabletIndexPB> table_ids;  // tablet_id -> {table/index/partition}_id
+    std::map<int64_t, TabletIndexPB> tablet_ids;  // tablet_id -> {table/index/partition}_id
     std::map<int64_t, std::vector<int64_t>> table_id_tablet_ids; // table_id -> tablets_ids
     rowsets.reserve(tmp_rowsets_meta.size());
     for (auto& [_, i] : tmp_rowsets_meta) {
         int64_t tablet_id = i.tablet_id();
         // Get version for the rowset
-        if (table_ids.count(tablet_id) == 0) {
+        if (tablet_ids.count(tablet_id) == 0) {
             MetaTabletIdxKeyInfo key_info {instance_id, tablet_id};
             auto [key, val] = std::make_tuple(std::string(""), std::string(""));
             meta_tablet_idx_key(key_info, &key);
@@ -692,19 +692,19 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                 LOG(INFO) << msg << " err=" << err << " txn_id=" << txn_id;
                 return;
             }
-            if (!table_ids[tablet_id].ParseFromString(val)) {
+            if (!tablet_ids[tablet_id].ParseFromString(val)) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 ss << "malformed tablet index value tablet_id=" << tablet_id
                    << " txn_id=" << txn_id;
                 msg = ss.str();
                 return;
             }
-            table_id_tablet_ids[table_ids[tablet_id].table_id()].push_back(tablet_id);
+            table_id_tablet_ids[tablet_ids[tablet_id].table_id()].push_back(tablet_id);
             VLOG_DEBUG << "tablet_id:" << tablet_id
-                       << " value:" << table_ids[tablet_id].ShortDebugString();
+                       << " value:" << tablet_ids[tablet_id].ShortDebugString();
         }
 
-        int64_t table_id = table_ids[tablet_id].table_id();
+        int64_t table_id = tablet_ids[tablet_id].table_id();
         int64_t partition_id = i.partition_id();
 
         std::string ver_key = version_key({instance_id, db_id, table_id, partition_id});
@@ -938,8 +938,8 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         };
     }
     for (auto& [tablet_id, stats] : tablet_stats) {
-        DCHECK(table_ids.count(tablet_id));
-        auto& tablet_idx = table_ids[tablet_id];
+        DCHECK(tablet_ids.count(tablet_id));
+        auto& tablet_idx = tablet_ids[tablet_id];
         StatsTabletKeyInfo info {instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
                                  tablet_idx.partition_id(), tablet_id};
         update_tablet_stats(info, stats);
@@ -1075,7 +1075,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
 
     // calculate table stats from tablets stats
     std::map<int64_t/*table_id*/, TableStats> table_stats;
-    calc_table_stats(table_ids, tablet_stats, table_stats);
+    calc_table_stats(tablet_ids, tablet_stats, table_stats);
     for (const auto& pair : table_stats) {
         TableStatsPB* stats_pb = response->add_table_stats();
         auto table_id = pair.first;
