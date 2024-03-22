@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -178,7 +177,7 @@ public class GrantStmt extends DdlStmt {
     public static void checkAccessPrivileges(
             List<AccessPrivilegeWithCols> accessPrivileges) throws AnalysisException {
         for (AccessPrivilegeWithCols access : accessPrivileges) {
-            if ((!access.getAccessPrivilege().canHasColPriv() || !Config.enable_col_auth) && !CollectionUtils
+            if ((!access.getAccessPrivilege().canHasColPriv()) && !CollectionUtils
                     .isEmpty(access.getCols())) {
                 throw new AnalysisException(
                         String.format("%s do not support col auth.", access.getAccessPrivilege().name()));

@@ -2268,11 +2268,6 @@ public class Config extends ConfigBase {
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
 
-    @ConfField(description = {
-            "是否开启列权限",
-            "Whether to enable col auth"})
-    public static boolean enable_col_auth = false;
-
     @ConfField
     public static boolean forbid_running_alter_job = false;
 
