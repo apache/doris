@@ -88,7 +88,7 @@ public:
         std::string demangled_name_T = boost::core::demangle(typeid(T).name());
         LOG(INFO) << "in the get_return_type, name of T: " << demangled_name_T;
         // return std::make_shared<DataTypeArray>(make_nullable(argument_type));
-        return std::make_shared<DataTypeArray>(argument_type);
+        return argument_type;
 
         // using ReturnDataType = DataTypeNumber<T>;
         // std::string demangled_name_re = boost::core::demangle(typeid(ReturnDataType).name());
@@ -243,8 +243,13 @@ public:
             offsets_to.push_back(offsets_to.back() + set.size());
         }
 
-        typename ColumnVector<T>::Container& data_to =
-                assert_cast<ColumnVector<T>&>(arr_to.get_data()).get_data();
+        auto& to_nested_col = arr_to.get_data();
+        using ElementType = T;
+        using ColVecType = ColumnVector<ElementType>;
+        auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+        auto& data_to = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
+        // typename ColumnVector<T>::Container& data_to =
+        //         assert_cast<ColumnVector<T>&>(arr_to.get_data()).get_data();
         std::string demangled_name = boost::core::demangle(typeid(data_to).name());
         LOG(INFO) << "name of data_to: " << demangled_name << std::endl;
         size_t old_size = data_to.size();
@@ -493,7 +498,7 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
 #define DISPATCH(TYPE)                                                                  \
     if (which.idx == TypeIndex::TYPE)                                                   \
         res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE>>( \
-                new_argument_types, result_is_nullable);
+                argument_types, result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
     if (!res) {
