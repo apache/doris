@@ -278,8 +278,8 @@ public:
     }
 
     void create(AggregateDataPtr __restrict place) const override {
+        new (place) Data(argument_types.size());
         if (_first_created) {
-            new (place) Data(argument_types.size());
             Status status = Status::OK();
             SAFE_CREATE(RETURN_IF_STATUS_ERROR(status,
                                                this->data(place).init_udaf(_fn, _local_location)),
@@ -292,8 +292,6 @@ public:
             if (UNLIKELY(!status.ok())) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
             }
-        } else {
-            new (place) Data(argument_types.size());
         }
     }
 
@@ -303,14 +301,12 @@ public:
             Status status = Status::OK();
             status = this->data(_exec_place).destroy();
             status = this->data(_exec_place).close_and_delete_object();
-            this->data(_exec_place).~Data();
             _first_created = true;
             if (UNLIKELY(!status.ok())) {
                 LOG(WARNING) << "Failed to destroy function: " << status.to_string();
             }
-        } else {
-            this->data(place).~Data();
         }
+        this->data(place).~Data();
     }
 
     String get_name() const override { return _fn.name.function_name; }
