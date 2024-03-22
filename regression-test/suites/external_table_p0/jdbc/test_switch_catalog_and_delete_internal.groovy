@@ -24,8 +24,8 @@ suite("test_switch_catalog_and_delete_internal") {
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         // 0.create internal db and table
-        sql "create database maldb;"
-        sql "use maldb;"
+        String db = context.config.getDbNameByFile(new File(context.file))
+        sql "drop table if exists test_switch_catalog_and_delete_internal"
         sql """
         create table test_switch_catalog_and_delete_internal(pk int, a int, b int) distributed by hash(pk) buckets 10
         properties('replication_num' = '1'); 
@@ -50,7 +50,7 @@ suite("test_switch_catalog_and_delete_internal") {
         sql "switch test_switch_catalog_and_delete_internal_catalog"
         sql "refresh catalog test_switch_catalog_and_delete_internal_catalog"
         // 3.delete table
-        sql "delete from internal.maldb.test_switch_catalog_and_delete_internal;"
+        sql "delete from internal.${db}.test_switch_catalog_and_delete_internal;"
         // 4.select table
         qt_test "select * from internal.maldb.test_switch_catalog_and_delete_internal;"
     }
