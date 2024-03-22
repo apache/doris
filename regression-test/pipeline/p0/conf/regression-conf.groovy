@@ -61,14 +61,23 @@ excludeGroups = ""
 // this suites will not be executed
 // load_stream_fault_injection may cause bad disk
 
-excludeSuites = "test_stream_stub_fault_injection,test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
+excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "test_bitmap_filter," +
+    "test_dump_image," +
+    "test_index_failure_injection," +
+    "test_information_schema_external," +
+    "test_profile," +
+    "test_refresh_mtmv," +
+    "test_spark_load," +
+    "test_stream_stub_fault_injection," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
-excludeDirectories = """
-    cloud,
-    nereids_rules_p0/subquery,
-    workload_manager_p1
-"""
+excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "cloud," +
+    "nereids_rules_p0/subquery," +
+    "workload_manager_p1," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
