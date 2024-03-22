@@ -17,6 +17,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -1411,8 +1412,11 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                             tablet_submitted.erase(t->tablet_id());
                         }
                         if (!st.ok()) {
-                            LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                         << " err=" << st;
+                            // The cooldown of the replica may be relatively slow
+                            // resulting in a short period of time where following cannot be successful
+                            LOG_EVERY_N(WARNING, 5)
+                                    << "failed to cooldown. tablet_id=" << t->tablet_id()
+                                    << " err=" << st;
                         }
                     }));
         }
