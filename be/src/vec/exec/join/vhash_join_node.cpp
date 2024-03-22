@@ -563,6 +563,9 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 
 void HashJoinNode::_add_tuple_is_null_column(Block* block) {
     DCHECK(_is_outer_join);
+    if (!_use_specific_projections) {
+        return;
+    }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
     auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
     auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
