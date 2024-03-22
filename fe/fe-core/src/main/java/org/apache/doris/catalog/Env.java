@@ -229,6 +229,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -1433,6 +1434,7 @@ public class Env {
         }
     }
 
+    @SuppressWarnings({"checkstyle:WhitespaceAfter", "checkstyle:LineLength"})
     private void transferToMaster() {
         // stop replayer
         if (replayer != null) {
@@ -1500,24 +1502,24 @@ public class Env {
                 // because the default parallelism of pipeline engine is higher than previous version.
                 // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
                 int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
-                VariableMgr.setGlobalPipelineTask(newVal);
-                LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
-                        + "to parallel_fragment_exec_instance_num: {}", newVal);
+                VariableMgr.refreshDefaultSessionVariables("1.x to 2.x", SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
+                        String.valueOf(newVal));
 
                 // similar reason as above, need to upgrade broadcast scale factor during 1.2 to 2.x
                 // if the default value has been upgraded
                 double newBcFactorVal = VariableMgr.newSessionVariable().getBroadcastRightTableScaleFactor();
-                VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
-                LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
-                        + "to new default value: {}", newBcFactorVal);
+                VariableMgr.refreshDefaultSessionVariables("1.x to 2.x",
+                        SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR,
+                        String.valueOf(newBcFactorVal));
 
                 // similar reason as above, need to upgrade enable_nereids_planner to true
-                VariableMgr.enableNereidsPlanner();
-                LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
+                VariableMgr.refreshDefaultSessionVariables("1.x to 2.x", SessionVariable.ENABLE_NEREIDS_PLANNER,
+                        "true");
             }
             if (journalVersion <= FeMetaVersion.VERSION_123) {
-                VariableMgr.enableNereidsDml();
-                LOG.info("upgrade FE from 2.0 to 2.1, set enable_nereids_dml to new default value: true");
+                VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1", SessionVariable.ENABLE_NEREIDS_DML, "true");
+                VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                        SessionVariable.FRAGMENT_TRANSMISSION_COMPRESSION_CODEC, "none");
             }
         }
 
