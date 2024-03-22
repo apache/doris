@@ -631,7 +631,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         long selectIndexId = selectBestIndex(haveAllRequiredColumns, scan, predicates);
         // Pre-aggregation is set to `on` by default for duplicate-keys table.
         // In other cases where mv is not hit, preagg may turn off from on.
-        if (!table.isDupKeysOrMergeOnWrite() && (new CheckContext(scan, selectIndexId)).isBaseIndex()) {
+        if ((new CheckContext(scan, selectIndexId)).isBaseIndex()) {
             PreAggStatus preagg = scan.getPreAggStatus();
             if (preagg.isOn()) {
                 preagg = checkPreAggStatus(scan, scan.getTable().getBaseIndexId(), predicates, aggregateFunctions,
@@ -706,13 +706,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     ///////////////////////////////////////////////////////////////////////////
     // Set pre-aggregation status.
     ///////////////////////////////////////////////////////////////////////////
-    private PreAggStatus checkPreAggStatus(
-            LogicalOlapScan olapScan,
-            long indexId,
-            Set<Expression> predicates,
-            List<AggregateFunction> aggregateFuncs,
-            List<Expression> groupingExprs) {
+    private PreAggStatus checkPreAggStatus(LogicalOlapScan olapScan, long indexId, Set<Expression> predicates,
+            List<AggregateFunction> aggregateFuncs, List<Expression> groupingExprs) {
         CheckContext checkContext = new CheckContext(olapScan, indexId);
+        if (checkContext.isDupKeysOrMergeOnWrite) {
+            return PreAggStatus.on();
+        }
         return checkAggregateFunctions(aggregateFuncs, checkContext)
                 .offOrElse(() -> checkGroupingExprs(groupingExprs, checkContext))
                 .offOrElse(() -> checkPredicates(ImmutableList.copyOf(predicates), checkContext));
@@ -747,22 +746,22 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
         @Override
         public PreAggStatus visitAggregateFunction(AggregateFunction aggregateFunction, CheckContext context) {
-            return checkAggFunc(aggregateFunction, AggregateType.NONE, context, false);
+            return checkAggFunc(aggregateFunction, AggregateType.NONE, context);
         }
 
         @Override
         public PreAggStatus visitMax(Max max, CheckContext context) {
-            return checkAggFunc(max, AggregateType.MAX, context, true);
+            return checkAggFunc(max, AggregateType.MAX, context);
         }
 
         @Override
         public PreAggStatus visitMin(Min min, CheckContext context) {
-            return checkAggFunc(min, AggregateType.MIN, context, true);
+            return checkAggFunc(min, AggregateType.MIN, context);
         }
 
         @Override
         public PreAggStatus visitSum(Sum sum, CheckContext context) {
-            return checkAggFunc(sum, AggregateType.SUM, context, false);
+            return checkAggFunc(sum, AggregateType.SUM, context);
         }
 
         @Override
@@ -830,8 +829,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         private PreAggStatus checkAggFunc(
                 AggregateFunction aggFunc,
                 AggregateType matchingAggType,
-                CheckContext ctx,
-                boolean canUseKeyColumn) {
+                CheckContext ctx) {
             String childNameWithFuncName = ctx.isBaseIndex()
                     ? normalizeName(aggFunc.child(0).toSql())
                     : normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
@@ -839,7 +837,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
             boolean contains = containsAllColumn(aggFunc.child(0), ctx.keyNameToColumn.keySet());
             if (contains || ctx.keyNameToColumn.containsKey(childNameWithFuncName)) {
-                if (canUseKeyColumn || (!ctx.isBaseIndex() && contains)) {
+                if (ctx.isDupKeysOrMergeOnWrite || (!ctx.isBaseIndex() && contains)) {
                     return PreAggStatus.on();
                 } else {
                     Column column = ctx.keyNameToColumn.get(childNameWithFuncName);
@@ -966,6 +964,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         public final long index;
         public final Map<String, Column> keyNameToColumn;
         public final Map<String, Column> valueNameToColumn;
+        public final boolean isDupKeysOrMergeOnWrite;
 
         public CheckContext(LogicalOlapScan scan, long indexId) {
             this.scan = scan;
@@ -1005,6 +1004,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 this.valueNameToColumn.putIfAbsent(key, baseNameToColumnGroupingByIsKey.get(false).get(key));
             }
             this.index = indexId;
+            this.isDupKeysOrMergeOnWrite = getMeta().isDupKeysOrMergeOnWrite();
         }
 
         public boolean isBaseIndex() {
