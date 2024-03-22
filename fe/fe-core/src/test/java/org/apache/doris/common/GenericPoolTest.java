@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
@@ -60,7 +61,6 @@ import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpTabletsRequest;
 import org.apache.doris.thrift.TWarmUpTabletsResponse;
-import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.thrift.TException;
@@ -80,7 +80,7 @@ public class GenericPoolTest {
     static int port;
 
     static {
-        port = UtFrameUtils.findValidPort();
+        port = UnitTestUtil.findValidPort();
     }
 
     static void close() {
