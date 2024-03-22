@@ -24,7 +24,7 @@ suite("test_null_partition_mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
-
+    // list table
     sql """
         CREATE TABLE `${tableName}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
@@ -53,7 +53,7 @@ suite("test_null_partition_mtmv") {
             AS
             SELECT * FROM ${tableName};
     """
-    showPartitionsResult = sql """show partitions from ${mvName}"""
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertTrue(showPartitionsResult.toString().contains("p_1"))
     assertTrue(showPartitionsResult.toString().contains("p_NULL"))
@@ -70,4 +70,53 @@ suite("test_null_partition_mtmv") {
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
+
+
+    // range table
+    sql """
+        CREATE TABLE `${tableName}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `num` SMALLINT COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY range(`num`)
+        (
+        PARTITION p_10 VALUES LESS THAN (10),
+        PARTITION p_20 VALUES LESS THAN (20)
+        )
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,null),(2,15);
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`num`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_32768_10"))
+    assertTrue(showPartitionsResult.toString().contains("p_10_20"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+
+    order_qt_range_p_32768_10 "SELECT * FROM ${mvName} partitions(p_32768_10) order by user_id,num"
+    order_qt_list_p_10_20 "SELECT * FROM ${mvName} partitions(p_10_20) order by user_id,num"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
 }
