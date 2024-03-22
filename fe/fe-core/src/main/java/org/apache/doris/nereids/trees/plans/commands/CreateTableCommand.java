@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -141,7 +142,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
             columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, !s.isColumnFromTable() || s.nullable()));
         }
-        createTableInfo.validateCreateTableAsSelect(columnsOfQuery.build(), ctx);
+        List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
+        createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
