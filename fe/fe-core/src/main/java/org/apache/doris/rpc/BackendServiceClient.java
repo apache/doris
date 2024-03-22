@@ -28,6 +28,8 @@ import io.grpc.netty.NettyChannelBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.util.concurrent.ListenableFuture;
+
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -82,7 +84,7 @@ public class BackendServiceClient {
                 .execPlanFragmentStart(request);
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
             InternalService.PCancelPlanFragmentRequest request) {
         return stub.cancelPlanFragment(request);
     }

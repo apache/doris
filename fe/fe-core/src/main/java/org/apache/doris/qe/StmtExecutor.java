@@ -1728,35 +1728,10 @@ public class StmtExecutor {
             coordBase.exec();
             profile.getSummaryProfile().setQueryScheduleFinishTime();
             updateProfile(false);
-            if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                try {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
-                                context.getQualifiedUser(), context.getDatabase(),
-                                parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                coordBase.getInstanceTotalNum());
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Fail to print fragment concurrency for Query.", e);
-                }
-            }
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
-                if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                    try {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, "
-                                            + "fragment instance num: {}",
-                                    context.getQualifiedUser(), context.getDatabase(),
-                                    parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                    coordBase.getInstanceTotalNum());
-                        }
-                    } catch (Exception e) {
-                        LOG.warn("Fail to print fragment concurrency for Query.", e);
-                    }
-                }
                 return;
             }
 
@@ -1841,18 +1816,6 @@ public class StmtExecutor {
             throw e;
         } finally {
             coordBase.close();
-            if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                try {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
-                                context.getQualifiedUser(), context.getDatabase(),
-                                parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                coordBase.getInstanceTotalNum());
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Fail to print fragment concurrency for Query.", e);
-                }
-            }
         }
     }
 
