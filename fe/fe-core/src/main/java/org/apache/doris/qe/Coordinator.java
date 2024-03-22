@@ -126,7 +126,6 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -3131,6 +3130,7 @@ public class Coordinator implements CoordInterface {
                                     DebugUtil.printId(queryId), initiated, done, backend.getId(),
                                     DebugUtil.printId(fragmentInstanceId()), "without status");
                         }
+
                         public void onFailure(Throwable t) {
                             cancelInProcess = false;
                             LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
@@ -3316,6 +3316,7 @@ public class Coordinator implements CoordInterface {
                                     DebugUtil.printId(queryId), initiated, done, backend.getId(),
                                     fragmentId, "without status");
                         }
+
                         public void onFailure(Throwable t) {
                             cancelInProcess = false;
                             LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
@@ -3380,6 +3381,7 @@ public class Coordinator implements CoordInterface {
                                     DebugUtil.printId(queryId), initiated, done, backend.getId(),
                                     DebugUtil.printId(localParam.fragment_instance_id), "without status");
                         }
+
                         public void onFailure(Throwable t) {
                             cancelInProcess = false;
                             LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
