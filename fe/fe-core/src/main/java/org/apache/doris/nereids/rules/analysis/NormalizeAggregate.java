@@ -44,6 +44,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -248,27 +249,30 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // verify project used slots are all coming from agg's output
         List<Slot> slots = collectAllUsedSlots(upperProjects);
         if (!slots.isEmpty()) {
-            ImmutableSet.Builder<ExprId> aggOutput = ImmutableSet.builder();
+            Set<ExprId> aggOutputExprIds = new HashSet<>(slots.size());
             for (NamedExpression expression : normalizedAggOutput) {
-                aggOutput.add(expression.getExprId());
+                aggOutputExprIds.add(expression.getExprId());
             }
-            ImmutableSet<ExprId> aggOutputExprIds = aggOutput.build();
-            ImmutableList.Builder<Slot> errorSlots = ImmutableList.builder();
+            List<Slot> errorSlots = new ArrayList<>(slots.size());
             for (Slot slot : slots) {
                 if (!aggOutputExprIds.contains(slot.getExprId())) {
                     errorSlots.add(slot);
                 }
             }
-            slots = errorSlots.build();
-            if (!slots.isEmpty()) {
-                throw new AnalysisException(String.format("%s not in aggregate's output", slots
+            if (!errorSlots.isEmpty()) {
+                throw new AnalysisException(String.format("%s not in aggregate's output", errorSlots
                         .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
             }
         }
         if (having.isPresent()) {
-            if (upperProjects.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance))) {
-                // when project contains window functions, in order to get the correct result
-                // push having through project to make it the parent node of logicalAgg
+            Set<Slot> havingUsedSlots = ExpressionUtils.getInputSlotSet(having.get().getExpressions());
+            Set<ExprId> havingUsedExprIds = new HashSet<>(havingUsedSlots.size());
+            for (Slot slot : havingUsedSlots) {
+                havingUsedExprIds.add(slot.getExprId());
+            }
+            Set<ExprId> aggOutputExprIds = newAggregate.getOutputExprIdSet();
+            if (aggOutputExprIds.containsAll(havingUsedExprIds)) {
+                // when having just use output slots from agg, we push down having as parent of agg
                 return project.withChildren(ImmutableList.of(
                         new LogicalHaving<>(
                                 ExpressionUtils.replace(having.get().getConjuncts(), project.getAliasToProducer()),
@@ -310,12 +314,13 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
     }
 
     private List<Slot> collectAllUsedSlots(List<NamedExpression> expressions) {
+        Set<Slot> inputSlots = ExpressionUtils.getInputSlotSet(expressions);
         List<SubqueryExpr> subqueries = ExpressionUtils.collectAll(expressions, SubqueryExpr.class::isInstance);
-        ImmutableList.Builder<Slot> slots = ImmutableList.builder();
+        List<Slot> slots = new ArrayList<>(inputSlots.size() + subqueries.size());
         for (SubqueryExpr subqueryExpr : subqueries) {
             slots.addAll(subqueryExpr.getCorrelateSlots());
         }
         slots.addAll(ExpressionUtils.getInputSlotSet(expressions));
-        return slots.build();
+        return slots;
     }
 }
