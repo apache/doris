@@ -800,6 +800,9 @@ _
 -- !sql --
 \N
 
+-- !sql_null --
+\N
+
 -- !sql --
 [8, null]
 
