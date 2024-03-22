@@ -37,13 +37,13 @@ public class LogicalHiveTableSinkToPhysicalHiveTableSink extends OneImplementati
                     sink.getDatabase(),
                     sink.getTargetTable(),
                     sink.getCols(),
-                    sink.getPartitionIds(),
                     sink.getOutputExprs(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     null,
                     null,
-                    sink.child());
+                    sink.child(),
+                    sink.getHivePartitionKeys());
         }).toRule(RuleType.LOGICAL_HIVE_TABLE_SINK_TO_PHYSICAL_HIVE_TABLE_SINK_RULE);
     }
 }

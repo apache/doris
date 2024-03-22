@@ -18,7 +18,6 @@
 #include "vec/spill/spill_writer.h"
 
 #include "agent/be_exec_version_manager.h"
-#include "io/file_factory.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
 #include "runtime/exec_env.h"
@@ -30,9 +29,7 @@ Status SpillWriter::open() {
     if (file_writer_) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(FileFactory::create_file_writer(TFileType::FILE_LOCAL, ExecEnv::GetInstance(),
-                                                    {}, {}, file_path_, 0, file_writer_));
-    return Status::OK();
+    return io::global_local_filesystem()->create_file(file_path_, &file_writer_);
 }
 
 Status SpillWriter::close() {

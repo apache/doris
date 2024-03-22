@@ -446,9 +446,7 @@ public class Env {
 
     private DeployManager deployManager;
 
-    private TabletStatMgr tabletStatMgr;
-
-    private CloudTabletStatMgr cloudTabletStatMgr;
+    private MasterDaemon tabletStatMgr;
 
     private Auth auth;
     private AccessControllerManager accessManager;
@@ -637,7 +635,7 @@ public class Env {
     public Env(boolean isCheckpointCatalog) {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
-        this.routineLoadManager = new RoutineLoadManager();
+        this.routineLoadManager = EnvFactory.getInstance().createRoutineLoadManager();
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
@@ -694,8 +692,7 @@ public class Env {
 
         this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
-        this.tabletStatMgr = new TabletStatMgr();
-        this.cloudTabletStatMgr = new CloudTabletStatMgr();
+        this.tabletStatMgr = EnvFactory.getInstance().createTabletStatMgr();
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
@@ -720,7 +717,7 @@ public class Env {
                 Config.async_loading_load_task_pool_size, LoadTask.COMPARATOR, LoadTask.class, !isCheckpointCatalog);
 
         this.loadJobScheduler = new LoadJobScheduler();
-        this.loadManager = new LoadManager(loadJobScheduler);
+        this.loadManager = EnvFactory.getInstance().createLoadManager(loadJobScheduler);
         this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
@@ -1678,11 +1675,8 @@ public class Env {
     private void startNonMasterDaemonThreads() {
         // start load manager thread
         loadManager.start();
-        if (Config.isNotCloudMode()) {
-            tabletStatMgr.start();
-        } else {
-            cloudTabletStatMgr.start();
-        }
+        tabletStatMgr.start();
+
         // load and export job label cleaner thread
         labelCleaner.start();
         // es repository
@@ -3373,6 +3367,10 @@ public class Env {
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
+
+            // inverted index storage type
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
+            sb.append(olapTable.getInvertedIndexStorageFormat()).append("\"");
 
             // compression type
             if (olapTable.getCompressionType() != TCompressionType.LZ4F) {

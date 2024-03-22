@@ -49,6 +49,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
@@ -203,7 +204,6 @@ Status RowsetBuilder::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
-    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _req.tablet_id;
     context.index_id = _req.index_id;

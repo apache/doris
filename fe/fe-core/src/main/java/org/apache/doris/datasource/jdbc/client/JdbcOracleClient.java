@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.sql.Connection;
@@ -28,6 +29,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Set;
 
 public class JdbcOracleClient extends JdbcClient {
 
@@ -36,39 +38,8 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SELECT DISTINCT OWNER FROM all_tables";
-    }
-
-    @Override
-    protected String getCatalogName(Connection conn) throws SQLException {
-        return conn.getCatalog();
-    }
-
-    @Override
     public String getTestQuery() {
         return "SELECT 1 FROM dual";
-    }
-
-    @Override
-    public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
-        ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
-        }
-        List<String> remoteDatabaseNames = Lists.newArrayList();
-        try {
-            rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
-            while (rs.next()) {
-                remoteDatabaseNames.add(rs.getString("TABLE_SCHEM"));
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
-        } finally {
-            close(rs, conn);
-        }
-        return filterDatabaseNames(remoteDatabaseNames);
     }
 
     @Override
@@ -137,6 +108,20 @@ public class JdbcOracleClient extends JdbcClient {
     @Override
     protected boolean isTableModified(String modifiedTableName, String actualTableName) {
         return !modifiedTableName.equals(actualTableName);
+    }
+
+    @Override
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("ctxsys")
+                .add("flows_files")
+                .add("mdsys")
+                .add("outln")
+                .add("sys")
+                .add("system")
+                .add("xdb")
+                .add("xs$null")
+                .build();
     }
 
     @Override

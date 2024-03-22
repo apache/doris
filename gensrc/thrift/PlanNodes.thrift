@@ -138,7 +138,9 @@ enum TFileCompressType {
     DEFLATE,
     LZOP,
     LZ4BLOCK,
-    SNAPPYBLOCK
+    SNAPPYBLOCK,
+    ZLIB,
+    ZSTD
 }
 
 struct THdfsConf {
@@ -792,6 +794,8 @@ struct THashJoinNode {
   11: optional bool is_mark
   12: optional TJoinDistributionType dist_type
   13: optional list<Exprs.TExpr> mark_join_conjuncts
+  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  14: optional bool use_specific_projections
 }
 
 struct TNestedLoopJoinNode {
@@ -813,6 +817,8 @@ struct TNestedLoopJoinNode {
   8: optional list<Exprs.TExpr> join_conjuncts
 
   9: optional list<Exprs.TExpr> mark_join_conjuncts
+  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  10: optional bool use_specific_projections
 }
 
 struct TMergeJoinNode {
@@ -1134,6 +1140,7 @@ struct TAssertNumRowsNode {
     1: optional i64 desired_num_rows;
     2: optional string subquery_string;
     3: optional TAssertion assertion;
+    4: optional bool should_convert_output_to_nullable;
 }
 
 enum TRuntimeFilterType {

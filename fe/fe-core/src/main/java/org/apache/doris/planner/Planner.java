@@ -125,5 +125,4 @@ public abstract class Planner {
     public abstract Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt);
 
     public abstract void addHook(PlannerHook hook);
-
 }

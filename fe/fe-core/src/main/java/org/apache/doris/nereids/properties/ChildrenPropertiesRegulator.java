@@ -107,12 +107,23 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (!agg.getAggregateParam().canBeBanned) {
             return true;
         }
-        // forbid one phase agg on distribute and three or four stage distinct agg inter by distribute
-        if ((agg.getAggMode() == AggMode.INPUT_TO_RESULT || agg.getAggMode() == AggMode.BUFFER_TO_BUFFER)
-                && children.get(0).getPlan() instanceof PhysicalDistribute) {
+        // forbid one phase agg on distribute
+        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalDistribute) {
             // this means one stage gather agg, usually bad pattern
             return false;
         }
+        // forbid three or four stage distinct agg inter by distribute
+        if (agg.getAggMode() == AggMode.BUFFER_TO_BUFFER && children.get(0).getPlan() instanceof PhysicalDistribute) {
+            // if distinct without group by key, we prefer three or four stage distinct agg
+            // because the second phase of multi-distinct only have one instance, and it is slow generally.
+            if (agg.getGroupByExpressions().size() == 1
+                    && agg.getOutputExpressions().size() == 1) {
+                return true;
+            }
+            return false;
+
+        }
+
         // forbid TWO_PHASE_AGGREGATE_WITH_DISTINCT after shuffle
         // TODO: this is forbid good plan after cte reuse by mistake
         if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER
@@ -159,6 +170,11 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                             || (groupByColumns.isEmpty() && distributionSpecHash.satisfy(distinctChildRequire))) {
                         return false;
                     }
+                }
+                // if distinct without group by key, we prefer three or four stage distinct agg
+                // because the second phase of multi-distinct only have one instance, and it is slow generally.
+                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()) {
+                    return false;
                 }
             }
         }

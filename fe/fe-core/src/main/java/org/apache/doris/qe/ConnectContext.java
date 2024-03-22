@@ -1066,36 +1066,56 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
+    public String getCloudCluster() {
+        return getCloudCluster(true);
+    }
+
     /**
+     * @param updateErr whether set this connect state to error when the returned cluster is null or empty.
+     *
      * @return Returns an available cluster in the following order
      *         1 Use an explicitly specified cluster
      *         2 If no cluster is specified, the user's default cluster is used
      *         3 If the user does not have a default cluster, select a cluster with permissions for the user
      *         Returns null when there is no available cluster
      */
-    public String getCloudCluster() {
+    public String getCloudCluster(boolean updateErr) {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+
         String cluster = null;
+        String choseWay = null;
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
+            choseWay = "use @cluster";
+            LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
+                    cloudCluster, getCurrentUserIdentity(), choseWay);
+            return cluster;
         }
 
         String defaultCluster = getDefaultCloudCluster();
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
-        }
-
-        String authorizedCluster = getAuthorizedCloudCluster();
-        if (!Strings.isNullOrEmpty(authorizedCluster)) {
-            cluster = authorizedCluster;
+            choseWay = "default cluster";
+        } else {
+            String authorizedCluster = getAuthorizedCloudCluster();
+            if (!Strings.isNullOrEmpty(authorizedCluster)) {
+                cluster = authorizedCluster;
+                choseWay = "authorized cluster";
+            }
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
-            getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
-                    "Cant get a Valid cluster for you to use, plz connect admin");
+            if (updateErr) {
+                getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
+                        "Cant get a Valid cluster for you to use, plz connect admin");
+            }
         } else {
             this.cloudCluster = cluster;
-            LOG.info("finally set context cluster name {}", cloudCluster);
+            LOG.info("finally set context cluster name {} for user {} with chose way '{}'",
+                    cloudCluster, getCurrentUserIdentity(), choseWay);
         }
 
         return cluster;
@@ -1103,6 +1123,12 @@ public class ConnectContext {
 
     // TODO implement this function
     public String getDefaultCloudCluster() {
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
+        if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {
+            return defaultCluster;
+        }
+
         return null;
     }
 

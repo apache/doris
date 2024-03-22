@@ -147,7 +147,8 @@ public class SchemaTable extends Table {
                             .column("SCHEMA_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_CHARACTER_SET_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_COLLATION_NAME", ScalarType.createVarchar(32))
-                            .column("SQL_PATH", ScalarType.createVarchar(512)).build()))
+                            .column("SQL_PATH", ScalarType.createVarchar(512))
+                            .column("DEFAULT_ENCRYPTION", ScalarType.createVarchar(3)).build()))
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
@@ -460,11 +461,14 @@ public class SchemaTable extends Table {
                                     .build()))
             .put("active_queries", new SchemaTable(SystemIdGenerator.getNextId(), "active_queries", TableType.SCHEMA,
                     builder().column("QUERY_ID", ScalarType.createVarchar(256))
-                            .column("START_TIME", ScalarType.createVarchar(256))
+                            .column("QUERY_START_TIME", ScalarType.createVarchar(256))
                             .column("QUERY_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("DATABASE", ScalarType.createVarchar(256))
                             .column("FRONTEND_INSTANCE", ScalarType.createVarchar(256))
+                            .column("QUEUE_START_TIME", ScalarType.createVarchar(256))
+                            .column("QUEUE_END_TIME", ScalarType.createVarchar(256))
+                            .column("QUERY_STATUS", ScalarType.createVarchar(256))
                             .column("SQL", ScalarType.createStringType())
                             .build()))
             .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,

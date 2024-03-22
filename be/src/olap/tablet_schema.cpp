@@ -799,6 +799,14 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
         (*index->mutable_properties())[kv.first] = kv.second;
     }
     index->set_index_suffix_name(_escaped_index_suffix_path);
+
+    DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", { return; })
+
+    // lowercase by default
+    if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
+        (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =
+                INVERTED_INDEX_PARSER_TRUE;
+    }
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
@@ -951,6 +959,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
+    // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
+    if (!schema.has_inverted_index_storage_format()) {
+        _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
+    } else {
+        _inverted_index_storage_format = schema.inverted_index_storage_format();
+    }
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -1029,8 +1043,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         _num_columns++;
     }
 
-    for (auto& index : index->indexes) {
-        _indexes.emplace_back(*index);
+    for (auto& i : index->indexes) {
+        _indexes.emplace_back(*i);
     }
 
     if (has_bf_columns) {
@@ -1138,6 +1152,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
+    tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
 }
 
 size_t TabletSchema::row_size() const {

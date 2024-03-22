@@ -45,8 +45,10 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_block.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
@@ -80,13 +82,12 @@ bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer", "bytes_written");
 bvar::Adder<uint64_t> s3_file_created_total("s3_file_writer", "file_created");
 bvar::Adder<uint64_t> s3_file_being_written("s3_file_writer", "file_being_written");
 
-S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
-                           const FileWriterOptions* opts)
-        : FileWriter(fmt::format("s3://{}/{}", fs->s3_conf().bucket, key), fs),
-          _bucket(fs->s3_conf().bucket),
+S3FileWriter::S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket,
+                           std::string key, const FileWriterOptions* opts)
+        : _path(fmt::format("s3://{}/{}", bucket, key)),
+          _bucket(std::move(bucket)),
           _key(std::move(key)),
-          _client(fs->get_client()),
-          _cache(nullptr),
+          _client(std::move(client)),
           _expiration_time(opts ? opts->file_cache_expiration : 0),
           _is_cold_data(opts ? opts->is_cold_data : true),
           _write_file_cache(opts ? opts->write_file_cache : false) {
@@ -95,21 +96,19 @@ S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
 
     Aws::Http::SetCompliantRfc3986Encoding(true);
     if (config::enable_file_cache && _write_file_cache) {
-        _cache_key = IFileCache::hash(_path.filename().native());
-        _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
+        _cache_hash = BlockFileCache::hash(_path.filename().native());
+        _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
     }
-
-    _create_empty_file = opts ? opts->create_empty_file : true;
 }
 
 S3FileWriter::~S3FileWriter() {
-    if (!_closed || _failed) {
+    if (!closed() || _failed) {
         // if we don't abort multi part upload, the uploaded part in object
         // store will not automatically reclaim itself, it would cost more money
         static_cast<void>(_abort());
-        _bytes_written = 0;
+    } else {
+        s3_bytes_written_total << _bytes_appended;
     }
-    s3_bytes_written_total << _bytes_written;
     s3_file_being_written << -1;
 }
 
@@ -157,10 +156,7 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
 Status S3FileWriter::_abort() {
     // make all pending work early quits
     _failed = true;
-    _closed = true;
-    if (_aborted) {
-        return Status::OK();
-    }
+
     // we need to reclaim the memory
     if (_pending_buf) {
         _pending_buf = nullptr;
@@ -180,60 +176,58 @@ Status S3FileWriter::_abort() {
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         LOG(INFO) << "Abort multipart upload successfully"
                   << "bucket=" << _bucket << ", key=" << _path.native()
-                  << ", upload_id=" << _upload_id;
-        _aborted = true;
+                  << ", upload_id=" << _upload_id << ", whole parts=" << _dump_completed_part();
         return Status::OK();
     }
-    return s3fs_error(outcome.GetError(),
-                      fmt::format("failed to abort multipart upload {} upload_id={}",
-                                  _path.native(), _upload_id));
+    return s3fs_error(
+            outcome.GetError(),
+            fmt::format("failed to abort multipart upload {} upload_id={}, whole parts={}",
+                        _path.native(), _upload_id, _dump_completed_part()));
 }
 
 Status S3FileWriter::close() {
-    if (_closed) {
+    if (closed()) {
         _wait_until_finish("close");
         return _st;
     }
-    Defer defer {[&]() { _closed = true; }};
-    if (_failed) {
-        RETURN_IF_ERROR(_abort());
-        return _st;
-    }
+
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
 
-    if (_upload_id.empty()) {
-        if (_pending_buf != nullptr) {
-            // it might be one file less than 5MB, we do upload here
-            auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
-            DCHECK(buf != nullptr);
-            buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
-        } else if (_create_empty_file) {
-            // if there is no pending buffer, we need to create an empty file
-            auto builder = FileBufferBuilder();
-            builder.set_type(BufferType::UPLOAD)
-                    .set_upload_callback([this](UploadFileBuffer& buf) { _put_object(buf); })
-                    .set_sync_after_complete_task([this](Status s) {
-                        bool ret = false;
-                        if (!s.ok()) [[unlikely]] {
-                            VLOG_NOTICE << "failed at key: " << _key
-                                        << ", status: " << s.to_string();
-                            std::unique_lock<std::mutex> _lck {_completed_lock};
-                            _failed = true;
-                            ret = true;
-                            this->_st = std::move(s);
-                        }
-                        // After the signal, there is a scenario where the previous invocation of _wait_until_finish
-                        // returns to the caller, and subsequently, the S3 file writer is destructed.
-                        // This means that accessing _failed afterwards would result in a heap use after free vulnerability.
-                        _countdown_event.signal();
-                        return ret;
-                    })
-                    .set_is_cancelled([this]() { return _failed.load(); });
-            RETURN_IF_ERROR(builder.build(&_pending_buf));
-            auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
-            DCHECK(buf != nullptr);
-        }
+    Defer defer {[this] { _closed = true; }};
+
+    if (_upload_id.empty() && _pending_buf) {
+        // It might be one file less than 5MB, and call close without finalize
+        auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+        DCHECK(buf != nullptr);
+        buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
     }
+
+    if (_bytes_appended == 0) {
+        // No data written, but need to create an empty file
+        auto builder = FileBufferBuilder();
+        builder.set_type(BufferType::UPLOAD)
+                .set_upload_callback([this](UploadFileBuffer& buf) { _put_object(buf); })
+                .set_sync_after_complete_task([this](Status s) {
+                    bool ret = false;
+                    if (!s.ok()) [[unlikely]] {
+                        VLOG_NOTICE << "failed at key: " << _key << ", status: " << s.to_string();
+                        std::unique_lock<std::mutex> _lck {_completed_lock};
+                        _failed = true;
+                        ret = true;
+                        this->_st = std::move(s);
+                    }
+                    // After the signal, there is a scenario where the previous invocation of _wait_until_finish
+                    // returns to the caller, and subsequently, the S3 file writer is destructed.
+                    // This means that accessing _failed afterwards would result in a heap use after free vulnerability.
+                    _countdown_event.signal();
+                    return ret;
+                })
+                .set_is_cancelled([this]() { return _failed.load(); });
+        RETURN_IF_ERROR(builder.build(&_pending_buf));
+        auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+        DCHECK(buf != nullptr);
+    }
+
     if (_pending_buf != nullptr) {
         _countdown_event.add_count();
         RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
@@ -250,7 +244,10 @@ Status S3FileWriter::close() {
 }
 
 Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
-    DCHECK(!_closed);
+    if (closed()) [[unlikely]] {
+        return Status::InternalError("append to closed file: {}", _path.native());
+    }
+
     size_t buffer_size = config::s3_write_buffer_size;
     DBUG_EXECUTE_IF("s3_file_writer::appendv",
                     { return Status::InternalError("failed to append data"); });
@@ -291,11 +288,12 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                     // that this instance of S3FileWriter might have been destructed when we
                     // try to do writing into file cache, so we make the lambda capture the variable
                     // we need by value to extend their lifetime
-                    builder.set_allocate_file_segments_holder(
-                            [cache = _cache, k = _cache_key, offset = _bytes_appended,
+                    builder.set_allocate_file_blocks_holder(
+                            [cache = _cache, k = _cache_hash, offset = _bytes_appended,
                              t = _expiration_time, cold = _is_cold_data]() -> FileBlocksHolderPtr {
                                 CacheContext ctx;
-                                ctx.cache_type = t == 0 ? CacheType::NORMAL : CacheType::TTL;
+                                ctx.cache_type =
+                                        t == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
                                 ctx.expiration_time = t;
                                 ctx.is_cold_data = cold;
                                 auto holder = cache->get_or_set(k, offset,
@@ -390,7 +388,6 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
 
     std::unique_lock<std::mutex> lck {_completed_lock};
     _completed_parts.emplace_back(std::move(completed_part));
-    _bytes_written += buf.get_size();
 }
 
 Status S3FileWriter::_complete() {
@@ -409,8 +406,9 @@ Status S3FileWriter::_complete() {
     _wait_until_finish("Complete");
     DBUG_EXECUTE_IF("s3_file_writer::_complete:1", { _cur_part_num++; });
     if (_failed || _completed_parts.size() != _cur_part_num) {
-        _st = Status::InternalError("error status {}, complete parts {}, cur part num {}", _st,
-                                    _completed_parts.size(), _cur_part_num);
+        _st = Status::InternalError(
+                "error status {}, complete parts {}, cur part num {}, whole parts {}", _st,
+                _completed_parts.size(), _cur_part_num, _dump_completed_part());
         LOG(WARNING) << _st;
         return _st;
     }
@@ -423,8 +421,9 @@ Status S3FileWriter::_complete() {
     for (size_t i = 0; i < _completed_parts.size(); i++) {
         if (_completed_parts[i]->GetPartNumber() != i + 1) [[unlikely]] {
             auto st = Status::InternalError(
-                    "error status {}, part num not continous, expected num {}, actual num {}", _st,
-                    i + 1, _completed_parts[i]->GetPartNumber());
+                    "error status {}, part num not continous, expected num {}, actual num {}, "
+                    "whole parts {}",
+                    _st, i + 1, _completed_parts[i]->GetPartNumber(), _dump_completed_part());
             LOG(WARNING) << st;
             _st = st;
             return st;
@@ -445,9 +444,10 @@ Status S3FileWriter::_complete() {
     auto complete_outcome = _client->CompleteMultipartUpload(complete_request);
 
     if (!complete_outcome.IsSuccess()) {
-        _st = s3fs_error(complete_outcome.GetError(),
-                         fmt::format("failed to complete multi part upload {}, upload_id={}",
-                                     _path.native(), _upload_id));
+        _st = s3fs_error(
+                complete_outcome.GetError(),
+                fmt::format("failed to complete multi part upload {}, upload_id={}, whole parts={}",
+                            _path.native(), _upload_id, _dump_completed_part()));
         LOG(WARNING) << _st;
         return _st;
     }
@@ -456,7 +456,10 @@ Status S3FileWriter::_complete() {
 }
 
 Status S3FileWriter::finalize() {
-    DCHECK(!_closed);
+    if (closed()) [[unlikely]] {
+        return Status::InternalError("finalize closed file: {}", _path.native());
+    }
+
     DBUG_EXECUTE_IF("s3_file_writer::finalize",
                     { return Status::IOError("failed to finalize due to injected error"); });
     // submit pending buf if it's not nullptr
@@ -478,7 +481,7 @@ Status S3FileWriter::finalize() {
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
-    DCHECK(!_closed) << "closed " << _closed;
+    DCHECK(!closed());
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(_bucket).WithKey(_key);
     Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*buf.get_stream()));
@@ -501,8 +504,15 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         buf.set_status(_st);
         return;
     }
-    _bytes_written += buf.get_size();
     s3_file_created_total << 1;
+}
+
+std::string S3FileWriter::_dump_completed_part() const {
+    std::string view;
+    for (const auto& part : _completed_parts) {
+        view.append(fmt::format("part {}, ", view, part->GetPartNumber()));
+    }
+    return view;
 }
 
 } // namespace doris::io

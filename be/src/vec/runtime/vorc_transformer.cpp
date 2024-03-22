@@ -99,16 +99,33 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _write_options(new orc::WriterOptions()),
-          _schema_str(schema) {
+          _schema_str(&schema),
+          _schema(nullptr) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
 }
 
+VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                                 const VExprContextSPtrs& output_vexpr_ctxs,
+                                 std::unique_ptr<orc::Type> schema, bool output_object_data,
+                                 orc::CompressionKind compression)
+        : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
+          _file_writer(file_writer),
+          _write_options(new orc::WriterOptions()),
+          _schema_str(nullptr),
+          _schema(std::move(schema)) {
+    _write_options->setTimezoneName(_state->timezone());
+    _write_options->setUseTightNumericVector(true);
+    _write_options->setCompression(compression);
+}
+
 Status VOrcTransformer::open() {
     try {
-        _schema = orc::Type::buildTypeFromString(_schema_str);
+        if (_schema == nullptr && _schema_str != nullptr) {
+            _schema = orc::Type::buildTypeFromString(*_schema_str);
+        }
     } catch (const std::exception& e) {
-        return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
+        return Status::InternalError("Orc build schema from \"{}\" failed: {}", *_schema_str,
                                      e.what());
     }
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);

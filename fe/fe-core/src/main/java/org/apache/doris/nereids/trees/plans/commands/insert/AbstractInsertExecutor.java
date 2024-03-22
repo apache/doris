@@ -123,7 +123,7 @@ public abstract class AbstractInsertExecutor {
         String queryId = DebugUtil.printId(ctx.queryId());
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
-        executor.getProfile().setExecutionProfile(coordinator.getExecutionProfile());
+        executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
         coordinator.exec();
@@ -186,6 +186,7 @@ public abstract class AbstractInsertExecutor {
             onFail(t);
             return;
         } finally {
+            coordinator.close();
             executor.updateProfile(true);
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }

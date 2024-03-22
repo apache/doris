@@ -283,6 +283,8 @@ struct TQueryOptions {
   103: optional bool enable_agg_spill = false
 
   104: optional i64 min_revocable_mem = 0
+
+  105: optional i64 spill_streaming_agg_mem_limit = 0;
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
@@ -359,6 +361,7 @@ struct TPlanFragmentExecParams {
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
   13: optional bool group_commit // deprecated
+  14: optional list<i32> topn_filter_source_node_ids
 }
 
 // Global query parameters assigned by the coordinator.

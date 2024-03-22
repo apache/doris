@@ -561,6 +561,9 @@ archive_doris_coredump() {
                 fi
                 mv "${coredump_file}" "${DORIS_HOME}/${archive_dir}/${p}"
                 has_core=true
+            else
+                echo -e "\n\n\n\nERROR: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
+                tail -n 100 "${DORIS_HOME}"/be/log/be.out
             fi
         fi
     done
@@ -713,5 +716,15 @@ function warehouse_add_be() {
 }
 
 function check_if_need_gcore() {
-    echo
+    exit_flag="$1"
+    if [[ ${exit_flag} == "124" ]]; then # 124 is from command timeout
+        echo "INFO: run regression timeout, gcore to find out reason"
+        be_pid=$(pgrep "doris_be")
+        if [[ -n "${be_pid}" ]]; then
+            kill -ABRT "${be_pid}"
+            sleep 10
+        fi
+    else
+        echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
+    fi
 }

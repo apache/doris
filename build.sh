@@ -154,6 +154,7 @@ HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
+BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
@@ -392,6 +393,24 @@ if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
     fi
 fi
 
+if [[ -n "${DISABLE_BUILD_UI}" ]]; then
+    if [[ "${DISABLE_BUILD_UI}" == "ON" ]]; then
+        BUILD_UI=0
+    fi
+fi
+
+if [[ -n "${DISABLE_BUILD_SPARK_DPP}" ]]; then
+    if [[ "${DISABLE_BUILD_SPARK_DPP}" == "ON" ]]; then
+        BUILD_SPARK_DPP=0
+    fi
+fi
+
+if [[ -n "${DISABLE_BUILD_HIVE_UDF}" ]]; then
+    if [[ "${DISABLE_BUILD_HIVE_UDF}" == "ON" ]]; then
+        BUILD_HIVE_UDF=0
+    fi
+fi
+
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
@@ -622,7 +641,9 @@ function build_ui() {
 
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
-    build_ui
+    if [[ "${BUILD_UI}" -eq 1 ]]; then
+        build_ui
+    fi
 fi
 
 # Clean and build Frontend
@@ -730,12 +751,6 @@ EOF
     if [[ -f "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
-
-    # make a soft link palo_be point to doris_be, for forward compatibility
-    cd "${DORIS_OUTPUT}/be/lib"
-    rm -f palo_be
-    ln -s doris_be palo_be
-    cd -
 
     if [[ "${BUILD_META_TOOL}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/

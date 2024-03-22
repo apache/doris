@@ -53,6 +53,7 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
@@ -90,8 +91,11 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuditLog;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -165,17 +169,22 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
+import org.apache.doris.thrift.BackendService.Client;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -210,6 +219,8 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 // Do one COM_QUERY process.
@@ -221,6 +232,7 @@ public class StmtExecutor {
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     public static final String NULL_VALUE_FOR_LOAD = "\\N";
+    private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private final Object writeProfileLock = new Object();
     private ConnectContext context;
     private final StatementContext statementContext;
@@ -476,7 +488,34 @@ public class StmtExecutor {
     public void execute() throws Exception {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        execute(queryId);
+        TUniqueId firstQueryId = queryId;
+        int retryTime = Config.max_query_retry_time;
+        for (int i = 1; i <= retryTime; i++) {
+            try {
+                execute(queryId);
+                return;
+            } catch (UserException e) {
+                if (!e.getMessage().contains("E-230") || i == retryTime) {
+                    throw e;
+                }
+                TUniqueId lastQueryId = queryId;
+                uuid = UUID.randomUUID();
+                queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                int randomMillis = 10 + (int) (Math.random() * 10);
+                if (i > retryTime / 2) {
+                    randomMillis = 20 + (int) (Math.random() * 10);
+                }
+                if (DebugPointUtil.isEnable("StmtExecutor.retry.longtime")) {
+                    randomMillis = 1000;
+                }
+                LOG.warn("receive E-230 tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
+                        i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
+                        DebugUtil.printId(queryId), randomMillis);
+                Thread.sleep(randomMillis);
+            } catch (Exception e) {
+                throw e;
+            }
+        }
     }
 
     public boolean notAllowFallback() {
@@ -624,6 +663,13 @@ public class StmtExecutor {
                                 + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status"));
                     }
+                    if (context.getSessionVariable().isEnableInsertGroupCommit()) {
+                        // FIXME: Group commit insert does not need to forward to master
+                        //  Nereids does not support group commit, so we can not judge if should forward
+                        //  Here throw an exception to fallback to legacy planner and let legacy judge if should forward
+                        //  After Nereids support group commit, we can remove this exception
+                        throw new NereidsException(new UserException("Nereids does not support group commit insert"));
+                    }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
                         context.setQueryId(masterOpExecutor.getQueryId());
@@ -718,17 +764,66 @@ public class StmtExecutor {
                     AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                     context.setQueryId(newQueryId);
+                    if (Config.isCloudMode()) {
+                        // sleep random millis [1000, 1500] ms
+                        // in the begining of retryTime/2
+                        int randomMillis = 1000 + (int) (Math.random() * (1000 - 500));
+                        LOG.debug("stmt executor retry times {}, wait randomMillis:{}, stmt:{}",
+                                i, randomMillis, originStmt.originStmt);
+                        try {
+                            if (i > retryTime / 2) {
+                                // sleep random millis [2000, 2500] ms
+                                // in the ending of retryTime/2
+                                randomMillis = 2000 + (int) (Math.random() * (1000 - 500));
+                            }
+                            Thread.sleep(randomMillis);
+                        } catch (InterruptedException e) {
+                            LOG.info("stmt executor sleep wait InterruptedException: ", e);
+                        }
+                    }
                 }
                 if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
                     context.setReturnResultFromLocal(false);
                 }
                 handleQueryStmt();
                 break;
-            } catch (RpcException e) {
-                if (i == retryTime - 1) {
-                    throw e;
+            } catch (RpcException | UserException e) {
+                // cloud mode retry
+                LOG.debug("due to exception {} retry {} rpc {} user {}",
+                        e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
+                String msg = e.getMessage();
+                boolean isNeedRetry = true;
+                if (Config.isCloudMode()) {
+                    isNeedRetry = false;
+                    // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
+                    List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
+                                .map(id -> Long.toString(id)).collect(Collectors.toList());
+                    if (e instanceof UserException
+                            && msg.contains(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG)) {
+                        Matcher matcher = beIpPattern.matcher(msg);
+                        // here retry planner not be recreated, so
+                        // in cloud mode drop node, be id invalid, so need not retry
+                        // such as be ids [11000, 11001] -> after drop node 11001
+                        // don't need to retry 11001's request
+                        if (matcher.find()) {
+                            String notAliveBe = matcher.group(1);
+                            isNeedRetry = bes.contains(notAliveBe);
+                            if (isNeedRetry) {
+                                Backend abnormalBe = Env.getCurrentSystemInfo().getBackend(Long.parseLong(notAliveBe));
+                                String deadCloudClusterStatus = abnormalBe.getCloudClusterStatus();
+                                String deadCloudClusterClusterName = abnormalBe.getCloudClusterName();
+                                LOG.info("need retry cluster {} status {}", deadCloudClusterClusterName,
+                                        deadCloudClusterStatus);
+                                if (Strings.isNullOrEmpty(deadCloudClusterStatus)
+                                        || ClusterStatus.valueOf(deadCloudClusterStatus) != ClusterStatus.NORMAL) {
+                                    CloudSystemInfoService.waitForAutoStart(deadCloudClusterClusterName);
+                                }
+                            }
+                        }
+                    }
                 }
-                if (context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
+                if (i != retryTime - 1 && isNeedRetry
+                        && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
                 } else {
                     throw e;
@@ -1008,6 +1103,14 @@ public class StmtExecutor {
         }
     }
 
+    private boolean hasCloudClusterPriv() {
+        if (ConnectContext.get() == null || Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster())) {
+            return false;
+        }
+        return Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+            ConnectContext.get().getCloudCluster(), PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
+    }
+
     // Analyze one statement to structure in memory.
     public void analyze(TQueryOptions tQueryOptions) throws UserException, InterruptedException {
         if (LOG.isDebugEnabled()) {
@@ -1136,6 +1239,27 @@ public class StmtExecutor {
                         resetAnalyzerAndStmt();
                     }
                 } catch (UserException e) {
+                    // cloud mode retry, when retry need check this user has cloud cluster auth.
+                    // if user doesn't have cloud cluster auth, don't retry, just return.
+                    if (Config.isCloudMode()
+                            && (e.getMessage().contains(SystemInfoService.NOT_USING_VALID_CLUSTER_MSG)
+                            || e.getMessage().contains("backend -1"))
+                            && hasCloudClusterPriv()) {
+                        LOG.debug("cloud mode analyzeAndGenerateQueryPlan retry times {}", i);
+                        // sleep random millis [500, 1000] ms
+                        int randomMillis = 500 + (int) (Math.random() * (1000 - 500));
+                        try {
+                            if (i > analyzeTimes / 2) {
+                                randomMillis = 1000 + (int) (Math.random() * (1000 - 500));
+                            }
+                            Thread.sleep(randomMillis);
+                        } catch (InterruptedException ie) {
+                            LOG.info("stmt executor sleep wait InterruptedException: ", ie);
+                        }
+                        if (i < analyzeTimes) {
+                            continue;
+                        }
+                    }
                     throw e;
                 } catch (Exception e) {
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
@@ -1596,7 +1720,7 @@ public class StmtExecutor {
                 planner, context.getStatsErrorEstimator());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-            profile.setExecutionProfile(coord.getExecutionProfile());
+            profile.addExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
 
@@ -2030,7 +2154,7 @@ public class StmtExecutor {
                         planner, context.getStatsErrorEstimator());
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
-                profile.setExecutionProfile(coord.getExecutionProfile());
+                profile.addExecutionProfile(coord.getExecutionProfile());
                 QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), this.getOriginStmtInString(), coord);
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), queryInfo);
 
@@ -2101,6 +2225,23 @@ public class StmtExecutor {
                     txnStatus = TransactionStatus.COMMITTED;
                 }
 
+                // TODO(meiyi)
+                // insertStmt.afterFinishTxn(true);
+                if (Config.isCloudMode()) {
+                    String clusterName = context.getCloudCluster();
+                    if (context.getSessionVariable().enableMultiClusterSyncLoad()
+                            && clusterName != null && !clusterName.isEmpty()) {
+                        CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+                        List<List<Backend>> backendsList = infoService
+                                                                .getCloudClusterNames()
+                                                                .stream()
+                                                                .filter(name -> !name.equals(clusterName))
+                                                                .map(name -> infoService.getBackendsByClusterName(name))
+                                                                .collect(Collectors.toList());
+                        List<Long> allTabletIds = ((OlapTable) insertStmt.getTargetTable()).getAllTabletIds();
+                        syncLoadForTablets(backendsList, allTabletIds);
+                    }
+                }
             } catch (Throwable t) {
                 // if any throwable being thrown during insert operation, first we should abort this txn
                 LOG.warn("handle insert stmt fail: {}", label, t);
@@ -2171,6 +2312,41 @@ public class StmtExecutor {
                 txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         context.updateReturnRows((int) loadedRows);
+    }
+
+    public static void syncLoadForTablets(List<List<Backend>> backendsList, List<Long> allTabletIds) {
+        backendsList.forEach(backends -> backends.forEach(backend -> {
+            if (backend.isAlive()) {
+                List<Long> tabletIdList = new ArrayList<Long>();
+                Set<Long> beTabletIds = null;
+                // TODO(merge-cloud): need implements cloud rebalancer, otherwise raise beTabletIds NPE
+                //Set<Long> beTabletIds = Env.getCurrentEnv()
+                //                            .getCloudTabletRebalancer()
+                //                            .getSnapshotTabletsByBeId(backend.getId());
+                allTabletIds.forEach(tabletId -> {
+                    if (beTabletIds.contains(tabletId)) {
+                        tabletIdList.add(tabletId);
+                    }
+                });
+                boolean ok = false;
+                TNetworkAddress address = null;
+                Client client = null;
+                try {
+                    address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                    client = ClientPool.backendPool.borrowObject(address);
+                    client.syncLoadForTablets(new TSyncLoadForTabletsRequest(allTabletIds));
+                    ok = true;
+                } catch (Exception e) {
+                    LOG.warn(e.getMessage());
+                } finally {
+                    if (!ok) {
+                        ClientPool.backendPool.invalidateObject(address, client);
+                    } else {
+                        ClientPool.backendPool.returnObject(address, client);
+                    }
+                }
+            }
+        }));
     }
 
     private void handleExternalInsertStmt() {
@@ -2257,6 +2433,11 @@ public class StmtExecutor {
     }
 
     private void handleUseCloudClusterStmt() throws AnalysisException {
+        if (!Config.isCloudMode()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_CLOUD_MODE);
+            return;
+        }
+
         UseCloudClusterStmt useCloudClusterStmt = (UseCloudClusterStmt) parsedStmt;
         try {
             ((CloudEnv) context.getEnv()).changeCloudCluster(useCloudClusterStmt.getCluster(), context);
@@ -2621,7 +2802,10 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.getPartitionNames().size() == 0) {
+            if (iotStmt.isAutoDetectPartition()) {
+                // insert overwrite table auto detect which partitions need to replace
+                handleAutoOverwritePartition(iotStmt);
+            } else if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
             } else {
@@ -2770,6 +2954,26 @@ public class StmtExecutor {
         }
     }
 
+    /*
+     * TODO: support insert overwrite auto detect partition in legacy planner
+     */
+    private void handleAutoOverwritePartition(InsertOverwriteTableStmt iotStmt) {
+        // TODO:
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
+        try {
+            parsedStmt = new NativeInsertStmt(targetTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true).withAutoDetectOverwrite();
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(targetTableName);
+            return;
+        }
+
+    }
+
     private void handleIotRollback(TableName table) {
         // insert error drop the tmp table
         DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
@@ -2869,7 +3073,7 @@ public class StmtExecutor {
             RowBatch batch;
             coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
                     planner, context.getStatsErrorEstimator());
-            profile.setExecutionProfile(coord.getExecutionProfile());
+            profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));

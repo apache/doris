@@ -33,6 +33,8 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeA
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
@@ -163,12 +165,17 @@ public class MTMVUtil {
         String dateFormat = dateFormatOptional.get();
         Expression strToDate = DateTimeExtractAndTransform
                 .strToDate(new VarcharLiteral(expr.getStringValue()), new VarcharLiteral(dateFormat));
-        if (!(strToDate instanceof DateTimeLiteral)) {
+        if (strToDate instanceof DateTimeV2Literal) {
+            return ((IntegerLiteral) DateTimeExtractAndTransform
+                    .unixTimestamp((DateTimeV2Literal) strToDate)).getValue();
+        } else if (strToDate instanceof DateV2Literal) {
+            return ((IntegerLiteral) DateTimeExtractAndTransform
+                    .unixTimestamp((DateV2Literal) strToDate)).getValue();
+        } else {
             throw new AnalysisException(
-                    String.format("strToDate failed, stringValue: %s, dateFormat: %s", expr.getStringValue(),
-                            dateFormat));
+                    String.format("strToDate failed, stringValue: %s, dateFormat: %s",
+                            expr.getStringValue(), dateFormat));
         }
-        return ((IntegerLiteral) DateTimeExtractAndTransform.unixTimestamp((DateTimeLiteral) strToDate)).getValue();
     }
 
     /**

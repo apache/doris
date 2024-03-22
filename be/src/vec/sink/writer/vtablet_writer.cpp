@@ -677,9 +677,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             request->add_partition_ids(pid);
         }
 
-        request->set_write_single_replica(false);
+        request->set_write_single_replica(_parent->_write_single_replica);
         if (_parent->_write_single_replica) {
-            request->set_write_single_replica(true);
             for (auto& _slave_tablet_node : _slave_tablet_nodes) {
                 PSlaveTabletNodes slave_tablet_nodes;
                 for (auto node_id : _slave_tablet_node.second) {
@@ -921,7 +920,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_cancelled || state->is_cancelled()) {
-        _cancel_with_msg(state->cancel_reason());
+        cancel(state->cancel_reason());
     }
 
     if (_add_batches_finished) {

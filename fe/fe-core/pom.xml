@@ -789,6 +789,10 @@ under the License.
             <groupId>io.trino</groupId>
             <artifactId>trino-main</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>concurrent</artifactId>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->
@@ -987,7 +991,7 @@ under the License.
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>
-                    <execution>
+                    <!--execution>
                         <id>doc</id>
                         <phase>process-classes</phase>
                         <goals>
@@ -1007,7 +1011,7 @@ under the License.
                             </arguments>
                             <skip>${skip.doc}</skip>
                         </configuration>
-                    </execution>
+                    </execution-->
                 </executions>
             </plugin>
 

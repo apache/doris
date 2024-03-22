@@ -37,6 +37,7 @@
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/hive_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
@@ -171,9 +172,28 @@ void PipelineXLocalStateBase::clear_origin_block() {
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
-    auto local_state = state->get_local_state(operator_id());
+    auto* local_state = state->get_local_state(operator_id());
     SCOPED_TIMER(local_state->exec_time_counter());
     SCOPED_TIMER(local_state->_projection_timer);
+
+    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
+        if (to->is_nullable() && !from->is_nullable()) {
+            if (_keep_origin || !from->is_exclusive()) {
+                auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
+                null_column.get_nested_column().insert_range_from(*from, 0, rows);
+                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+            } else {
+                to = make_nullable(from, false)->assume_mutable();
+            }
+        } else {
+            if (_keep_origin || !from->is_exclusive()) {
+                to->insert_range_from(*from, 0, rows);
+            } else {
+                to = from->assume_mutable();
+            }
+        }
+    };
+
     using namespace vectorized;
     vectorized::MutableBlock mutable_block =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
@@ -188,14 +208,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             RETURN_IF_ERROR(local_state->_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
-            //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
-            if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
-                DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
-                reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
-                        ->insert_range_from_not_nullable(*column_ptr, 0, rows);
-            } else {
-                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
-            }
+            insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
         output_block->set_columns(std::move(mutable_columns));
@@ -448,7 +461,8 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
                                                     bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
-        local_state._child_block->clear_column_data();
+        local_state._child_block->clear_column_data(
+                OperatorX<LocalStateType>::_child_x->row_desc().num_materialized_slots());
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
                 state, local_state._child_block.get(), &local_state._child_eos));
         *eos = local_state._child_eos;
@@ -490,7 +504,6 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
-    _finish_dependency->block();
     return Status::OK();
 }
 
@@ -541,6 +554,7 @@ DECLARE_OPERATOR_X(JdbcTableSinkLocalState)
 DECLARE_OPERATOR_X(ResultFileSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkV2LocalState)
+DECLARE_OPERATOR_X(HiveTableSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(SpillSortSinkLocalState)
@@ -637,5 +651,6 @@ template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileS
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
+template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 
 } // namespace doris::pipeline

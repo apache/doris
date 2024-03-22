@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -101,7 +102,7 @@ public class NereidsPlanner extends Planner {
     }
 
     @Override
-    public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) {
+    public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
         if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
             NereidsTracer.init();
         } else {
@@ -154,6 +155,9 @@ public class NereidsPlanner extends Planner {
                 .collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
         logicalPlanAdapter.setViewDdlSqls(statementContext.getViewDdlSqls());
+
+        // update scan nodes visible version at the end of plan phase.
+        ScanNode.setVisibleVersionForOlapScanNodes(getScanNodes());
     }
 
     @VisibleForTesting
