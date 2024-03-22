@@ -2462,11 +2462,22 @@ public class Coordinator implements CoordInterface {
             // for now, abort the query if we see any error except if the error is cancelled
             // and returned_all_results_ is true.
             // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
-            if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-                LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
-                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                        status.getErrorMsg());
-                updateStatus(status);
+            if (!status.ok()) {
+                if (returnedAllResults && status.isCancelled()) {
+                    LOG.warn("Query {} has returned all results, fragment_id={} instance_id={}, be={}"
+                            + " is reporting failed status {}",
+                            DebugUtil.printId(queryId), params.getFragmentId(),
+                            DebugUtil.printId(params.getFragmentInstanceId()),
+                            params.getBackendId(),
+                            status.toString());
+                } else {
+                    LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
+                                    + " error message: {}",
+                            DebugUtil.printId(queryId), params.getFragmentId(),
+                            DebugUtil.printId(params.getFragmentInstanceId()),
+                            params.getBackendId(), status.toString());
+                    updateStatus(status);
+                }
             }
             if (params.isSetDeltaUrls()) {
                 updateDeltas(params.getDeltaUrls());
@@ -2508,13 +2519,22 @@ public class Coordinator implements CoordInterface {
             // for now, abort the query if we see any error except if the error is cancelled
             // and returned_all_results_ is true.
             // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
-            if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-                LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
-                                + " error message: {}",
-                        DebugUtil.printId(queryId), params.getFragmentId(),
-                        DebugUtil.printId(params.getFragmentInstanceId()),
-                        params.getBackendId(), status.getErrorMsg());
-                updateStatus(status);
+            if (!status.ok()) {
+                if (returnedAllResults && status.isCancelled()) {
+                    LOG.warn("Query {} has returned all results, fragment_id={} instance_id={}, be={}"
+                            + " is reporting failed status {}",
+                            DebugUtil.printId(queryId), params.getFragmentId(),
+                            DebugUtil.printId(params.getFragmentInstanceId()),
+                            params.getBackendId(),
+                            status.toString());
+                } else {
+                    LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
+                                    + " error message: {}",
+                            DebugUtil.printId(queryId), params.getFragmentId(),
+                            DebugUtil.printId(params.getFragmentInstanceId()),
+                            params.getBackendId(), status.toString());
+                    updateStatus(status);
+                }
             }
 
             // params.isDone() should be promised.
@@ -2580,11 +2600,11 @@ public class Coordinator implements CoordInterface {
                 if (status.isCancelled() && returnedAllResults) {
                     LOG.warn("Query {} has returned all results, its instance {} is reporting failed status {}",
                             DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                            status.getErrorMsg());
+                            status.toString());
                 } else {
                     LOG.warn("Instance {} of query {} report failed status, error msg: {}",
                             DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                            status.getErrorMsg());
+                            status.toString());
                     updateStatus(status);
                 }
             }
@@ -3014,6 +3034,7 @@ public class Coordinator implements CoordInterface {
         Backend backend;
         long lastMissingHeartbeatTime = -1;
         TUniqueId instanceId;
+        private boolean hasCancelled = false;
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId,
                                 TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID,
@@ -3063,23 +3084,33 @@ public class Coordinator implements CoordInterface {
 
         // cancel the fragment instance.
         // return true if cancel success. Otherwise, return false
-        public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
+        public synchronized void cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
             LOG.warn("cancelRemoteFragments initiated={} done={} backend: {},"
                             + " fragment instance id={}, reason: {}",
                     this.initiated, this.done, backend.getId(),
                     DebugUtil.printId(fragmentInstanceId()), cancelReason.name());
             try {
                 if (!this.initiated) {
-                    return false;
+                    return;
                 }
                 // don't cancel if it is already finished
                 if (this.done) {
-                    return false;
+                    return;
+                }
+                if (this.hasCancelled) {
+                    LOG.info("Fragment instance has already been cancelled. initiated={} done={} backend: {},"
+                            + "fragment instance id={}, reason: {}",
+                            this.initiated, this.done, backend.getId(),
+                            DebugUtil.printId(fragmentInstanceId()), cancelReason.name());
+                    return;
                 }
 
                 try {
                     BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
                             fragmentInstanceId(), cancelReason);
+                    // TODO yiguolei
+                    // This maybe wrong because we do not check the result value returned from BE.
+                    this.hasCancelled = true;
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
@@ -3088,9 +3119,9 @@ public class Coordinator implements CoordInterface {
 
             } catch (Exception e) {
                 LOG.warn("catch a exception", e);
-                return false;
+                return;
             }
-            return true;
+            return;
         }
 
         public boolean isBackendStateHealthy() {
@@ -3129,6 +3160,7 @@ public class Coordinator implements CoordInterface {
         long profileReportProgress = 0;
         long beProcessEpoch = 0;
         private final int numInstances;
+        private boolean hasCancelled = false;
 
         public PipelineExecContext(PlanFragmentId fragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
@@ -3224,11 +3256,16 @@ public class Coordinator implements CoordInterface {
                         DebugUtil.printId(queryId), cancelReason.name());
             }
 
+            if (this.hasCancelled) {
+                LOG.info("Frangment has already been cancelled. Query {} backend: {}, fragment id={}",
+                        DebugUtil.printId(queryId), backend.getId(), this.fragmentId);
+                return;
+            }
             try {
                 try {
                     BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(brpcAddress,
                             this.fragmentId, queryId, cancelReason);
-                    this.hasCanceled = true;
+                    this.hasCancelled = true;
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
@@ -3250,10 +3287,19 @@ public class Coordinator implements CoordInterface {
                         this.initiated, this.done, backend.getId(),
                         DebugUtil.printId(localParam.fragment_instance_id),
                         DebugUtil.printId(queryId), cancelReason.name());
+                if (this.hasCancelled) {
+                    LOG.info("fragment instance has already been cancelled. initiated={} done={} backend:{},"
+                            + " fragment instance id={} query={}, reason: {}",
+                            this.initiated, this.done, backend.getId(),
+                            DebugUtil.printId(localParam.fragment_instance_id),
+                            DebugUtil.printId(queryId), cancelReason.name());
+                    return;
+                }
                 try {
                     try {
                         BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
                                 localParam.fragment_instance_id, cancelReason);
+                        this.hasCancelled = true;
                     } catch (RpcException e) {
                         LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                                 brpcAddress.getPort());
