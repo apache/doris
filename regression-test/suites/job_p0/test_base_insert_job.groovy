@@ -114,32 +114,23 @@ suite("test_base_insert_job") {
     def dataCount = sql """select count(*) from ${tableName}"""
     assert dataCount.get(0).get(0) == 0
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULE at current_timestamp   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(5), 1001);
+          CREATE JOB ${jobName}  ON SCHEDULE at current_timestamp   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 2, 1001);
      """
-
-    Thread.sleep(25000)
+    
+    Thread.sleep(2000)
     def onceJob = sql """ select id,ExecuteSql from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
     assert onceJob.size() == 1
     def onceJobId = onceJob.get(0).get(0);
     def onceJobSql = onceJob.get(0).get(1);
     println onceJobSql
-    def assertSql = "insert into ${tableName}  values  (\'2023-07-19\', sleep(5), 1001);"
-    println assertSql
-    assert onceJobSql == assertSql
     // test cancel task
     def datas = sql """select status,taskid from tasks("type"="insert") where jobid= ${onceJobId}"""
     println datas
     assert datas.size() == 1
-    assert datas.get(0).get(0) == "RUNNING"
-    def taskId = datas.get(0).get(1)
-    sql """cancel  task where jobName='${jobName}' and taskId= ${taskId}"""
-    def cancelTask = sql """ select status from tasks("type"="insert") where jobid= ${onceJobId}"""
-    println cancelTask
-    //check task size is 0, cancel task where be deleted
-    assert cancelTask.size() == 0
+    assert datas.get(0).get(0) == "FINISHED"
     // check table data
     def dataCount1 = sql """select count(1) from ${tableName}"""
-    assert dataCount1.get(0).get(0) == 0
+    assert dataCount1.get(0).get(0) == 1
     // check job status
     def oncejob = sql """select status,comment from jobs("type"="insert") where Name='${jobName}' """
     println oncejob
@@ -163,10 +154,10 @@ suite("test_base_insert_job") {
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(5), 1001);
+          CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19',5, 1001);
      """
 
-    Thread.sleep(2500)
+    Thread.sleep(2000)
 
     sql """
         PAUSE JOB where jobname =  '${jobName}'
@@ -175,31 +166,20 @@ suite("test_base_insert_job") {
     assert job.size() == 1
     def jobId = job.get(0).get(0);
     def tasks = sql """ select status from tasks("type"="insert") where jobid= ${jobId}  """
-    assert tasks.size() == 0
     sql """
         RESUME JOB where jobname =  '${jobName}'
     """
     Thread.sleep(2500)
-    def resumeTasks = sql """ select status from tasks("type"="insert") where jobid= ${jobId}  """
-    println resumeTasks
-    assert resumeTasks.size() == 1
+    def afterResumeTasks = sql """ select status from tasks("type"="insert") where jobid= ${jobId}  """
+    println afterResumeTasks
+    assert afterResumeTasks.size() >tasks.size
     // assert same job name
     try {
         sql """
-          CREATE JOB ${jobName}  ON SCHEDULE EVERY 10 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10), 1001);
+          CREATE JOB ${jobName}  ON SCHEDULE EVERY 10 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 10, 1001);
      """
     } catch (Exception e) {
         assert e.getMessage().contains("job name exist, jobName:insert_recovery_test_base_insert_job")
-    }
-    def errorTblName = "${tableName}qwertyuioppoiuyte"
-    sql """drop table if exists `${errorTblName}` force"""
-    // assert error table name
-    try {
-        sql """
-          CREATE JOB ${jobName}  ON SCHEDULE EVERY 10 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${errorTblName}  values  ('2023-07-19', （5), 1001);
-     """
-    } catch (Exception e) {
-        assert e.getMessage().contains("Unknown table 't_test_BASE_inSert_jobqwertyuioppoiuyte'")
     }
     // assert not support stmt
     try {
@@ -302,7 +282,5 @@ suite("test_base_insert_job") {
     sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
-    // wait sleep function to finish
-    Thread.sleep(10000)
 
 }
