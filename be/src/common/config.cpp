@@ -32,6 +32,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -309,7 +310,6 @@ DEFINE_mInt32(trash_file_expire_time_sec, "259200");
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
 DEFINE_mBool(disable_segment_cache, "false");
-DEFINE_Int64(index_stream_cache_capacity, "10737418240");
 DEFINE_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
@@ -466,8 +466,6 @@ DEFINE_String(ssl_private_key_path, "");
 DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
 DEFINE_Int32(webserver_num_workers, "48");
-// Period to update rate counters and sampling counters in ms.
-DEFINE_mInt32(periodic_counter_update_period_ms, "500");
 
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
@@ -535,10 +533,6 @@ DEFINE_Int32(num_threads_per_disk, "0");
 DEFINE_Int32(read_size, "8388608");    // 8 * 1024 * 1024, Read Size (in bytes)
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
-// For each io buffer size, the maximum number of buffers the IoMgr will hold onto
-// With 1024B through 8MB buffers, this is up to ~2GB of buffers.
-DEFINE_Int32(max_free_io_buffers, "128");
-
 // for pprof
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
@@ -559,12 +553,6 @@ DEFINE_Int32(num_cores, "0");
 // Otherwise, we will ignore the broken disk,
 DEFINE_Bool(ignore_broken_disk, "false");
 
-// linux transparent huge page
-DEFINE_Bool(madvise_huge_pages, "false");
-
-// whether use mmap to allocate memory
-DEFINE_Bool(mmap_buffers, "false");
-
 // Sleep time in milliseconds between memory maintenance iterations
 DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 
@@ -580,9 +568,6 @@ DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
 
 // percent of (active memtables size / all memtables size) when reach soft limit
 DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
-
-// Alignment
-DEFINE_Int32(memory_max_alignment, "16");
 
 // memtable insert memory tracker will multiply input block size with this ratio
 DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
@@ -809,9 +794,6 @@ DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
-// s3 config
-DEFINE_mInt32(max_remote_storage_count, "10");
-
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
 // If the dependent kafka broker version older than 0.10.0.0,
 // the value of kafka_api_version_request should be false, and the
@@ -897,14 +879,6 @@ DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
-DEFINE_Int32(concurrency_per_dir, "2");
-// file_cache_type is used to set the type of file cache for remote files.
-// "": no cache, "sub_file_cache": split sub files from remote file.
-// "whole_file_cache": the whole file.
-DEFINE_mString(file_cache_type, "file_block_cache");
-DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
-    return config.empty() || config == "file_block_cache";
-});
 
 DEFINE_String(tmp_file_dir, "tmp");
 
@@ -1638,15 +1612,24 @@ void update_config(const std::string& field, const std::string& value) {
 
 Status set_fuzzy_configs() {
     std::unordered_map<std::string, std::string> fuzzy_field_and_value;
+    std::shared_ptr<std::mt19937_64> generator(new std::mt19937_64());
+    generator->seed(std::random_device()());
+    std::uniform_int_distribution<int64_t> distribution(0, 100);
 
     // if have set enable_fuzzy_mode=true in be.conf, will fuzzy those field and values
-    fuzzy_field_and_value["disable_storage_page_cache"] = ((rand() % 2) == 0) ? "true" : "false";
-    fuzzy_field_and_value["enable_system_metrics"] = ((rand() % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["disable_storage_page_cache"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_system_metrics"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_set_in_bitmap_value"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_shrink_memory"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
 
     fmt::memory_buffer buf;
-    for (auto it = fuzzy_field_and_value.begin(); it != fuzzy_field_and_value.end(); it++) {
-        const auto& field = it->first;
-        const auto& value = it->second;
+    for (auto& it : fuzzy_field_and_value) {
+        const auto& field = it.first;
+        const auto& value = it.second;
         RETURN_IF_ERROR(set_config(field, value, false, true));
         fmt::format_to(buf, "{}={}, ", field, value);
     }
