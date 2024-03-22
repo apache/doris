@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -386,41 +385,19 @@ public class BindExpression implements AnalysisRuleFactory {
             }
             Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
 
-            Supplier<Pair<Scope, Scope>> separateAggOutputScopes = Suppliers.memoize(() -> {
-                ImmutableList.Builder<Slot> groupByOutputs = ImmutableList.builderWithExpectedSize(
-                        aggregate.getOutputExpressions().size());
-                ImmutableList.Builder<Slot> aggFunOutputs = ImmutableList.builderWithExpectedSize(
-                        aggregate.getOutputExpressions().size());
-                for (NamedExpression outputExpression : aggregate.getOutputExpressions()) {
-                    if (outputExpression.anyMatch(AggregateFunction.class::isInstance)) {
-                        aggFunOutputs.add(outputExpression.toSlot());
-                    } else {
-                        groupByOutputs.add(outputExpression.toSlot());
-                    }
-                }
-                Scope nonAggFunSlotsScope = toScope(cascadesContext, groupByOutputs.build());
-                Scope aggFuncSlotsScope = toScope(cascadesContext, aggFunOutputs.build());
-                return Pair.of(nonAggFunSlotsScope, aggFuncSlotsScope);
-            });
-
             return (analyzer, unboundSlot) -> {
                 List<Slot> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
-                if (boundInGroupBy.size() == 1) {
-                    return boundInGroupBy;
+                if (!boundInGroupBy.isEmpty()) {
+                    return ImmutableList.of(boundInGroupBy.get(0));
                 }
 
-                Pair<Scope, Scope> separateAggOutputScope = separateAggOutputScopes.get();
-                List<Slot> boundInNonAggFuncs = analyzer.bindSlotByScope(unboundSlot, separateAggOutputScope.first);
-                if (boundInNonAggFuncs.size() == 1) {
-                    return boundInNonAggFuncs;
+                List<Slot> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
+                if (!boundInAggOutput.isEmpty()) {
+                    return ImmutableList.of(boundInAggOutput.get(0));
                 }
 
-                List<Slot> boundInAggFuncs = analyzer.bindSlotByScope(unboundSlot, separateAggOutputScope.second);
-                if (boundInAggFuncs.size() == 1) {
-                    return boundInAggFuncs;
-                }
-
-                return bindByAggChild.get().bindSlot(analyzer, unboundSlot);
+                List<? extends Expression> expressions = bindByAggChild.get().bindSlot(analyzer, unboundSlot);
+                return expressions.isEmpty() ? expressions : ImmutableList.of(expressions.get(0));
             };
         });
 
