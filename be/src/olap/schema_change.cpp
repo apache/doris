@@ -621,7 +621,6 @@ Result<std::pair<RowsetSharedPtr, PendingRowsetGuard>> VSchemaChangeWithSorting:
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet_schema;
-    context.original_tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     std::unique_ptr<RowsetWriter> rowset_writer;
@@ -1082,7 +1081,6 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = sc_params.new_tablet_schema;
-        context.original_tablet_schema = sc_params.new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
