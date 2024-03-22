@@ -160,32 +160,32 @@ suite("partition_mv_rewrite_dimension_2_right_semi_join") {
 
     def mv_stmt_1 = """select  t.o_orderkey, t.o_orderdate, t.o_custkey
         from lineitem_2_right_semi_join  
-        right semi join (select o_orderdate,o_orderkey from orders_2_right_semi_join where o_orderdate = '2023-10-17' ) t 
+        right semi join (select o_orderdate, o_orderkey, o_custkey from orders_2_right_semi_join where o_orderdate = '2023-10-17' ) t 
         on lineitem_2_right_semi_join.l_orderkey = t.o_orderkey"""
 
     def mv_stmt_2 = """select o_orderkey, o_orderdate, o_custkey 
         from lineitem_2_right_semi_join  
         right semi join orders_2_right_semi_join 
         on lineitem_2_right_semi_join.l_orderkey = orders_2_right_semi_join.o_orderkey 
-        where l_shipdate = '2023-10-17'"""
+        where o_orderdate = '2023-10-17'"""
 
-    def mv_stmt_6 = """select t.l_shipdate, t.l_partkey, t.l_suppkey 
+    def mv_stmt_3 = """select t.l_shipdate, t.l_partkey, t.l_suppkey 
         from orders_2_right_semi_join 
         right semi join  (select l_shipdate, l_orderkey, l_partkey, l_suppkey  from lineitem_2_right_semi_join  where l_shipdate = '2023-10-17') t 
         on t.l_orderkey = orders_2_right_semi_join.o_orderkey"""
 
-    def mv_stmt_7 = """select l_shipdate, l_partkey, l_suppkey
+    def mv_stmt_4 = """select l_shipdate, l_partkey, l_suppkey
         from (select o_orderkey, o_orderdate, o_custkey from orders_2_right_semi_join where o_orderdate = '2023-10-17' ) t 
         right semi join lineitem_2_right_semi_join   
         on lineitem_2_right_semi_join.l_orderkey = t.o_orderkey"""
 
-    def mv_stmt_9 = """select l_shipdate, l_partkey, l_suppkey   
+    def mv_stmt_5 = """select l_shipdate, l_partkey, l_suppkey   
         from orders_2_right_semi_join 
         right semi join lineitem_2_right_semi_join  
         on lineitem_2_right_semi_join.l_orderkey = orders_2_right_semi_join.o_orderkey 
-        where o_orderdate = '2023-10-17'  """
+        where l_shipdate = '2023-10-17'  """
 
-    def mv_list_1 = [mv_stmt_0, mv_stmt_1, mv_stmt_2, mv_stmt_6, mv_stmt_7, mv_stmt_9]
+    def mv_list_1 = [mv_stmt_0, mv_stmt_1, mv_stmt_2, mv_stmt_3, mv_stmt_4, mv_stmt_5]
     def order_by_stmt = " order by 1,2,3"
     for (int i = 0; i < mv_list_1.size(); i++) {
         logger.info("i:" + i)

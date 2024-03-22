@@ -278,7 +278,7 @@ suite("partition_mv_rewrite_dimension_2_full_join") {
         } else if (i == 2) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [0, 2, 4, 5, 6, 8, 10, 11]) {
+                if (j in [2, 4, 5, 8, 10, 11]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
@@ -294,7 +294,7 @@ suite("partition_mv_rewrite_dimension_2_full_join") {
         } else if (i == 3) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [1, 3, 4, 5, 7, 9, 10, 11]) {
+                if (j in [3, 4, 5, 9, 10, 11]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
@@ -374,7 +374,7 @@ suite("partition_mv_rewrite_dimension_2_full_join") {
         } else if (i == 8) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [0, 2, 4, 5, 6, 8, 10, 11]) {
+                if (j in [2, 4, 5, 8, 10, 11]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
@@ -390,7 +390,7 @@ suite("partition_mv_rewrite_dimension_2_full_join") {
         } else if (i == 9) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [1, 3, 4, 5, 7, 9, 10, 11]) {
+                if (j in [3, 4, 5, 9, 10, 11]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"

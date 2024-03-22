@@ -152,6 +152,41 @@ suite("partition_mv_rewrite_dimension_2_right_join") {
         }
     }
 
+    def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_2_right_join.o_orderkey 
+        from orders_2_right_join 
+        right join  (select l_shipdate, l_orderkey, l_partkey, l_suppkey  from lineitem_2_right_join  where l_shipdate = '2023-10-17') t 
+        on t.l_orderkey = orders_2_right_join.o_orderkey"""
+
+    def mv_stmt_1 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey 
+        from (select o_orderdate, o_orderkey from orders_2_right_join where o_orderdate = '2023-10-17' ) t 
+        right join lineitem_2_right_join   
+        on lineitem_2_right_join.l_orderkey = t.o_orderkey"""
+
+    def mv_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_2_right_join.o_orderkey 
+        from orders_2_right_join  
+        right join lineitem_2_right_join  
+        on lineitem_2_right_join.l_orderkey = orders_2_right_join.o_orderkey 
+        where l_shipdate = '2023-10-17' """
+
+    def mv_stmt_3 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_2_right_join.o_orderkey 
+        from orders_2_right_join 
+        right join lineitem_2_right_join  
+        on lineitem_2_right_join.l_orderkey = orders_2_right_join.o_orderkey 
+        where o_orderdate = '2023-10-17'  """
+
+    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_2_right_join.o_orderkey  
+        from orders_2_right_join 
+        right join  lineitem_2_right_join  
+        on lineitem_2_right_join.l_orderkey = orders_2_right_join.o_orderkey 
+        where l_shipdate = '2023-10-17'  and o_orderdate = '2023-10-17'  """
+
+    def mv_stmt_5 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_2_right_join.o_orderkey 
+        from orders_2_right_join  
+        right join lineitem_2_right_join  
+        on lineitem_2_right_join.l_orderkey = orders_2_right_join.o_orderkey
+        where l_shipdate = '2023-10-17'  and o_orderdate = '2023-10-17'   
+        and o_orderkey = 1"""
+
     // right join + filter on different position
     def mv_stmt_6 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_2_right_join.o_orderkey 
         from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem_2_right_join where l_shipdate = '2023-10-17') t
@@ -188,40 +223,6 @@ suite("partition_mv_rewrite_dimension_2_right_join") {
         where l_shipdate = '2023-10-17'  and o_orderdate = '2023-10-17'  
         and o_orderkey = 1"""
 
-    def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_2_right_join.o_orderkey 
-        from orders_2_right_join 
-        right join  (select l_shipdate, l_orderkey, l_partkey, l_suppkey  from lineitem_2_right_join  where l_shipdate = '2023-10-17') t 
-        on t.l_orderkey = orders_2_right_join.o_orderkey"""
-
-    def mv_stmt_1 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey 
-        from (select o_orderdate, o_orderkey from orders_2_right_join where o_orderdate = '2023-10-17' ) t 
-        right join lineitem_2_right_join   
-        on lineitem_2_right_join.l_orderkey = t.o_orderkey"""
-
-    def mv_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_2_right_join.o_orderkey 
-        from orders_2_right_join  
-        right join lineitem_2_right_join  
-        on lineitem_2_right_join.l_orderkey = orders_2_right_join.o_orderkey 
-        where l_shipdate = '2023-10-17' """
-
-    def mv_stmt_3 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_2_right_join.o_orderkey 
-        from orders_2_right_join 
-        right join lineitem_2_right_join  
-        on lineitem_2_right_join.l_orderkey = orders_2_right_join.o_orderkey 
-        where o_orderdate = '2023-10-17'  """
-
-    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_2_right_join.o_orderkey  
-        from orders_2_right_join 
-        right join  lineitem_2_right_join  
-        on lineitem_2_right_join.l_orderkey = orders_2_right_join.o_orderkey 
-        where l_shipdate = '2023-10-17'  and o_orderdate = '2023-10-17'  """
-
-    def mv_stmt_5 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_2_right_join.o_orderkey 
-        from orders_2_right_join  
-        right join lineitem_2_right_join  
-        on lineitem_2_right_join.l_orderkey = orders_2_right_join.o_orderkey
-        where l_shipdate = '2023-10-17'  and o_orderdate = '2023-10-17'   
-        and o_orderkey = 1"""
     def mv_list_1 = [mv_stmt_0, mv_stmt_1, mv_stmt_2, mv_stmt_3, mv_stmt_4, mv_stmt_5, mv_stmt_6,
                      mv_stmt_7, mv_stmt_8, mv_stmt_9, mv_stmt_10, mv_stmt_11]
     for (int i = 0; i < mv_list_1.size(); i++) {
@@ -334,7 +335,7 @@ suite("partition_mv_rewrite_dimension_2_right_join") {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 // 5, 11 should be success but not now, should support in the future by equivalence class
-                if (j in [4, 6, 8, 10]) {
+                if (j in [4, 5, 6, 8, 10, 11]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
