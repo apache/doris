@@ -32,10 +32,10 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/sync_point.h"
+#include "meta-service/meta_service_tablet_stats.h"
 #include "meta-service/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
-#include "meta-service/meta_service_tablet_stats.h"
 
 namespace doris::cloud {
 
@@ -615,16 +615,18 @@ private:
             MetaServiceCode code = resp->status().code();
             if (code != MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE &&
                 code != MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE &&
-                code != MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE) {
+                code != MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE &&
+                (!config::enable_retry_txn_conflict || code != MetaServiceCode::KV_TXN_CONFLICT)) {
                 return;
             }
 
             TEST_SYNC_POINT("MetaServiceProxy::call_impl:2");
             if (--retry_times < 0) {
                 resp->mutable_status()->set_code(
-                        code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE ? KV_TXN_COMMIT_ERR
-                        : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE  ? KV_TXN_GET_ERR
-                                                                               : KV_TXN_CREATE_ERR);
+                        code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
+                        : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
+                        : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
+                                                                                 : code);
                 return;
             }
 
