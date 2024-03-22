@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
+import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -41,6 +42,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -568,7 +570,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         this.instanceStatus = instanceStatus;
     }
 
-    public static void waitForAutoStartCurrentCluster() throws DdlException {
+    public void waitForAutoStartCurrentCluster() throws DdlException {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             String cloudCluster = context.getCloudCluster();
@@ -578,10 +580,78 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public static void waitForAutoStart(final String clusterName) throws DdlException {
-        // TODO(merge-cloud): merge from cloud.
-        // throw new DdlException("Env.waitForAutoStart unimplemented");
-    }
+    public void waitForAutoStart(final String clusterName) throws DdlException {
+        if (Strings.isNullOrEmpty(clusterName)) {
+            LOG.warn("auto start in cloud mode, but clusterName empty {}", clusterName);
+            return;
+        }
+        String clusterStatus = getCloudStatusByName(clusterName);
+        if (Strings.isNullOrEmpty(clusterStatus)) {
+            // for cluster rename or cluster dropped
+            LOG.warn("cant find clusterStatus in fe, clusterName {}", clusterName);
+            return;
+        }
+        // nofity ms -> wait for clusterStatus to normal
+        LOG.debug("auto start wait cluster {} status {}-{}", clusterName, clusterStatus,
+                ClusterStatus.valueOf(clusterStatus));
+        if (ClusterStatus.valueOf(clusterStatus) != ClusterStatus.NORMAL) {
+            Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
+            builder.setCloudUniqueId(Config.cloud_unique_id);
+            builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
 
+            Cloud.ClusterPB.Builder clusterBuilder = Cloud.ClusterPB.newBuilder();
+            clusterBuilder.setClusterId(getCloudClusterIdByName(clusterName));
+            clusterBuilder.setClusterStatus(ClusterStatus.TO_RESUME);
+            builder.setCluster(clusterBuilder);
+
+            Cloud.AlterClusterResponse response;
+            try {
+                response = MetaServiceProxy.getInstance().alterCluster(builder.build());
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                    LOG.warn("notify to resume cluster not ok, cluster {}, response: {}", clusterName, response);
+                }
+                LOG.info("notify to resume cluster {}, response: {} ", clusterName, response);
+            } catch (RpcException e) {
+                LOG.warn("failed to notify to resume cluster {}", clusterName, e);
+                throw new DdlException("notify to resume cluster not ok");
+            }
+        }
+        // wait 15 mins?
+        int retryTimes = 15 * 60;
+        int retryTime = 0;
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        boolean hasAutoStart = false;
+        while (!String.valueOf(ClusterStatus.NORMAL).equals(clusterStatus)
+            && retryTime < retryTimes) {
+            hasAutoStart = true;
+            ++retryTime;
+            // sleep random millis [0.5, 1] s
+            int randomSeconds =  500 + (int) (Math.random() * (1000 - 500));
+            LOG.info("change cluster retry times {}, wait randomMillis: {}, current status: {}",
+                    retryTime, randomSeconds, clusterStatus);
+            try {
+                if (retryTime > retryTimes / 2) {
+                    // sleep random millis [1, 1.5] s
+                    randomSeconds =  1000 + (int) (Math.random() * (1000 - 500));
+                }
+                Thread.sleep(randomSeconds);
+            } catch (InterruptedException e) {
+                LOG.info("change cluster sleep wait InterruptedException: ", e);
+            }
+            clusterStatus = getCloudStatusByName(clusterName);
+        }
+        if (retryTime >= retryTimes) {
+            // auto start timeout
+            stopWatch.stop();
+            LOG.warn("auto start cluster {} timeout, wait {} ms", clusterName, stopWatch.getTime());
+            throw new DdlException("auto start cluster timeout");
+        }
+
+        stopWatch.stop();
+        if (hasAutoStart) {
+            LOG.info("auto start cluster {}, start cost {} ms", clusterName, stopWatch.getTime());
+        }
+    }
 
 }
