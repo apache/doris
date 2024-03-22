@@ -90,15 +90,18 @@ exit_flag="$?"
 echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
     check_if_need_gcore "${exit_flag}"
-    if file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
+    if core_file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
+        reporting_build_problem "coredump"
         print_doris_fe_log
         print_doris_be_log
-        upload_doris_log_to_oss "${file_name}"
     fi
     stop_doris
-    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
-        upload_doris_log_to_oss "${file_name}"
+    if log_file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
+        if log_info="$(upload_doris_log_to_oss "${log_file_name}")"; then
+            reporting_messages_error "${log_info}"
+        fi
     fi
+    if core_info="$(upload_doris_log_to_oss "${core_file_name}")"; then reporting_messages_error "${core_info}"; fi
 fi
 
 exit "${exit_flag}"
