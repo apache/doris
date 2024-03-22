@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -44,6 +45,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -249,6 +251,34 @@ public class ExpressionUtils {
             return Optional.of((Slot) expr);
         } else {
             return Optional.empty();
+        }
+    }
+
+    /**
+     * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
+     */
+    public static Map<Slot, Expression> generateReplaceMap(List<NamedExpression> namedExpressions) {
+        ImmutableMap.Builder<Slot, Expression> replaceMap = ImmutableMap.builderWithExpectedSize(
+                namedExpressions.size() * 2);
+        for (NamedExpression namedExpression : namedExpressions) {
+            if (namedExpression instanceof Alias) {
+                // Avoid cast to alias, retrieving the first child expression.
+                replaceMap.put(namedExpression.toSlot(), namedExpression.child(0));
+            }
+        }
+        return replaceMap.build();
+    }
+
+    /**
+     * replace NameExpression.
+     */
+    public static NamedExpression replaceNameExpression(NamedExpression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        Expression newExpr = replace(expr, replaceMap);
+        if (newExpr instanceof NamedExpression) {
+            return (NamedExpression) newExpr;
+        } else {
+            return new Alias(expr.getExprId(), newExpr, expr.getName());
         }
     }
 
