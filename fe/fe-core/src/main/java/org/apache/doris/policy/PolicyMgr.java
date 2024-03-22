@@ -292,7 +292,7 @@ public class PolicyMgr implements Writable {
                     return;
                 }
                 rowPolicy.setCtlName(InternalCatalog.INTERNAL_CATALOG_NAME);
-                rowPolicy.setDbName(db.get().getName());
+                rowPolicy.setDbName(db.get().getFullName());
                 rowPolicy.setTableName(table.get().getName());
             }
         }
@@ -330,7 +330,7 @@ public class PolicyMgr implements Writable {
                 return;
             }
             log.setCtlName(InternalCatalog.INTERNAL_CATALOG_NAME);
-            log.setDbName(db.get().getName());
+            log.setDbName(db.get().getFullName());
             log.setTableName(table.get().getName());
         }
         unprotectedDrop(log);
@@ -545,7 +545,7 @@ public class PolicyMgr implements Writable {
                         continue;
                     }
                     rowPolicy.setCtlName(InternalCatalog.INTERNAL_CATALOG_NAME);
-                    rowPolicy.setDbName(db.get().getName());
+                    rowPolicy.setDbName(db.get().getFullName());
                     rowPolicy.setTableName(table.get().getName());
                 }
                 compatiblePolicies.add(rowPolicy);
