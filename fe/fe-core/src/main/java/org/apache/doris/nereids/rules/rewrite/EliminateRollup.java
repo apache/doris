@@ -44,7 +44,7 @@ public class EliminateRollup implements RewriteRuleFactory {
             LogicalAggregate agg = (LogicalAggregate) filter.child();
             LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) agg.child().child(0);
             // check rollup only have one parameter, which grouping sets would be 2
-            if (repeat.getGroupingSets().size() > 2) {
+            if (repeat.getGroupingSets().size() != 2 || !repeat.getGroupingSets().get(1).isEmpty()) {
                 return null;
             }
             Set<Expression> groupNotNull = ExpressionUtils.inferNotNull(
@@ -84,7 +84,7 @@ public class EliminateRollup implements RewriteRuleFactory {
         logicalAggregate(logicalProject(logicalRepeat())).thenApply(ctx -> {
             LogicalAggregate agg = ctx.root;
             LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) agg.child().child(0);
-            if (repeat.getGroupingSets().size() > 2) {
+            if (repeat.getGroupingSets().size() != 2 || !repeat.getGroupingSets().get(1).isEmpty()) {
                 return null;
             }
             Expression groupingExpr = repeat.getGroupingSets().get(0).get(0);
@@ -92,7 +92,6 @@ public class EliminateRollup implements RewriteRuleFactory {
                 return null;
             }
 
-            assert (repeat.getGroupingSets().size() == 2);
             ImmutableList.Builder<NamedExpression> newOutput = ImmutableList.builder();
             for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
                 NamedExpression expr = (NamedExpression) agg.getOutputExpressions().get(i);
