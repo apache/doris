@@ -58,6 +58,13 @@ suite("test_null_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_1"))
     assertTrue(showPartitionsResult.toString().contains("p_NULL"))
 
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    def jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+
     order_qt_list_null "SELECT * FROM ${mvName} partitions(p_NULL) order by user_id,num"
     order_qt_list_1 "SELECT * FROM ${mvName} partitions(p_1) order by user_id,num"
 
