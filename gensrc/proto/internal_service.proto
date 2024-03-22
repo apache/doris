@@ -819,6 +819,7 @@ message POpenLoadStreamRequest {
     optional bool enable_profile = 6 [default = false];
     optional int64 total_streams = 7;
     optional int64 idle_timeout_ms = 8;
+    optional string storage_vault_id = 9;
 }
 
 message PTabletSchemaWithIndex {

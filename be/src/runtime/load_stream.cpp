@@ -71,7 +71,7 @@ inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_s
 }
 
 Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
-                          int64_t partition_id) {
+                          int64_t partition_id, const std::string& storage_vault_id) {
     WriteRequest req {
             .tablet_id = _id,
             .txn_id = _txn_id,
@@ -79,6 +79,7 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
             .partition_id = partition_id,
             .load_id = _load_id,
             .table_schema_param = schema,
+            .storage_vault_id = storage_vault_id,
             // TODO(plat1ko): write_file_cache
     };
 
@@ -293,7 +294,7 @@ Status IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, in
     tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _load_stream_mgr,
                                                    _profile);
     _tablet_streams_map[tablet_id] = tablet_stream;
-    RETURN_IF_ERROR(tablet_stream->init(_schema, _id, partition_id));
+    RETURN_IF_ERROR(tablet_stream->init(_schema, _id, partition_id, storage_vault_id));
     return Status::OK();
 }
 
@@ -346,7 +347,8 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
     RETURN_IF_ERROR(_schema->init(request->schema()));
     for (auto& index : request->schema().indexes()) {
         _index_streams_map[index.id()] = std::make_shared<IndexStream>(
-                _load_id, index.id(), _txn_id, _schema, _load_stream_mgr, _profile.get());
+                _load_id, index.id(), _txn_id, _schema, _load_stream_mgr, _profile.get(),
+                request->storage_vault_id());
     }
     LOG(INFO) << "succeed to init load stream " << *this;
     return Status::OK();

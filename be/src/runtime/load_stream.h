@@ -48,7 +48,7 @@ public:
                  RuntimeProfile* profile);
 
     Status init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
-                int64_t partition_id);
+                int64_t partition_id, const std::string& storage_vault_id);
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
@@ -80,7 +80,7 @@ class IndexStream {
 public:
     IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
                 std::shared_ptr<OlapTableSchemaParam> schema, LoadStreamMgr* load_stream_mgr,
-                RuntimeProfile* profile);
+                RuntimeProfile* profile, std::string storage_vault_id);
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
 
@@ -103,6 +103,7 @@ private:
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
+    std::string storage_vault_id;
 };
 using IndexStreamSharedPtr = std::shared_ptr<IndexStream>;
 
