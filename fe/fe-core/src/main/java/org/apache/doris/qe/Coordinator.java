@@ -3114,7 +3114,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status;
+                                Status status = new Status();
                                 status.setPstatus(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
@@ -3300,7 +3300,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status;
+                                Status status = new Status();
                                 status.setPstatus(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
@@ -3365,7 +3365,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status;
+                                Status status = new Status();
                                 status.setPstatus(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
