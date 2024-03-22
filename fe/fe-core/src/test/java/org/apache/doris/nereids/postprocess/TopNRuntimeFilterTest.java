@@ -58,11 +58,11 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
         plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        Assertions.assertInstanceOf(PhysicalTopN.class, plan.child(0).child(0).child(1).child(0));
+        Assertions.assertInstanceOf(PhysicalTopN.class, plan.child(0).child(1).child(0));
         Assertions.assertEquals(SortPhase.LOCAL_SORT, ((PhysicalTopN<? extends Plan>) plan
-                .child(0).child(0).child(1).child(0)).getSortPhase());
+                .child(0).child(1).child(0)).getSortPhase());
         PhysicalTopN<? extends Plan> localTopN = (PhysicalTopN<? extends Plan>) plan
-                .child(0).child(0).child(1).child(0);
+                .child(0).child(1).child(0);
         Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
     }
 

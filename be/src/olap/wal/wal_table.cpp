@@ -321,7 +321,10 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
 Status WalTable::_read_wal_header(const std::string& wal_path, std::string& columns) {
     std::shared_ptr<doris::WalReader> wal_reader = std::make_shared<WalReader>(wal_path);
     RETURN_IF_ERROR(wal_reader->init());
-    RETURN_IF_ERROR(wal_reader->read_header(columns));
+    uint32_t version = 0;
+    RETURN_IF_ERROR(wal_reader->read_header(version, columns));
+    VLOG_DEBUG << "wal=" << wal_path << ",version=" << std::to_string(version)
+               << ",columns=" << columns;
     RETURN_IF_ERROR(wal_reader->finalize());
     return Status::OK();
 }

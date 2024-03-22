@@ -26,6 +26,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.JdbcIdentifierMapping;
 
 import com.alibaba.druid.pool.DruidDataSource;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import lombok.Data;
 import lombok.Getter;
@@ -44,6 +45,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 @Getter
@@ -218,23 +220,22 @@ public abstract class JdbcClient {
      */
     public List<String> getDatabaseNameList() {
         Connection conn = getConnection();
-        Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
-        }
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            stmt = conn.createStatement();
-            String sql = getDatabaseQuery();
-            rs = stmt.executeQuery(sql);
-            while (rs.next()) {
-                remoteDatabaseNames.add(rs.getString(1));
+            if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+                String currentDatabase = conn.getSchema();
+                remoteDatabaseNames.add(currentDatabase);
+            } else {
+                rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
+                while (rs.next()) {
+                    remoteDatabaseNames.add(rs.getString("TABLE_SCHEM"));
+                }
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
-            close(rs, stmt, conn);
+            close(rs, conn);
         }
         return filterDatabaseNames(remoteDatabaseNames);
     }
@@ -349,21 +350,7 @@ public abstract class JdbcClient {
 
     // protected methods,for subclass to override
     protected String getCatalogName(Connection conn) throws SQLException {
-        return null;
-    }
-
-    protected abstract String getDatabaseQuery();
-
-    protected List<String> getSpecifiedDatabase(Connection conn) {
-        List<String> databaseNames = Lists.newArrayList();
-        try {
-            databaseNames.add(conn.getSchema());
-        } catch (SQLException e) {
-            throw new JdbcClientException("failed to get specified database name from jdbc", e);
-        } finally {
-            close(conn);
-        }
-        return databaseNames;
+        return conn.getCatalog();
     }
 
     protected String[] getTableTypes() {
@@ -400,6 +387,7 @@ public abstract class JdbcClient {
     }
 
     protected List<String> filterDatabaseNames(List<String> remoteDbNames) {
+        Set<String> filterInternalDatabases = getFilterInternalDatabases();
         List<String> filteredDatabaseNames = Lists.newArrayList();
         for (String databaseName : remoteDbNames) {
             if (isOnlySpecifiedDatabase) {
@@ -410,9 +398,18 @@ public abstract class JdbcClient {
                     continue;
                 }
             }
+            if (filterInternalDatabases.contains(databaseName.toLowerCase())) {
+                continue;
+            }
             filteredDatabaseNames.add(databaseName);
         }
         return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(filteredDatabaseNames);
+    }
+
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("information_schema")
+                .build();
     }
 
     protected List<String> filterTableNames(String remoteDbName, List<String> remoteTableNames) {

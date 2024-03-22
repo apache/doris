@@ -23,12 +23,13 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
@@ -42,16 +43,18 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Save policy for filtering data.
  **/
 @Data
-public class RowPolicy extends Policy {
+public class RowPolicy extends Policy implements RowFilterPolicy {
 
     public static final ShowResultSetMetaData ROW_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+                    .addColumn(new Column("CatalogName", ScalarType.createVarchar(100)))
                     .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
                     .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
                     .addColumn(new Column("Type", ScalarType.createVarchar(20)))
@@ -74,10 +77,19 @@ public class RowPolicy extends Policy {
     private String roleName = null;
 
     @SerializedName(value = "dbId")
+    @Deprecated
     private long dbId = -1;
 
     @SerializedName(value = "tableId")
+    @Deprecated
     private long tableId = -1;
+
+    @SerializedName(value = "ctlName")
+    private String ctlName;
+    @SerializedName(value = "dbName")
+    private String dbName;
+    @SerializedName(value = "tableName")
+    private String tableName;
 
     /**
      * PERMISSIVE | RESTRICTIVE, If multiple types exist, the last type prevails.
@@ -123,13 +135,25 @@ public class RowPolicy extends Policy {
         this.wherePredicate = wherePredicate;
     }
 
+    public RowPolicy(long policyId, final String policyName, String ctlName, String dbName, String tableName,
+            UserIdentity user, String roleName,
+            String originStmt, final FilterType filterType, final Expr wherePredicate) {
+        super(policyId, PolicyTypeEnum.ROW, policyName);
+        this.user = user;
+        this.roleName = roleName;
+        this.ctlName = ctlName;
+        this.dbName = dbName;
+        this.tableName = tableName;
+        this.filterType = filterType;
+        this.originStmt = originStmt;
+        this.wherePredicate = wherePredicate;
+    }
+
     /**
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
-        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
-        Table table = database.getTableOrAnalysisException(this.tableId);
-        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
+        return Lists.newArrayList(this.policyName, ctlName, dbName, tableName, this.type.name(),
                 this.filterType.name(), this.wherePredicate.toSql(),
                 this.user == null ? null : this.user.getQualifiedUser(), this.roleName, this.originStmt);
     }
@@ -156,11 +180,12 @@ public class RowPolicy extends Policy {
                 this.filterType, this.wherePredicate);
     }
 
-    private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type,
+    private boolean checkMatched(String ctlName, String dbName, String tableName, PolicyTypeEnum type,
             String policyName, UserIdentity user, String roleName) {
         return super.checkMatched(type, policyName)
-                && (dbId == -1 || dbId == this.dbId)
-                && (tableId == -1 || tableId == this.tableId)
+                && (StringUtils.isEmpty(ctlName) || StringUtils.equals(ctlName, this.ctlName))
+                && (StringUtils.isEmpty(dbName) || StringUtils.equals(dbName, this.dbName))
+                && (StringUtils.isEmpty(tableName) || StringUtils.equals(tableName, this.tableName))
                 && (StringUtils.isEmpty(roleName) || StringUtils.equals(roleName, this.roleName))
                 && (user == null || Objects.equals(user, this.user));
     }
@@ -171,13 +196,15 @@ public class RowPolicy extends Policy {
             return false;
         }
         RowPolicy rowPolicy = (RowPolicy) checkedPolicyCondition;
-        return checkMatched(rowPolicy.getDbId(), rowPolicy.getTableId(), rowPolicy.getType(),
+        return checkMatched(rowPolicy.getCtlName(), rowPolicy.getDbName(), rowPolicy.getTableName(),
+                rowPolicy.getType(),
                 rowPolicy.getPolicyName(), rowPolicy.getUser(), rowPolicy.getRoleName());
     }
 
     @Override
     public boolean matchPolicy(DropPolicyLog checkedDropPolicyLogCondition) {
-        return checkMatched(checkedDropPolicyLogCondition.getDbId(), checkedDropPolicyLogCondition.getTableId(),
+        return checkMatched(checkedDropPolicyLogCondition.getCtlName(), checkedDropPolicyLogCondition.getDbName(),
+                checkedDropPolicyLogCondition.getTableName(),
                 checkedDropPolicyLogCondition.getType(), checkedDropPolicyLogCondition.getPolicyName(),
                 checkedDropPolicyLogCondition.getUser(), checkedDropPolicyLogCondition.getRoleName());
     }
@@ -186,4 +213,22 @@ public class RowPolicy extends Policy {
     public boolean isInvalid() {
         return (wherePredicate == null);
     }
+
+    @Override
+    public Expression getFilterExpression() throws AnalysisException {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = getOriginStmt();
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        Optional<Expression> wherePredicate = command.getWherePredicate();
+        if (!wherePredicate.isPresent()) {
+            throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + sql);
+        }
+        return wherePredicate.get();
+    }
+
+    @Override
+    public String getPolicyIdent() {
+        return getPolicyName();
+    }
+
 }

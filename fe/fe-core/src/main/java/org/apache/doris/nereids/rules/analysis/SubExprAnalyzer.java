@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -33,7 +34,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -105,6 +108,20 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasAgg(analyzedResult);
         checkHasNoGroupBy(analyzedResult);
+
+        // if scalar subquery is like select '2024-02-02 00:00:00'
+        // we can just return the constant expr '2024-02-02 00:00:00'
+        if (analyzedResult.getLogicalPlan() instanceof LogicalProject) {
+            LogicalProject project = (LogicalProject) analyzedResult.getLogicalPlan();
+            if (project.child() instanceof LogicalOneRowRelation
+                    && project.getProjects().size() == 1
+                    && project.getProjects().get(0) instanceof Alias) {
+                Alias alias = (Alias) project.getProjects().get(0);
+                if (alias.isConstant()) {
+                    return alias.child();
+                }
+            }
+        }
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
     }

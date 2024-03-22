@@ -38,7 +38,10 @@
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t size) const {
-    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+    if (!doris::is_thread_context_init()) {
+        return;
+    }
+    if (doris::thread_context()->skip_memory_check != 0) {
         return;
     }
     if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
@@ -132,10 +135,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(size_t size) const {
-    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+    if (!doris::is_thread_context_init()) {
         return;
     }
-    if (!doris::is_thread_context_init()) {
+    if (doris::thread_context()->skip_memory_check != 0) {
         return;
     }
     auto st = doris::thread_context()->thread_mem_tracker()->check_limit(size);

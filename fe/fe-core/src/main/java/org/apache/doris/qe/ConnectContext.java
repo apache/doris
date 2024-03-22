@@ -1071,6 +1071,8 @@ public class ConnectContext {
     }
 
     /**
+     * @param updateErr whether set this connect state to error when the returned cluster is null or empty.
+     *
      * @return Returns an available cluster in the following order
      *         1 Use an explicitly specified cluster
      *         2 If no cluster is specified, the user's default cluster is used
@@ -1083,18 +1085,25 @@ public class ConnectContext {
         }
 
         String cluster = null;
+        String choseWay = null;
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
+            choseWay = "use @cluster";
+            LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
+                    cloudCluster, getCurrentUserIdentity(), choseWay);
+            return cluster;
         }
 
         String defaultCluster = getDefaultCloudCluster();
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
-        }
-
-        String authorizedCluster = getAuthorizedCloudCluster();
-        if (!Strings.isNullOrEmpty(authorizedCluster)) {
-            cluster = authorizedCluster;
+            choseWay = "default cluster";
+        } else {
+            String authorizedCluster = getAuthorizedCloudCluster();
+            if (!Strings.isNullOrEmpty(authorizedCluster)) {
+                cluster = authorizedCluster;
+                choseWay = "authorized cluster";
+            }
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
@@ -1105,7 +1114,8 @@ public class ConnectContext {
             }
         } else {
             this.cloudCluster = cluster;
-            LOG.info("finally set context cluster name {} for user {}", cloudCluster, getCurrentUserIdentity());
+            LOG.info("finally set context cluster name {} for user {} with chose way '{}'",
+                    cloudCluster, getCurrentUserIdentity(), choseWay);
         }
 
         return cluster;

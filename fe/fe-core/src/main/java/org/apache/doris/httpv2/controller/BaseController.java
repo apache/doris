@@ -68,7 +68,7 @@ public class BaseController {
             UserIdentity currentUser = checkPassword(authInfo);
 
             if (checkAuth) {
-                checkGlobalAuth(currentUser, PrivPredicate.ADMIN);
+                checkGlobalAuth(currentUser, PrivPredicate.ADMIN_OR_NODE);
             }
 
             SessionValue value = new SessionValue();
@@ -129,7 +129,7 @@ public class BaseController {
         }
 
         if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.ADMIN)) {
+                PrivPredicate.ADMIN_OR_NODE)) {
             // need to check auth and check auth failed
             return null;
         }

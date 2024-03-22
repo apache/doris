@@ -663,6 +663,13 @@ public class StmtExecutor {
                                 + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status"));
                     }
+                    if (context.getSessionVariable().isEnableInsertGroupCommit()) {
+                        // FIXME: Group commit insert does not need to forward to master
+                        //  Nereids does not support group commit, so we can not judge if should forward
+                        //  Here throw an exception to fallback to legacy planner and let legacy judge if should forward
+                        //  After Nereids support group commit, we can remove this exception
+                        throw new NereidsException(new UserException("Nereids does not support group commit insert"));
+                    }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
                         context.setQueryId(masterOpExecutor.getQueryId());
@@ -784,38 +791,39 @@ public class StmtExecutor {
                 // cloud mode retry
                 LOG.debug("due to exception {} retry {} rpc {} user {}",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
-                // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
-                List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
-                            .map(id -> Long.toString(id)).collect(Collectors.toList());
                 String msg = e.getMessage();
                 boolean isNeedRetry = true;
-                if (e instanceof UserException
-                        && msg.contains(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG)) {
+                if (Config.isCloudMode()) {
                     isNeedRetry = false;
-                    Matcher matcher = beIpPattern.matcher(msg);
-                    // here retry planner not be recreated, so
-                    // in cloud mode drop node, be id invalid, so need not retry
-                    // such as be ids [11000, 11001] -> after drop node 11001
-                    // don't need to retry 11001's request
-                    if (matcher.find()) {
-                        String notAliveBe = matcher.group(1);
-                        isNeedRetry = bes.contains(notAliveBe);
-                        if (isNeedRetry) {
-                            Backend abnormalBe = Env.getCurrentSystemInfo().getBackend(Long.parseLong(notAliveBe));
-                            String deadCloudClusterStatus = abnormalBe.getCloudClusterStatus();
-                            String deadCloudClusterClusterName = abnormalBe.getCloudClusterName();
-                            LOG.info("need retry cluster {} status {}-{}", deadCloudClusterClusterName,
-                                    deadCloudClusterStatus, ClusterStatus.valueOf(deadCloudClusterStatus));
-                            if (ClusterStatus.valueOf(deadCloudClusterStatus) != ClusterStatus.NORMAL) {
-                                CloudSystemInfoService.waitForAutoStart(deadCloudClusterClusterName);
+                    // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
+                    List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
+                                .map(id -> Long.toString(id)).collect(Collectors.toList());
+                    if (e instanceof UserException
+                            && msg.contains(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG)) {
+                        Matcher matcher = beIpPattern.matcher(msg);
+                        // here retry planner not be recreated, so
+                        // in cloud mode drop node, be id invalid, so need not retry
+                        // such as be ids [11000, 11001] -> after drop node 11001
+                        // don't need to retry 11001's request
+                        if (matcher.find()) {
+                            String notAliveBe = matcher.group(1);
+                            isNeedRetry = bes.contains(notAliveBe);
+                            if (isNeedRetry) {
+                                Backend abnormalBe = Env.getCurrentSystemInfo().getBackend(Long.parseLong(notAliveBe));
+                                String deadCloudClusterStatus = abnormalBe.getCloudClusterStatus();
+                                String deadCloudClusterClusterName = abnormalBe.getCloudClusterName();
+                                LOG.info("need retry cluster {} status {}", deadCloudClusterClusterName,
+                                        deadCloudClusterStatus);
+                                if (Strings.isNullOrEmpty(deadCloudClusterStatus)
+                                        || ClusterStatus.valueOf(deadCloudClusterStatus) != ClusterStatus.NORMAL) {
+                                    CloudSystemInfoService.waitForAutoStart(deadCloudClusterClusterName);
+                                }
                             }
                         }
                     }
                 }
-                if (i == retryTime - 1 || !isNeedRetry) {
-                    throw e;
-                }
-                if (context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
+                if (i != retryTime - 1 && isNeedRetry
+                        && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
                 } else {
                     throw e;
@@ -2794,7 +2802,10 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.getPartitionNames().size() == 0) {
+            if (iotStmt.isAutoDetectPartition()) {
+                // insert overwrite table auto detect which partitions need to replace
+                handleAutoOverwritePartition(iotStmt);
+            } else if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
             } else {
@@ -2941,6 +2952,26 @@ public class StmtExecutor {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             handleIotPartitionRollback(targetTableName, tempPartitionName);
         }
+    }
+
+    /*
+     * TODO: support insert overwrite auto detect partition in legacy planner
+     */
+    private void handleAutoOverwritePartition(InsertOverwriteTableStmt iotStmt) {
+        // TODO:
+        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
+        try {
+            parsedStmt = new NativeInsertStmt(targetTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true).withAutoDetectOverwrite();
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            execute();
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            handleIotRollback(targetTableName);
+            return;
+        }
+
     }
 
     private void handleIotRollback(TableName table) {

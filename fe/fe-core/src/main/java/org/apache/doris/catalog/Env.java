@@ -446,9 +446,7 @@ public class Env {
 
     private DeployManager deployManager;
 
-    private TabletStatMgr tabletStatMgr;
-
-    private CloudTabletStatMgr cloudTabletStatMgr;
+    private MasterDaemon tabletStatMgr;
 
     private Auth auth;
     private AccessControllerManager accessManager;
@@ -694,8 +692,7 @@ public class Env {
 
         this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
-        this.tabletStatMgr = new TabletStatMgr();
-        this.cloudTabletStatMgr = new CloudTabletStatMgr();
+        this.tabletStatMgr = EnvFactory.getInstance().createTabletStatMgr();
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
@@ -1678,11 +1675,8 @@ public class Env {
     private void startNonMasterDaemonThreads() {
         // start load manager thread
         loadManager.start();
-        if (Config.isNotCloudMode()) {
-            tabletStatMgr.start();
-        } else {
-            cloudTabletStatMgr.start();
-        }
+        tabletStatMgr.start();
+
         // load and export job label cleaner thread
         labelCleaner.start();
         // es repository

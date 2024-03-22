@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -71,12 +72,14 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -199,13 +202,14 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         table.setCreateTime(createTime);
         table.setLastAccessTime(createTime);
         // table.setRetention(0);
-        String location = hiveTable.getProperties().get("external_location");
-        table.setSd(toHiveStorageDesc(hiveTable.getColumns(),
-                hiveTable.getInputFormat(),
-                hiveTable.getOutputFormat(),
-                hiveTable.getSerDe(),
-                location));
-        table.setPartitionKeys(hiveTable.getPartitionKeys());
+        String location = hiveTable.getProperties().get(HiveMetadataOps.LOCATION_URI_KEY);
+        Set<String> partitionSet = new HashSet<>(hiveTable.getPartitionKeys());
+        Pair<List<FieldSchema>, List<FieldSchema>> hiveSchema = toHiveSchema(hiveTable.getColumns(), partitionSet);
+
+        table.setSd(toHiveStorageDesc(hiveSchema.first, hiveTable.getBucketCols(), hiveTable.getNumBuckets(),
+                hiveTable.getFileFormat(), location));
+        table.setPartitionKeys(hiveSchema.second);
+
         // table.setViewOriginalText(hiveTable.getViewSql());
         // table.setViewExpandedText(hiveTable.getViewSql());
         table.setTableType("MANAGED_TABLE");
@@ -213,35 +217,64 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return table;
     }
 
-    private static StorageDescriptor toHiveStorageDesc(List<Column> columns, String inputFormat, String outputFormat,
-                                                       String serDe, String location) {
+    private static StorageDescriptor toHiveStorageDesc(List<FieldSchema> columns,
+                                                       List<String> bucketCols,
+                                                       int numBuckets,
+                                                       String fileFormat,
+                                                       String location) {
         StorageDescriptor sd = new StorageDescriptor();
-        sd.setCols(toHiveColumns(columns));
-        SerDeInfo serDeInfo = new SerDeInfo();
-        serDeInfo.setSerializationLib(serDe);
-        sd.setSerdeInfo(serDeInfo);
-        sd.setInputFormat(inputFormat);
-        sd.setOutputFormat(outputFormat);
+        sd.setCols(columns);
+        setFileFormat(fileFormat, sd);
         if (StringUtils.isNotEmpty(location)) {
             sd.setLocation(location);
         }
+        sd.setBucketCols(bucketCols);
+        sd.setNumBuckets(numBuckets);
         Map<String, String> parameters = new HashMap<>();
         parameters.put("tag", "doris external hive talbe");
         sd.setParameters(parameters);
         return sd;
     }
 
-    private static List<FieldSchema> toHiveColumns(List<Column> columns) {
-        List<FieldSchema> result = new ArrayList<>();
+    private static void setFileFormat(String fileFormat, StorageDescriptor sd) {
+        String inputFormat;
+        String outputFormat;
+        String serDe;
+        if (fileFormat.equalsIgnoreCase("orc")) {
+            inputFormat = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
+            outputFormat = "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat";
+            serDe = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
+        } else if (fileFormat.equalsIgnoreCase("parquet")) {
+            inputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
+            outputFormat = "'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
+            serDe = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
+        } else {
+            throw new IllegalArgumentException("Creating table with an unsupported file format: " + fileFormat);
+        }
+        SerDeInfo serDeInfo = new SerDeInfo();
+        serDeInfo.setSerializationLib(serDe);
+        sd.setSerdeInfo(serDeInfo);
+        sd.setInputFormat(inputFormat);
+        sd.setOutputFormat(outputFormat);
+    }
+
+    private static Pair<List<FieldSchema>, List<FieldSchema>> toHiveSchema(List<Column> columns,
+                Set<String> partitionSet) {
+        List<FieldSchema> hiveCols = new ArrayList<>();
+        List<FieldSchema> hiveParts = new ArrayList<>();
         for (Column column : columns) {
             FieldSchema hiveFieldSchema = new FieldSchema();
             // TODO: add doc, just support doris type
             hiveFieldSchema.setType(HiveMetaStoreClientHelper.dorisTypeToHiveType(column.getType()));
             hiveFieldSchema.setName(column.getName());
             hiveFieldSchema.setComment(column.getComment());
-            result.add(hiveFieldSchema);
+            if (partitionSet.contains(column.getName())) {
+                hiveParts.add(hiveFieldSchema);
+            } else {
+                hiveCols.add(hiveFieldSchema);
+            }
         }
-        return result;
+        return Pair.of(hiveCols, hiveParts);
     }
 
     @Override
@@ -295,6 +328,19 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     @Override
     public List<String> listPartitionNames(String dbName, String tblName) {
         return listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
+    }
+
+    public List<Partition> listPartitions(String dbName, String tblName) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                return ugiDoAs(() -> client.client.listPartitions(dbName, tblName, MAX_LIST_PARTITION_NUM));
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
+        }
     }
 
     @Override

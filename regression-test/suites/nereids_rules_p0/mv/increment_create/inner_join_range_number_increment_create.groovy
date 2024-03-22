@@ -134,7 +134,7 @@ suite("inner_join_range_number_increment_create") {
         """
     }
     def refresh_mv = {
-        sql """refresh MATERIALIZED VIEW ${mv_name}"""
+        sql """refresh MATERIALIZED VIEW ${mv_name} AUTO"""
     }
     def delete_mv = {
         sql """DROP MATERIALIZED VIEW ${mv_name};"""

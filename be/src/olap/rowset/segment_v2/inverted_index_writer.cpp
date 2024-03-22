@@ -28,6 +28,8 @@
 #include <roaring/roaring.hh>
 #include <vector>
 
+#include "io/fs/local_file_system.h"
+
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
@@ -47,11 +49,9 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
@@ -112,27 +112,6 @@ public:
     void close() {
         if (_index_writer) {
             _index_writer->close();
-            if (config::enable_write_index_searcher_cache) {
-                // open index searcher into cache
-                auto mem_tracker =
-                        std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
-                auto index_file_path = _index_file_writer->get_index_file_path(_index_meta);
-                auto index_tmp_dir = _dir->getDirName();
-                InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_path);
-
-                auto* dir = DorisFSDirectoryFactory::getDirectory(_index_file_writer->get_fs(),
-                                                                  index_tmp_dir.c_str());
-                IndexSearcherPtr searcher;
-                auto st = InvertedIndexReader::create_index_searcher(
-                        dir, &searcher, mem_tracker.get(), InvertedIndexReaderType::FULLTEXT);
-                if (UNLIKELY(!st.ok())) {
-                    LOG(ERROR) << "insert inverted index searcher cache error:" << st;
-                    return;
-                }
-                auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
-                        std::move(searcher), mem_tracker->consumption(), UnixMillis());
-                InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
-            }
         }
     }
 
@@ -248,7 +227,7 @@ public:
     }
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
-        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+        auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
         if (lowercase == "true") {
             analyzer->set_lowercase(true);
         } else if (lowercase == "false") {

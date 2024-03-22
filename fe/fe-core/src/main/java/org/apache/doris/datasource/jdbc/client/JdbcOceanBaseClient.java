@@ -59,11 +59,6 @@ public class JdbcOceanBaseClient extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return currentClient.getDatabaseQuery();
-    }
-
-    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         return currentClient.jdbcTypeToDoris(fieldSchema);
     }

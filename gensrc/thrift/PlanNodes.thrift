@@ -794,6 +794,8 @@ struct THashJoinNode {
   11: optional bool is_mark
   12: optional TJoinDistributionType dist_type
   13: optional list<Exprs.TExpr> mark_join_conjuncts
+  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  14: optional bool use_specific_projections
 }
 
 struct TNestedLoopJoinNode {
@@ -815,6 +817,8 @@ struct TNestedLoopJoinNode {
   8: optional list<Exprs.TExpr> join_conjuncts
 
   9: optional list<Exprs.TExpr> mark_join_conjuncts
+  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  10: optional bool use_specific_projections
 }
 
 struct TMergeJoinNode {

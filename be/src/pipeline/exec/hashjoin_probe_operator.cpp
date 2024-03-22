@@ -173,6 +173,9 @@ void HashJoinProbeLocalState::init_for_probe(RuntimeState* state) {
 
 void HashJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     DCHECK(_parent->cast<HashJoinProbeOperatorX>()._is_outer_join);
+    if (!_parent->cast<HashJoinProbeOperatorX>()._use_specific_projections) {
+        return;
+    }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
     auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
     auto& left_null_map = reinterpret_cast<vectorized::ColumnUInt8&>(*p0);
@@ -214,6 +217,7 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
         column_type.column = remove_nullable(column_type.column);
         column_type.type = remove_nullable(column_type.type);
     }
+    _key_columns_holder.clear();
     _probe_block.clear_column_data(_parent->get_child()->row_desc().num_materialized_slots());
 }
 
@@ -374,7 +378,15 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
                                                      vectorized::ColumnRawPtrs& raw_ptrs,
                                                      const std::vector<int>& res_col_ids) {
     auto& shared_state = *_shared_state;
+    auto& p = _parent->cast<HashJoinProbeOperatorX>();
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
+        if (p._should_convert_to_nullable[i]) {
+            _key_columns_holder.emplace_back(
+                    vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
+            raw_ptrs[i] = _key_columns_holder.back().get();
+            continue;
+        }
+
         if (shared_state.is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
@@ -524,6 +536,18 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
                 null_aware ||
                 (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
         conjuncts_index++;
+        const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
+                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+
+        /// If it's right anti join,
+        /// we should convert the probe to nullable if the build side is nullable.
+        /// And if it is 'null safe equal',
+        /// we must make sure the build side and the probe side are both nullable or non-nullable.
+        const bool should_convert_to_nullable =
+                (is_null_safe_equal || _join_op == TJoinOp::RIGHT_ANTI_JOIN) &&
+                !eq_join_conjunct.left.nodes[0].is_nullable &&
+                eq_join_conjunct.right.nodes[0].is_nullable;
+        _should_convert_to_nullable.emplace_back(should_convert_to_nullable);
     }
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
         _probe_ignore_null |= !probe_not_ignore_null[i];

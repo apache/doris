@@ -24,9 +24,10 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -42,17 +43,21 @@ import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,7 +81,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * @return command
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<Long> partitionIds,
-            Map<TableIf, String> tableWithPartKey) {
+            Map<TableIf, String> tableWithPartKey) throws UserException {
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates =
                 constructTableWithPredicates(mv, partitionIds, tableWithPartKey);
@@ -86,9 +91,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         if (plan instanceof Sink) {
             plan = plan.child(0);
         }
-        UnboundTableSink<? extends Plan> sink =
-                new UnboundTableSink<>(mv.getFullQualifiers(), ImmutableList.of(), ImmutableList.of(),
-                        parts, plan);
+        LogicalSink<? extends Plan> sink = UnboundTableSinkCreator.createUnboundTableSink(mv.getFullQualifiers(),
+                ImmutableList.of(), ImmutableList.of(), parts, plan);
         return new UpdateMvByPartitionCommand(sink);
     }
 
@@ -110,11 +114,27 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return builder.build();
     }
 
-    private static Set<Expression> constructPredicates(Set<PartitionItem> partitions, String colName) {
+    /**
+     * construct predicates for partition items, the min key is the min key of range items.
+     * For list partition or less than partition items, the min key is null.
+     */
+    @VisibleForTesting
+    public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, String colName) {
+        Set<Expression> predicates = new HashSet<>();
         UnboundSlot slot = new UnboundSlot(colName);
-        return partitions.stream()
-                .map(item -> convertPartitionItemToPredicate(item, slot))
-                .collect(ImmutableSet.toImmutableSet());
+        if (partitions.isEmpty()) {
+            return Sets.newHashSet(BooleanLiteral.TRUE);
+        }
+        if (partitions.iterator().next() instanceof ListPartitionItem) {
+            for (PartitionItem item : partitions) {
+                predicates.add(convertListPartitionToIn(item, slot));
+            }
+        } else {
+            for (PartitionItem item : partitions) {
+                predicates.add(convertRangePartitionToCompare(item, slot));
+            }
+        }
+        return predicates;
     }
 
     private static Expression convertPartitionKeyToLiteral(PartitionKey key) {
@@ -122,42 +142,48 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 Type.fromPrimitiveType(key.getTypes().get(0)));
     }
 
-    private static Expression convertPartitionItemToPredicate(PartitionItem item, Slot col) {
-        if (item instanceof ListPartitionItem) {
-            List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
-                    .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
-                    .collect(ImmutableList.toImmutableList());
-            List<Expression> predicates = new ArrayList<>();
-            if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
-                inValues = inValues.stream()
-                        .filter(e -> !(e instanceof NullLiteral))
-                        .collect(Collectors.toList());
-                Expression isNullPredicate = new IsNull(col);
-                predicates.add(isNullPredicate);
-            }
-            if (!inValues.isEmpty()) {
-                predicates.add(new InPredicate(col, inValues));
-            }
-            if (predicates.isEmpty()) {
-                return BooleanLiteral.of(true);
-            }
-            return ExpressionUtils.or(predicates);
-        } else {
-            Range<PartitionKey> range = item.getItems();
-            List<Expression> exprs = new ArrayList<>();
-            if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
-                PartitionKey key = range.lowerEndpoint();
-                exprs.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key)));
-            }
-            if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
-                PartitionKey key = range.upperEndpoint();
-                exprs.add(new LessThan(col, convertPartitionKeyToLiteral(key)));
-            }
-            if (exprs.isEmpty()) {
-                return BooleanLiteral.of(true);
-            }
-            return ExpressionUtils.and(exprs);
+    private static Expression convertListPartitionToIn(PartitionItem item, Slot col) {
+        List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
+                .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
+                .collect(ImmutableList.toImmutableList());
+        List<Expression> predicates = new ArrayList<>();
+        if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
+            inValues = inValues.stream()
+                    .filter(e -> !(e instanceof NullLiteral))
+                    .collect(Collectors.toList());
+            Expression isNullPredicate = new IsNull(col);
+            predicates.add(isNullPredicate);
         }
+        if (!inValues.isEmpty()) {
+            predicates.add(new InPredicate(col, inValues));
+        }
+        if (predicates.isEmpty()) {
+            return BooleanLiteral.of(true);
+        }
+        return ExpressionUtils.or(predicates);
+    }
+
+    private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col) {
+        Range<PartitionKey> range = item.getItems();
+        List<Expression> expressions = new ArrayList<>();
+        if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
+            PartitionKey key = range.lowerEndpoint();
+            expressions.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key)));
+        }
+        if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
+            PartitionKey key = range.upperEndpoint();
+            expressions.add(new LessThan(col, convertPartitionKeyToLiteral(key)));
+        }
+        if (expressions.isEmpty()) {
+            return BooleanLiteral.of(true);
+        }
+        Expression predicate = ExpressionUtils.and(expressions);
+        // The partition without can be the first partition of LESS THAN PARTITIONS
+        // The null value can insert into this partition, so we need to add or is null condition
+        if (!range.hasLowerBound()) {
+            predicate = ExpressionUtils.or(predicate, new IsNull(col));
+        }
+        return predicate;
     }
 
     static class PredicateAdder extends DefaultPlanRewriter<Map<TableIf, Set<Expression>>> {

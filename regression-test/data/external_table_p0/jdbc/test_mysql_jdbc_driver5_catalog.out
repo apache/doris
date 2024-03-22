@@ -2,11 +2,21 @@
 -- !sql --
 internal
 
+-- !show_db --
+DORIS
+Doris
+doris
+doris_test
+information_schema
+init_db
+performance_schema
+show_test_do_not_modify
+
 -- !sql --
 internal
 
 -- !sql --
-mysql_jdbc_catalog
+mysql_jdbc5_catalog
 
 -- !ex_tb0 --
 111	abc
@@ -284,10 +294,8 @@ Doris
 doris
 information_schema
 init_db
-mysql
 performance_schema
 show_test_do_not_modify
-sys
 
 -- !specified_database_4 --
 information_schema
@@ -428,10 +436,8 @@ doris_3
 doris_test
 information_schema
 init_db
-mysql
 performance_schema
 show_test_do_not_modify
-sys
 
 -- !sql --
 doris_1

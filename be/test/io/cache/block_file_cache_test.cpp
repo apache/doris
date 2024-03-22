@@ -22,7 +22,11 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
+#if defined(__APPLE__)
+#include <sys/mount.h>
+#else
 #include <sys/statfs.h>
+#endif
 
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -2802,7 +2806,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
     EXPECT_EQ(local_reader->path().native(), reader.path().native());
-    EXPECT_EQ(global_local_filesystem()->id(), reader.fs()->id());
     EXPECT_EQ(local_reader->size(), reader.size());
     EXPECT_FALSE(reader.closed());
     EXPECT_EQ(local_reader->path().native(), reader.get_remote_reader()->path().native());

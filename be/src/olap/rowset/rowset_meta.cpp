@@ -17,6 +17,8 @@
 
 #include "olap/rowset/rowset_meta.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_writer.h"
@@ -207,6 +209,9 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
         for (auto fsize : other.segments_file_size()) {
             _rowset_meta_pb.add_segments_file_size(fsize);
         }
+    }
+    if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
+        set_rowset_state(RowsetStatePB::COMMITTED);
     }
 }
 

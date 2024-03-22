@@ -6071,6 +6071,10 @@ partition_names ::=
     {:
         RESULT = new PartitionNames(true);
     :}
+    | KW_PARTITION LPAREN STAR RPAREN
+    {:
+        RESULT = new PartitionNames(true);
+    :}
     | KW_PARTITIONS KW_WITH KW_RECENT INTEGER_LITERAL:count
     {:
         RESULT = new PartitionNames(count);

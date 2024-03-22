@@ -60,6 +60,8 @@ public:
 
     TopicSubscriber* get_topic_subscriber() { return _topic_subscriber.get(); }
 
+    void stop_report_workers();
+
 private:
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;

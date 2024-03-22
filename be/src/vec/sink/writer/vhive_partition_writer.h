@@ -25,10 +25,14 @@
 #include "vec/runtime/vfile_format_transformer.h"
 
 namespace doris {
+namespace io {
+class FileSystem;
+}
 
 class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
+class THiveColumn;
 
 namespace vectorized {
 
@@ -43,10 +47,10 @@ public:
         TFileType::type file_type;
     };
 
-    VHivePartitionWriter(const TDataSink& t_sink, const std::string partition_name,
+    VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
                          TUpdateMode::type update_mode, const VExprContextSPtrs& output_expr_ctxs,
                          const std::vector<THiveColumn>& columns, WriteInfo write_info,
-                         const std::string file_name, TFileFormatType::type file_format_type,
+                         std::string file_name, TFileFormatType::type file_format_type,
                          TFileCompressType::type hive_compress_type,
                          const std::map<std::string, std::string>& hadoop_conf);
 
@@ -56,7 +60,7 @@ public:
 
     Status write(vectorized::Block& block, IColumn::Filter* filter = nullptr);
 
-    Status close(Status);
+    Status close(const Status& status);
 
     inline size_t written_len() { return _vfile_writer->written_len(); }
 
@@ -87,9 +91,11 @@ private:
     TFileCompressType::type _hive_compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;
 
+    std::shared_ptr<io::FileSystem> _fs;
+
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    std::unique_ptr<doris::io::FileWriter> _file_writer_impl = nullptr;
+    std::unique_ptr<io::FileWriter> _file_writer_impl = nullptr;
     // convert block to parquet/orc/csv format
     std::unique_ptr<VFileFormatTransformer> _vfile_writer = nullptr;
 

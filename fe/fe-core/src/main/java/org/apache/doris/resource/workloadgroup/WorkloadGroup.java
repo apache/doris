@@ -67,13 +67,21 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String MIN_REMOTE_SCAN_THREAD_NUM = "min_remote_scan_thread_num";
 
+    public static final String SPILL_THRESHOLD_LOW_WATERMARK = "spill_threshold_low_watermark";
+
+    public static final String SPILL_THRESHOLD_HIGH_WATERMARK = "spill_threshold_high_watermark";
+
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
             .add(CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).add(MAX_CONCURRENCY)
             .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
-            .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM).build();
+            .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
+            .add(SPILL_THRESHOLD_LOW_WATERMARK).add(SPILL_THRESHOLD_HIGH_WATERMARK).build();
+
+    public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
+    public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
 
     @SerializedName(value = "id")
     private long id;
@@ -119,6 +127,20 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
             this.cpuHardLimit = Integer.parseInt(cpuHardLimitStr);
             this.properties.put(CPU_HARD_LIMIT, cpuHardLimitStr);
+        }
+        if (properties.containsKey(SPILL_THRESHOLD_LOW_WATERMARK)) {
+            String lowWatermarkStr = properties.get(SPILL_THRESHOLD_LOW_WATERMARK);
+            if (lowWatermarkStr.endsWith("%")) {
+                lowWatermarkStr = lowWatermarkStr.substring(0, lowWatermarkStr.length() - 1);
+            }
+            this.properties.put(SPILL_THRESHOLD_LOW_WATERMARK, lowWatermarkStr);
+        }
+        if (properties.containsKey(SPILL_THRESHOLD_HIGH_WATERMARK)) {
+            String highWatermarkStr = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
+            if (highWatermarkStr.endsWith("%")) {
+                highWatermarkStr = highWatermarkStr.substring(0, highWatermarkStr.length() - 1);
+            }
+            this.properties.put(SPILL_THRESHOLD_HIGH_WATERMARK, highWatermarkStr);
         }
         resetQueueProperty(properties);
     }
@@ -252,7 +274,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        MAX_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
+                        MIN_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
             }
         }
 
@@ -284,6 +306,51 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 throw new DdlException(QUEUE_TIMEOUT + " requires a positive integer");
             }
         }
+
+        int lowWaterMark = SPILL_LOW_WATERMARK_DEFAULT_VALUE;
+        if (properties.containsKey(SPILL_THRESHOLD_LOW_WATERMARK)) {
+            String lowVal = properties.get(SPILL_THRESHOLD_LOW_WATERMARK);
+            if (lowVal.endsWith("%")) {
+                lowVal = lowVal.substring(0, lowVal.length() - 1);
+            }
+            try {
+                int intValue = Integer.parseInt(lowVal);
+                if ((intValue < 1 || intValue > 100) && intValue != -1) {
+                    throw new NumberFormatException();
+                }
+                lowWaterMark = intValue;
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        SPILL_THRESHOLD_LOW_WATERMARK
+                                + " must be a positive integer(1 ~ 100) or -1. but input value is "
+                                + lowVal);
+            }
+        }
+
+        int highWaterMark = SPILL_HIGH_WATERMARK_DEFAULT_VALUE;
+        if (properties.containsKey(SPILL_THRESHOLD_HIGH_WATERMARK)) {
+            String highVal = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
+            if (highVal.endsWith("%")) {
+                highVal = highVal.substring(0, highVal.length() - 1);
+            }
+            try {
+                int intValue = Integer.parseInt(highVal);
+                if ((intValue < 1 || intValue > 100)) {
+                    throw new NumberFormatException();
+                }
+                highWaterMark = intValue;
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        SPILL_THRESHOLD_HIGH_WATERMARK + " must be a positive integer(1 ~ 100). but input value is "
+                                + highVal);
+            }
+        }
+
+        if (lowWaterMark > highWaterMark) {
+            throw new DdlException(SPILL_THRESHOLD_HIGH_WATERMARK + "(" + highWaterMark + ") should bigger than "
+                    + SPILL_THRESHOLD_LOW_WATERMARK + "(" + lowWaterMark + ")");
+        }
+
     }
 
     public long getId() {
@@ -323,9 +390,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         row.add(String.valueOf(id));
         row.add(name);
         // skip id,name,running query,waiting query
-        for (int i = 2; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size() - 2; i++) {
+        for (int i = 2; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size(); i++) {
             String key = WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i);
-            if (CPU_HARD_LIMIT.equalsIgnoreCase(key)) {
+            if (CPU_HARD_LIMIT.equals(key)) {
                 String val = properties.get(key);
                 if (StringUtils.isEmpty(val)) { // cpu_hard_limit is not required
                     row.add("0%");
@@ -342,14 +409,32 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 row.add("-1");
             } else if (MAX_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
                 row.add("-1");
-            }  else if (MIN_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
+            } else if (MIN_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
                 row.add("-1");
+            } else if (SPILL_THRESHOLD_LOW_WATERMARK.equals(key)) {
+                String val = properties.get(key);
+                if (StringUtils.isEmpty(val)) {
+                    row.add(SPILL_LOW_WATERMARK_DEFAULT_VALUE + "%");
+                } else if ("-1".equals(val)) {
+                    row.add("-1");
+                } else {
+                    row.add(val + "%");
+                }
+            } else if (SPILL_THRESHOLD_HIGH_WATERMARK.equals(key)) {
+                String val = properties.get(key);
+                if (StringUtils.isEmpty(val)) {
+                    row.add(SPILL_HIGH_WATERMARK_DEFAULT_VALUE + "%");
+                } else {
+                    row.add(val + "%");
+                }
+            } else if (QueryQueue.RUNNING_QUERY_NUM.equals(key)) {
+                row.add(qq == null ? "0" : String.valueOf(qq.getCurrentRunningQueryNum()));
+            } else if (QueryQueue.WAITING_QUERY_NUM.equals(key)) {
+                row.add(qq == null ? "0" : String.valueOf(qq.getCurrentWaitingQueryNum()));
             } else {
                 row.add(properties.get(key));
             }
         }
-        row.add(qq == null ? "0" : String.valueOf(qq.getCurrentRunningQueryNum()));
-        row.add(qq == null ? "0" : String.valueOf(qq.getCurrentWaitingQueryNum()));
         result.addRow(row);
     }
 
@@ -412,6 +497,16 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String minRemoteScanThreadNumStr = properties.get(MIN_REMOTE_SCAN_THREAD_NUM);
         if (minRemoteScanThreadNumStr != null) {
             tWorkloadGroupInfo.setMinRemoteScanThreadNum(Integer.parseInt(minRemoteScanThreadNumStr));
+        }
+
+        String spillLowWatermarkStr = properties.get(SPILL_THRESHOLD_LOW_WATERMARK);
+        if (spillLowWatermarkStr != null) {
+            tWorkloadGroupInfo.setSpillThresholdLowWatermark(Integer.parseInt(spillLowWatermarkStr));
+        }
+
+        String spillHighWatermarkStr = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
+        if (spillHighWatermarkStr != null) {
+            tWorkloadGroupInfo.setSpillThresholdHighWatermark(Integer.parseInt(spillHighWatermarkStr));
         }
 
         TopicInfo topicInfo = new TopicInfo();
