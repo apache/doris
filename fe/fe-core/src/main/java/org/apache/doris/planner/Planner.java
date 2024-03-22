@@ -49,6 +49,8 @@ public abstract class Planner {
 
     protected boolean isBlockQuery = false;
 
+    protected TQueryOptions queryOptions;
+
     public abstract List<ScanNode> getScanNodes();
 
     public abstract void plan(StatementBase queryStmt,
@@ -113,6 +115,10 @@ public abstract class Planner {
 
     public boolean isBlockQuery() {
         return isBlockQuery;
+    }
+
+    public TQueryOptions getQueryOptions() {
+        return queryOptions;
     }
 
     public abstract DescriptorTable getDescTable();
