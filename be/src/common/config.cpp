@@ -1005,6 +1005,7 @@ DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_write_index_searcher_cache, "true");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
+DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
