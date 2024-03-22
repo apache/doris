@@ -103,9 +103,12 @@ public class TopNScanOpt extends PlanPostProcessor {
     }
 
     private OlapScan findScanNodeBySlotReference(Plan root, SlotReference slot, boolean nullsFirst) {
-        // topn-filter cannot be pushed through right outer join if the first orderKey is nulls first
-        if (nullsFirst && root instanceof Join && ((Join) root).getJoinType().isRightOuterJoin()) {
-            return null;
+        // topn-filter cannot be pushed through right/full outer join if the first orderKey is nulls first
+        if (nullsFirst && root instanceof Join) {
+            Join join = (Join) root;
+            if (join.getJoinType().isRightOuterJoin() || join.getJoinType().isFullOuterJoin()) {
+                return null;
+            }
         }
         OlapScan target = null;
         if (root instanceof OlapScan && root.getOutputSet().contains(slot)) {
