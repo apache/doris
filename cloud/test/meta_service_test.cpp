@@ -52,6 +52,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    config::enable_retry_txn_conflict = false;
+
     if (!doris::cloud::init_glog("meta_service_test")) {
         std::cerr << "failed to init glog" << std::endl;
         return -1;
