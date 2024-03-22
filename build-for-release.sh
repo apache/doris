@@ -145,7 +145,7 @@ echo "JAR:  ${OUTPUT_EXT}"
 
 sh build.sh --clean &&
     USE_AVX2="${_USE_AVX2}" sh build.sh &&
-    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool
+    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool --be-extension-ignore avro-scanner
 
 echo "Begin to pack"
 rm -rf "${OUTPUT}"
