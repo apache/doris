@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include <ostream>
+#include <sstream>
 #include <vector>
 
 #include "runtime/descriptors.h"
@@ -70,12 +71,13 @@ const std::string& VTupleIsNullPredicate::expr_name() const {
     return _expr_name;
 }
 
-std::string VTupleIsNullPredicate::debug_string() const {
-    std::stringstream out;
+void VTupleIsNullPredicate::debug_string(std::stringstream& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
     out << "TupleIsNullPredicate(_column_to_check=[";
     out << _column_to_check;
     out << "])";
-    return out.str();
 }
 
 } // namespace doris::vectorized
