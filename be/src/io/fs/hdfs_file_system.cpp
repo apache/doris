@@ -54,14 +54,15 @@ namespace doris::io {
 
 Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(
         const std::map<std::string, std::string>& properties, std::string fs_name, std::string id,
-        RuntimeProfile* profile) {
+        RuntimeProfile* profile, std::string root_path) {
     return HdfsFileSystem::create(parse_properties(properties), std::move(fs_name), std::move(id),
-                                  profile);
+                                  profile, std::move(root_path));
 }
 
 Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(const THdfsParams& hdfs_params,
                                                                std::string fs_name, std::string id,
-                                                               RuntimeProfile* profile) {
+                                                               RuntimeProfile* profile,
+                                                               std::string root_path) {
 #ifdef USE_HADOOP_HDFS
     if (!config::enable_java_support) {
         return ResultError(Status::InternalError(
@@ -69,15 +70,15 @@ Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(const THdfsParams
                 "true."));
     }
 #endif
-    std::shared_ptr<HdfsFileSystem> fs(
-            new HdfsFileSystem(hdfs_params, std::move(fs_name), std::move(id), profile));
+    std::shared_ptr<HdfsFileSystem> fs(new HdfsFileSystem(
+            hdfs_params, std::move(fs_name), std::move(id), profile, std::move(root_path)));
     RETURN_IF_ERROR_RESULT(fs->init());
     return fs;
 }
 
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_name, std::string id,
-                               RuntimeProfile* profile)
-        : RemoteFileSystem("", std::move(id), FileSystemType::HDFS),
+                               RuntimeProfile* profile, std::string root_path)
+        : RemoteFileSystem(root_path, std::move(id), FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
           _fs_name(std::move(fs_name)),
           _profile(profile) {

@@ -1387,6 +1387,8 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
 void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPtr existed_fs) {
     Status st;
     io::RemoteFileSystemSPtr fs;
+    const std::string root_path =
+            param.hdfs_storage_param.__isset.root_path ? param.hdfs_storage_param.root_path : "";
 
     if (!existed_fs) {
         // No such FS instance on BE
