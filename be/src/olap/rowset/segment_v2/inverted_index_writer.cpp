@@ -403,6 +403,7 @@ public:
                 auto end_off = offsets[i + 1];
                 // TODO(Amory).later we use object pool to avoid field creation
                 lucene::document::Field* new_field = nullptr;
+                CL_NS(analysis)::TokenStream* ts = nullptr;
                 for (auto j = start_off; j < end_off; ++j) {
                     if (null_map[j] == 1) {
                         continue;
@@ -422,12 +423,25 @@ public:
                         // TODO. Maybe here has performance problem for large size string.
                         continue;
                     } else {
-                        new_fulltext_field(v->get_data(), v->get_size(), new_field);
+                        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
+                            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
+                            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
+                            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
+                            // in this case stream need to delete after add_document, because the
+                            // stream can not reuse for different field
+                            _char_string_reader->init(v->get_data(), v->get_size(), false);
+                            ts = _analyzer->tokenStream(new_field->name(),
+                                                        _char_string_reader.get());
+                            new_field->setValue(ts);
+                        } else {
+                            new_field_char_value(v->get_data(), v->get_size(), new_field);
+                        }
                         _doc->add(*new_field);
                     }
                 }
                 RETURN_IF_ERROR(add_document());
                 _doc->clear();
+                _CLDELETE(ts);
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
