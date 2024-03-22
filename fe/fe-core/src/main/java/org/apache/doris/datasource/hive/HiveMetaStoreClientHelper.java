@@ -833,15 +833,10 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
+        // if hive config is not ready, then use hadoop kerberos to login
         AuthenticationConfig krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HIVE_KERBEROS_KEYTAB);
-        if (!krbConfig.isValid()) {
-            // if hive config is not ready, then use hadoop kerberos to login
-            krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        }
+                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
         return HadoopUGI.ugiDoAs(krbConfig, action);
     }
 

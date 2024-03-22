@@ -99,10 +99,6 @@ public:
     // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
-    void cancel_instance_unlocked(const TUniqueId& instance_id,
-                                  const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock,
-                                  const std::string& msg = "");
     // Cancel fragment (only pipelineX).
     // {query id fragment} -> PipelineXFragmentContext
     void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
@@ -111,9 +107,6 @@ public:
     // Can be used in both version.
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
-    void cancel_query_unlocked(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                               const std::unique_lock<std::mutex>& state_lock,
-                               const std::string& msg = "");
 
     bool query_is_canceled(const TUniqueId& query_id);
 

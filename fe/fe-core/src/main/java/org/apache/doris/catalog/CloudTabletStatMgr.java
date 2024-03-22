@@ -35,9 +35,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ForkJoinPool;
+import java.util.Map;
+
 
 /*
  * CloudTabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -46,10 +47,8 @@ import java.util.concurrent.ForkJoinPool;
 public class CloudTabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletStatMgr.class);
 
-    private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
-
     // <(dbId, tableId) -> CloudTableStats>
-    private ConcurrentHashMap<Pair<Long, Long>, CloudTableStats> cloudTableStatsMap = new ConcurrentHashMap<>();
+    private volatile Map<Pair<Long, Long>, CloudTableStats> cloudTableStatsMap = new HashMap<>();
 
     public CloudTabletStatMgr() {
         super("cloud tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
@@ -136,7 +135,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
-        ConcurrentHashMap<Pair<Long, Long>, CloudTableStats> newCloudTableStatsMap = new ConcurrentHashMap<>();
+        Map<Pair<Long, Long>, CloudTableStats> newCloudTableStatsMap = new HashMap<>();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -241,7 +240,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
         return response;
     }
 
-    public ConcurrentHashMap<Pair<Long, Long>, CloudTableStats> getCloudTableStatsMap() {
+    public Map<Pair<Long, Long>, CloudTableStats> getCloudTableStatsMap() {
         return this.cloudTableStatsMap;
     }
 

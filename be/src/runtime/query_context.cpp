@@ -165,15 +165,19 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
     _is_cancelled.store(v);
 
     set_ready_to_execute(true);
+    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
         for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
             if (fragment_id == f_id) {
                 continue;
             }
-            if (auto pipeline_ctx = f_context.lock()) {
-                pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
-            }
+            ctx_to_cancel.push_back(f_context);
+        }
+    }
+    for (auto& f_context : ctx_to_cancel) {
+        if (auto pipeline_ctx = f_context.lock()) {
+            pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
         }
     }
     return true;
@@ -181,8 +185,14 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
 
 void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
                                                const std::string& msg) {
-    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-    for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
+    {
+        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+        for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+            ctx_to_cancel.push_back(f_context);
+        }
+    }
+    for (auto& f_context : ctx_to_cancel) {
         if (auto pipeline_ctx = f_context.lock()) {
             pipeline_ctx->cancel(reason, msg);
         }
@@ -192,11 +202,15 @@ void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& 
 Status QueryContext::cancel_pipeline_context(const int fragment_id,
                                              const PPlanFragmentCancelReason& reason,
                                              const std::string& msg) {
-    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-    if (!_fragment_id_to_pipeline_ctx.contains(fragment_id)) {
-        return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
+    std::weak_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel;
+    {
+        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+        if (!_fragment_id_to_pipeline_ctx.contains(fragment_id)) {
+            return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
+        }
+        ctx_to_cancel = _fragment_id_to_pipeline_ctx[fragment_id];
     }
-    if (auto pipeline_ctx = _fragment_id_to_pipeline_ctx[fragment_id].lock()) {
+    if (auto pipeline_ctx = ctx_to_cancel.lock()) {
         pipeline_ctx->cancel(reason, msg);
     }
     return Status::OK();
