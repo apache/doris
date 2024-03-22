@@ -1114,7 +1114,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 return;
             }
             RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
-            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED) {
+            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED
+                        && routineLoadTaskInfo.getTxnStatus() != TransactionStatus.VISIBLE) {
                 // TODO(cmy): Normally, this should not happen. But for safe reason, just pause the job
                 String msg = String.format(
                         "should not happen, we find that task %s is not COMMITTED when handling afterVisble."
