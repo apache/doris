@@ -222,6 +222,7 @@ public class MTMVTask extends AbstractTask {
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         ctx.setExecutor(executor);
         ctx.setQueryId(queryId);
+        ctx.getState().setNereids(true);
         command.run(ctx, executor);
         if (ctx.getState().getStateType() != MysqlStateType.OK) {
             throw new JobException(ctx.getState().getErrorMessage());
