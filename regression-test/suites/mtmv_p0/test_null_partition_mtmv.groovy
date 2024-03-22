@@ -41,7 +41,7 @@ suite("test_null_partition_mtmv") {
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableNameNum} values(1,1),(2,null);
+        insert into ${tableName} values(1,1),(2,null);
         """
 
     sql """
@@ -51,7 +51,7 @@ suite("test_null_partition_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableNameNum};
+            SELECT * FROM ${tableName};
     """
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
