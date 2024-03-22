@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * comparison result of view and query
@@ -127,7 +128,9 @@ public class ComparisonResult {
 
         public ComparisonResult build() {
             Preconditions.checkArgument(valid, "Comparison result must be valid");
-            return new ComparisonResult(queryBuilder.build(), queryAllPulledUpExpressionsBuilder.build(),
+            return new ComparisonResult(queryBuilder.build(),
+                    queryAllPulledUpExpressionsBuilder.build().stream()
+                            .filter(expr -> !expr.isInferred()).collect(Collectors.toList()),
                     viewBuilder.build(), viewNoNullableSlotBuilder.build(), valid, "");
         }
     }

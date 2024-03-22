@@ -484,9 +484,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, cascadesContext);
             if (!valid) {
                 queryStructInfo = queryStructInfo.withPredicates(
-                        queryStructInfo.getPredicates().merge(comparisonResult.getQueryAllPulledUpExpressions().stream()
-                                .filter(expr -> !expr.isInferred())
-                                .collect(Collectors.toSet())));
+                        queryStructInfo.getPredicates().merge(comparisonResult.getQueryAllPulledUpExpressions()));
                 valid = containsNullRejectSlot(requireNoNullableViewSlot,
                         queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, cascadesContext);
             }
