@@ -1789,7 +1789,12 @@ public class SessionVariable implements Serializable, Writable {
                 default:
                     break;
             }
-
+            randomInt = random.nextInt(2);
+            if (randomInt % 2 == 0) {
+                this.enableFoldConstantByBe = false;
+            } else {
+                this.enableFoldConstantByBe = true;
+            }
             this.runtimeFilterType = 1 << randomInt;
             this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
             switch (randomInt) {
