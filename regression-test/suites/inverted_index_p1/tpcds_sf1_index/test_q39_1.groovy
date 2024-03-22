@@ -105,7 +105,6 @@ suite("test_q39_1"){
         AND (inv1.d_moy = 1)
         AND (inv2.d_moy = (1 + 1))
         ORDER BY inv1.w_warehouse_sk ASC, inv1.i_item_sk ASC, inv1.d_moy ASC, inv1.mean ASC, inv1.cov ASC, inv2.d_moy ASC, inv2.mean ASC, inv2.cov ASC
-        set dump_nereids_memo=False;
     """
 
 
