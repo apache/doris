@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -89,7 +90,8 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                  * TODO: is_not_null can also be inferred from A < B and so on
                  */
                 conjunctsChanged |= join.getHashJoinConjuncts().stream()
-                        .map(EqualPredicate.class::cast)
+                        .filter(EqualTo.class::isInstance)
+                        .map(EqualTo.class::cast)
                         .map(equalTo -> JoinUtils.swapEqualToForChildrenOrder(equalTo, join.left().getOutputSet()))
                         .anyMatch(equalTo -> createIsNotNullIfNecessary(equalTo, conjuncts));
 
@@ -97,7 +99,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                         join.left().getOutput(),
                         join.right().getOutput());
                 conjunctsChanged |= join.getOtherJoinConjuncts().stream()
-                        .filter(EqualPredicate.class::isInstance)
+                        .filter(EqualTo.class::isInstance)
                         .filter(equalTo -> checker.isHashJoinCondition((EqualPredicate) equalTo))
                         .map(equalTo -> JoinUtils.swapEqualToForChildrenOrder((EqualPredicate) equalTo,
                                 join.left().getOutputSet()))
