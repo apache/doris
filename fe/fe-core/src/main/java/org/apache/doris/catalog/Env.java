@@ -1629,6 +1629,8 @@ public class Env {
         // Start txn cleaner
         txnCleaner.start();
         jobManager.start();
+        // transient task manager
+        transientTaskManager.start();
         // Alter
         getAlterInstance().start();
         // Consistency checker

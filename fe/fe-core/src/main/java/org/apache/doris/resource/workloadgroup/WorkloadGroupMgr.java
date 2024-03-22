@@ -88,15 +88,14 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public void startUpdateThread() {
         WorkloadGroupMgr wgMgr = this;
-        updatePropThread = new Thread(new Runnable() {
-            public void run() {
-                while (true) {
-                    try {
-                        wgMgr.resetQueryQueueProp();
-                        Thread.sleep(Config.query_queue_update_interval_ms);
-                    } catch (Throwable e) {
-                        LOG.warn("reset query queue failed ", e);
-                    }
+        updatePropThread = new Thread(() -> {
+            Thread.currentThread().setName("reset-query-queue-prop");
+            while (true) {
+                try {
+                    wgMgr.resetQueryQueueProp();
+                    Thread.sleep(Config.query_queue_update_interval_ms);
+                } catch (Throwable e) {
+                    LOG.warn("reset query queue failed ", e);
                 }
             }
         });
