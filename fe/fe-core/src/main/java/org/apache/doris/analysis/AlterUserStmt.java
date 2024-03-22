@@ -113,7 +113,8 @@ public class AlterUserStmt extends DdlStmt {
             ops.add(OpType.SET_ROLE);
         }
 
-        if (!Strings.isNullOrEmpty(comment)) {
+        // may be set comment to "", so not use `Strings.isNullOrEmpty`
+        if (comment != null) {
             ops.add(OpType.MODIFY_COMMENT);
         }
         passwordOptions.analyze();

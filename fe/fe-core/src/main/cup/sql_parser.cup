@@ -955,7 +955,7 @@ nonterminal JobName job_name;
 nonterminal Map<String, String> with_analysis_properties;
 nonterminal List<Map<String, String>> opt_with_analysis_properties;
 
-nonterminal String opt_db, procedure_or_function, opt_comment, opt_engine;
+nonterminal String opt_db, procedure_or_function, opt_comment, opt_comment_null, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
@@ -1431,7 +1431,7 @@ alter_stmt ::=
       opt_if_exists:ifExists
       grant_user:user
       opt_password_option:passwdOptions
-      opt_comment:comment
+      opt_comment_null:comment
     {:
         RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions, comment);
     :}
@@ -3824,6 +3824,17 @@ opt_comment ::=
     /* empty */
     {:
         RESULT = "";
+    :}
+    | KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = comment;
+    :}
+    ;
+
+opt_comment_null ::=
+    /* empty */
+    {:
+        RESULT = null;
     :}
     | KW_COMMENT STRING_LITERAL:comment
     {:
