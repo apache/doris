@@ -20,7 +20,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <hadoop_hdfs/hdfs.h>
 
 #include <algorithm>
 #include <filesystem>
