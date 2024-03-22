@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
-import lombok.Getter;
 
 import java.util.List;
 import java.util.Objects;

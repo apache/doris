@@ -49,6 +49,11 @@ public class BoundStar extends NamedExpression implements PropagateNullable {
         return children.stream().map(Expression::toSql).collect(Collectors.joining(", "));
     }
 
+    public String toSqlWithBacktick() {
+        return children.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBacktick())
+                .collect(Collectors.joining(", "));
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     public List<Slot> getSlots() {
         return (List) children();

@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_create_view") {
-
+    sql "SET enable_nereids_planner=true;"
+    sql "SET enable_fallback_to_original_planner=false;"
     sql """DROP TABLE IF EXISTS count_distinct"""
     sql """
         CREATE TABLE IF NOT EXISTS count_distinct
@@ -204,6 +205,3 @@ suite("test_create_view") {
     """
     qt_test_view_6 """ SHOW VIEW FROM view_column_name_test;"""
 }
-/* ApplicationName=DBeaver 23.3.5 - SQLEditor <Script.sql> */ select * from mal_test1
-
-LIMIT 0, 200

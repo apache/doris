@@ -39,11 +39,14 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -57,6 +60,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * CreateViewInfo
@@ -69,7 +73,8 @@ public class CreateViewInfo {
     private final String querySql;
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
     private final List<Column> finalCols = Lists.newArrayList();
-    private Plan plan;
+    private final List<Slot> outputs = Lists.newArrayList();
+    private Plan analyzedPlan;
 
     /** constructor*/
     public CreateViewInfo(boolean ifNotExists, TableNameInfo viewName, String comment, LogicalPlan logicalQuery,
@@ -88,7 +93,8 @@ public class CreateViewInfo {
     /**validate*/
     public void validate(ConnectContext ctx) throws UserException {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        plan = planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
+        planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
+        viewName.analyze(ctx);
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
         Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewStmt");
@@ -97,9 +103,14 @@ public class CreateViewInfo {
                 viewName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
+
+        analyzedPlan = parseAndAnalyzeView(querySql, ctx);
+        OutermostProjectFinder projectPlanFinder = new OutermostProjectFinder();
+        AtomicReference<LogicalProject<Plan>> outermostProject = new AtomicReference<>();
+        analyzedPlan.accept(projectPlanFinder, outermostProject);
+        outputs.addAll(outermostProject.get().getOutput());
+
         createFinalCols();
-        // Do not rewrite nondeterministic functions to constant in create view's def stmt
-        // ctx.setNotEvalNondeterministicFunction(true);
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : finalCols) {
             if (!colSets.add(col.getName())) {
@@ -114,23 +125,17 @@ public class CreateViewInfo {
         for (SimpleColumnDefinition def : simpleColumnDefinitions) {
             cols.add(def.transferToColWithComment());
         }
-        viewName.analyze(ctx);
         CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, viewName.transferToTableName(), cols, comment,
                 null);
         // expand star(*) in project list
-        Plan analyzedPlan = parseAndAnalyzeView(querySql, ctx);
         Map<Integer, String> indexStringSqlMap = collectBoundStar(analyzedPlan);
-        String resSql = rewriteStarToColumn(indexStringSqlMap);
+        String rewrittenSql = rewriteStarToColumn(indexStringSqlMap);
 
-        // rewrite the project alias if defined
-        if (!simpleColumnDefinitions.isEmpty()) {
-            IndexFinder finder = new IndexFinder();
-            ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
-            finder.visit(tree);
-            resSql = rewriteProjectsToUserDefineAlias(plan, resSql, finder);
-        }
+        // rewrite project alias
+        rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
+
+        createViewStmt.setInlineViewDef(rewrittenSql);
         createViewStmt.setFinalColumns(finalCols);
-        createViewStmt.setInlineViewDef(resSql);
         return createViewStmt;
     }
 
@@ -162,16 +167,17 @@ public class CreateViewInfo {
         return builder.toString();
     }
 
-    private String rewriteProjectsToUserDefineAlias(Plan plan, String resSql,
-            IndexFinder finder) {
-        List<Slot> slots = plan.getOutput();
+    private String rewriteProjectsToUserDefineAlias(String resSql) {
+        IndexFinder finder = new IndexFinder();
+        ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
+        finder.visit(tree);
         StringBuilder replaceWithColsBuilder = new StringBuilder();
-        for (int i = 0; i < slots.size(); ++i) {
-            replaceWithColsBuilder.append(slots.get(i).getName());
+        for (int i = 0; i < outputs.size(); ++i) {
+            replaceWithColsBuilder.append(((SlotReference) outputs.get(i)).getQualifiedNameWithBacktick());
             replaceWithColsBuilder.append(" AS `");
-            replaceWithColsBuilder.append(simpleColumnDefinitions.get(i).getName());
+            replaceWithColsBuilder.append(finalCols.get(i).getName());
             replaceWithColsBuilder.append('`');
-            if (i != slots.size() - 1) {
+            if (i != outputs.size() - 1) {
                 replaceWithColsBuilder.append(", ");
             }
         }
@@ -181,7 +187,6 @@ public class CreateViewInfo {
     }
 
     private void createFinalCols() throws org.apache.doris.common.AnalysisException {
-        List<Slot> outputs = plan.getOutput();
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
                 Column column = new Column(output.getName(), output.getDataType().toCatalogDataType());
@@ -206,11 +211,30 @@ public class CreateViewInfo {
             if (node instanceof LogicalProject) {
                 LogicalProject<Plan> project = (LogicalProject) node;
                 for (BoundStar star : project.getBoundStars()) {
-                    result.put(star.getIndexInSqlString(), star.toSql());
+                    result.put(star.getIndexInSqlString(), star.toSqlWithBacktick());
                 }
             }
         });
         return result;
+    }
+
+    private static class OutermostProjectFinder extends DefaultPlanVisitor<Void,
+            AtomicReference<LogicalProject<Plan>>> {
+        boolean found = false;
+
+        @Override
+        public Void visit(Plan plan, AtomicReference<LogicalProject<Plan>> target) {
+            if (found) {
+                return null;
+            }
+            if (plan instanceof LogicalCTEProducer) {
+                return null;
+            } else if (plan instanceof LogicalProject) {
+                target.set((LogicalProject<Plan>) plan);
+                found = true;
+            }
+            return super.visit(plan, target);
+        }
     }
 
     /** traverse ast to find the outermost project list location information in sql*/
