@@ -111,8 +111,8 @@ public class ComparisonResult {
             return this;
         }
 
-        public Builder addViewNoNullableSlot(Set<Slot> viewNoNullableSlot) {
-            viewNoNullableSlotBuilder.add(ImmutableSet.copyOf(viewNoNullableSlot));
+        public Builder addViewNoNullableSlot(Set<Set<Slot>> viewNoNullableSlot) {
+            viewNoNullableSlotBuilder.addAll(ImmutableSet.copyOf(viewNoNullableSlot));
             return this;
         }
 

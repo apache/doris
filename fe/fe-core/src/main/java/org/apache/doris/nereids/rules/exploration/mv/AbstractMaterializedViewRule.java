@@ -69,8 +69,15 @@ import java.util.stream.Collectors;
  * The abstract class for all materialized view rules
  */
 public abstract class AbstractMaterializedViewRule implements ExplorationRuleFactory {
-    public static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET = Sets.newHashSet(JoinType.INNER_JOIN,
-            JoinType.LEFT_OUTER_JOIN);
+    public static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET = Sets.newHashSet(
+            JoinType.INNER_JOIN,
+            JoinType.LEFT_OUTER_JOIN,
+            JoinType.RIGHT_OUTER_JOIN,
+            JoinType.FULL_OUTER_JOIN,
+            JoinType.LEFT_SEMI_JOIN,
+            JoinType.RIGHT_SEMI_JOIN,
+            JoinType.LEFT_ANTI_JOIN,
+            JoinType.RIGHT_ANTI_JOIN);
 
     /**
      * The abstract template method for query rewrite, it contains the main logic, try to rewrite query by

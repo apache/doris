@@ -73,7 +73,7 @@ public class HyperGraphComparator {
     private final Map<Edge, List<? extends Expression>> pullUpQueryExprWithEdge = new HashMap<>();
     private final Map<Edge, List<? extends Expression>> pullUpViewExprWithEdge = new HashMap<>();
     private final LogicalCompatibilityContext logicalCompatibilityContext;
-    private final Map<JoinEdge, Pair<JoinType, Set<Slot>>> inferredViewEdgeWithCond = new HashMap<>();
+    private final Map<JoinEdge, Pair<JoinType, Set<Set<Slot>>>> inferredViewEdgeWithCond = new HashMap<>();
     private List<JoinEdge> viewJoinEdgesAfterInferring;
     private List<FilterEdge> viewFilterEdgesAfterInferring;
     private final long eliminateViewNodesMap;
@@ -263,7 +263,7 @@ public class HyperGraphComparator {
             }
             builder.addViewExpressions(rawFilter);
         }
-        for (Pair<JoinType, Set<Slot>> inferredCond : inferredViewEdgeWithCond.values()) {
+        for (Pair<JoinType, Set<Set<Slot>>> inferredCond : inferredViewEdgeWithCond.values()) {
             builder.addViewNoNullableSlot(inferredCond.second);
         }
         builder.addQueryAllPulledUpExpressions(
@@ -485,11 +485,14 @@ public class HyperGraphComparator {
             if (noNullableChild == null) {
                 return false;
             }
-            Set<Slot> noNullableSlot = Sets.union(
-                    noNullableChild.first ? view.getJoin().left().getOutputSet() : ImmutableSet.of(),
-                    noNullableChild.second ? view.getJoin().right().getOutputSet() : ImmutableSet.of()
-            );
-            inferredViewEdgeWithCond.put(view, Pair.of(query.getJoinType(), noNullableSlot));
+            Set<Set<Slot>> noNullableSlotSets = new HashSet<>();
+            if (noNullableChild.first) {
+                noNullableSlotSets.add(view.getJoin().left().getOutputSet());
+            }
+            if (noNullableChild.second) {
+                noNullableSlotSets.add(view.getJoin().right().getOutputSet());
+            }
+            inferredViewEdgeWithCond.put(view, Pair.of(query.getJoinType(), noNullableSlotSets));
         }
         return true;
     }
