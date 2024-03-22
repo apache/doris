@@ -87,7 +87,7 @@ public class Sum0 extends AggregateFunction
         DataType argType = child().getDataType();
         if ((!argType.isNumericType() && !argType.isBooleanType() && !argType.isNullType())
                 || argType.isOnlyMetricType()) {
-            throw new AnalysisException("sum requires a numeric or boolean parameter: " + this.toSql());
+            throw new AnalysisException("sum0 requires a numeric or boolean parameter: " + this.toSql());
         }
     }
 
