@@ -2204,8 +2204,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .addAll(aggregateFunctionUsedSlots)
                 .build();
 
-        List<Expr> preRepeatExprs = usedSlotInRepeat.stream()
-                .map(expr -> ExpressionTranslator.translate(expr, context))
+        List<Expr> preRepeatExprs = usedSlotInRepeat.stream().map(expr -> ExpressionTranslator.translate(expr, context))
+                .sorted((x, y) -> ((SlotRef) x).getSlotId().asInt() - ((SlotRef) y).getSlotId().asInt())
                 .collect(ImmutableList.toImmutableList());
 
         List<Slot> outputSlots = repeat.getOutputExpressions()
