@@ -1256,7 +1256,7 @@ public class PropertyAnalyzer {
         Short replicaNum = analyzeReplicationNum(properties, prefix, (short) 0);
         if (replicaNum > 0) {
             ReplicaAllocation replicaAlloc = new ReplicaAllocation(replicaNum);
-            if (properties.get(propKey).equals(replicaAlloc.toString())) {
+            if (properties.containsKey(propKey) && properties.get(propKey).equals(replicaAlloc.toString())) {
                 throw new AnalysisException("Invalid replication parameter: replication_num and "
                     + "replication_allocation can not be used together");
             }
