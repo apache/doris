@@ -110,11 +110,16 @@ public:
                                           assert_cast<const ColumnNullable&>(*columns[0])
                                                   .get_nested_column())
                                 : assert_cast<const ColumnArray&>(*columns[0]);
+        const auto& nested_column =
+                assert_cast<const ColumnNullable&>(column.get_data()).get_nested_column();
+        using ColVecType = ColumnVector<T>;
+        const auto& nested_column_data = assert_cast<const ColVecType&>(nested_column);
 
-        std::string demangled_name_column = boost::core::demangle(typeid(column).name());
-        LOG(INFO) << "In add func, the name of column: " << demangled_name_column;
+        std::string demangled_name_column =
+                boost::core::demangle(typeid(nested_column_data).name());
+        LOG(INFO) << "In add func, the name of nested_column_data: " << demangled_name_column;
 
-        const auto data_column = column.get_data_ptr();
+        // const auto data_column = nested_column_data.get_data();
         const auto& offsets = column.get_offsets();
         const size_t offset = offsets[row_num - 1];
         const auto arr_size = offsets[row_num] - offset;
@@ -131,20 +136,32 @@ public:
 
         ++version;
         if (version == 1) {
-            for (size_t i = 0; i < arr_size; ++i)
-                set.insert(static_cast<T>((*data_column)[offset + i].get<T>()));
+            LOG(INFO) << "Inserting elements into an empty set...";
+            for (size_t i = 0; i < arr_size; ++i) {
+                // T value = (*data_column)[offset + i].get<T>();
+                T value = nested_column_data.get_element(offset + i);
+                LOG(INFO) << "Inserting value: " << value;
+                set.insert(value);
+            }
         } else if (!set.empty()) {
+            LOG(INFO) << "Updating an existing set...";
             typename State::Set new_set;
             for (size_t i = 0; i < arr_size; ++i) {
-                typename State::Set::LookupResult set_value =
-                        set.find(static_cast<T>((*data_column)[offset + i].get<T>()));
-                if (set_value != nullptr)
-                    new_set.insert(static_cast<T>((*data_column)[offset + i].get<T>()));
+                // T value = (*data_column)[offset + i].get<T>();
+                T value = nested_column_data.get_element(offset + i);
+                LOG(INFO) << "Checking value: " << value;
+                typename State::Set::LookupResult set_value = set.find(value);
+                if (set_value != nullptr) {
+                    LOG(INFO) << "Value found in the set, inserting into new_set";
+                    new_set.insert(value);
+                } else {
+                    LOG(INFO) << "Value not found in the set, skipping";
+                }
             }
             set = std::move(new_set);
         }
 
-        LOG(INFO) << "After update: set = {"; // 输出更新后的 set
+        LOG(INFO) << "After update: set = {";
         for (const auto& elem : set) {
             LOG(INFO) << elem.get_value() << " ";
         }
