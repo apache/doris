@@ -458,10 +458,10 @@ public class DateLiteral extends Literal {
     /**
      * 2020-01-01
      *
-     * @return 2020-01-01 24:00:00
+     * @return 2020-01-01 23:59:59
      */
     public DateTimeLiteral toEndOfTheDay() {
-        return new DateTimeLiteral(year, month, day, 24, 0, 0);
+        return new DateTimeLiteral(year, month, day, 23, 59, 59);
     }
 
     /**
