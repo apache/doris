@@ -51,8 +51,9 @@ suite("insert_group_commit_into_max_filter_ratio") {
             logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
         }
         // assertEquals(result, expected_row_count)
-        assertTrue(serverInfo.contains("'status':'PREPARE'"))
-        assertTrue(serverInfo.contains("'label':'group_commit_"))
+        // legacy || nereids
+        assertTrue(serverInfo.contains("'status':'PREPARE'") || result == expected_row_count)
+        assertTrue(serverInfo.contains("'label':'group_commit_") || result == expected_row_count)
     }
 
     def off_mode_group_commit_insert = { sql, expected_row_count ->
@@ -80,7 +81,8 @@ suite("insert_group_commit_into_max_filter_ratio") {
                 logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
             }
             // assertEquals(result, expected_row_count)
-            assertTrue(serverInfo.contains("'status':'ABORTED'"))
+            // legacy || nereids
+            assertTrue(serverInfo.contains("'status':'ABORTED'") || result == expected_row_count)
             // assertFalse(serverInfo.contains("'label':'group_commit_"))
         } catch (Exception e) {
             logger.info("exception: " + e)
