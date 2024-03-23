@@ -1249,14 +1249,21 @@ public class PropertyAnalyzer {
         if (properties == null || properties.isEmpty()) {
             return ReplicaAllocation.NOT_SET;
         }
+        String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
+                : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
+
         // if give "replication_num" property, return with default backend tag
         Short replicaNum = analyzeReplicationNum(properties, prefix, (short) 0);
         if (replicaNum > 0) {
-            return new ReplicaAllocation(replicaNum);
+            ReplicaAllocation replicaAlloc = new ReplicaAllocation(replicaNum);
+            if (properties.get(propKey).equals(replicaAlloc.toString())) {
+                throw new AnalysisException("Invalid replication parameter: replication_num and "
+                    + "replication_allocation can not be used together");
+            }
+            return replicaAlloc;
         }
 
-        String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
-                : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
+
         // if not set, return default replication allocation
         if (!properties.containsKey(propKey)) {
             return ReplicaAllocation.NOT_SET;

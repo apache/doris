@@ -401,4 +401,24 @@ suite("test_create_table_properties") {
     qt_select """ select * from ${tblName1} partition p5 order by DATA_STAMP"""
     qt_select """ select * from ${tblName1} partition p8 order by DATA_STAMP"""
 
+
+    try {
+        sql "drop table if exists ${tblName1}"
+        sql """
+        CREATE TABLE ${tblName1} (
+            id int,
+            k decimal(12,2)
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "replication_num" = "1"
+        );
+        """
+        assertTrue(false, "should not be able to execute")
+    }
+    catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Invalid replication parameter: replication_num and replication_allocation can not be used together"))
+    } finally {
+    }
 }
