@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -63,6 +62,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -132,7 +132,7 @@ public class CreateViewInfo {
         CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, viewName.transferToTableName(), cols, comment,
                 null);
         // expand star(*) in project list
-        Map<Integer, String> indexStringSqlMap = collectBoundStar(analyzedPlan);
+        Map<Pair<Integer, Integer>, String> indexStringSqlMap = collectBoundStar(analyzedPlan);
         String rewrittenSql = rewriteStarToColumn(indexStringSqlMap);
 
         // rewrite project alias
@@ -158,14 +158,14 @@ public class CreateViewInfo {
         return viewContext.getRewritePlan();
     }
 
-    private String rewriteStarToColumn(Map<Integer, String> indexStringSqlMap) {
+    private String rewriteStarToColumn(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
         StringBuilder builder = new StringBuilder();
         int beg = 0;
-        for (Map.Entry<Integer, String> entry : indexStringSqlMap.entrySet()) {
-            int index = entry.getKey();
-            builder.append(querySql, beg, index);
+        for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
+            Pair<Integer, Integer> index = entry.getKey();
+            builder.append(querySql, beg, index.first);
             builder.append(entry.getValue());
-            beg = index + 1;
+            beg = index.second + 1;
         }
         builder.append(querySql, beg, querySql.length());
         return builder.toString();
@@ -218,8 +218,8 @@ public class CreateViewInfo {
         }
     }
 
-    private Map<Integer, String> collectBoundStar(Plan plan) {
-        Map<Integer, String> result = Maps.newTreeMap();
+    private Map<Pair<Integer, Integer>, String> collectBoundStar(Plan plan) {
+        TreeMap<Pair<Integer, Integer>, String> result = new TreeMap<>(new Pair.PairComparator<>());
         plan.foreach(node -> {
             if (node instanceof LogicalProject) {
                 LogicalProject<Plan> project = (LogicalProject) node;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -35,14 +36,14 @@ import java.util.Objects;
 public class UnboundStar extends NamedExpression implements LeafExpression, Unbound, PropagateNullable {
     private final List<String> qualifier;
 
-    private int indexInSqlString;
+    private Pair<Integer, Integer> indexInSqlString;
 
     public UnboundStar(List<String> qualifier) {
         super(ImmutableList.of());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
     }
 
-    public UnboundStar(List<String> qualifier, int indexInSqlString) {
+    public UnboundStar(List<String> qualifier, Pair<Integer, Integer> indexInSqlString) {
         super(ImmutableList.of());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = indexInSqlString;
@@ -78,7 +79,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
         return qualifier.equals(that.qualifier);
     }
 
-    public int getIndexInSqlString() {
+    public Pair<Integer, Integer> getIndexInSqlString() {
         return indexInSqlString;
     }
 

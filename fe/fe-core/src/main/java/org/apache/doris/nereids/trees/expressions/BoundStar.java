@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -28,7 +29,7 @@ import java.util.stream.Collectors;
 
 /** BoundStar is used to wrap list of slots for temporary. */
 public class BoundStar extends NamedExpression implements PropagateNullable {
-    private int indexInSqlString;
+    private Pair<Integer, Integer> indexInSqlString;
 
     public BoundStar(List<Slot> children) {
         super((List) children);
@@ -37,7 +38,7 @@ public class BoundStar extends NamedExpression implements PropagateNullable {
         );
     }
 
-    public BoundStar(List<Slot> children, int indexInSqlString) {
+    public BoundStar(List<Slot> children, Pair<Integer, Integer> indexInSqlString) {
         super((List) children);
         Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
                 "BoundStar can not wrap UnboundSlot"
@@ -59,7 +60,7 @@ public class BoundStar extends NamedExpression implements PropagateNullable {
         return (List) children();
     }
 
-    public int getIndexInSqlString() {
+    public Pair<Integer, Integer> getIndexInSqlString() {
         return indexInSqlString;
     }
 

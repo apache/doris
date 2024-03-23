@@ -1385,8 +1385,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 target = ImmutableList.of();
             }
-            int startIndex = ctx.start.getStartIndex();
-            return new UnboundStar(target, startIndex);
+            return new UnboundStar(target, Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex()));
         });
     }
 

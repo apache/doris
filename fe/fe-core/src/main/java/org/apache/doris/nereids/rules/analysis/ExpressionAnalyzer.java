@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -279,7 +280,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             case 1: // select table.*
             case 2: // select db.table.*
             case 3: // select catalog.db.table.*
-                return bindQualifiedStar(qualifier, slots);
+                return bindQualifiedStar(qualifier, slots, unboundStar.getIndexInSqlString());
             default:
                 throw new AnalysisException("Not supported qualifier: "
                         + StringUtils.join(qualifier, "."));
@@ -575,7 +576,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return cast;
     }
 
-    private BoundStar bindQualifiedStar(List<String> qualifierStar, List<Slot> boundSlots) {
+    private BoundStar bindQualifiedStar(List<String> qualifierStar, List<Slot> boundSlots,
+            Pair<Integer, Integer> indexInSql) {
         // FIXME: compatible with previous behavior:
         // https://github.com/apache/doris/pull/10415/files/3fe9cb0c3f805ab3a9678033b281b16ad93ec60a#r910239452
         List<Slot> slots = boundSlots.stream().filter(boundSlot -> {
@@ -639,7 +641,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (slots.isEmpty()) {
             throw new AnalysisException("unknown qualifier: " + StringUtils.join(qualifierStar, ".") + ".*");
         }
-        return new BoundStar(slots);
+        return new BoundStar(slots, indexInSql);
     }
 
     protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
