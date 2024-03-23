@@ -527,9 +527,8 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string start_txn_key = txn_key_prefix(instance_id_);
     std::string end_txn_key = txn_key_prefix(instance_id_ + '\x00');
     txn->remove(start_txn_key, end_txn_key);
-    // 0:instance_id  1:db_id  2:tbl_id  3:partition_id
-    std::string start_version_key = version_key({instance_id_, 0, 0, 0});
-    std::string end_version_key = version_key({instance_id_, INT64_MAX, 0, 0});
+    std::string start_version_key = version_key_prefix(instance_id_);
+    std::string end_version_key = version_key_prefix(instance_id_ + '\x00');
     txn->remove(start_version_key, end_version_key);
     std::string start_meta_key = meta_key_prefix(instance_id_);
     std::string end_meta_key = meta_key_prefix(instance_id_ + '\x00');
@@ -758,7 +757,7 @@ int InstanceRecycler::recycle_partitions() {
 
     // Elements in `partition_keys` has the same lifetime as `it` in `scan_and_recycle`
     std::vector<std::string_view> partition_keys;
-    std::vector<std::string> version_keys;
+    std::vector<std::string> partition_version_keys;
     auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         RecyclePartitionPB part_pb;
@@ -831,18 +830,18 @@ int InstanceRecycler::recycle_partitions() {
             check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);
             partition_keys.push_back(k);
             if (part_pb.db_id() > 0) {
-                version_keys.push_back(version_key(
+                partition_version_keys.push_back(partition_version_key(
                         {instance_id_, part_pb.db_id(), part_pb.table_id(), partition_id}));
             }
         }
         return ret;
     };
 
-    auto loop_done = [&partition_keys, &version_keys, this]() -> int {
+    auto loop_done = [&partition_keys, &partition_version_keys, this]() -> int {
         if (partition_keys.empty()) return 0;
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
             partition_keys.clear();
-            version_keys.clear();
+            partition_version_keys.clear();
         });
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -853,7 +852,7 @@ int InstanceRecycler::recycle_partitions() {
         for (auto& k : partition_keys) {
             txn->remove(k);
         }
-        for (auto& k : version_keys) {
+        for (auto& k : partition_version_keys) {
             txn->remove(k);
         }
         err = txn->commit();
@@ -872,38 +871,29 @@ int InstanceRecycler::recycle_versions() {
     int num_scanned = 0;
     int num_recycled = 0;
 
-    LOG_INFO("begin to recycle partition versions").tag("instance_id", instance_id_);
+    LOG_INFO("begin to recycle table and partition versions").tag("instance_id", instance_id_);
 
     auto start_time = steady_clock::now();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG_INFO("recycle partition versions finished, cost={}s", cost)
+        LOG_INFO("recycle table and partition versions finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_recycled", num_recycled);
     });
 
-    auto version_key_begin = version_key({instance_id_, 0, 0, 0});
-    auto version_key_end = version_key({instance_id_, INT64_MAX, 0, 0});
-    int64_t last_scanned_table_id = 0;
-    bool is_recycled = false; // Is last scanned kv recycled
-    auto recycle_func = [&num_scanned, &num_recycled, &last_scanned_table_id, &is_recycled, this](
-                                std::string_view k, std::string_view) {
+    auto version_key_begin = table_version_key({instance_id_, 0, 0});
+    auto version_key_end = table_version_key({instance_id_, INT64_MAX, 0});
+    auto recycle_func = [&num_scanned, &num_recycled, this](std::string_view k, std::string_view) {
         ++num_scanned;
         auto k1 = k;
         k1.remove_prefix(1);
-        // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}
+        // 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}
         std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
         decode_key(&k1, &out);
-        DCHECK_EQ(out.size(), 6) << k;
+        DCHECK_EQ(out.size(), 5) << k;
         auto table_id = std::get<int64_t>(std::get<0>(out[4]));
-        if (table_id == last_scanned_table_id) { // Already handle kvs of this table
-            num_recycled += is_recycled;         // Version kv of this table has been recycled
-            return 0;
-        }
-        last_scanned_table_id = table_id;
-        is_recycled = false;
         auto tablet_key_begin = stats_tablet_key({instance_id_, table_id, 0, 0, 0});
         auto tablet_key_end = stats_tablet_key({instance_id_, table_id, INT64_MAX, 0, 0});
         std::unique_ptr<Transaction> txn;
@@ -916,22 +906,25 @@ int InstanceRecycler::recycle_versions() {
         if (err != TxnErrorCode::TXN_OK) {
             return -1;
         }
-        if (iter->has_next()) { // Table is useful, should not recycle partiton versions
+        if (iter->has_next()) { // Table is useful, should not recycle table and partition versions
             return 0;
         }
-        // Remove all version kvs of this table
         auto db_id = std::get<int64_t>(std::get<0>(out[3]));
-        auto table_version_key_begin = version_key({instance_id_, db_id, table_id, 0});
-        auto table_version_key_end = version_key({instance_id_, db_id, table_id, INT64_MAX});
-        txn->remove(table_version_key_begin, table_version_key_end);
-        LOG(WARNING) << "remove version kv, begin=" << hex(table_version_key_begin)
-                     << " end=" << hex(table_version_key_end);
+        // 1. Remove all partition version kvs of this table
+        auto partition_version_key_begin = partition_version_key({instance_id_, db_id, table_id, 0});
+        auto partition_version_key_end = partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
+        txn->remove(partition_version_key_begin, partition_version_key_end);
+        LOG(WARNING) << "remove partition version kv, begin=" << hex(partition_version_key_begin)
+                     << " end=" << hex(partition_version_key_end);
+        // 2. Remove the table version kv of this table
+        auto tbl_version_key = table_version_key({instance_id_, db_id, table_id});
+        txn->remove(tbl_version_key);
+        LOG(WARNING) << "remove table version kv " << hex(tbl_version_key);
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             return -1;
         }
         ++num_recycled;
-        is_recycled = true;
         return 0;
     };
 

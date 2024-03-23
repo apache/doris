@@ -718,6 +718,9 @@ message GetVersionRequest {
     repeated int64 db_ids = 6;
     repeated int64 table_ids = 7;
     repeated int64 partition_ids = 8;
+
+    // True if get table version
+    optional bool is_table_version = 9 [default = false];
 };
 
 message GetVersionResponse {
@@ -853,6 +856,7 @@ message IndexRequest {
     repeated int64 index_ids = 2;
     optional int64 table_id = 3;
     optional int64 expiration = 4;
+    optional int64 db_id = 5;
 }
 
 message IndexResponse {
