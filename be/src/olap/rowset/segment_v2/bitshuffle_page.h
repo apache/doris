@@ -319,10 +319,10 @@ public:
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init()";
         if (PREDICT_FALSE(_num_elements == 0)) {
+            // num_element is not increased when there is a NULL value in the table,
+            // but data is not empty and should not return error here
             DCHECK_EQ(0, pos);
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("invalid pos");
         }
-
         DCHECK_LE(pos, _num_elements);
         _cur_index = pos;
         return Status::OK();
