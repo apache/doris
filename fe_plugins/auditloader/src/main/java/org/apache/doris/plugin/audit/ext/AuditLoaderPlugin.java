@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.audit;
+package org.apache.doris.plugin.audit.ext;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
