@@ -45,8 +45,8 @@ suite("test_docker_example") {
     options.feConfigs = ["example_conf_k1=v1", "example_conf_k2=v2"]
     // contains 5 backends
     options.beNum = 5
-    // each backend has 3 disks
-    options.beDiskNum = 3
+    // each backend has 1 HDD disk and 3 SSD disks
+    options.beDisks = ['HDD=1', 'SSD=3']
     docker (options) {
         sql """create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="5")"""
     }
