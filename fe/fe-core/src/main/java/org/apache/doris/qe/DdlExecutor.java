@@ -35,6 +35,7 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
+import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
@@ -356,6 +357,8 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropAnalyzeJobStmt) {
             DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
             Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
+        } else if (ddlStmt instanceof AlterRepositoryStmt) {
+            env.getBackupHandler().alterRepository((AlterRepositoryStmt) ddlStmt);
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
