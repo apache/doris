@@ -85,9 +85,20 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _resource_profile(tnode.resource_profile),
           _limit(tnode.limit) {
-    if (tnode.__isset.output_tuple_id) {
-        _output_row_descriptor = std::make_unique<RowDescriptor>(
-                descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+    if (!tnode.output_tuple_id_list.empty()) {
+        // common subexpression elimination
+        DCHECK_EQ(tnode.output_tuple_id_list.size(), tnode.projections_list.size());
+        for (auto output_tuple_id : tnode.output_tuple_id_list) {
+            _intermediate_output_row_descriptor.push_back(std::make_unique<RowDescriptor>(
+                    descs, std::vector {output_tuple_id}, std::vector {true}));
+        }
+        _output_row_descriptor = std::move(_intermediate_output_row_descriptor.back());
+        _intermediate_output_row_descriptor.pop_back();
+    } else {
+        if (tnode.__isset.output_tuple_id) {
+            _output_row_descriptor = std::make_unique<RowDescriptor>(
+                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+        }
     }
     _query_statistics = std::make_shared<QueryStatistics>();
 }
@@ -110,9 +121,20 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     // create the projections expr
-    if (tnode.__isset.projections) {
-        DCHECK(tnode.__isset.output_tuple_id);
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
+    if (!tnode.projections_list.empty()) {
+        for (const auto& tnode_projections : tnode.projections_list) {
+            vectorized::VExprContextSPtrs projections;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode_projections, projections));
+            _intermediate_projections.push_back(projections);
+        }
+        _projections = _intermediate_projections.back();
+        _intermediate_projections.pop_back();
+
+    } else {
+        if (tnode.__isset.projections) {
+            DCHECK(tnode.__isset.output_tuple_id);
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
+        }
     }
 
     return Status::OK();
@@ -143,7 +165,12 @@ Status ExecNode::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
 
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
+    for (int i = 0; i < _intermediate_projections.size(); i++) {
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_intermediate_projections[i], state,
+                                                   intermediate_row_desc(i)));
+    }
+
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, projections_row_desc()));
 
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->prepare(state));
@@ -154,6 +181,9 @@ Status ExecNode::prepare(RuntimeState* state) {
 Status ExecNode::alloc_resource(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
+    }
+    for (auto& projections : _intermediate_projections) {
+        RETURN_IF_ERROR(vectorized::VExpr::open(projections, state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
     return Status::OK();
@@ -514,6 +544,22 @@ std::string ExecNode::get_name() {
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_projection_timer);
+    vectorized::Block input_block = *origin_block;
+
+    const size_t rows = input_block.rows();
+    if (rows == 0) {
+        return Status::OK();
+    }
+    std::vector<int> result_column_ids;
+    for (auto& projections : _intermediate_projections) {
+        result_column_ids.resize(projections.size());
+        for (int i = 0; i < projections.size(); i++) {
+            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+        }
+        input_block.shuffle_columns(result_column_ids);
+    }
+
+    DCHECK_EQ(rows, input_block.rows());
     auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (_keep_origin || !from->is_exclusive()) {
@@ -535,7 +581,6 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
     using namespace vectorized;
     MutableBlock mutable_block =
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
-    auto rows = origin_block->rows();
 
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
@@ -549,8 +594,8 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
-            RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
-            auto column_ptr = origin_block->get_by_position(result_column_id)
+            RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
+            auto column_ptr = input_block.get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
             //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
             insert_column_datas(mutable_columns[i], column_ptr, rows);
@@ -588,4 +633,69 @@ Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool 
     return Status::NotSupported("{} not implements sink", get_name());
 }
 
+// Status ExecNode::do_projections_with_intermediate_expr(
+//         std::vector<vectorized::VExprContextSPtrs>& intermediate_projections,
+//         vectorized::VExprContextSPtrs& final_projections, vectorized::Block* origin_block,
+//         vectorized::Block* output_block, const RowDescriptor& output_row_descriptor,
+//         bool keep_origin) {
+//     vectorized::Block input_block = *origin_block;
+
+//     const size_t rows = input_block.rows();
+
+//     if (rows == 0) {
+//         return Status::OK();
+//     }
+//     std::vector<int> result_column_ids;
+//     for (auto& projections : intermediate_projections) {
+//         result_column_ids.resize(projections.size());
+//         for (int i = 0; i < projections.size(); i++) {
+//             RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+//         }
+//         input_block.shuffle_columns(result_column_ids);
+//     }
+
+//     DCHECK_EQ(rows, input_block.rows());
+
+//     vectorized::MutableBlock mutable_block =
+//             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+//                                                                        output_row_descriptor);
+
+//     // auto insert_column_datas = [keep_origin](auto& to, vectorized::ColumnPtr& from, size_t rows) {
+//     //     if (to->is_nullable() && !from->is_nullable()) {
+//     //         if (keep_origin || !from->is_exclusive()) {
+//     //             auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
+//     //             null_column.get_nested_column().insert_range_from(*from, 0, rows);
+//     //             null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+//     //         } else {
+//     //             to = make_nullable(from, false)->assume_mutable();
+//     //         }
+//     //     } else {
+//     //         if (keep_origin || !from->is_exclusive()) {
+//     //             to->insert_range_from(*from, 0, rows);
+//     //         } else {
+//     //             to = from->assume_mutable();
+//     //         }
+//     //     }
+//     // };
+
+//     auto& mutable_columns = mutable_block.mutable_columns();
+//     DCHECK(mutable_columns.size() == final_projections.size());
+//     for (int i = 0; i < mutable_columns.size(); ++i) {
+//         auto result_column_id = -1;
+//         RETURN_IF_ERROR(final_projections[i]->execute(&input_block, &result_column_id));
+//         auto column_ptr = input_block.get_by_position(result_column_id)
+//                                   .column->convert_to_full_column_if_const();
+//         //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
+//         if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
+//             DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
+//             reinterpret_cast<vectorized::ColumnNullable*>(mutable_columns[i].get())
+//                     ->insert_range_from_not_nullable(*column_ptr, 0, rows);
+//         } else {
+//             mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+//         }
+//     }
+//     DCHECK(mutable_block.rows() == rows);
+//     output_block->set_columns(std::move(mutable_columns));
+//     return Status::OK();
+// }
 } // namespace doris

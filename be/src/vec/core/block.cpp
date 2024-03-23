@@ -719,6 +719,14 @@ void Block::swap(Block&& other) noexcept {
     row_same_bit = std::move(other.row_same_bit);
 }
 
+void Block::shuffle_columns(std::vector<int>& result_column_ids) {
+    Container tmp_data;
+    for (const int result_column_id : result_column_ids) {
+        tmp_data.push_back(std::move(data[result_column_id]));
+    }
+    swap(Block {tmp_data});
+}
+
 void Block::update_hash(SipHash& hash) const {
     for (size_t row_no = 0, num_rows = rows(); row_no < num_rows; ++row_no) {
         for (const auto& col : data) {
