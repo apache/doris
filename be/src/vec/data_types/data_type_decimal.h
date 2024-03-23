@@ -657,9 +657,16 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
             dst[i].value = FromFieldType(src[i] * multiplier.value + ((src[i] >= 0) ? 0.5 : -0.5));
         }
     } else if constexpr (IsDateV2Type<FromDataType>) {
+        // need to create an array of values
+        // and construct cast from int64 to decimal
+        typename FromDataType::FieldType tmp[size];
         for (size_t i = 0; i < size; ++i) {
-            dst[i].value = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(src[i]).to_int64();
+            tmp[i] = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(src[i]).to_int64();
         }
+        using DecimalFrom = Decimal64;
+        convert_to_decimals<DataTypeDecimal<DecimalFrom>, ToDataType, multiply_may_overflow,
+                            narrow_integral>(dst, tmp, from_scale, to_scale, min_result, max_result,
+                                             size);
     } else {
         using DecimalFrom =
                 std::conditional_t<std::is_same_v<FromFieldType, Int128>, Decimal128V2,

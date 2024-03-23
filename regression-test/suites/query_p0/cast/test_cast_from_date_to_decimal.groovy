@@ -21,4 +21,13 @@ suite("test_cast_from_date_to_decimal") {
     qt_sql """select cast(b as decimal) from (select cast("1000-01-01" as date) b) t2;"""
 
     qt_sql """select cast(c as decimal) from (select cast("9999-12-31" as date) c) t3;"""
+
+    test {
+        sql """select cast(b as decimal(7, 0)) from (select cast("1000-01-01" as date) b) t2;"""
+        exception "Arithmetic overflow, convert failed from 10000101, expected data is [-9999999, 9999999]"
+    }
+
+    qt_sql """select cast(c as decimal(8, 0)) from (select cast("9999-12-31" as date) c) t3;"""
+
+    qt_sql """select cast(c as decimal(38, 0)) from (select cast("9999-12-31" as date) c) t3;"""
 } 
