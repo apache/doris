@@ -246,26 +246,63 @@ public:
         auto& to_nested_col = arr_to.get_data();
         using ElementType = T;
         using ColVecType = ColumnVector<ElementType>;
-        auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
-        auto& data_to = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
-        // typename ColumnVector<T>::Container& data_to =
-        //         assert_cast<ColumnVector<T>&>(arr_to.get_data()).get_data();
-        std::string demangled_name = boost::core::demangle(typeid(data_to).name());
-        LOG(INFO) << "name of data_to: " << demangled_name << std::endl;
-        size_t old_size = data_to.size();
-        LOG(INFO) << "old_size of data_to: " << old_size;
 
-        data_to.resize(old_size + set.size());
-        LOG(INFO) << "after resize, size of data_to: " << data_to.size();
+        bool is_nullable = to_nested_col.is_nullable();
 
-        size_t i = 0;
-        for (auto it = set.begin(); it != set.end(); ++it, ++i) {
-            T value = it->get_value();
-            LOG(INFO) << "Inserting value: " << value << " at index " << (old_size + i);
-            data_to[old_size + i] = value;
+        if (is_nullable) {
+            LOG(INFO) << "nested_col is nullable. ";
+            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+            auto& nested_col = assert_cast<ColVecType&>(col_null->get_nested_column());
+
+            size_t old_size = nested_col.get_data().size();
+            LOG(INFO) << "old_size of data_to: " << old_size;
+            nested_col.get_data().resize(old_size + set.size());
+
+            size_t i = 0;
+            for (auto it = set.begin(); it != set.end(); ++it, ++i) {
+                T value = it->get_value();
+                LOG(INFO) << "Inserting value: " << value << " at index " << (old_size + i);
+                nested_col.get_data()[old_size + i] = value;
+            }
+
+            auto& null_map_data = col_null->get_null_map_data();
+            null_map_data.resize_fill(nested_col.size(), 0);
+        } else {
+            LOG(INFO) << "nested_col is not nullable. ";
+            auto& nested_col = static_cast<ColVecType&>(to_nested_col);
+            size_t old_size = nested_col.get_data().size();
+            LOG(INFO) << "old_size of data_to: " << old_size;
+            nested_col.get_data().resize(old_size + set.size());
+
+            size_t i = 0;
+            for (auto it = set.begin(); it != set.end(); ++it, ++i) {
+                T value = it->get_value();
+                LOG(INFO) << "Inserting value: " << value << " at index " << (old_size + i);
+                nested_col.get_data()[old_size + i] = value;
+            }
         }
-        LOG(INFO) << "after for loop, size of data_to: " << data_to.size();
         LOG(INFO) << "After making value to data_to, leaving...";
+
+        // auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+        // auto& data_to = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
+        // // typename ColumnVector<T>::Container& data_to =
+        // //         assert_cast<ColumnVector<T>&>(arr_to.get_data()).get_data();
+        // std::string demangled_name = boost::core::demangle(typeid(data_to).name());
+        // LOG(INFO) << "name of data_to: " << demangled_name << std::endl;
+        // size_t old_size = data_to.size();
+        // LOG(INFO) << "old_size of data_to: " << old_size;
+
+        // data_to.resize(old_size + set.size());
+        // LOG(INFO) << "after resize, size of data_to: " << data_to.size();
+
+        // size_t i = 0;
+        // for (auto it = set.begin(); it != set.end(); ++it, ++i) {
+        //     T value = it->get_value();
+        //     LOG(INFO) << "Inserting value: " << value << " at index " << (old_size + i);
+        //     data_to[old_size + i] = value;
+        // }
+        // LOG(INFO) << "after for loop, size of data_to: " << data_to.size();
+        // LOG(INFO) << "After making value to data_to, leaving...";
     }
 };
 
