@@ -37,7 +37,10 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -74,6 +77,7 @@ public class CreateViewInfo {
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
     private final List<Column> finalCols = Lists.newArrayList();
     private final List<Slot> outputs = Lists.newArrayList();
+    private final List<NamedExpression> projects = Lists.newArrayList();
     private Plan analyzedPlan;
 
     /** constructor*/
@@ -109,7 +113,7 @@ public class CreateViewInfo {
         AtomicReference<LogicalProject<Plan>> outermostProject = new AtomicReference<>();
         analyzedPlan.accept(projectPlanFinder, outermostProject);
         outputs.addAll(outermostProject.get().getOutput());
-
+        projects.addAll(outermostProject.get().getProjects());
         createFinalCols();
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : finalCols) {
@@ -168,16 +172,25 @@ public class CreateViewInfo {
     }
 
     private String rewriteProjectsToUserDefineAlias(String resSql) {
+        List<Expression> projectExprs = Lists.newArrayList();
+        for (int i = 0; i < projects.size(); i++) {
+            NamedExpression namedExpression = projects.get(i);
+            if (namedExpression instanceof Alias) {
+                projectExprs.add(namedExpression.child(0));
+            } else {
+                projectExprs.add(namedExpression);
+            }
+        }
         IndexFinder finder = new IndexFinder();
         ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
         finder.visit(tree);
         StringBuilder replaceWithColsBuilder = new StringBuilder();
-        for (int i = 0; i < outputs.size(); ++i) {
-            replaceWithColsBuilder.append(((SlotReference) outputs.get(i)).getQualifiedNameWithBacktick());
+        for (int i = 0; i < projectExprs.size(); ++i) {
+            replaceWithColsBuilder.append(projectExprs.get(i).toSql());
             replaceWithColsBuilder.append(" AS `");
             replaceWithColsBuilder.append(finalCols.get(i).getName());
             replaceWithColsBuilder.append('`');
-            if (i != outputs.size() - 1) {
+            if (i != projectExprs.size() - 1) {
                 replaceWithColsBuilder.append(", ");
             }
         }
@@ -211,7 +224,7 @@ public class CreateViewInfo {
             if (node instanceof LogicalProject) {
                 LogicalProject<Plan> project = (LogicalProject) node;
                 for (BoundStar star : project.getBoundStars()) {
-                    result.put(star.getIndexInSqlString(), star.toSqlWithBacktick());
+                    result.put(star.getIndexInSqlString(), star.toSql());
                 }
             }
         });

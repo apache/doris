@@ -121,7 +121,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 bottomUp(
                         new BindRelation(customTableResolver),
                         new CheckPolicy(),
-                        new BindExpression()
+                        new BindExpression(),
+                        new MergeProjects()
                 )
         );
     }

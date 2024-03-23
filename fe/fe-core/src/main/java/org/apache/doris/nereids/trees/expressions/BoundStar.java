@@ -62,6 +62,7 @@ public class BoundStar extends NamedExpression implements PropagateNullable {
     public int getIndexInSqlString() {
         return indexInSqlString;
     }
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitBoundStar(this, context);
