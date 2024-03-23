@@ -270,6 +270,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
+import org.apache.doris.transaction.ExternalTransactionManager;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
@@ -512,6 +513,8 @@ public class Env {
 
     private QueryCancelWorker queryCancelWorker;
 
+    private final ExternalTransactionManager externalTransactionManager;
+
     /**
      * TODO(tsy): to be removed after load refactor
      */
@@ -623,6 +626,10 @@ public class Env {
 
     public BinlogManager getBinlogManager() {
         return binlogManager;
+    }
+
+    public static ExternalTransactionManager getExternalTransactionManager() {
+        return getCurrentEnv().externalTransactionManager;
     }
 
     private static class SingletonHolder {
@@ -758,6 +765,7 @@ public class Env {
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
+        this.externalTransactionManager = new ExternalTransactionManager();
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
@@ -1014,6 +1022,7 @@ public class Env {
         loadImage(this.imageDir); // load image file
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
+        this.externalTransactionManager.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
 
         if (Config.enable_check_compatibility_mode) {

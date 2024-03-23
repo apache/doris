@@ -62,6 +62,8 @@ public class HMSCommitter {
     private final HiveMetadataOps hiveOps;
     private final RemoteFileSystem fs;
     private final Table table;
+    private final String dbName;
+    private final String tbName;
 
     // update statistics for unPartitioned table or existed partition
     private final List<UpdateStatisticsTask> updateStatisticsTasks = new ArrayList<>();
@@ -88,21 +90,21 @@ public class HMSCommitter {
         this.hiveOps = hiveOps;
         this.fs = fs;
         this.table = table;
+        this.tbName = table.getTableName();
+        this.dbName = table.getDbName();
     }
 
-    public void commit(List<THivePartitionUpdate> hivePUs) {
+    public void finishInsert(List<THivePartitionUpdate> hivePUs) {
+        convertToCommitTasks(mergePartitions(hivePUs));
+    }
+
+    public void commit() {
         try {
-            prepare(mergePartitions(hivePUs));
             doCommit();
         } catch (Throwable t) {
-            LOG.warn("Failed to commit for {}.{}, abort it.", table.getDbName(), table.getTableName());
+            LOG.warn("Failed to commit for {}.{}, abort it.", dbName, table.getTableName());
             try {
-                cancelUnStartedAsyncFileSystemTask();
-                undoUpdateStatisticsTasks();
-                undoAddPartitionsTask();
-                waitForAsyncFileSystemTaskSuppressThrowable();
-                runDirectoryClearUpTasksForAbort();
-                runRenameDirTasksForAbort();
+                rollback();
             } catch (Throwable e) {
                 t.addSuppressed(new Exception("Failed to roll back after commit failure", e));
             }
@@ -112,7 +114,15 @@ public class HMSCommitter {
         }
     }
 
-    public void prepare(List<THivePartitionUpdate> hivePUs) {
+    public String getDbName() {
+        return dbName;
+    }
+
+    public String getTbName() {
+        return tbName;
+    }
+
+    public void convertToCommitTasks(List<THivePartitionUpdate> hivePUs) {
 
         List<Pair<THivePartitionUpdate, HivePartitionStatistics>> insertExistsPartitions = new ArrayList<>();
 
@@ -147,7 +157,7 @@ public class HMSCommitter {
                         prepareOverwritePartition(pu, hivePartitionStatistics);
                         break;
                     default:
-                        throw new RuntimeException("Not support mode:[" + updateMode + "] in unPartitioned table");
+                        throw new RuntimeException("Not support mode:[" + updateMode + "] in partitioned table");
                 }
             }
         }
@@ -179,7 +189,12 @@ public class HMSCommitter {
     }
 
     public void rollback() {
-
+        cancelUnStartedAsyncFileSystemTask();
+        undoUpdateStatisticsTasks();
+        undoAddPartitionsTask();
+        waitForAsyncFileSystemTaskSuppressThrowable();
+        runDirectoryClearUpTasksForAbort();
+        runRenameDirTasksForAbort();
     }
 
     public void cancelUnStartedAsyncFileSystemTask() {
@@ -245,8 +260,8 @@ public class HMSCommitter {
         directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, false));
         updateStatisticsTasks.add(
             new UpdateStatisticsTask(
-                table.getDbName(),
-                table.getTableName(),
+                dbName,
+                tbName,
                 Optional.empty(),
                 ps,
                 true
@@ -280,8 +295,8 @@ public class HMSCommitter {
         }
         updateStatisticsTasks.add(
             new UpdateStatisticsTask(
-                table.getDbName(),
-                table.getTableName(),
+                dbName,
+                tbName,
                 Optional.empty(),
                 ps,
                 false
@@ -306,8 +321,8 @@ public class HMSCommitter {
         StorageDescriptor sd = table.getSd();
 
         HivePartition hivePartition = new HivePartition(
-                table.getDbName(),
-                table.getTableName(),
+                dbName,
+                tbName,
                 false,
                 sd.getInputFormat(),
                 pu.getLocation().getTargetPath(),
@@ -315,7 +330,7 @@ public class HMSCommitter {
                 Maps.newHashMap(),
                 sd.getOutputFormat(),
                 sd.getSerdeInfo().getSerializationLib(),
-                hiveOps.getClient().getSchema(table.getDbName(), table.getTableName())
+                hiveOps.getClient().getSchema(dbName, table.getTableName())
         );
         HivePartitionWithStatistics partitionWithStats =
                 new HivePartitionWithStatistics(pu.getName(), hivePartition, ps);
@@ -331,7 +346,7 @@ public class HMSCommitter {
 
             Map<String, Partition> partitionsByNamesMap = HiveUtil.convertToNamePartitionMap(
                     partitionNames,
-                    hiveOps.getClient().getPartitions(table.getDbName(), table.getTableName(), partitionNames));
+                    hiveOps.getClient().getPartitions(dbName, tbName, partitionNames));
 
             for (int i = 0; i < partitionsByNamesMap.size(); i++) {
                 String partitionName = partitionNames.get(i);
@@ -359,8 +374,8 @@ public class HMSCommitter {
 
                 updateStatisticsTasks.add(
                     new UpdateStatisticsTask(
-                            table.getDbName(),
-                            table.getTableName(),
+                            dbName,
+                            tbName,
                             Optional.of(pu.getName()),
                             updateStats,
                             true));
@@ -396,8 +411,8 @@ public class HMSCommitter {
         }
         updateStatisticsTasks.add(
             new UpdateStatisticsTask(
-                table.getDbName(),
-                table.getTableName(),
+                dbName,
+                tbName,
                 Optional.of(pu.getName()),
                 ps,
                 false

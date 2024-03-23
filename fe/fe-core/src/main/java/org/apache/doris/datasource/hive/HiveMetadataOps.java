@@ -50,6 +50,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 public class HiveMetadataOps implements ExternalMetadataOps {
@@ -61,6 +62,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private final HMSCachedClient client;
     private final RemoteFileSystem fs;
     private final HMSExternalCatalog catalog;
+    private final Map<Long, HMSCommitter> committerMap = new ConcurrentHashMap<>();
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
@@ -226,23 +228,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return client.getAllDatabases();
     }
 
-    public void commit(String dbName,
-                       String tableName,
-                       List<THivePartitionUpdate> hivePUs) {
-        Table table = client.getTable(dbName, tableName);
-        HMSCommitter hmsCommitter = new HMSCommitter(this, fs, table);
-        hmsCommitter.commit(hivePUs);
-        try {
-            Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(
-                    dbName,
-                    tableName,
-                    catalog.getName(),
-                    true);
-        } catch (DdlException e) {
-            LOG.warn("Failed to refresh table {}.{} : {}", dbName, tableName, e.getMessage());
-        }
-    }
-
     public void updateTableStatistics(
             String dbName,
             String tableName,
@@ -264,5 +249,51 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     public void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData) {
         client.dropPartition(dbName, tableName, partitionValues, deleteData);
+    }
+
+    @Override
+    public void beginInsert(Long id, String dbName, String tbName) {
+        Table table = client.getTable(dbName, tbName);
+        HMSCommitter committer = new HMSCommitter(this, fs, table);
+        committerMap.put(id, committer);
+    }
+
+    @Override
+    public <T> void finishInsert(Long id, List<T> commitInfos) {
+        HMSCommitter committer = committerMap.get(id);
+        if (committer == null) {
+            throw new RuntimeException("Can't find committer for " + id);
+        }
+        committer.finishInsert((List<THivePartitionUpdate>) commitInfos);
+    }
+
+    @Override
+    public void commit(Long id) throws UserException {
+        HMSCommitter committer = committerMap.get(id);
+        if (committer == null) {
+            throw new RuntimeException("Can't find committer for " + id);
+        }
+        committer.commit();
+        committerMap.remove(id);
+        Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(
+                committer.getDbName(),
+                committer.getTbName(),
+                catalog.getName(),
+                true);
+    }
+
+    // for test
+    public Map<Long, HMSCommitter> getCommitterMap() {
+        return committerMap;
+    }
+
+    @Override
+    public void rollback(Long id) {
+        HMSCommitter committer = committerMap.get(id);
+        if (committer == null) {
+            throw new RuntimeException("Can't find committer for " + id);
+        }
+        committerMap.remove(id);
+        committer.rollback();
     }
 }

@@ -79,4 +79,32 @@ public interface ExternalMetadataOps {
      * @return
      */
     boolean tableExist(String dbName, String tblName);
+
+    /**
+     *
+     * @param id txnid
+     * @param dbName
+     * @param tbName
+     */
+    default void beginInsert(Long id, String dbName, String tbName) {}
+
+    /**
+     *
+     * @param id
+     * @param commitInfos
+     * @param <T>
+     */
+    default <T> void finishInsert(Long id, List<T> commitInfos) {}
+
+    /**
+     *
+     * @param id
+     */
+    default void commit(Long id) throws UserException {}
+
+    /**
+     *
+     * @param id
+     */
+    default void rollback(Long id) {}
 }
