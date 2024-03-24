@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -302,6 +303,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         // ((InsertIntoTableCommand) itp2).run(connectContext, null);
 
         // test olap CTAS in hive catalog
+        FeConstants.runningUnitTest = true;
         String createOlapSrc = "CREATE TABLE `olap_src`(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
                 + "  `col2` INT COMMENT 'col2',\n"
@@ -321,14 +323,23 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 "Cannot create olap table out of internal catalog."
                         + "Make sure 'engine' type is specified when use the catalog: hive",
                 () -> ((CreateTableCommand) olapCtasErrPlan).run(connectContext, null));
-        CreateTableStmt stmt = ((CreateTableCommand) olapCtasErrPlan).getCreateTableInfo().translateToLegacyStmt();
-        Assertions.assertTrue(stmt.getDistributionDesc() instanceof HashDistributionDesc);
-        Assertions.assertEquals(100, stmt.getDistributionDesc().getBuckets());
 
-        String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap AS SELECT * FROM internal.mockedDb.olap_src";
-        LogicalPlan olapCtasOkPlan = nereidsParser.parseSingle(olapCtasOk);
-        Assertions.assertTrue(olapCtasOkPlan instanceof CreateTableCommand);
+        String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap"
+                + " PROPERTIES('replication_num' = '1')"
+                + " AS SELECT * FROM internal.mockedDb.olap_src";
+        LogicalPlan olapCtasOkPlan = createTablesAndReturnPlans(true, olapCtasOk).get(0);
+        CreateTableStmt stmt = ((CreateTableCommand) olapCtasOkPlan).getCreateTableInfo().translateToLegacyStmt();
+        Assertions.assertTrue(stmt.getDistributionDesc() instanceof HashDistributionDesc);
+        Assertions.assertEquals(10, stmt.getDistributionDesc().getBuckets());
         // ((CreateTableCommand) olapCtasOkPlan).run(connectContext, null);
+
+        String olapCtasOk2 = "CREATE TABLE internal.mockedDb.no_buck_olap2 DISTRIBUTED BY HASH (col1) BUCKETS 16"
+                + " PROPERTIES('replication_num' = '1')"
+                + " AS SELECT * FROM internal.mockedDb.olap_src";
+        LogicalPlan olapCtasOk2Plan = createTablesAndReturnPlans(true, olapCtasOk2).get(0);
+        CreateTableStmt stmt2 = ((CreateTableCommand) olapCtasOk2Plan).getCreateTableInfo().translateToLegacyStmt();
+        Assertions.assertTrue(stmt2.getDistributionDesc() instanceof HashDistributionDesc);
+        Assertions.assertEquals(16, stmt2.getDistributionDesc().getBuckets());
     }
 
     @Test

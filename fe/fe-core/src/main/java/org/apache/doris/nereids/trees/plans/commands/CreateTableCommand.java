@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -158,7 +159,9 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
-            new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
+            if (!FeConstants.runningUnitTest) {
+                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
+            }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
             }
