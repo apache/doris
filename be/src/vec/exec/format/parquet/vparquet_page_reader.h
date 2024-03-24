@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "common/status.h"
+#include "vec/exec/format/parquet/vparquet_page_index.h"
 
 namespace doris {
 namespace io {
@@ -41,22 +42,34 @@ public:
         int64_t decode_header_time = 0;
     };
 
-    PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
-               uint64_t length);
+    PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
+               tparquet::ColumnChunk* column_chunk, uint64_t offset, uint64_t length);
+
+    Status init() {
+        PageIndex page_index;
+        uint8_t col_index_buff[page_index._column_index_size];
+        RETURN_IF_ERROR(
+                page_index.parse_offset_index(*_column_chunk, col_index_buff, &_offset_index));
+        return Status::OK();
+    }
+
     ~PageReader() = default;
 
-    // Deprecated
-    // Parquet file may not be standardized,
-    // _end_offset may exceed the actual data area.
-    // ColumnChunkReader::has_next_page() use the number of parsed values for judgment
-    // [[deprecated]]
-    bool has_next_page() const { return _offset < _end_offset; }
-
-    Status next_page_header();
+    bool has_next_page() const { return _page_index < _offset_index.page_locations.size(); }
 
     Status skip_page();
 
-    const tparquet::PageHeader* get_page_header() const { return &_cur_page_header; }
+    const tparquet::PageHeader* get_page_header();
+
+    int64_t get_page_num_values() const {
+        return _page_index < _offset_index.page_locations.size() - 1
+                       ? _offset_index.page_locations[_page_index + 1].first_row_index -
+                                 _offset_index.page_locations[_page_index].first_row_index
+                       // TODO: maybe should +1
+                       : _num_values - _offset_index.page_locations[_page_index].first_row_index;
+    };
+
+    Status load_page_header();
 
     Status get_page_data(Slice& slice);
 
@@ -64,7 +77,8 @@ public:
 
     void seek_to_page(int64_t page_header_offset) {
         _offset = page_header_offset;
-        _next_header_offset = page_header_offset;
+        // TODO: page_index
+        // _page_index = page_index;
         _state = INITIALIZED;
     }
 
@@ -78,10 +92,14 @@ private:
     PageReaderState _state = INITIALIZED;
 
     uint64_t _offset = 0;
-    uint64_t _next_header_offset = 0;
 
     uint64_t _start_offset = 0;
     uint64_t _end_offset = 0;
+
+    size_t _page_index = 0;
+    int64_t _num_values;
+    tparquet::ColumnChunk* _column_chunk;
+    tparquet::OffsetIndex _offset_index;
 };
 
 } // namespace doris::vectorized

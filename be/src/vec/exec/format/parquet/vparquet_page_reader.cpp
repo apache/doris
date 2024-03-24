@@ -18,6 +18,7 @@
 #include "vparquet_page_reader.h"
 
 #include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -40,17 +41,20 @@ namespace doris::vectorized {
 
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
-PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
-                       uint64_t length)
-        : _reader(reader), _io_ctx(io_ctx), _start_offset(offset), _end_offset(offset + length) {}
+PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
+                       tparquet::ColumnChunk* column_chunk, uint64_t offset, uint64_t length)
+        : _reader(reader),
+          _io_ctx(io_ctx),
+          _start_offset(offset),
+          _end_offset(offset + length),
+          _num_values(column_chunk->meta_data.num_values),
+          _column_chunk(column_chunk) {}
 
-Status PageReader::next_page_header() {
+Status PageReader::load_page_header() {
     if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
         return Status::IOError("Out-of-bounds Access");
     }
-    if (UNLIKELY(_offset != _next_header_offset)) {
-        return Status::IOError("Wrong header position, should seek to a page header first");
-    }
+
     if (UNLIKELY(_state != INITIALIZED)) {
         return Status::IOError("Should skip or load current page to get next page");
     }
@@ -83,28 +87,28 @@ Status PageReader::next_page_header() {
     }
 
     _offset += real_header_size;
-    _next_header_offset = _offset + _cur_page_header.compressed_page_size;
     _state = HEADER_PARSED;
     return Status::OK();
 }
 
 Status PageReader::skip_page() {
-    if (UNLIKELY(_state != HEADER_PARSED)) {
-        return Status::IOError("Should generate page header first to skip current page");
-    }
-    _offset = _next_header_offset;
+    _offset += _offset_index.page_locations[_page_index].compressed_page_size;
+    _page_index++;
     _state = INITIALIZED;
     return Status::OK();
 }
 
+const tparquet::PageHeader* PageReader::get_page_header() {
+    // should load page header first
+    DCHECK(_state == HEADER_PARSED);
+    return &_cur_page_header;
+}
+
 Status PageReader::get_page_data(Slice& slice) {
-    if (UNLIKELY(_state != HEADER_PARSED)) {
-        return Status::IOError("Should generate page header first to load current page data");
-    }
     if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
         return Status::EndOfFile("stop");
     }
-    slice.size = _cur_page_header.compressed_page_size;
+    slice.size = _offset_index.page_locations[_page_index].compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));
     _offset += slice.size;
     _state = INITIALIZED;

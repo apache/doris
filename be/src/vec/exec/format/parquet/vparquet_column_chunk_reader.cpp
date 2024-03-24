@@ -52,6 +52,7 @@ ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
+          _column_chunk(column_chunk),
           _metadata(column_chunk->meta_data),
           //          _ctz(ctz),
           _io_ctx(io_ctx) {}
@@ -61,7 +62,9 @@ Status ColumnChunkReader::init() {
                                   ? _metadata.dictionary_page_offset
                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
-    _page_reader = std::make_unique<PageReader>(_stream_reader, _io_ctx, start_offset, chunk_size);
+    _page_reader = std::make_unique<PageReader>(_stream_reader, _io_ctx, _column_chunk,
+                                                start_offset, chunk_size);
+    RETURN_IF_ERROR(_page_reader->init());
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     if (_metadata.__isset.dictionary_page_offset) {
@@ -88,24 +91,22 @@ Status ColumnChunkReader::next_page() {
     if (UNLIKELY(_remaining_num_values != 0)) {
         return Status::Corruption("Should skip current page");
     }
-    RETURN_IF_ERROR(_page_reader->next_page_header());
-    if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
-        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
-        // so we should parse the directory page in next_page()
-        RETURN_IF_ERROR(_decode_dict_page());
-        // parse the real first data page
-        return next_page();
-    } else if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
-        _remaining_num_values = _page_reader->get_page_header()->data_page_header_v2.num_values;
-        _chunk_parsed_values += _remaining_num_values;
-        _state = HEADER_PARSED;
-        return Status::OK();
+    // RETURN_IF_ERROR(_page_reader->next_page_header());
+
+    if (!_has_dict_parsed) {
+        _has_dict_parsed = true;
+        RETURN_IF_ERROR(_page_reader->load_page_header());
+        if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
+            // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
+            // so we should parse the directory page in next_page()
+            RETURN_IF_ERROR(_decode_dict_page());
+            // parse the real first data page
+            return next_page();
+        }
     } else {
-        _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
-        _chunk_parsed_values += _remaining_num_values;
-        _state = HEADER_PARSED;
-        return Status::OK();
+        _remaining_num_values = _page_reader->get_page_num_values();
     }
+    return Status::OK();
 }
 
 void ColumnChunkReader::_get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2,
@@ -119,9 +120,7 @@ void ColumnChunkReader::_get_uncompressed_levels(const tparquet::DataPageHeaderV
 }
 
 Status ColumnChunkReader::load_page_data() {
-    if (UNLIKELY(_state != HEADER_PARSED)) {
-        return Status::Corruption("Should parse page header");
-    }
+    RETURN_IF_ERROR(_page_reader->load_page_header());
     const auto& header = *_page_reader->get_page_header();
     int32_t uncompressed_size = header.uncompressed_page_size;
 

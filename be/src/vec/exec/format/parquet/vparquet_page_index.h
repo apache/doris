@@ -58,6 +58,7 @@ public:
 
 private:
     friend class ParquetReader;
+    friend class PageReader;
     int64_t _column_index_start;
     int64_t _column_index_size;
     int64_t _offset_index_start;
