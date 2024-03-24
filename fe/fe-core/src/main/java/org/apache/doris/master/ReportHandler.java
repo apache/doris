@@ -122,6 +122,7 @@ public class ReportHandler extends Daemon {
     }
 
     public ReportHandler() {
+        super("report-thread");
         GaugeMetric<Long> gauge = new GaugeMetric<Long>(
                 "report_queue_size", MetricUnit.NOUNIT, "report queue size") {
             @Override
