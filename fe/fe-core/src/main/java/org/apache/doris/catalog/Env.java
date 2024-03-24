@@ -659,7 +659,6 @@ public class Env {
         this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
-        this.transientTaskManager = new TransientTaskManager();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -1626,6 +1625,8 @@ public class Env {
         // Start txn cleaner
         txnCleaner.start();
         jobManager.start();
+        // transient task manager
+        transientTaskManager.start();
         // Alter
         getAlterInstance().start();
         // Consistency checker
