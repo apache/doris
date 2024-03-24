@@ -52,7 +52,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -899,6 +898,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     unboundFunction.getDbName(), unboundFunction.getName());
     }
 
+<<<<<<< HEAD
     private Expression bindWithOrdinal(
             Expression unbound, SimpleExprAnalyzer analyzer, List<? extends Expression> boundSelectOutput) {
         if (unbound instanceof IntegerLikeLiteral) {
@@ -912,6 +912,23 @@ public class BindExpression implements AnalysisRuleFactory {
         } else {
             return analyzer.analyze(unbound);
         }
+=======
+    private boolean hasAggregateFunction(Expression expression, FunctionRegistry functionRegistry) {
+        return expression.anyMatch(expr -> {
+            if (expr instanceof AggregateFunction) {
+                return true;
+            } else if (expr instanceof UnboundFunction) {
+                UnboundFunction unboundFunction = (UnboundFunction) expr;
+                boolean isAggregateFunction = functionRegistry
+                        .isAggregateFunction(
+                                unboundFunction.getDbName(),
+                                unboundFunction.getName()
+                        );
+                return isAggregateFunction;
+            }
+            return false;
+        });
+>>>>>>> a876efa500 ([Fix](nereids) modify the binding aggregate function in order by)
     }
 
     private <E extends Expression> E checkBoundExceptLambda(E expression, Plan plan) {
