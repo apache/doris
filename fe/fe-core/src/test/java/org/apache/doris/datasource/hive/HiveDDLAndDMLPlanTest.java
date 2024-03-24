@@ -19,6 +19,8 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -128,7 +130,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 .getCatalog("hive");
         new MockUp<HMSExternalDatabase>(HMSExternalDatabase.class) {
             @Mock
-            HMSExternalTable getTableNullable(String tableName){
+            HMSExternalTable getTableNullable(String tableName) {
                 return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
             }
         };
@@ -306,7 +308,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col3` BIGINT COMMENT 'col3',\n"
                 + "  `col4` DECIMAL(5,2) COMMENT 'col4'\n"
                 + ")\n"
-                + "DISTRIBUTED BY HASH (col1) BUCKETS 16\n"
+                + "DISTRIBUTED BY HASH (col1) BUCKETS 100\n"
                 + "PROPERTIES (\n"
                 + "  'replication_num' = '1')";
         createTable(createOlapSrc, true);
@@ -319,6 +321,9 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 "Cannot create olap table out of internal catalog."
                         + "Make sure 'engine' type is specified when use the catalog: hive",
                 () -> ((CreateTableCommand) olapCtasErrPlan).run(connectContext, null));
+        CreateTableStmt stmt = ((CreateTableCommand) olapCtasErrPlan).getCreateTableInfo().translateToLegacyStmt();
+        Assertions.assertTrue(stmt.getDistributionDesc() instanceof HashDistributionDesc);
+        Assertions.assertEquals(100, stmt.getDistributionDesc().getBuckets());
 
         String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasOkPlan = nereidsParser.parseSingle(olapCtasOk);
