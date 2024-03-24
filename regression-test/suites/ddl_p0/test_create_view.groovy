@@ -43,6 +43,7 @@ suite("test_create_view") {
         "dynamic_partition.buckets" = "3"
         );
     """
+    sql "drop view if exists test_count_distinct"
     sql """
     CREATE VIEW IF NOT EXISTS test_count_distinct
     (
