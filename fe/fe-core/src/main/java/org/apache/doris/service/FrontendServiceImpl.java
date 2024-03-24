@@ -285,9 +285,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private MasterImpl masterImpl;
     private ExecuteEnv exeEnv;
-    // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
-    private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap =
-            new ConcurrentHashMap<>(64);
+    // key is txn id,value is index of plan fragment instance, it's used by multi
+    // table request plan
+    private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap = new ConcurrentHashMap<>(64);
 
     private final Map<TUniqueId, ConnectContext> proxyQueryIdToConnCtx =
             new ConcurrentHashMap<>(64);
@@ -352,8 +352,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             // check cooldownMetaId of all replicas are the same
             List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(info.tablet_id);
-            // FIXME(plat1ko): We only delete remote files when tablet is under a stable state: enough replicas and
-            //  all replicas are alive. Are these conditions really sufficient or necessary?
+            // FIXME(plat1ko): We only delete remote files when tablet is under a stable
+            // state: enough replicas and
+            // all replicas are alive. Are these conditions really sufficient or necessary?
             if (replicas.size() < replicaNum) {
                 LOG.info("num replicas are not enough, tablet={}", info.tablet_id);
                 return;
@@ -668,7 +669,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         PatternMatcher finalMatcher = matcher;
-
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> future = executor.submit(() -> {
@@ -1013,7 +1013,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
         }
         ConnectContext context = new ConnectContext(null, true);
-        // Set current connected FE to the client address, so that we can know where this request come from.
+        // Set current connected FE to the client address, so that we can know where
+        // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
@@ -1359,7 +1360,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
             tables.add(table);
         }
-        // if it has multi table, use multi table and update multi table running transaction table ids
+        // if it has multi table, use multi table and update multi table running
+        // transaction table ids
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
             Env.getCurrentGlobalTransactionMgr()
@@ -1555,7 +1557,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    // return true if commit success and publish success, return false if publish timeout
+    // return true if commit success and publish success, return false if publish
+    // timeout
     private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
@@ -1633,7 +1636,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    // return true if commit success and publish success, return false if publish timeout
+    // return true if commit success and publish success, return false if publish
+    // timeout
     private boolean commitTxnImpl(TCommitTxnRequest request) throws UserException {
         /// Check required arg: user, passwd, db, txn_id, commit_infos
         if (!request.isSetUser()) {
@@ -1697,7 +1701,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // Step 4: get timeout
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
-
 
         // Step 5: commit and publish
         return Env.getCurrentGlobalTransactionMgr()
@@ -1949,7 +1952,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     /**
-     * For first-class multi-table scenarios, we should store the mapping between Txn and data source type in a common
+     * For first-class multi-table scenarios, we should store the mapping between
+     * Txn and data source type in a common
      * place. Since there is only Kafka now, we should do this first.
      */
     private void buildMultiTableStreamLoadTask(StreamLoadTask baseTaskInfo, long txnId) {
@@ -2002,7 +2006,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     ctx.setCurrentUserIdentity(currentUser.get(0));
                 }
                 LOG.info("one stream multi table load use cloud cluster {}", request.getCloudCluster());
-                //ctx.setCloudCluster();
+                // ctx.setCloudCluster();
                 if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
                     if (Strings.isNullOrEmpty(request.getUser())) {
                         ctx.setCloudCluster(request.getCloudCluster());
@@ -2055,7 +2059,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
                 routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR,
-                            "failed to get stream load plan, " + exception.getMessage()), false);
+                        "failed to get stream load plan, " + exception.getMessage()), false);
             } catch (UserException e) {
                 LOG.warn("catch update routine load job error.", e);
             }
@@ -2112,9 +2116,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             coord.setQueryType(TQueryType.LOAD);
             TableIf table = httpStreamParams.getTable();
             if (table instanceof OlapTable) {
-                boolean isEnableMemtableOnSinkNode =
-                        ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                            ? coord.getQueryOptions().isEnableMemtableOnSinkNode() : false;
+                boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                        ? coord.getQueryOptions().isEnableMemtableOnSinkNode()
+                        : false;
                 coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             }
             httpStreamParams.setParams(coord.getStreamLoadPlan());
@@ -2239,7 +2243,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange()
                     && (request.getGroupCommitMode() != null
-                    && !request.getGroupCommitMode().equals("off_mode"))) {
+                            && !request.getGroupCommitMode().equals("off_mode"))) {
                 throw new UserException(
                         "table light_schema_change is false, can't do stream load with group commit mode");
             }
@@ -2906,7 +2910,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("prev_commit_seq is not set");
         }
 
-
         // step 1: check auth
         if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -2999,7 +3002,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getSnapshotImpl
     private TGetSnapshotResult getSnapshotImpl(TGetSnapshotRequest request, String clientIp)
             throws UserException {
-        // Step 1: Check all required arg: user, passwd, db, label_name, snapshot_name, snapshot_type
+        // Step 1: Check all required arg: user, passwd, db, label_name, snapshot_name,
+        // snapshot_type
         if (!request.isSetUser()) {
             throw new UserException("user is not set");
         }
@@ -3080,7 +3084,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // restoreSnapshotImpl
     private TRestoreSnapshotResult restoreSnapshotImpl(TRestoreSnapshotRequest request, String clientIp)
             throws UserException {
-        // Step 1: Check all required arg: user, passwd, db, label_name, repo_name, meta, info
+        // Step 1: Check all required arg: user, passwd, db, label_name, repo_name,
+        // meta, info
         if (!request.isSetUser()) {
             throw new UserException("user is not set");
         }
@@ -3346,7 +3351,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!request.isSetPrevCommitSeq()) {
             throw new UserException("prev_commit_seq is not set");
         }
-
 
         // step 1: check auth
         if (Strings.isNullOrEmpty(request.getToken())) {
@@ -3642,8 +3646,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<String> allReqPartNames; // all request partitions
         try {
             taskLock.lock();
-            // we dont lock the table. other thread in this txn will be controled by taskLock.
-            // if we have already replaced. dont do it again, but acquire the recorded new partition directly.
+            // we dont lock the table. other thread in this txn will be controled by
+            // taskLock.
+            // if we have already replaced. dont do it again, but acquire the recorded new
+            // partition directly.
             // if not by this txn, just let it fail naturally is ok.
             List<Long> replacedPartIds = overwriteManager.tryReplacePartitionIds(taskGroupId, partitionIds);
             // here if replacedPartIds still have null. this will throw exception.
@@ -3653,7 +3659,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .filter(i -> partitionIds.get(i) == replacedPartIds.get(i)) // equal means not replaced
                     .mapToObj(partitionIds::get)
                     .collect(Collectors.toList());
-            // from here we ONLY deal the pending partitions. not include the dealed(by others).
+            // from here we ONLY deal the pending partitions. not include the dealed(by
+            // others).
             if (!pendingPartitionIds.isEmpty()) {
                 // below two must have same order inner.
                 List<String> pendingPartitionNames = olapTable.uncheckedGetPartNamesById(pendingPartitionIds);
@@ -3664,7 +3671,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 overwriteManager.registerTaskInGroup(taskGroupId, taskId);
                 InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, tempPartitionNames);
                 InsertOverwriteUtil.replacePartition(olapTable, pendingPartitionNames, tempPartitionNames);
-                // now temp partitions are bumped up and use new names. we get their ids and record them.
+                // now temp partitions are bumped up and use new names. we get their ids and
+                // record them.
                 List<Long> newPartitionIds = new ArrayList<Long>();
                 for (String newPartName : pendingPartitionNames) {
                     newPartitionIds.add(olapTable.getPartition(newPartName).getId());
@@ -3686,8 +3694,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             taskLock.unlock();
         }
 
-        // build partition & tablets. now all partitions in allReqPartNames are replaced an recorded.
-        // so they won't be changed again. if other transaction changing it. just let it fail.
+        // build partition & tablets. now all partitions in allReqPartNames are replaced
+        // an recorded.
+        // so they won't be changed again. if other transaction changing it. just let it
+        // fail.
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         List<TTabletLocation> tablets = Lists.newArrayList();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -3796,7 +3806,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TGetMetaResult getMetaImpl(TGetMetaRequest request, String clientIp)
             throws Exception {
-        //  Step 1: check fields
+        // Step 1: check fields
         if (!request.isSetUser()) {
             throw new UserException("user is not set");
         }
@@ -3868,7 +3878,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw e;
         }
     }
-
 
     @Override
     public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
@@ -3990,12 +3999,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // FE only has one master, this should not be a problem
         if (!Env.getCurrentEnv().isMaster()) {
             LOG.error("failed to handle load stats report: not master, backend:{}",
-                      clientAddr);
+                    clientAddr);
             return new TStatus(TStatusCode.NOT_MASTER);
         }
 
         LOG.info("receive load stats report request: {}, backend: {}, dbId: {}, txnId: {}, label: {}",
-                  request, clientAddr, request.getDbId(), request.getTxnId(), request.getLabel());
+                request, clientAddr, request.getDbId(), request.getTxnId(), request.getLabel());
 
         try {
             byte[] receivedProtobufBytes = request.getPayload();
