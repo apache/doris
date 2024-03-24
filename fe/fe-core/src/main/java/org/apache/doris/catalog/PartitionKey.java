@@ -234,6 +234,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     public List<String> getPartitionValuesAsStringList() {
+        if (originHiveKeys.size() == keys.size()) {
+            // for hive, we need ues originHiveKeys
+            // because when a double 1.234 as partition column, it will save as '1.123000' for PartitionValue
+            return getPartitionValuesAsStringListForHive();
+        }
         return keys.stream().map(k -> k.getStringValue()).collect(Collectors.toList());
     }
 
