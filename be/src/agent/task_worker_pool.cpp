@@ -406,7 +406,7 @@ bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
 TaskWorkerPool::TaskWorkerPool(std::string_view name, int worker_count,
                                std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWorkerPool.{}", name))
+    auto st = ThreadPoolBuilder(fmt::format("TaskWP_{}", name))
                       .set_min_threads(worker_count)
                       .set_max_threads(worker_count)
                       .build(&_thread_pool);
@@ -441,7 +441,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::string_view name, int normal_worker_count, int high_prior_worker_conut,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWorkerPool.{}", name))
+    auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
                       .set_min_threads(normal_worker_count)
                       .set_max_threads(normal_worker_count)
                       .build(&_normal_pool);
