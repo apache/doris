@@ -21,6 +21,9 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 # shellcheck source=/dev/null
 # upload_doris_log_to_oss
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
+# shellcheck source=/dev/null
+# reporting_build_problem, reporting_messages_error
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/teamcity-utils.sh
 
 if ${DEBUG:-false}; then
     pr_num_from_trigger=${pr_num_from_debug:-"30772"}
