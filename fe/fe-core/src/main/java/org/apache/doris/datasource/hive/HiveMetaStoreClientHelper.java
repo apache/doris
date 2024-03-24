@@ -635,6 +635,35 @@ public class HiveMetaStoreClientHelper {
                 default:
                     throw new HMSClientException("Unsupported primitive type conversion of " + dorisType.toSql());
             }
+        } else if (dorisType.isArrayType()) {
+            ArrayType dorisArray = (ArrayType) dorisType;
+            Type itemType = dorisArray.getItemType();
+            return "array<" + dorisTypeToHiveType(itemType) + ">";
+        } else if (dorisType.isMapType()) {
+            MapType dorisMap = (MapType) dorisType;
+            Type keyType = dorisMap.getKeyType();
+            Type valueType = dorisMap.getValueType();
+            return "map<"
+                    + dorisTypeToHiveType(keyType)
+                    + ","
+                    + dorisTypeToHiveType(valueType)
+                    + ">";
+        } else if (dorisType.isStructType()) {
+            StructType dorisStruct = (StructType) dorisType;
+            StringBuilder structType = new StringBuilder();
+            structType.append("struct<");
+            ArrayList<StructField> fields = dorisStruct.getFields();
+            for (int i = 0; i < fields.size(); i++) {
+                StructField field = fields.get(i);
+                structType.append(field.getName());
+                structType.append(":");
+                structType.append(field.getType());
+                if (i != fields.size() - 1) {
+                    structType.append(",");
+                }
+            }
+            structType.append(">");
+            return structType.toString();
         }
         throw new HMSClientException("Unsupported type conversion of " + dorisType.toSql());
     }

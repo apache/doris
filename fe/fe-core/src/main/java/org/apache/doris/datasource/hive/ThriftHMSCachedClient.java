@@ -28,6 +28,7 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -191,7 +192,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
     }
 
-    private static Table toHiveTable(HiveTableMetadata hiveTable) {
+    @VisibleForTesting
+    public static Table toHiveTable(HiveTableMetadata hiveTable) {
         Objects.requireNonNull(hiveTable.getDbName(), "Hive database name should be not null");
         Objects.requireNonNull(hiveTable.getTableName(), "Hive table name should be not null");
         Table table = new Table();

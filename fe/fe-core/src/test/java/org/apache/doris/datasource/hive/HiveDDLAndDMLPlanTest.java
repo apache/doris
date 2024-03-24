@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -100,6 +101,13 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                         add(mockedDbName);
                     }
                 };
+            }
+
+            @Mock
+            public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
+                if (tbl instanceof HiveTableMetadata) {
+                    ThriftHMSCachedClient.toHiveTable((HiveTableMetadata) tbl);
+                }
             }
         };
         CreateDbStmt createDbStmt = new CreateDbStmt(true, mockedDbName, dbProps);
@@ -368,5 +376,57 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         String insertSql2 = "INSERT OVERWRITE TABLE part_ctas_src values(2, 'v3', 'v4')";
         LogicalPlan plan2 = nereidsParser.parseSingle(insertSql2);
         Assertions.assertTrue(plan2 instanceof InsertOverwriteTableCommand);
+    }
+
+    @Test
+    public void testComplexTypeCreateTable() throws Exception {
+        switchHive();
+        useDatabase(mockedDbName);
+        String createArrayTypeTable = "CREATE TABLE complex_type_array(\n"
+                + "  `col1` ARRAY<BOOLEAN> COMMENT 'col1',\n"
+                + "  `col2` ARRAY<INT(11)> COMMENT 'col2',\n"
+                + "  `col3` ARRAY<DECIMAL(6,4)> COMMENT 'col3'\n"
+                + ")  ENGINE=hive\n"
+                + "PROPERTIES ('file_format'='orc')";
+        createTable(createArrayTypeTable, true);
+        dropTable("complex_type_array", true);
+
+        String createMapTypeTable = "CREATE TABLE complex_type_map(\n"
+                + "  `col1` MAP<int,string> COMMENT 'col1',\n"
+                + "  `col2` MAP<string,double> COMMENT 'col2',\n"
+                + "  `col3` MAP<string,BOOLEAN> COMMENT 'col3',\n"
+                + "  `col4` MAP<BOOLEAN,BOOLEAN> COMMENT 'col4'\n"
+                + ")  ENGINE=hive\n"
+                + "PROPERTIES ('file_format'='orc')";
+        createTable(createMapTypeTable, true);
+        dropTable("complex_type_map", true);
+
+        String createStructTypeTable = "CREATE TABLE complex_type_struct(\n"
+                + "  `col1` STRUCT<rates:ARRAY<double>,name:string> COMMENT 'col1',\n"
+                + "  `col2` STRUCT<id:INT,age:TINYINT> COMMENT 'col2',\n"
+                + "  `col3` STRUCT<pre:DECIMAL(6,4)> COMMENT 'col3',\n"
+                + "  `col4` STRUCT<bul:BOOLEAN,buls:ARRAY<BOOLEAN>> COMMENT 'col4'\n"
+                + ")  ENGINE=hive\n"
+                + "PROPERTIES ('file_format'='orc')";
+        createTable(createStructTypeTable, true);
+        dropTable("complex_type_struct", true);
+
+        String compoundTypeTable1 = "CREATE TABLE complex_type_compound1(\n"
+                + "  `col1` ARRAY<MAP<string,double>> COMMENT 'col1',\n"
+                + "  `col2` ARRAY<STRUCT<name:string,gender:boolean,rate:decimal(3,1)>> COMMENT 'col2'\n"
+                + ")  ENGINE=hive\n"
+                + "PROPERTIES ('file_format'='orc')";
+        createTable(compoundTypeTable1, true);
+        dropTable("complex_type_compound1", true);
+
+        String compoundTypeTable2 = "CREATE TABLE complex_type_compound2(\n"
+                + "  `col1` MAP<string,ARRAY<double>> COMMENT 'col1',\n"
+                + "  `col2` MAP<string,ARRAY<MAP<int, string>>> COMMENT 'col2',\n"
+                + "  `col3` MAP<string,MAP<int,double>> COMMENT 'col3',\n"
+                + "  `col4` MAP<bigint,STRUCT<name:string,gender:boolean,rate:decimal(3,1)>> COMMENT 'col4'\n"
+                + ")  ENGINE=hive\n"
+                + "PROPERTIES ('file_format'='orc')";
+        createTable(compoundTypeTable2, true);
+        dropTable("complex_type_compound2", true);
     }
 }
