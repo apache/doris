@@ -39,7 +39,7 @@ import java.util.Optional;
 // show data skew from tbl [partition(p1, p2, ...)]
 public class ShowDataSkewStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Partition").add("BucketIdx").add("AvgRowCount").add("AvgDataSize")
+            .add("PartitionName").add("BucketIdx").add("AvgRowCount").add("AvgDataSize")
             .add("Graph").add("Percent")
             .build();
 
