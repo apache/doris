@@ -941,9 +941,9 @@ public:
                     return false;
                 });
         if (!valid) {
-            LOG(FATAL) << fmt::format("Illegal types {} and {} of arguments of function {}",
-                                      arguments[0]->get_name(), arguments[1]->get_name(),
-                                      get_name());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Illegal types {} and {} of arguments of function {}",
+                            arguments[0]->get_name(), arguments[1]->get_name(), get_name());
         }
 
         if constexpr (is_to_null_type) {
