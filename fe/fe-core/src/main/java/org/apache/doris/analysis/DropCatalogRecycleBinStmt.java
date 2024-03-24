@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
 /**
@@ -32,12 +33,12 @@ public class DropCatalogRecycleBinStmt extends DdlStmt {
 
     public DropCatalogRecycleBinStmt(String idType, long id) {
         this.idType = idType;
-        if (idType.equals("DbId")) {
-            this.dbId = dbId;
-        } else if (idType.equals("TableId")) {
-            this.tableId = tableId;
-        } else if (idType.equals("PartitionId")) {
-            this.partitionId = partitionId;
+        if (idType.equals("'DbId'")) {
+            this.dbId = id;
+        } else if (idType.equals("'TableId'")) {
+            this.tableId = id;
+        } else if (idType.equals("'PartitionId'")) {
+            this.partitionId = id;
         }
     }
 
@@ -60,11 +61,10 @@ public class DropCatalogRecycleBinStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        if (!idType.equals("DbId") && !idType.equals("TableId") && !idType.equals("PartitionId")) {
-            String message = ErrorCode.ERR_WRONG_TYPE_FOR_VAR.formatErrorMsg("DROP CATALOG RECYCLE BIN: ",
-                    idType,
-                    "should be 'DbId', 'tableId' or 'partitionId'.");
-            throw new AnalysisException(message);
+        if (!idType.equals("'DbId'") && !idType.equals("'TableId'") && !idType.equals("'PartitionId'")) {
+            String message = "DROP CATALOG RECYCLE BIN: " + idType + "should be 'DbId', 'tableId' or 'partitionId'.";
+            // throw new AnalysisException(message);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_COM_ERROR, message);
         }
     }
 
@@ -72,14 +72,13 @@ public class DropCatalogRecycleBinStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP CATALOG RECYCLE BIN WHERE ");
-        sb.append("'");
         sb.append(this.idType);
-        sb.append("' = ");
-        if (idType.equals("DbId")) {
+        sb.append(" = ");
+        if (idType.equals("'DbId'")) {
             sb.append(this.dbId);
-        } else if (idType.equals("TableId")) {
+        } else if (idType.equals("'TableId'")) {
             sb.append(this.tableId);
-        } else if (idType.equals("PartitionId")) {
+        } else if (idType.equals("'PartitionId'")) {
             sb.append(this.partitionId);
         }
         return sb.toString();

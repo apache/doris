@@ -707,13 +707,13 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void dropCatalogRecycleBin(DropCatalogRecycleBinStmt dropStmt) throws DdlException {
-        if (dropStmt.getIdType().equals("DbId")) {
+        if (dropStmt.getIdType().equals("'DbId'")) {
             Env.getCurrentRecycleBin().eraseDatabaseTimely(dropStmt.getDbId());
             LOG.info("drop database[{}] in catalog recycle bin", dropStmt.getDbId());
-        } else if (dropStmt.getIdType().equals("TableId")) {
+        } else if (dropStmt.getIdType().equals("'TableId'")) {
             Env.getCurrentRecycleBin().eraseTableTimely(dropStmt.getTableId());
             LOG.info("drop table[{}] in catalog recycle bin", dropStmt.getTableId());
-        } else if (dropStmt.getIdType().equals("PartitionId")) {
+        } else if (dropStmt.getIdType().equals("'PartitionId'")) {
             Env.getCurrentRecycleBin().erasePartitionTimely(dropStmt.getPartitionId());
             LOG.info("drop partition[{}] in catalog recycle bin", dropStmt.getPartitionId());
         }

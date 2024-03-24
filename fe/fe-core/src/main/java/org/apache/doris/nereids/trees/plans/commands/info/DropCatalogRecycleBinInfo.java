@@ -37,12 +37,12 @@ public class DropCatalogRecycleBinInfo {
      */
     public DropCatalogRecycleBinInfo(String idType, long id) {
         this.idType = idType;
-        if (idType.equals("DbId")) {
-            this.dbId = dbId;
-        } else if (idType.equals("TableId")) {
-            this.tableId = tableId;
-        } else if (idType.equals("PartitionId")) {
-            this.partitionId = partitionId;
+        if (idType.equals("'DbId'")) {
+            this.dbId = id;
+        } else if (idType.equals("'TableId'")) {
+            this.tableId = id;
+        } else if (idType.equals("'PartitionId'")) {
+            this.partitionId = id;
         }
     }
 
@@ -52,7 +52,7 @@ public class DropCatalogRecycleBinInfo {
      * @param ctx ConnectContext
      */
     public void analyze(ConnectContext ctx) {
-        if (!idType.equals("DbId") && !idType.equals("TableId") && !idType.equals("PartitionId")) {
+        if (!idType.equals("'DbId'") && !idType.equals("'TableId'") && !idType.equals("'PartitionId'")) {
             String message = ErrorCode.ERR_WRONG_TYPE_FOR_VAR.formatErrorMsg("DROP CATALOG RECYCLE BIN: ",
                     idType,
                     "should be 'DbId', 'tableId' or 'partitionId'.");
@@ -93,11 +93,11 @@ public class DropCatalogRecycleBinInfo {
      */
     public DropCatalogRecycleBinStmt translateToLegacyStmt() {
         DropCatalogRecycleBinStmt dropStmt = null;
-        if (idType.equals("DbId")) {
+        if (idType.equals("'DbId'")) {
             dropStmt = new DropCatalogRecycleBinStmt(idType, dbId);
-        } else if (idType.equals("TableId")) {
+        } else if (idType.equals("'TableId'")) {
             dropStmt = new DropCatalogRecycleBinStmt(idType, tableId);
-        } else if (idType.equals("PartitionId")) {
+        } else if (idType.equals("'PartitionId'")) {
             dropStmt = new DropCatalogRecycleBinStmt(idType, partitionId);
         }
         return dropStmt;

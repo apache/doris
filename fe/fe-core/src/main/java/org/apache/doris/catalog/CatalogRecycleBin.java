@@ -894,7 +894,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     // erase database in catalog recycle bin timely
-    public void eraseDatabaseTimely(long dbId) throws DdlException {
+    public synchronized void eraseDatabaseTimely(long dbId) throws DdlException {
         // 1. find dbInfo to erase
         RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
         if (dbInfo == null) {
@@ -912,7 +912,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     // erase table in catalog recycle bin timely
-    public void eraseTableTimely(long tableId) throws DdlException {
+    public synchronized void eraseTableTimely(long tableId) throws DdlException {
         // 1. find tableInfo to erase
         RecycleTableInfo tableInfo = idToTable.get(tableId);
         if (tableInfo == null) {
@@ -934,7 +934,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     // erase partition in catalog recycle bin timely
-    public void erasePartitionTimely(long partitionId) throws DdlException {
+    public synchronized void erasePartitionTimely(long partitionId) throws DdlException {
         // 1. find partitionInfo to erase
         RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
         if (partitionInfo == null) {

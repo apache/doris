@@ -3435,7 +3435,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitDropCatalogRecycleBin(DropCatalogRecycleBinContext ctx) {
-        String idType = ctx.idType.getText();
+        String idType = String.valueOf(ctx.idType.getText());
         long id = Long.valueOf(ctx.id.getText());
         DropCatalogRecycleBinInfo info = new DropCatalogRecycleBinInfo(idType, id);
         return ParserUtils.withOrigin(ctx, () -> new DropCatalogRecycleBinCommand(info));
