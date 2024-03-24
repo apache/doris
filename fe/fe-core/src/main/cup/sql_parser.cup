@@ -3409,6 +3409,10 @@ partition_value_list ::=
     {:
         RESULT = l;
     :}
+    | KW_NULL
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue("", true));
+    :}
     ;
 
 /* List<PartitionValue> */
@@ -3430,6 +3434,10 @@ partition_key_item_list ::=
     {:
         l.add(new PartitionValue(item));
         RESULT = l;
+    :}
+    | KW_NULL
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue("", true));
     :}
     ;
 
@@ -3465,6 +3473,10 @@ partition_key_list ::=
     | KW_MAX_VALUE
     {:
         RESULT = Lists.newArrayList(PartitionValue.MAX_VALUE);
+    :}
+    | KW_NULL
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue("", true));
     :}
     ;
 
