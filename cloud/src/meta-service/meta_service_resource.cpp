@@ -245,10 +245,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
     // Iterate all the resources to return to the rpc caller
     if (!instance.resource_ids().empty()) {
-        std::string storage_vault_start =
-                storage_vault_key({instance_id, *instance.resource_ids().begin()});
-        std::string storage_vault_end = storage_vault_key(
-                {instance_id, instance.resource_ids().at(instance.resource_ids().size() - 1)});
+        std::string storage_vault_start = storage_vault_key({instance_id, ""});
+        std::string storage_vault_end = storage_vault_key({instance_id, "\xff"});
         std::unique_ptr<RangeGetIterator> it;
         do {
             TxnErrorCode err = txn->get(storage_vault_start, storage_vault_end, &it);

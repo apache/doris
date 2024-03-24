@@ -36,6 +36,7 @@ public enum InternalErrorCode {
     CREATE_TASKS_ERR(103),
     TASKS_ABORT_ERR(104),
     CANNOT_RESUME_ERR(105),
+    TIMEOUT_TOO_MUCH(106),
 
     // for MoW table
     DELETE_BITMAP_LOCK_ERR(301);

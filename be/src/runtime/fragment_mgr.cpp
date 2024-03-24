@@ -646,6 +646,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         query_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(pipeline);
+        _set_scan_concurrency(params, query_ctx.get());
         const bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
@@ -963,73 +964,97 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     return Status::OK();
 }
 
-void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                               const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock(_lock);
-    return cancel_query_unlocked(query_id, reason, state_lock, msg);
+template <typename Param>
+void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query_ctx) {
+#ifndef BE_TEST
+    // If the token is set, the scan task will use limited_scan_pool in scanner scheduler.
+    // Otherwise, the scan task will use local/remote scan pool in scanner scheduler
+    if (params.query_options.__isset.resource_limit &&
+        params.query_options.resource_limit.__isset.cpu_limit) {
+        query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
+    }
+#endif
 }
 
-// Cancel all instances/fragments of query, and set query_ctx of the query canceled at last.
-void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id,
-                                        const PPlanFragmentCancelReason& reason,
-                                        const std::unique_lock<std::mutex>& state_lock,
-                                        const std::string& msg) {
-    auto ctx = _query_ctx_map.find(query_id);
+void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                               const std::string& msg) {
+    std::shared_ptr<QueryContext> query_ctx;
+    std::vector<TUniqueId> all_instance_ids;
+    {
+        std::lock_guard<std::mutex> state_lock(_lock);
+        auto ctx_iter = _query_ctx_map.find(query_id);
 
-    if (ctx == _query_ctx_map.end()) {
-        LOG(WARNING) << "Query " << print_id(query_id) << " does not exists, failed to cancel it";
-        return;
+        if (ctx_iter == _query_ctx_map.end()) {
+            LOG(WARNING) << "Query " << print_id(query_id)
+                         << " does not exists, failed to cancel it";
+            return;
+        }
+        query_ctx = ctx_iter->second;
+        // Copy instanceids to avoid concurrent modification.
+        // And to reduce the scope of lock.
+        all_instance_ids = query_ctx->fragment_instance_ids;
     }
-    if (ctx->second->enable_pipeline_x_exec()) {
-        ctx->second->cancel_all_pipeline_context(reason, msg);
+    if (query_ctx->enable_pipeline_x_exec()) {
+        query_ctx->cancel_all_pipeline_context(reason, msg);
     } else {
-        for (auto it : ctx->second->fragment_instance_ids) {
-            cancel_instance_unlocked(it, reason, state_lock, msg);
+        for (auto it : all_instance_ids) {
+            cancel_instance(it, reason, msg);
         }
     }
 
-    ctx->second->cancel(true, msg, Status::Cancelled(msg));
-    _query_ctx_map.erase(query_id);
+    query_ctx->cancel(true, msg, Status::Cancelled(msg));
+    {
+        std::lock_guard<std::mutex> state_lock(_lock);
+        _query_ctx_map.erase(query_id);
+    }
     LOG(INFO) << "Query " << print_id(query_id) << " is cancelled and removed. Reason: " << msg;
 }
 
 void FragmentMgr::cancel_instance(const TUniqueId& instance_id,
                                   const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock(_lock);
-    return cancel_instance_unlocked(instance_id, reason, state_lock, msg);
-}
-
-void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
-                                           const PPlanFragmentCancelReason& reason,
-                                           const std::unique_lock<std::mutex>& state_lock,
-                                           const std::string& msg) {
-    const bool is_pipeline_instance = _pipeline_map.contains(instance_id);
-
-    if (is_pipeline_instance) {
-        auto itr = _pipeline_map.find(instance_id);
-
-        if (itr != _pipeline_map.end()) {
-            // calling PipelineFragmentContext::cancel
-            itr->second->cancel(reason, msg);
+    std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_ctx;
+    std::shared_ptr<PlanFragmentExecutor> non_pipeline_ctx;
+    {
+        std::lock_guard<std::mutex> state_lock(_lock);
+        const bool is_pipeline_instance = _pipeline_map.contains(instance_id);
+        if (is_pipeline_instance) {
+            auto itr = _pipeline_map.find(instance_id);
+            if (itr != _pipeline_map.end()) {
+                pipeline_ctx = itr->second;
+            } else {
+                LOG(WARNING) << "Could not find the pipeline instance id:" << print_id(instance_id)
+                             << " to cancel";
+                return;
+            }
         } else {
-            LOG(WARNING) << "Could not find the pipeline instance id:" << print_id(instance_id)
-                         << " to cancel";
+            auto itr = _fragment_instance_map.find(instance_id);
+            if (itr != _fragment_instance_map.end()) {
+                non_pipeline_ctx = itr->second;
+            } else {
+                LOG(WARNING) << "Could not find the fragment instance id:" << print_id(instance_id)
+                             << " to cancel";
+                return;
+            }
         }
-    } else {
-        auto itr = _fragment_instance_map.find(instance_id);
-        if (itr != _fragment_instance_map.end()) {
-            // calling PlanFragmentExecutor::cancel
-            itr->second->cancel(reason, msg);
-        } else {
-            LOG(WARNING) << "Could not find the fragment instance id:" << print_id(instance_id)
-                         << " to cancel";
-        }
+    }
+
+    if (pipeline_ctx != nullptr) {
+        pipeline_ctx->cancel(reason, msg);
+    } else if (non_pipeline_ctx != nullptr) {
+        // calling PlanFragmentExecutor::cancel
+        non_pipeline_ctx->cancel(reason, msg);
     }
 }
 
 void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                                   const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    if (auto q_ctx = _query_ctx_map.find(query_id)->second) {
+    std::unique_lock<std::mutex> lock(_lock);
+    auto q_ctx_iter = _query_ctx_map.find(query_id);
+    if (q_ctx_iter != _query_ctx_map.end()) {
+        // Has to use value to keep the shared ptr not deconstructed.
+        std::shared_ptr<QueryContext> q_ctx = q_ctx_iter->second;
+        // the lock should only be used to protect the map, not scope query ctx
+        lock.unlock();
         WARN_IF_ERROR(q_ctx->cancel_pipeline_context(fragment_id, reason, msg),
                       "fail to cancel fragment");
     } else {

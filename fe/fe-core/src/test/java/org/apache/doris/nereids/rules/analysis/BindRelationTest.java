@@ -116,12 +116,10 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                 .customAnalyzer(Optional.of(customTableResolver)) // analyze internal relation
                 .rewrite()
                 .matches(
-                    logicalProject(
                         logicalJoin(
                             logicalOlapScan().when(r -> r.getTable() == externalOlapTable),
                             logicalOlapScan().when(r -> r.getTable().getName().equals("t"))
                         )
-                    )
                 );
     }
 

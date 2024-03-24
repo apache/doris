@@ -72,21 +72,26 @@ public abstract class RoutineLoadTaskInfo {
 
     protected boolean isMultiTable = false;
 
+    protected static final int MAX_TIMEOUT_BACK_OFF_COUNT = 3;
+    protected int timeoutBackOffCount = 0;
+
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs, boolean isMultiTable) {
+    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs,
+                        int timeoutBackOffCount, boolean isMultiTable) {
         this.id = id;
         this.jobId = jobId;
         this.createTimeMs = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
+        this.timeoutBackOffCount = timeoutBackOffCount;
         this.isMultiTable = isMultiTable;
     }
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs, long previousBeId,
-                               boolean isMultiTable) {
-        this(id, jobId, timeoutMs, isMultiTable);
+    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs, int timeoutBackOffCount,
+                        long previousBeId, boolean isMultiTable) {
+        this(id, jobId, timeoutMs, timeoutBackOffCount, isMultiTable);
         this.previousBeId = previousBeId;
     }
 
@@ -130,6 +135,10 @@ public abstract class RoutineLoadTaskInfo {
         this.lastScheduledTime = lastScheduledTime;
     }
 
+    public void setTimeoutMs(long timeoutMs) {
+        this.timeoutMs = timeoutMs;
+    }
+
     public long getTimeoutMs() {
         return timeoutMs;
     }
@@ -142,6 +151,14 @@ public abstract class RoutineLoadTaskInfo {
         return txnStatus;
     }
 
+    public void setTimeoutBackOffCount(int timeoutBackOffCount) {
+        this.timeoutBackOffCount = timeoutBackOffCount;
+    }
+
+    public int getTimeoutBackOffCount() {
+        return timeoutBackOffCount;
+    }
+
     public boolean isTimeout() {
         if (txnStatus == TransactionStatus.COMMITTED || txnStatus == TransactionStatus.VISIBLE) {
             // the corresponding txn is already finished, this task can not be treated as timeout.
@@ -149,11 +166,26 @@ public abstract class RoutineLoadTaskInfo {
         }
 
         if (isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs) {
-            LOG.info("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
-                    executeStartTimeMs, timeoutMs);
+            LOG.info("task {} is timeout. start: {}, timeout: {}, timeoutBackOffCount: {}", DebugUtil.printId(id),
+                    executeStartTimeMs, timeoutMs, timeoutBackOffCount);
             return true;
         }
         return false;
+    }
+
+    public void selfAdaptTimeout(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        long taskExecutionTime = rlTaskTxnCommitAttachment.getTaskExecutionTimeMs();
+        long timeoutMs = this.timeoutMs;
+
+        while (this.timeoutBackOffCount > 0) {
+            timeoutMs = timeoutMs >> 1;
+            if (timeoutMs <= taskExecutionTime) {
+                this.timeoutMs = timeoutMs << 1;
+                return;
+            }
+            this.timeoutBackOffCount--;
+        }
+        this.timeoutMs = timeoutMs;
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;

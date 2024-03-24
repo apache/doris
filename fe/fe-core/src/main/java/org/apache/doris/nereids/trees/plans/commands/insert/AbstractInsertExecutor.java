@@ -121,6 +121,7 @@ public abstract class AbstractInsertExecutor {
 
     protected final void execImpl(StmtExecutor executor, long jobId) throws Exception {
         String queryId = DebugUtil.printId(ctx.queryId());
+        this.jobId = jobId;
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
@@ -186,6 +187,7 @@ public abstract class AbstractInsertExecutor {
             onFail(t);
             return;
         } finally {
+            coordinator.close();
             executor.updateProfile(true);
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }

@@ -73,6 +73,7 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris::segment_v2 {
+bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
 class InvertedIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -82,6 +83,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema)));
+    segment->_fs = std::move(fs);
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
@@ -94,9 +96,12 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _rowset_id(rowset_id),
           _tablet_schema(std::move(tablet_schema)),
           _segment_meta_mem_tracker(
-                  ExecEnv::GetInstance()->storage_engine().segment_meta_mem_tracker()) {}
+                  ExecEnv::GetInstance()->storage_engine().segment_meta_mem_tracker()) {
+    g_total_segment_num << 1;
+}
 
 Segment::~Segment() {
+    g_total_segment_num << -1;
 #ifndef BE_TEST
     _segment_meta_mem_tracker->release(_meta_mem_usage);
 #endif
@@ -118,8 +123,7 @@ Status Segment::_open() {
 
 Status Segment::_open_inverted_index() {
     _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
-            _file_reader->fs(), _file_reader->path().parent_path(),
-            _file_reader->path().filename().native(),
+            _fs, _file_reader->path().parent_path(), _file_reader->path().filename().native(),
             _tablet_schema->get_inverted_index_storage_format());
     bool open_idx_file_cache = true;
     auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,

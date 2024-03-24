@@ -21,6 +21,7 @@
 #include <errno.h> // IWYU pragma: keep
 
 #include <filesystem>
+#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -85,6 +86,14 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     size_t num_rows = block.rows();
     if (num_rows == 0) {
         return Status::OK();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(*(_context.schema_lock));
+        // save original tablet schema, _context->tablet_schema maybe modified
+        if (_context.original_tablet_schema == nullptr) {
+            _context.original_tablet_schema = _context.tablet_schema;
+        }
     }
 
     std::vector<int> variant_column_pos;
@@ -189,7 +198,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
     writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
-            _context.max_rows_per_segment, writer_options, _context.mow_context);
+            _context.max_rows_per_segment, writer_options, _context.mow_context, _context.fs);
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
@@ -217,7 +226,7 @@ Status SegmentFlusher::_create_segment_writer(
     const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
-            _context.max_rows_per_segment, writer_options, _context.mow_context);
+            _context.max_rows_per_segment, writer_options, _context.mow_context, _context.fs);
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {

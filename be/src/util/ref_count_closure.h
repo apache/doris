@@ -68,6 +68,19 @@ public:
 //  std::unique_ptr<AutoReleaseClosure> a(b);
 //  brpc_call(a.release());
 
+template <typename T>
+concept HasStatus = requires(T* response) { response->status(); };
+
+template <typename Response>
+void process_status(Response* response) {}
+
+template <HasStatus Response>
+void process_status(Response* response) {
+    if (auto status = Status::create(response->status()); !status) {
+        LOG(WARNING) << "RPC meet error status: " << status;
+    }
+}
+
 template <typename Request, typename Callback>
 class AutoReleaseClosure : public google::protobuf::Closure {
     using Weak = typename std::shared_ptr<Callback>::weak_type;
@@ -90,6 +103,11 @@ public:
         // to deal with the callback any more.
         if (auto tmp = callback_.lock()) {
             tmp->call();
+        }
+        if (cntl_->Failed()) {
+            LOG(WARNING) << "RPC meet failed: " << cntl_->ErrorText();
+        } else {
+            process_status<ResponseType>(response_.get());
         }
     }
 

@@ -132,6 +132,12 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
     RETURN_IF_ERROR(local_state._status);
 
     RETURN_IF_ERROR(local_state.initiate_merge_spill_partition_agg_data(state));
+
+    /// When `_is_merging` is true means we are reading spilled data and merging the data into hash table.
+    if (local_state._is_merging) {
+        return Status::OK();
+    }
+
     auto* runtime_state = local_state._runtime_state.get();
     RETURN_IF_ERROR(_agg_source_operator->get_block(runtime_state, block, eos));
     if (local_state._runtime_state) {
