@@ -430,7 +430,10 @@ public:
             RETURN_IF_ERROR(node->get_next_after_projects(
                     state, block, &eos,
                     std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
-                              std::placeholders::_3)));
+                              std::placeholders::_3),
+                    false));
+            // The old code always had clear_data set to true, so here we are changing it to pull first and then clear.
+            node->force_clear_origin_block();
             if (eos) {
                 source_state = SourceState::FINISHED;
             } else if (!node->need_more_input_data()) {
