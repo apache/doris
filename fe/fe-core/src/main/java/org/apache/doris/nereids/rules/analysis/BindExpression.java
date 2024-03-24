@@ -52,7 +52,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -861,6 +860,23 @@ public class BindExpression implements AnalysisRuleFactory {
     private boolean isAggregateFunction(UnboundFunction unboundFunction, FunctionRegistry functionRegistry) {
         return functionRegistry.isAggregateFunction(
                     unboundFunction.getDbName(), unboundFunction.getName());
+    }
+
+    private boolean hasAggregateFunction(Expression expression, FunctionRegistry functionRegistry) {
+        return expression.anyMatch(expr -> {
+            if (expr instanceof AggregateFunction) {
+                return true;
+            } else if (expr instanceof UnboundFunction) {
+                UnboundFunction unboundFunction = (UnboundFunction) expr;
+                boolean isAggregateFunction = functionRegistry
+                        .isAggregateFunction(
+                                unboundFunction.getDbName(),
+                                unboundFunction.getName()
+                        );
+                return isAggregateFunction;
+            }
+            return false;
+        });
     }
 
     private <E extends Expression> E checkBoundExceptLambda(E expression, Plan plan) {
