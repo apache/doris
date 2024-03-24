@@ -722,7 +722,7 @@ void Block::swap(Block&& other) noexcept {
 void Block::shuffle_columns(std::vector<int>& result_column_ids) {
     Container tmp_data;
     for (const int result_column_id : result_column_ids) {
-        tmp_data.push_back(std::move(data[result_column_id]));
+        tmp_data.push_back(data[result_column_id]);
     }
     swap(Block {tmp_data});
 }
