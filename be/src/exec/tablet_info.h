@@ -146,7 +146,7 @@ public:
 
     // return true if lhs < rhs
     // 'row' is -1 mean maximal boundary
-    bool operator()(const BlockRowWithIndicator lhs, const BlockRowWithIndicator rhs) const;
+    bool operator()(const BlockRowWithIndicator& lhs, const BlockRowWithIndicator& rhs) const;
 
 private:
     const std::vector<uint16_t>& _slot_locs;
@@ -168,7 +168,6 @@ public:
     int64_t version() const { return _t_param.version; }
 
     // return true if we found this block_row in partition
-    //TODO: use virtual function to refactor it
     ALWAYS_INLINE bool find_partition(vectorized::Block* block, int row,
                                       VOlapTablePartition*& partition) const {
         auto it = _is_in_partition ? _partitions_map->find(std::tuple {block, row, true})
@@ -275,8 +274,6 @@ public:
 private:
     Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, BlockRow* part_key);
 
-    Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos);
-
     // check if this partition contain this key
     bool _part_contains(VOlapTablePartition* part, BlockRowWithIndicator key) const;
 
@@ -295,6 +292,7 @@ private:
     std::vector<VOlapTablePartition*> _partitions;
     // For all partition value rows saved in this map, indicator is false. whenever we use a value to find in it, the param is true.
     // so that we can distinguish which column index to use (origin slots or transformed slots).
+    // For range partition we ONLY SAVE RIGHT ENDS. when we find a part's RIGHT by a value, check if part's left cover it then.
     std::unique_ptr<
             std::map<BlockRowWithIndicator, VOlapTablePartition*, VOlapTablePartKeyComparator>>
             _partitions_map;

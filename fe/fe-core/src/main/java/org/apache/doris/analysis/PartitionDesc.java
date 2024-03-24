@@ -199,10 +199,6 @@ public class PartitionDesc {
                         throw new AnalysisException("Complex type column can't be partition column: "
                                 + columnDef.getType().toString());
                     }
-                    // prohibit to create auto partition with null column anyhow
-                    if (this.isAutoCreatePartitions && columnDef.isAllowNull()) {
-                        throw new AnalysisException("The auto partition column must be NOT NULL");
-                    }
                     if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
                             && columnDef.isAllowNull()) {
                         throw new AnalysisException(
