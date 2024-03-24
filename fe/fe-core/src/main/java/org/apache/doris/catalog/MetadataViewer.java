@@ -267,8 +267,8 @@ public class MetadataViewer {
         List<List<String>> result = Lists.newArrayList();
         Env env = Env.getCurrentEnv();
 
-        if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
-            throw new DdlException("Should specify one and only one partitions");
+        if (partitionNames == null) {
+            throw new DdlException("Can not find any partition");
         }
 
         Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
@@ -283,39 +283,39 @@ public class MetadataViewer {
                 if (partition == null) {
                     throw new DdlException("Partition does not exist: " + partName);
                 }
-                break;
-            }
-            DistributionInfo distributionInfo = partition.getDistributionInfo();
-            List<Long> rowCountTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
-            List<Long> dataSizeTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
-            for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
-                rowCountTabletInfos.add(0L);
-                dataSizeTabletInfos.add(0L);
-            }
-
-            long totalSize = 0;
-            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                List<Long> tabletIds = mIndex.getTabletIdsInOrder();
-                for (int i = 0; i < tabletIds.size(); i++) {
-                    Tablet tablet = mIndex.getTablet(tabletIds.get(i));
-                    long rowCount = tablet.getRowCount(true);
-                    long dataSize = tablet.getDataSize(true);
-                    rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
-                    dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
-                    totalSize += dataSize;
+                DistributionInfo distributionInfo = partition.getDistributionInfo();
+                List<Long> rowCountTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+                List<Long> dataSizeTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+                for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
+                    rowCountTabletInfos.add(0L);
+                    dataSizeTabletInfos.add(0L);
                 }
-            }
 
-            // graph
-            for (int i = 0; i < distributionInfo.getBucketNum(); i++) {
-                List<String> row = Lists.newArrayList();
-                row.add(String.valueOf(i));
-                row.add(rowCountTabletInfos.get(i).toString());
-                row.add(dataSizeTabletInfos.get(i).toString());
-                row.add(graph(dataSizeTabletInfos.get(i), totalSize));
-                row.add(totalSize == dataSizeTabletInfos.get(i) ? (totalSize == 0L ? "0.00%" : "100.00%") :
-                        df.format((double) dataSizeTabletInfos.get(i) / totalSize));
-                result.add(row);
+                long totalSize = 0;
+                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    List<Long> tabletIds = mIndex.getTabletIdsInOrder();
+                    for (int i = 0; i < tabletIds.size(); i++) {
+                        Tablet tablet = mIndex.getTablet(tabletIds.get(i));
+                        long rowCount = tablet.getRowCount(true);
+                        long dataSize = tablet.getDataSize(true);
+                        rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
+                        dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
+                        totalSize += dataSize;
+                    }
+                }
+
+                // graph
+                for (int i = 0; i < distributionInfo.getBucketNum(); i++) {
+                    List<String> row = Lists.newArrayList();
+                    row.add(partName);
+                    row.add(String.valueOf(i));
+                    row.add(rowCountTabletInfos.get(i).toString());
+                    row.add(dataSizeTabletInfos.get(i).toString());
+                    row.add(graph(dataSizeTabletInfos.get(i), totalSize));
+                    row.add(totalSize == dataSizeTabletInfos.get(i) ? (totalSize == 0L ? "0.00%" : "100.00%") :
+                            df.format((double) dataSizeTabletInfos.get(i) / totalSize));
+                    result.add(row);
+                }
             }
         } finally {
             olapTable.readUnlock();
