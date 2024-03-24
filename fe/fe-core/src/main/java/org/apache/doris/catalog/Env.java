@@ -55,6 +55,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropCatalogRecycleBinStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
@@ -68,9 +69,6 @@ import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.RemoveDbStmt;
-import org.apache.doris.analysis.RemovePartitionStmt;
-import org.apache.doris.analysis.RemoveTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -3006,16 +3004,8 @@ public class Env {
         getInternalCatalog().recoverPartition(recoverStmt);
     }
 
-    public void removeDatabase(RemoveDbStmt removeStmt) throws DdlException {
-        getInternalCatalog().removeDatabase(removeStmt);
-    }
-
-    public void removeTable(RemoveTableStmt removeStmt) throws DdlException {
-        getInternalCatalog().removeTable(removeStmt);
-    }
-
-    public void removePartition(RemovePartitionStmt removeStmt) throws DdlException {
-        getInternalCatalog().removePartition(removeStmt);
+    public void dropCatalogRecycleBin(DropCatalogRecycleBinStmt dropStmt) throws DdlException {
+        getInternalCatalog().dropCatalogRecycleBin(dropStmt);
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {

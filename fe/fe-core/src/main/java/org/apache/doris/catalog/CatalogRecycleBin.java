@@ -893,167 +893,64 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    // remove database in catalog recycle bin timely
-    public void removeDatabase(String dbName, long dbId) throws DdlException {
-        // 1. find dbInfo to remove
-        RecycleDatabaseInfo dbInfo = null;
-        // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
-        // skip these databases and tables.
-        long recycleTime = 1;
-        Iterator<Map.Entry<Long, RecycleDatabaseInfo>> iterator = idToDatabase.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, RecycleDatabaseInfo> entry = iterator.next();
-            if (dbName.equals(entry.getValue().getDb().getFullName())) {
-                // if dbId is not specified, the last dropped db with the same name is removed by default.
-                if (dbId == -1) {
-                    if (recycleTime <= idToRecycleTime.get(entry.getKey())) {
-                        recycleTime = idToRecycleTime.get(entry.getKey());
-                        dbInfo = entry.getValue();
-                    }
-                } else if (entry.getKey() == dbId) {
-                    dbInfo = entry.getValue();
-                    break;
-                }
-            }
-        }
+    // erase database in catalog recycle bin timely
+    public void eraseDatabaseTimely(long dbId) throws DdlException {
+        // 1. find dbInfo to erase
+        RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
         if (dbInfo == null) {
-            throw new DdlException("Unknown database '" + dbName + "' or database id '" + dbId + "'");
+            throw new DdlException("Unknown database id '" + dbId + "'");
         }
 
-        // 2. remove all tables in this db
-        removeAllTables(dbInfo);
+        // 2. erase db
+        Env.getCurrentEnv().eraseDatabase(dbId, true);
+        String dbName = dbInfo.getDb().getName();
+        LOG.info("erase db[{}]: {}", dbId, dbName);
 
-        // 3. remove db
-        long dbIdToRemove = dbInfo.getDb().getId();
-        Env.getCurrentEnv().eraseDatabase(dbIdToRemove, true);
-        LOG.info("remove db[{}]: {}", dbIdToRemove, dbName);
-
-        // 4. remove db from idToDatabase and idToRecycleTime
-        idToDatabase.remove(dbIdToRemove);
-        idToRecycleTime.remove(dbIdToRemove);
+        // 3. erase db from idToDatabase and idToRecycleTime
+        idToDatabase.remove(dbId);
+        idToRecycleTime.remove(dbId);
     }
 
-    private void removeAllTables(RecycleDatabaseInfo dbInfo) throws DdlException {
-        Database db = dbInfo.getDb();
-        Set<String> tableNames = Sets.newHashSet(dbInfo.getTableNames());
-        Set<Long> tableIds = Sets.newHashSet(dbInfo.getTableIds());
-        long dbId = db.getId();
-        Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-        while (iterator.hasNext() && !tableNames.isEmpty()) {
-            Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
-            RecycleTableInfo tableInfo = entry.getValue();
-            if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
-                    || !tableIds.contains(tableInfo.getTable().getId())) {
-                continue;
-            }
-
-            // remove table
-            Table table = tableInfo.getTable();
-            long tableId = table.getId();
-            String tableName = table.getName();
-            if (table.getType() == TableType.OLAP) {
-                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
-                LOG.info("remove db[{}]'s table[{}]: {}", dbId, tableId, tableName);
-            }
-
-            // remove table from idToTable and idToRecycleTime
-            iterator.remove();
-            idToRecycleTime.remove(tableId);
-            tableNames.remove(tableName);
-        }
-    }
-
-    // remove table in catalog recycle bin timely
-    public void removeTable(Database db, String tableName, long tableId) throws DdlException {
-        // 1. find table to remove
-        Table table = null;
-        // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
-        // skip these databases and tables.
-        long recycleTime = 1;
-        long dbId = db.getId();
-        Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
-            RecycleTableInfo tableInfo = entry.getValue();
-            if (tableInfo.getDbId() != dbId) {
-                continue;
-            }
-
-            if (!tableInfo.getTable().getName().equals(tableName)) {
-                continue;
-            }
-
-            if (tableId == -1) {
-                if (recycleTime <= idToRecycleTime.get(entry.getKey())) {
-                    recycleTime = idToRecycleTime.get(entry.getKey());
-                    table = tableInfo.getTable();
-                }
-            } else if (entry.getKey() == tableId) {
-                table = tableInfo.getTable();
-                break;
-            }
-        }
-        if (table == null) {
-            throw new DdlException("Unknown table '" + tableName + "' or table id '" + tableId + "' in "
-                + db.getFullName());
+    // erase table in catalog recycle bin timely
+    public void eraseTableTimely(long tableId) throws DdlException {
+        // 1. find tableInfo to erase
+        RecycleTableInfo tableInfo = idToTable.get(tableId);
+        if (tableInfo == null) {
+            throw new DdlException("Unknown table id '" + tableId + "'");
         }
 
-        // 2. remove table
-        long tableIdToRemove = table.getId();
+        // 2. erase table
+        long dbId = tableInfo.getDbId();
+        Table table = tableInfo.getTable();
+        String tableName = table.getName();
         if (table.getType() == TableType.OLAP) {
             Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
-            LOG.info(" remove db[{}]'s table[{}]: {}", dbId, tableIdToRemove, tableName);
+            LOG.info("erase db[{}]'s table[{}]: {}", dbId, tableId, tableName);
         }
 
-        // 3. remove table from idToTable and idToRecycleTime
-        idToTable.remove(tableIdToRemove);
-        idToRecycleTime.remove(tableIdToRemove);
+        // 3. erase table from idToTable and idToRecycleTime
+        idToTable.remove(tableId);
+        idToRecycleTime.remove(tableId);
     }
 
-    // remove partition in catalog recycle bin timely
-    public void removePartition(long dbId, OlapTable table, String partitionName,
-                                long partitionId) throws DdlException {
-        // 1. find partitionInfo to remove
-        long recycleTime = -1;
-        RecyclePartitionInfo partitionInfoToRemove = null;
-        Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
-            RecyclePartitionInfo partitionInfo = entry.getValue();
-
-            if (partitionInfo.getTableId() != table.getId()) {
-                continue;
-            }
-
-            if (!partitionInfo.getPartition().getName().equalsIgnoreCase(partitionName)) {
-                continue;
-            }
-
-            if (partitionId == -1) {
-                if (recycleTime <= idToRecycleTime.get(entry.getKey())) {
-                    recycleTime = idToRecycleTime.get(entry.getKey());
-                    partitionInfoToRemove = partitionInfo;
-                }
-            } else if (entry.getKey() == partitionId) {
-                partitionInfoToRemove = partitionInfo;
-                break;
-            }
-        }
-        if (partitionInfoToRemove == null) {
-            throw new DdlException("No partition named '" + partitionName + "' or partition id '" + partitionId
-                    + "' in table " + table.getName());
+    // erase partition in catalog recycle bin timely
+    public void erasePartitionTimely(long partitionId) throws DdlException {
+        // 1. find partitionInfo to erase
+        RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
+        if (partitionInfo == null) {
+            throw new DdlException("No partition id '" + partitionId + "'");
         }
 
-        // 2. remove partition
-        long tableId = partitionInfoToRemove.getTableId();
-        Partition partition = partitionInfoToRemove.getPartition();
-        long partitionIdToRemove = partition.getId();
+        // 2. erase partition
+        long tableId = partitionInfo.getTableId();
+        Partition partition = partitionInfo.getPartition();
+        String partitionName = partition.getName();
         Env.getCurrentEnv().onErasePartition(partition);
-        LOG.info("remove db[{}]] table[{}]'s partition[{}]: {}", dbId, tableId, partitionIdToRemove, partitionName);
+        LOG.info("erase table[{}]'s partition[{}]: {}", tableId, partitionId, partitionName);
 
-        // 3. remove partition in idToPartition and idToRecycleTime
-        idToPartition.remove(partitionIdToRemove);
-        idToRecycleTime.remove(partitionIdToRemove);
+        // 3. erase partition in idToPartition and idToRecycleTime
+        idToPartition.remove(partitionId);
+        idToRecycleTime.remove(partitionId);
     }
 
     // no need to use synchronized.

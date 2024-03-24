@@ -34,6 +34,7 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropCatalogRecycleBinStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
@@ -48,9 +49,6 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.RemoveDbStmt;
-import org.apache.doris.analysis.RemovePartitionStmt;
-import org.apache.doris.analysis.RemoveTableStmt;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -708,33 +706,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void removeDatabase(RemoveDbStmt removeStmt) throws DdlException {
-        Env.getCurrentRecycleBin().removeDatabase(removeStmt.getDbName(), removeStmt.getDbId());
-
-        LOG.info("remove database[{}]", removeStmt.getDbId());
-    }
-
-    public void removeTable(RemoveTableStmt removeStmt) throws DdlException {
-        String dbName = removeStmt.getDbName();
-        Database db = getDbOrDdlException(dbName);
-        String tableName = removeStmt.getTableName();
-        long tableId = removeStmt.getTableId();
-        Env.getCurrentRecycleBin().removeTable(db, tableName, tableId);
-
-        LOG.info("remove table[{}]", tableId);
-    }
-
-    public void removePartition(RemovePartitionStmt removeStmt) throws DdlException {
-        String dbName = removeStmt.getDbName();
-        String tableName = removeStmt.getTableName();
-        Database db = getDbOrDdlException(dbName);
-        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        String partitionName = removeStmt.getPartitionName();
-        long partitionId = removeStmt.getPartitionId();
-        Env.getCurrentRecycleBin().removePartition(db.getId(), olapTable, partitionName,
-                partitionId);
-
-        LOG.info("remove partition[{}]", partitionId);
+    public void dropCatalogRecycleBin(DropCatalogRecycleBinStmt dropStmt) throws DdlException {
+        if (dropStmt.getIdType().equals("DbId")) {
+            Env.getCurrentRecycleBin().eraseDatabaseTimely(dropStmt.getDbId());
+            LOG.info("drop database[{}] in catalog recycle bin", dropStmt.getDbId());
+        } else if (dropStmt.getIdType().equals("TableId")) {
+            Env.getCurrentRecycleBin().eraseTableTimely(dropStmt.getTableId());
+            LOG.info("drop table[{}] in catalog recycle bin", dropStmt.getTableId());
+        } else if (dropStmt.getIdType().equals("PartitionId")) {
+            Env.getCurrentRecycleBin().erasePartitionTimely(dropStmt.getPartitionId());
+            LOG.info("drop partition[{}] in catalog recycle bin", dropStmt.getPartitionId());
+        }
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {

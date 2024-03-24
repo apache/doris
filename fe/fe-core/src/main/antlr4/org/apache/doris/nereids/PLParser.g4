@@ -101,6 +101,7 @@ stmt :
      | drop_procedure_stmt
      | show_procedure_stmt
      | show_create_procedure_stmt
+     | drop_catalog_recycle_bin_stmt
      | exec_stmt
      | exit_stmt
      | fetch_stmt
@@ -342,6 +343,10 @@ show_procedure_stmt:
 show_create_procedure_stmt:
       SHOW CREATE PROCEDURE name=multipartIdentifier
     ;      
+
+drop_catalog_recycle_bin_stmt:
+      DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE
+    ;
 
 create_routine_params :
        LEFT_PAREN RIGHT_PAREN

@@ -83,6 +83,7 @@ import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
+import org.apache.doris.analysis.DropCatalogRecycleBinStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
@@ -111,9 +112,6 @@ import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.RemoveDbStmt;
-import org.apache.doris.analysis.RemovePartitionStmt;
-import org.apache.doris.analysis.RemoveTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
@@ -252,12 +250,8 @@ public class DdlExecutor {
             env.recoverTable((RecoverTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverPartitionStmt) {
             env.recoverPartition((RecoverPartitionStmt) ddlStmt);
-        } else if (ddlStmt instanceof RemoveDbStmt) {
-            env.removeDatabase((RemoveDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof RemoveTableStmt) {
-            env.removeTable((RemoveTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof RemovePartitionStmt) {
-            env.removePartition((RemovePartitionStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropCatalogRecycleBinStmt) {
+            env.dropCatalogRecycleBin((DropCatalogRecycleBinStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateViewStmt) {
             env.createView((CreateViewStmt) ddlStmt);
         } else if (ddlStmt instanceof BackupStmt) {
