@@ -124,7 +124,6 @@ suite("add_table_policy_by_modify_partition") {
     PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "tmp2" ,"replication_num"="1")
     ) DISTRIBUTED BY HASH(k2) BUCKETS 1 
     PROPERTIES (
-    "replication_allocation" = "tag.location.default: 1",
     "storage_policy" = "created_create_table_partition_alter_policy"
     );
     """
