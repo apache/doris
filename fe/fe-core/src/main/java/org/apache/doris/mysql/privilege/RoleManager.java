@@ -150,6 +150,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
             }
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
+            info.add(role.getComment());
             info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
             Map<PrivLevel, String> infoMap =
                     Stream.concat(

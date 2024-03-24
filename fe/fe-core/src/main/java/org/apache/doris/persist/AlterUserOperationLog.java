@@ -43,13 +43,17 @@ public class AlterUserOperationLog implements Writable {
     @SerializedName(value = "op")
     private AlterUserStmt.OpType op;
 
+    @SerializedName(value = "comment")
+    private String comment;
+
     public AlterUserOperationLog(OpType opType, UserIdentity userIdent, byte[] password,
-            String role, PasswordOptions passwordOptions) {
+            String role, PasswordOptions passwordOptions, String comment) {
         this.op = opType;
         this.userIdent = userIdent;
         this.password = password;
         this.role = role;
         this.passwordOptions = passwordOptions;
+        this.comment = comment;
     }
 
     public OpType getOp() {
@@ -70,6 +74,10 @@ public class AlterUserOperationLog implements Writable {
 
     public PasswordOptions getPasswordOptions() {
         return passwordOptions;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override

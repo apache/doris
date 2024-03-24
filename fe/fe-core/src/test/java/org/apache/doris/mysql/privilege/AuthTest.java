@@ -888,7 +888,7 @@ public class AuthTest {
         }
 
         // 24.1 create role again with IF NOT EXISTS
-        roleStmt = new CreateRoleStmt(true, "role1");
+        roleStmt = new CreateRoleStmt(true, "role1", "");
         try {
             roleStmt.analyze(analyzer);
         } catch (UserException e1) {
@@ -904,7 +904,7 @@ public class AuthTest {
         }
 
         // 24.2 create role again without IF NOT EXISTS
-        roleStmt = new CreateRoleStmt(false, "role1");
+        roleStmt = new CreateRoleStmt(false, "role1", "");
         try {
             roleStmt.analyze(analyzer);
         } catch (UserException e1) {

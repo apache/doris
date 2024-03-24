@@ -78,6 +78,9 @@ public class Role implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "roleName")
     private String roleName;
+
+    @SerializedName(value = "comment")
+    private String comment;
     // Will be persisted
     @SerializedName(value = "tblPatternToPrivs")
     private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
@@ -110,7 +113,12 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public Role(String roleName) {
+        this(roleName, "");
+    }
+
+    public Role(String roleName, String comment) {
         this.roleName = roleName;
+        this.comment = comment;
     }
 
     public Role(String roleName, TablePattern tablePattern, PrivBitSet privs) throws DdlException {
@@ -482,6 +490,14 @@ public class Role implements Writable, GsonPostProcessable {
 
     public WorkloadGroupPrivTable getWorkloadGroupPrivTable() {
         return workloadGroupPrivTable;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
     }
 
     public boolean checkCanEnterCluster(String clusterName) {
