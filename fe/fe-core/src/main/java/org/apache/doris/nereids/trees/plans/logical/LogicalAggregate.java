@@ -83,7 +83,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     private final boolean generated;
     private final boolean hasPushed;
 
-    private boolean isRewrittenByAggregateConstant = false;
+    private boolean isRewrittenByReduceAggregateChildOutputRows = false;
 
     /**
      * Desc: Constructor for LogicalAggregate.
@@ -191,12 +191,12 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         return hasPushed;
     }
 
-    public void setRewrittenByAggregateConstant(boolean rewrittenByAggregateConstant) {
-        isRewrittenByAggregateConstant = rewrittenByAggregateConstant;
+    public void setRewrittenByReduceAggregateChildOutputRows(boolean rewrittenByReduceAggregateChildOutputRows) {
+        isRewrittenByReduceAggregateChildOutputRows = rewrittenByReduceAggregateChildOutputRows;
     }
 
-    public boolean isRewrittenByAggregateConstant() {
-        return isRewrittenByAggregateConstant;
+    public boolean isRewrittenByReduceAggregateChildOutputRows() {
+        return isRewrittenByReduceAggregateChildOutputRows;
     }
 
     @Override

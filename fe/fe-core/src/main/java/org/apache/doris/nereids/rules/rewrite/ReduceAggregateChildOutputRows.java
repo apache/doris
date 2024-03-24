@@ -48,8 +48,9 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
         return logicalAggregate().then(agg -> {
             Set<AggregateFunction> aggFunctions = agg.getAggregateFunctions();
             // check whether we have aggregate(constant) in all aggregateFunctions
-            if (!agg.isRewrittenByAggregateConstant() || aggFunctions.isEmpty() || !aggFunctions.stream().allMatch(
-                    f -> (f instanceof Min || f instanceof Max)
+            if (!agg.isRewrittenByReduceAggregateChildOutputRows()
+                    || aggFunctions.isEmpty() || !aggFunctions.stream().allMatch(
+                        f -> (f instanceof Min || f instanceof Max)
                             && (f.arity() == 1 && f.child(0).isConstant()))) {
                 return null;
             }
@@ -73,7 +74,7 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
                 LogicalAggregate newAgg = new LogicalAggregate<>(agg.getGroupByExpressions(),
                         agg.getOutputExpressions(), new LogicalLimit(1, 0, LimitPhase.ORIGIN,
                                 new LogicalProject<>(newOutput.build(), agg.child())));
-                newAgg.setRewrittenByAggregateConstant(true);
+                newAgg.setRewrittenByReduceAggregateChildOutputRows(true);
                 return newAgg;
             } else {
                 List<NamedExpression> childOutput = agg.getGroupByExpressions().stream().map(expr ->
@@ -81,7 +82,7 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
                 return new LogicalProject<>(newOutput.build(),
                                 new LogicalAggregate<>(agg.getGroupByExpressions(), childOutput, agg.child()));
             }
-        }).toRule(RuleType.ELIMINATE_AGGREGATE_CONSTANT);
+        }).toRule(RuleType.REDUCE_AGGREGATE_CHILD_OUTPUT_ROWS);
     }
 
 }
