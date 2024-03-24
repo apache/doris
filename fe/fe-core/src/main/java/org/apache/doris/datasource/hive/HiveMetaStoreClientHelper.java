@@ -609,6 +609,11 @@ public class HiveMetaStoreClientHelper {
                     return "float";
                 case DOUBLE:
                     return "double";
+                case CHAR: {
+                    ScalarType scalarType = (ScalarType) dorisType;
+                    return "char(" + scalarType.getLength() + ")";
+                }
+                case VARCHAR:
                 case STRING:
                     return "string";
                 case DECIMAL32:
@@ -657,7 +662,7 @@ public class HiveMetaStoreClientHelper {
                 StructField field = fields.get(i);
                 structType.append(field.getName());
                 structType.append(":");
-                structType.append(field.getType());
+                structType.append(dorisTypeToHiveType(field.getType()));
                 if (i != fields.size() - 1) {
                     structType.append(",");
                 }

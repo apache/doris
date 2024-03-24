@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.SwitchStmt;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
@@ -37,6 +38,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +55,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
     @Mocked
     private ThriftHMSCachedClient mockedHiveClient;
+
+    private List<FieldSchema> checkedHiveCols;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -106,7 +111,19 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             @Mock
             public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
                 if (tbl instanceof HiveTableMetadata) {
-                    ThriftHMSCachedClient.toHiveTable((HiveTableMetadata) tbl);
+                    Table table = HiveUtil.toHiveTable((HiveTableMetadata) tbl);
+                    if (checkedHiveCols == null) {
+                        // if checkedHiveCols is null, skip column check
+                        return;
+                    }
+                    List<FieldSchema> fieldSchemas = table.getSd().getCols();
+                    Assertions.assertEquals(checkedHiveCols.size(), fieldSchemas.size());
+                    for (int i = 0; i < checkedHiveCols.size(); i++) {
+                        FieldSchema checkedCol = checkedHiveCols.get(i);
+                        FieldSchema actualCol = fieldSchemas.get(i);
+                        Assertions.assertEquals(checkedCol.getName(), actualCol.getName().toLowerCase());
+                        Assertions.assertEquals(checkedCol.getType(), actualCol.getType().toLowerCase());
+                    }
                 }
             }
         };
@@ -380,15 +397,28 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
     @Test
     public void testComplexTypeCreateTable() throws Exception {
+        checkedHiveCols = new ArrayList<>(); // init it to enable check
         switchHive();
         useDatabase(mockedDbName);
         String createArrayTypeTable = "CREATE TABLE complex_type_array(\n"
                 + "  `col1` ARRAY<BOOLEAN> COMMENT 'col1',\n"
                 + "  `col2` ARRAY<INT(11)> COMMENT 'col2',\n"
-                + "  `col3` ARRAY<DECIMAL(6,4)> COMMENT 'col3'\n"
+                + "  `col3` ARRAY<DECIMAL(6,4)> COMMENT 'col3',\n"
+                + "  `col4` ARRAY<CHAR(11)> COMMENT 'col4',\n"
+                + "  `col5` ARRAY<CHAR> COMMENT 'col5'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES ('file_format'='orc')";
-        createTable(createArrayTypeTable, true);
+        List<FieldSchema> checkArrayCols = new ArrayList<>();
+        checkArrayCols.add(new FieldSchema("col1", "array<boolean>", ""));
+        checkArrayCols.add(new FieldSchema("col2", "array<int>", ""));
+        checkArrayCols.add(new FieldSchema("col3", "array<decimal(6,4)>", ""));
+        checkArrayCols.add(new FieldSchema("col4", "array<char(11)>", ""));
+        checkArrayCols.add(new FieldSchema("col5", "array<char(1)>", ""));
+        resetCheckedColumns(checkArrayCols);
+
+        LogicalPlan plan = createTablesAndReturnPlans(true, createArrayTypeTable).get(0);
+        List<Column> columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        Assertions.assertEquals(5, columns.size());
         dropTable("complex_type_array", true);
 
         String createMapTypeTable = "CREATE TABLE complex_type_map(\n"
@@ -398,7 +428,16 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col4` MAP<BOOLEAN,BOOLEAN> COMMENT 'col4'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES ('file_format'='orc')";
-        createTable(createMapTypeTable, true);
+        checkArrayCols = new ArrayList<>();
+        checkArrayCols.add(new FieldSchema("col1", "map<int,string>", ""));
+        checkArrayCols.add(new FieldSchema("col2", "map<string,double>", ""));
+        checkArrayCols.add(new FieldSchema("col3", "map<string,boolean>", ""));
+        checkArrayCols.add(new FieldSchema("col4", "map<boolean,boolean>", ""));
+        resetCheckedColumns(checkArrayCols);
+
+        plan = createTablesAndReturnPlans(true, createMapTypeTable).get(0);
+        columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        Assertions.assertEquals(4, columns.size());
         dropTable("complex_type_map", true);
 
         String createStructTypeTable = "CREATE TABLE complex_type_struct(\n"
@@ -408,7 +447,16 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col4` STRUCT<bul:BOOLEAN,buls:ARRAY<BOOLEAN>> COMMENT 'col4'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES ('file_format'='orc')";
-        createTable(createStructTypeTable, true);
+        checkArrayCols = new ArrayList<>();
+        checkArrayCols.add(new FieldSchema("col1", "struct<rates:array<double>,name:string>", ""));
+        checkArrayCols.add(new FieldSchema("col2", "struct<id:int,age:tinyint>", ""));
+        checkArrayCols.add(new FieldSchema("col3", "struct<pre:decimal(6,4)>", ""));
+        checkArrayCols.add(new FieldSchema("col4", "struct<bul:boolean,buls:array<boolean>>", ""));
+        resetCheckedColumns(checkArrayCols);
+
+        plan = createTablesAndReturnPlans(true, createStructTypeTable).get(0);
+        columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        Assertions.assertEquals(4, columns.size());
         dropTable("complex_type_struct", true);
 
         String compoundTypeTable1 = "CREATE TABLE complex_type_compound1(\n"
@@ -416,7 +464,15 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col2` ARRAY<STRUCT<name:string,gender:boolean,rate:decimal(3,1)>> COMMENT 'col2'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES ('file_format'='orc')";
-        createTable(compoundTypeTable1, true);
+        checkArrayCols = new ArrayList<>();
+        checkArrayCols.add(new FieldSchema("col1", "array<map<string,double>>", ""));
+        checkArrayCols.add(new FieldSchema("col2",
+                "array<struct<name:string,gender:boolean,rate:decimal(3,1)>>", ""));
+        resetCheckedColumns(checkArrayCols);
+
+        plan = createTablesAndReturnPlans(true, compoundTypeTable1).get(0);
+        columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        Assertions.assertEquals(2, columns.size());
         dropTable("complex_type_compound1", true);
 
         String compoundTypeTable2 = "CREATE TABLE complex_type_compound2(\n"
@@ -426,7 +482,22 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col4` MAP<bigint,STRUCT<name:string,gender:boolean,rate:decimal(3,1)>> COMMENT 'col4'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES ('file_format'='orc')";
-        createTable(compoundTypeTable2, true);
+        checkArrayCols = new ArrayList<>();
+        checkArrayCols.add(new FieldSchema("col1", "map<string,array<double>>", ""));
+        checkArrayCols.add(new FieldSchema("col2", "map<string,array<map<int,string>>>", ""));
+        checkArrayCols.add(new FieldSchema("col3", "map<string,map<int,double>>", ""));
+        checkArrayCols.add(new FieldSchema("col4",
+                "map<bigint,struct<name:string,gender:boolean,rate:decimal(3,1)>>", ""));
+        resetCheckedColumns(checkArrayCols);
+
+        plan = createTablesAndReturnPlans(true, compoundTypeTable2).get(0);
+        columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        Assertions.assertEquals(4, columns.size());
         dropTable("complex_type_compound2", true);
+    }
+
+    private void resetCheckedColumns(List<FieldSchema> checkArrayCols) {
+        checkedHiveCols.clear();
+        checkedHiveCols.addAll(checkArrayCols);
     }
 }
