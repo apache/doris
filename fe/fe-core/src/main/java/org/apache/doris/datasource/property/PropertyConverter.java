@@ -39,9 +39,9 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.CosFileSystem;
+import org.apache.hadoop.fs.CosNConfigKeys;
 import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
-import org.apache.hadoop.fs.cosn.CosNConfigKeys;
-import org.apache.hadoop.fs.cosn.CosNFileSystem;
 import org.apache.hadoop.fs.obs.OBSConstants;
 import org.apache.hadoop.fs.obs.OBSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -186,7 +186,7 @@ public class PropertyConverter {
         } else if (fsScheme.equalsIgnoreCase("oss")) {
             return AliyunOSSFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("cosn")) {
-            return CosNFileSystem.class.getName();
+            return CosFileSystem.class.getName();
         } else {
             return S3AFileSystem.class.getName();
         }
@@ -342,8 +342,8 @@ public class PropertyConverter {
         cosProperties.put("fs.cosn.impl.disable.cache", "true");
         cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
         if (credential.isWhole()) {
-            cosProperties.put(CosNConfigKeys.COSN_SECRET_ID_KEY, credential.getAccessKey());
-            cosProperties.put(CosNConfigKeys.COSN_SECRET_KEY_KEY, credential.getSecretKey());
+            cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_ID_KEY, credential.getAccessKey());
+            cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_KEY_KEY, credential.getSecretKey());
         }
         // session token is unsupported
         for (Map.Entry<String, String> entry : props.entrySet()) {
