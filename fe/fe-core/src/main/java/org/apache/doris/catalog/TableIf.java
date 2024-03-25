@@ -25,6 +25,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -118,7 +119,11 @@ public interface TableIf {
 
     List<Column> getBaseSchema();
 
-    List<Column> getSchemaAllIndexes(boolean full);
+    default Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> ret = Sets.newHashSet();
+        ret.addAll(getBaseSchema());
+        return ret;
+    }
 
     default List<Column> getBaseSchemaOrEmpty() {
         try {
@@ -180,6 +185,12 @@ public interface TableIf {
     DatabaseIf getDatabase();
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
+
+    /**
+     * @param columns Set of column names.
+     * @return List of pairs. Each pair is <IndexName, ColumnName>. For external table, index name is table name.
+     */
+    Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns);
 
     // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
     // For HMS external table, the return result is a list of all the files' size.

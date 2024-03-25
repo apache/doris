@@ -39,6 +39,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Text;
@@ -86,7 +87,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -114,9 +114,10 @@ public class AnalysisManager implements Writable {
     public static final int COLUMN_QUEUE_SIZE = 1000;
     public final Queue<QueryColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Queue<QueryColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
-    public final Map<TableName, Set<String>> highPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<String>> midPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<String>> lowPriorityJobs = new LinkedHashMap<>();
+    // Map<TableName, Set<Pair<IndexName, ColumnName>>>
+    public final Map<TableName, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -220,7 +221,8 @@ public class AnalysisManager implements Writable {
         // Using auto analyzer if user specifies.
         if (stmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
             Env.getCurrentEnv().getStatisticsAutoCollector()
-                    .processOneJob(stmt.getTable(), stmt.getColumnNames(), JobPriority.HIGH);
+                    .processOneJob(stmt.getTable(),
+                            stmt.getTable().getColumnIndexPairs(stmt.getColumnNames()), JobPriority.HIGH);
             return;
         }
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
@@ -234,7 +236,7 @@ public class AnalysisManager implements Writable {
     @VisibleForTesting
     protected AnalysisInfo buildAndAssignJob(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(stmt);
-        if (jobInfo.colToPartitions.isEmpty()) {
+        if (jobInfo.jobColumns.isEmpty()) {
             // No statistics need to be collected or updated
             return null;
         }
@@ -332,12 +334,6 @@ public class AnalysisManager implements Writable {
         infoBuilder.setCatalogId(stmt.getCatalogId());
         infoBuilder.setDBId(stmt.getDbId());
         infoBuilder.setTblId(stmt.getTable().getId());
-        // TODO: Refactor later, DON'T MODIFY IT RIGHT NOW
-        StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
-        for (String colName : columnNames) {
-            stringJoiner.add(colName);
-        }
-        infoBuilder.setColName(stringJoiner.toString());
         infoBuilder.setPartitionNames(partitionNames);
         infoBuilder.setPartitionOnly(partitionOnly);
         infoBuilder.setSamplingPartition(isSamplingPartition);
@@ -350,7 +346,6 @@ public class AnalysisManager implements Writable {
         infoBuilder.setAnalysisMode(analysisMode);
         infoBuilder.setAnalysisMethod(analysisMethod);
         infoBuilder.setScheduleType(scheduleType);
-        infoBuilder.setLastExecTimeInMs(0);
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(stmt.forceFull());
         infoBuilder.setUsingSqlForPartitionColumn(stmt.usingSqlForPartitionColumn());
@@ -361,18 +356,19 @@ public class AnalysisManager implements Writable {
 
         if (analysisType == AnalysisType.HISTOGRAM) {
             int numBuckets = stmt.getNumBuckets();
-            int maxBucketNum = numBuckets > 0 ? numBuckets
-                    : StatisticConstants.HISTOGRAM_MAX_BUCKET_NUM;
+            int maxBucketNum = numBuckets > 0 ? numBuckets : StatisticConstants.HISTOGRAM_MAX_BUCKET_NUM;
             infoBuilder.setMaxBucketNum(maxBucketNum);
         }
 
         long periodTimeInMs = stmt.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
-        Map<String, Set<String>> colToPartitions = new HashMap<>();
-        Set<String> dummyPartition = new HashSet<>();
-        dummyPartition.add("dummy partition");
-        columnNames.stream().forEach(c -> colToPartitions.put(c, dummyPartition));
-        infoBuilder.setColToPartitions(colToPartitions);
+        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames);
+        infoBuilder.setJobColumns(jobColumns);
+        StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
+        for (Pair<String, String> pair : jobColumns) {
+            stringJoiner.add(pair.toString());
+        }
+        infoBuilder.setColName(stringJoiner.toString());
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
         long rowCount = table.getRowCount();
@@ -395,35 +391,28 @@ public class AnalysisManager implements Writable {
 
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
             boolean isSync) throws DdlException {
-        Map<String, Set<String>> columnToPartitions = jobInfo.colToPartitions;
+        Set<Pair<String, String>> jobColumns = jobInfo.jobColumns;
         TableIf table = jobInfo.getTable();
-        for (Entry<String, Set<String>> entry : columnToPartitions.entrySet()) {
-            String colName = entry.getKey();
-            List<Long> indexIds = Lists.newArrayList();
-            // Get index id this column belongs to for OlapTable. Set it to -1 for baseIndex id.
-            if (table instanceof OlapTable) {
-                indexIds = ((OlapTable) table).getMvColumnIndexIds(colName);
-            } else {
-                indexIds.add(-1L);
-            }
+        for (Pair<String, String> pair : jobColumns) {
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
-            if (jobInfo.analysisType != AnalysisType.HISTOGRAM) {
-                colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
-                Map<String, Set<String>> colToParts = new HashMap<>();
-                colToParts.put(colName, entry.getValue());
-                colTaskInfoBuilder.setColToPartitions(colToParts);
-            }
-            for (long indexId : indexIds) {
-                long taskId = Env.getCurrentEnv().getNextId();
-                AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
-                        .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
-                analysisTasks.put(taskId, createTask(analysisInfo));
-                jobInfo.addTaskId(taskId);
-                if (isSync) {
-                    continue;
+            colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
+            long taskId = Env.getCurrentEnv().getNextId();
+            long indexId = -1;
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                indexId = olapTable.getIndexIdByName(pair.first);
+                if (indexId == olapTable.getBaseIndexId()) {
+                    indexId = -1;
                 }
-                replayCreateAnalysisTask(analysisInfo);
             }
+            AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(pair.second).setIndexId(indexId)
+                    .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
+            analysisTasks.put(taskId, createTask(analysisInfo));
+            jobInfo.addTaskId(taskId);
+            if (isSync) {
+                continue;
+            }
+            replayCreateAnalysisTask(analysisInfo);
         }
     }
 
@@ -540,7 +529,9 @@ public class AnalysisManager implements Writable {
             tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
         }
-        jobInfo.colToPartitions.clear();
+        if (jobInfo.jobColumns != null) {
+            jobInfo.jobColumns.clear();
+        }
         if (jobInfo.partitionNames != null) {
             jobInfo.partitionNames.clear();
         }
@@ -575,11 +566,11 @@ public class AnalysisManager implements Writable {
         return result;
     }
 
-    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableName, Set<String>> jobMap,
+    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableName, Set<Pair<String, String>>> jobMap,
             JobPriority priority, TableName tblName) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         synchronized (jobMap) {
-            for (Entry<TableName, Set<String>> entry : jobMap.entrySet()) {
+            for (Entry<TableName, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
                 TableName table = entry.getKey();
                 if (tblName == null || tblName.equals(table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),
@@ -720,7 +711,16 @@ public class AnalysisManager implements Writable {
                 indexIds.add(-1L);
             }
             for (long indexId : indexIds) {
-                tableStats.removeColumn(column);
+                String indexName = table.getName();
+                if (table instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) table;
+                    if (indexId == -1) {
+                        indexName = olapTable.getIndexNameById(olapTable.getBaseIndexId());
+                    } else {
+                        indexName = olapTable.getIndexNameById(indexId);
+                    }
+                }
+                tableStats.removeColumn(indexName, column);
                 statisticsCache.invalidate(tableId, indexId, column);
             }
         }
@@ -1097,25 +1097,16 @@ public class AnalysisManager implements Writable {
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
     }
 
-    // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
-    // we could make sure it would be analyzed again soon if user or system submit job for that column again.
-    public void removeColStatsStatus(long tblId, String colName) {
-        TableStatsMeta tableStats = findTableStatsStatus(tblId);
-        if (tableStats != null) {
-            tableStats.removeColumn(colName);
-        }
-    }
-
     public void removeTableStats(long tableId) {
         idToTblStats.remove(tableId);
     }
 
-    public ColStatsMeta findColStatsMeta(long tblId, String colName) {
+    public ColStatsMeta findColStatsMeta(long tblId, String indexName, String colName) {
         TableStatsMeta tableStats = findTableStatsStatus(tblId);
         if (tableStats == null) {
             return null;
         }
-        return tableStats.findColumnStatsMeta(colName);
+        return tableStats.findColumnStatsMeta(indexName, colName);
     }
 
     public AnalysisJob findJob(long id) {

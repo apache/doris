@@ -18,7 +18,9 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -28,15 +30,16 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryColumn;
 import org.apache.doris.thrift.TSyncQueryColumns;
 
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class FollowerColumnSender extends MasterDaemon {
 
@@ -115,10 +118,32 @@ public class FollowerColumnSender extends MasterDaemon {
     }
 
     protected Set<TQueryColumn> getNeedAnalyzeColumns(Queue<QueryColumn> columnQueue) {
-        return columnQueue.stream()
-                .filter(c -> StatisticsUtil.needAnalyzeColumn(c))
-                .map(QueryColumn::toThrift)
-                .collect(Collectors.toSet());
+        Set<TQueryColumn> ret = Sets.newHashSet();
+        TableIf table;
+        for (int i = 0; i < columnQueue.size(); i++) {
+            QueryColumn column = columnQueue.poll();
+            if (column == null) {
+                continue;
+            }
+            try {
+                table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
+            } catch (Exception e) {
+                LOG.warn("Failed to find table for column {}", column.colName, e);
+                continue;
+            }
+            if (StatisticsUtil.isUnsupportedType(table.getColumn(column.colName).getType())) {
+                continue;
+            }
+            Set<Pair<String, String>> columnIndexPairs = table.getColumnIndexPairs(
+                    Collections.singleton(column.colName));
+            for (Pair<String, String> pair : columnIndexPairs) {
+                if (StatisticsUtil.needAnalyzeColumn(table, pair)) {
+                    ret.add(column.toThrift());
+                    break;
+                }
+            }
+        }
+        return ret;
     }
 
     protected List<TQueryColumn> convertSetToList(Set<TQueryColumn> set) {

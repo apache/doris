@@ -59,6 +59,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -93,6 +94,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -754,8 +756,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public List<Column> getSchemaAllIndexes(boolean full) {
-        List<Column> columns = Lists.newArrayList();
+    public Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> columns = Sets.newHashSet();
         for (Long indexId : indexIdToMeta.keySet()) {
             columns.addAll(getSchemaByIndexId(indexId, full));
         }
@@ -1282,6 +1284,23 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         } else {
             return new OlapAnalysisTask(info);
         }
+    }
+
+    @Override
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        Set<Pair<String, String>> ret = Sets.newHashSet();
+        // Check the schema of all indexes for each given column name,
+        // If the column name exists in the index, add the <IndexName, ColumnName> pair to return list.
+        for (String column : columns) {
+            for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
+                Column col = meta.getColumnByName(column);
+                if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
+                    continue;
+                }
+                ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column.toLowerCase(Locale.ROOT)));
+            }
+        }
+        return ret;
     }
 
     @Override

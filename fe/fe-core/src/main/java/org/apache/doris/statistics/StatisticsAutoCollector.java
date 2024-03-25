@@ -40,11 +40,11 @@ import org.apache.logging.log4j.Logger;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -77,7 +77,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected void collect() {
         while (canCollect()) {
-            Pair<Entry<TableName, Set<String>>, JobPriority> job = getJob();
+            Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> job = getJob();
             if (job == null) {
                 // No more job to process, break and sleep.
                 break;
@@ -91,7 +91,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 processOneJob(table, job.first.getValue(), job.second);
             } catch (Exception e) {
                 LOG.warn("Failed to analyze table {} with columns [{}]", job.first.getKey().getTbl(),
-                        job.first.getValue().stream().collect(Collectors.joining(",")), e);
+                        job.first.getValue().stream().map(c -> c.toString()).collect(Collectors.joining(",")), e);
             }
         }
     }
@@ -101,9 +101,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
             && StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
     }
 
-    protected Pair<Entry<TableName, Set<String>>, JobPriority> getJob() {
+    protected Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> getJob() {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
-        Optional<Entry<TableName, Set<String>>> job = fetchJobFromMap(manager.highPriorityJobs);
+        Optional<Entry<TableName, Set<Pair<String, String>>>> job = fetchJobFromMap(manager.highPriorityJobs);
         if (job.isPresent()) {
             return Pair.of(job.get(), JobPriority.HIGH);
         }
@@ -115,18 +115,20 @@ public class StatisticsAutoCollector extends MasterDaemon {
         return job.isPresent() ? Pair.of(job.get(), JobPriority.LOW) : null;
     }
 
-    protected Optional<Map.Entry<TableName, Set<String>>> fetchJobFromMap(Map<TableName, Set<String>> jobMap) {
+    protected Optional<Map.Entry<TableName, Set<Pair<String, String>>>> fetchJobFromMap(
+            Map<TableName, Set<Pair<String, String>>> jobMap) {
         synchronized (jobMap) {
-            Optional<Map.Entry<TableName, Set<String>>> first = jobMap.entrySet().stream().findFirst();
+            Optional<Map.Entry<TableName, Set<Pair<String, String>>>> first = jobMap.entrySet().stream().findFirst();
             first.ifPresent(entry -> jobMap.remove(entry.getKey()));
             return first;
         }
     }
 
-    protected void processOneJob(TableIf table, Set<String> columns, JobPriority priority) throws DdlException {
-        appendMvColumn(table, columns);
-        columns = columns.stream().filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)).collect(Collectors.toSet());
+    protected void processOneJob(TableIf table, Set<Pair<String, String>> columns,
+            JobPriority priority) throws DdlException {
+        // appendMvColumn(table, columns);
         appendPartitionColumns(table, columns);
+        columns = columns.stream().filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)).collect(Collectors.toSet());
         if (columns.isEmpty()) {
             return;
         }
@@ -135,7 +137,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
         executeSystemAnalysisJob(analyzeJob);
     }
 
-    protected void appendPartitionColumns(TableIf table, Set<String> columns) {
+    protected void appendPartitionColumns(TableIf table, Set<Pair<String, String>> columns) throws DdlException {
         if (!(table instanceof OlapTable)) {
             return;
         }
@@ -143,7 +145,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         if (tableStatsStatus != null && tableStatsStatus.newPartitionLoaded.get()) {
             OlapTable olapTable = (OlapTable) table;
-            columns.addAll(olapTable.getPartitionNames());
+            columns.addAll(olapTable.getColumnIndexPairs(olapTable.getPartitionColumnNames()));
         }
     }
 
@@ -165,22 +167,24 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 && ((HMSExternalTable) tableIf).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
     }
 
-    protected AnalysisInfo createAnalyzeJobForTbl(TableIf table, Set<String> columns, JobPriority priority) {
+    protected AnalysisInfo createAnalyzeJobForTbl(
+            TableIf table, Set<Pair<String, String>> jobColumns, JobPriority priority) {
         AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         long rowCount = table.getRowCount();
-        Map<String, Set<String>> colToPartitions = new HashMap<>();
-        Set<String> dummyPartition = new HashSet<>();
-        dummyPartition.add("dummy partition");
-        columns.stream().forEach(c -> colToPartitions.put(c, dummyPartition));
+        StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
+        for (Pair<String, String> pair : jobColumns) {
+            stringJoiner.add(pair.toString());
+        }
         return new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
                 .setCatalogId(table.getDatabase().getCatalog().getId())
                 .setDBId(table.getDatabase().getId())
                 .setTblId(table.getId())
-                .setColName(columns.stream().collect(Collectors.joining(",")))
+                .setColName(stringJoiner.toString())
+                .setJobColumns(jobColumns)
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
@@ -194,7 +198,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setTblUpdateTime(table.getUpdateTime())
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
-                .setColToPartitions(colToPartitions)
                 .setPriority(priority)
                 .build();
     }
@@ -213,5 +216,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
         Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
         Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
         analysisTasks.values().forEach(analysisTaskExecutor::submitTask);
+    }
+
+    protected AnalysisInfo getNeedAnalyzeColumns(AnalysisInfo jobInfo) {
+        return jobInfo;
     }
 }

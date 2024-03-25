@@ -18,11 +18,13 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -30,6 +32,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -79,29 +82,47 @@ public class StatisticsJobAppender extends MasterDaemon {
         }
     }
 
-    protected void appendColumnsToJobs(Queue<QueryColumn> columnQueue, Map<TableName, Set<String>> jobsMap) {
+    protected void appendColumnsToJobs(Queue<QueryColumn> columnQueue,
+            Map<TableName, Set<Pair<String, String>>> jobsMap) {
         int size = columnQueue.size();
         int processed = 0;
         for (int i = 0; i < size; i++) {
             QueryColumn column = columnQueue.poll();
-            if (!StatisticsUtil.needAnalyzeColumn(column)) {
+            TableIf table;
+            try {
+                table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
+            } catch (Exception e) {
+                LOG.warn("Fail to find table {}.{}.{} for column {}",
+                        column.catalogId, column.dbId, column.tblId, column.colName, e);
                 continue;
             }
-            TableIf table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
+            if (StatisticConstants.SYSTEM_DBS.contains(table.getDatabase().getFullName())) {
+                continue;
+            }
+            Column col = table.getColumn(column.colName);
+            if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
+                continue;
+            }
+            Set<Pair<String, String>> columnIndexPairs = table.getColumnIndexPairs(
+                    Collections.singleton(column.colName)).stream()
+                    .filter(p -> StatisticsUtil.needAnalyzeColumn(table, p))
+                    .collect(Collectors.toSet());
             TableName tableName = new TableName(table.getDatabase().getCatalog().getName(),
                     table.getDatabase().getFullName(), table.getName());
             synchronized (jobsMap) {
-                // If job map reach the upper limit, stop putting new jobs.
-                if (!jobsMap.containsKey(tableName) && jobsMap.size() >= JOB_MAP_SIZE) {
-                    LOG.info("High or mid job map full.");
-                    break;
-                }
-                if (jobsMap.containsKey(tableName)) {
-                    jobsMap.get(tableName).add(column.colName);
-                } else {
-                    HashSet<String> columns = new HashSet<>();
-                    columns.add(column.colName);
-                    jobsMap.put(tableName, columns);
+                for (Pair<String, String> pair : columnIndexPairs) {
+                    // If job map reach the upper limit, stop putting new jobs.
+                    if (!jobsMap.containsKey(tableName) && jobsMap.size() >= JOB_MAP_SIZE) {
+                        LOG.info("High or mid job map full.");
+                        break;
+                    }
+                    if (jobsMap.containsKey(tableName)) {
+                        jobsMap.get(tableName).add(pair);
+                    } else {
+                        HashSet<Pair<String, String>> columns = new HashSet<>();
+                        columns.add(pair);
+                        jobsMap.put(tableName, columns);
+                    }
                 }
             }
             processed++;
@@ -111,7 +132,7 @@ public class StatisticsJobAppender extends MasterDaemon {
         }
     }
 
-    protected void appendToLowJobs(Map<TableName, Set<String>> jobsMap) {
+    protected void appendToLowJobs(Map<TableName, Set<Pair<String, String>>> jobsMap) {
         if (System.currentTimeMillis() - lastRoundFinishTime < lowJobIntervalMs) {
             return;
         }
@@ -131,16 +152,17 @@ public class StatisticsJobAppender extends MasterDaemon {
                 if (!(t instanceof OlapTable) || t.getId() <= currentTableId) {
                     continue;
                 }
-                OlapTable olapTable = (OlapTable) t;
-                Set<String> columns = olapTable.getColumns().stream()
-                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                        .filter(c -> StatisticsUtil.needAnalyzeColumn(olapTable, c.getName()))
-                        .map(c -> c.getName()).collect(Collectors.toSet());
-                if (columns.isEmpty()) {
+                Set<Pair<String, String>> columnIndexPairs = t.getColumnIndexPairs(
+                        t.getSchemaAllIndexes(false).stream()
+                                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                .map(c -> c.getName()).collect(Collectors.toSet()))
+                        .stream().filter(p -> StatisticsUtil.needAnalyzeColumn(t, p))
+                        .collect(Collectors.toSet());
+                if (columnIndexPairs.isEmpty()) {
                     continue;
                 }
-                TableName tableName = new TableName(olapTable.getDatabase().getCatalog().getName(),
-                        olapTable.getDatabase().getFullName(), olapTable.getName());
+                TableName tableName = new TableName(t.getDatabase().getCatalog().getName(),
+                        t.getDatabase().getFullName(), t.getName());
                 synchronized (jobsMap) {
                     // If job map reach the upper limit, stop adding new jobs.
                     if (!jobsMap.containsKey(tableName) && jobsMap.size() >= JOB_MAP_SIZE) {
@@ -148,12 +170,12 @@ public class StatisticsJobAppender extends MasterDaemon {
                         return;
                     }
                     if (jobsMap.containsKey(tableName)) {
-                        jobsMap.get(tableName).addAll(columns);
+                        jobsMap.get(tableName).addAll(columnIndexPairs);
                     } else {
-                        jobsMap.put(tableName, columns);
+                        jobsMap.put(tableName, columnIndexPairs);
                     }
                 }
-                currentTableId = olapTable.getId();
+                currentTableId = t.getId();
                 if (++processed >= TABLE_BATCH_SIZE) {
                     return;
                 }

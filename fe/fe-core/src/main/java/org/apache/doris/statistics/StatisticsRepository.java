@@ -30,6 +30,7 @@ import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -320,7 +321,7 @@ public class StatisticsRepository {
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
                     .setTblUpdateTime(System.currentTimeMillis())
                     .setColName("")
-                    .setColToPartitions(Maps.newHashMap())
+                    .setJobColumns(Sets.newHashSet())
                     .setUserInject(true)
                     .setJobType(AnalysisInfo.JobType.MANUAL)
                     .build();
