@@ -18,7 +18,6 @@
 #include "vparquet_page_reader.h"
 
 #include <gen_cpp/parquet_types.h>
-#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -41,15 +40,15 @@ namespace doris::vectorized {
 
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
-PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,const tparquet::OffsetIndex* offset_index,
-                       int64_t num_values, uint64_t offset, uint64_t length)
+PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
+                       const tparquet::OffsetIndex* offset_index, int64_t num_values,
+                       uint64_t offset, uint64_t length)
         : _reader(reader),
           _io_ctx(io_ctx),
           _start_offset(offset),
           _end_offset(offset + length),
           _num_values(num_values),
-          _offset_index(offset_index)
-          {}
+          _offset_index(offset_index) {}
 
 Status PageReader::load_page_header() {
     if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
@@ -88,11 +87,16 @@ Status PageReader::load_page_header() {
     }
 
     _offset += real_header_size;
+    _header_size = real_header_size;
     _state = HEADER_PARSED;
     return Status::OK();
 }
 
 Status PageReader::skip_page() {
+    if (_state == HEADER_PARSED) {
+        // skip page data
+        return Status::Corruption("Can't skip page when header parsed");
+    }
     _offset += _offset_index->page_locations[_page_index].compressed_page_size;
     _page_index++;
     _state = INITIALIZED;
@@ -106,12 +110,16 @@ const tparquet::PageHeader* PageReader::get_page_header() {
 }
 
 Status PageReader::get_page_data(Slice& slice) {
+    if (UNLIKELY(_state != HEADER_PARSED)) {
+        return Status::IOError("Should generate page header first to load current page data");
+    }
     if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
         return Status::EndOfFile("stop");
     }
-    slice.size = _offset_index->page_locations[_page_index].compressed_page_size;
+    slice.size = _cur_page_header.compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));
     _offset += slice.size;
+    _page_index++;
     _state = INITIALIZED;
     return Status::OK();
 }

@@ -91,7 +91,6 @@ Status ColumnChunkReader::next_page() {
     if (UNLIKELY(_remaining_num_values != 0)) {
         return Status::Corruption("Should skip current page");
     }
-    // RETURN_IF_ERROR(_page_reader->next_page_header());
 
     if (!_has_dict_parsed) {
         _has_dict_parsed = true;
@@ -104,6 +103,7 @@ Status ColumnChunkReader::next_page() {
             return next_page();
         }
     } else {
+        // RETURN_IF_ERROR(_page_reader->next_page_header());
         _remaining_num_values = _page_reader->get_page_num_values();
     }
     return Status::OK();

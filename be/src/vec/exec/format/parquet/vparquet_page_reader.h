@@ -43,8 +43,8 @@ public:
     };
 
     PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
-               const tparquet::OffsetIndex* offset_index,int64_t num_values,
-               uint64_t offset, uint64_t length);
+               const tparquet::OffsetIndex* offset_index, int64_t num_values, uint64_t offset,
+               uint64_t length);
 
     ~PageReader() = default;
 
@@ -87,6 +87,7 @@ private:
     PageReaderState _state = INITIALIZED;
 
     uint64_t _offset = 0;
+    uint64_t _header_size = 0;
 
     uint64_t _start_offset = 0;
     uint64_t _end_offset = 0;
