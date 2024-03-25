@@ -34,7 +34,6 @@ import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
@@ -2637,10 +2636,6 @@ public class SessionVariable implements Serializable, Writable {
         return groupByAndHavingUseAliasFirst;
     }
 
-    public int getCpuResourceLimit() {
-        return cpuResourceLimit;
-    }
-
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
     }
@@ -3016,12 +3011,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
-
-        if (cpuResourceLimit > 0) {
-            TResourceLimit resourceLimit = new TResourceLimit();
-            resourceLimit.setCpuLimit(cpuResourceLimit);
-            tResult.setResourceLimit(resourceLimit);
-        }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
