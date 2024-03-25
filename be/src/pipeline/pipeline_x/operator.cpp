@@ -200,6 +200,9 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
                                                                        *_output_row_descriptor);
     auto rows = origin_block->rows();
 
+    std::set<int> yxc_result_id_set;
+    std::vector<int> yxc_result_id_vec;
+
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         DCHECK(mutable_columns.size() == local_state->_projections.size());
@@ -208,8 +211,17 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             RETURN_IF_ERROR(local_state->_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
+            yxc_result_id_set.insert(result_column_id);
+            yxc_result_id_vec.push_back(result_column_id);
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
+        DCHECK(mutable_columns.size() == yxc_result_id_set.size()) << "yxc test error re" << [&]() {
+            std::string ret;
+            for (auto x : yxc_result_id_vec) {
+                ret += std::to_string(x) + "  , ";
+            }
+            return ret;
+        }();
         DCHECK(mutable_block.rows() == rows);
         output_block->set_columns(std::move(mutable_columns));
     }
