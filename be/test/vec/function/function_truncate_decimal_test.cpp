@@ -18,7 +18,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest.h>
 #include <climits>
-#include <stdint.h>
+#include <cstdint>
 
 #include <cmath>
 #include <cstddef>
