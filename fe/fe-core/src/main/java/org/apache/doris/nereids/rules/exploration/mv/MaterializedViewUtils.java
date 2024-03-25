@@ -24,6 +24,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -44,9 +46,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -132,18 +136,25 @@ public class MaterializedViewUtils {
     /**
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
      */
-    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
-        if (plan.getGroupExpression().isPresent() && !plan.getGroupExpression().get().getOwnerGroup().getStructInfos()
-                .isEmpty()) {
-            return plan.getGroupExpression().get().getOwnerGroup().getStructInfos();
-        } else {
-            // build struct info and add them to current group
-            List<StructInfo> structInfos = StructInfo.of(plan);
-            if (plan.getGroupExpression().isPresent()) {
-                plan.getGroupExpression().get().getOwnerGroup().addStructInfo(structInfos);
+    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext,
+            BitSet materializedViewTableSet) {
+        // If plan belong to some group, construct it with group struct info
+        if (plan.getGroupExpression().isPresent()) {
+            Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
+            StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
+            structInfoMap.refresh(ownerGroup);
+            Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
+            if (!queryTableSets.isEmpty()) {
+                return queryTableSets.stream()
+                        // Just construct the struct info which mv table set contains all the query table set
+                        .filter(queryTableSet -> materializedViewTableSet.isEmpty()
+                                || StructInfo.containsAll(materializedViewTableSet, queryTableSet))
+                        .map(tableMap -> structInfoMap.getStructInfo(tableMap, tableMap, ownerGroup, plan))
+                        .collect(Collectors.toList());
             }
-            return structInfos;
         }
+        // if plan doesn't belong to any group, construct it directly
+        return ImmutableList.of(StructInfo.of(plan));
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {

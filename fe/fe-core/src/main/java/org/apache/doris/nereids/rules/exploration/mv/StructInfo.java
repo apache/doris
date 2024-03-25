@@ -47,12 +47,12 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -83,6 +83,7 @@ public class StructInfo {
     // bottom plan which top plan only contain join or scan. this is needed by hyper graph
     private final Plan bottomPlan;
     private final List<CatalogRelation> relations;
+    private final BitSet tableBitSet = new BitSet();
     // this is for LogicalCompatibilityContext later
     private final Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap;
     // this recorde the predicates which can pull up, not shuttled
@@ -112,6 +113,7 @@ public class StructInfo {
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
         this.relations = relations;
+        relations.forEach(relation -> this.tableBitSet.set((int) (relation.getTable().getId())));
         this.relationIdStructInfoNodeMap = relationIdStructInfoNodeMap;
         this.predicates = predicates;
         if (predicates == null) {
@@ -120,7 +122,8 @@ public class StructInfo {
             topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
             this.predicates = Predicates.of(topPlanPredicates);
         }
-        Pair<SplitPredicate, EquivalenceClass> derivedPredicates = predicatesDerive(this.predicates, originalPlan);
+        Pair<SplitPredicate, EquivalenceClass> derivedPredicates =
+                predicatesDerive(this.predicates, originalPlan, tableBitSet);
         this.splitPredicate = derivedPredicates.key();
         this.equivalenceClass = derivedPredicates.value();
         this.shuttledHashConjunctsToConjunctsMap = shuttledHashConjunctsToConjunctsMap;
@@ -140,8 +143,24 @@ public class StructInfo {
             Plan topPlan,
             Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap,
             Map<ExprId, Expression> namedExprIdAndExprMapping,
-            ImmutableList.Builder<CatalogRelation> relationBuilder,
+            List<CatalogRelation> relations,
             Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap) {
+
+        // Collect relations from hyper graph which in the bottom plan firstly
+        BitSet hyperTableBitSet = new BitSet();
+        hyperGraph.getNodes().forEach(node -> {
+            // plan relation collector and set to map
+            Plan nodePlan = node.getPlan();
+            List<CatalogRelation> nodeRelations = new ArrayList<>();
+            nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
+            relations.addAll(nodeRelations);
+            nodeRelations.forEach(relation -> hyperTableBitSet.set((int) relation.getTable().getId()));
+            // every node should only have one relation, this is for LogicalCompatibilityContext
+            if (!nodeRelations.isEmpty()) {
+                relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
+            }
+        });
+
         // Collect expression from join condition in hyper graph
         for (JoinEdge edge : hyperGraph.getJoinEdges()) {
             List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
@@ -151,9 +170,8 @@ public class StructInfo {
             hashJoinConjuncts.forEach(conjunctExpr -> {
                 ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
                         new ExpressionLineageReplacer.ExpressionReplaceContext(
-                                Lists.newArrayList(conjunctExpr),
-                                ImmutableSet.of(),
-                                ImmutableSet.of());
+                                Lists.newArrayList(conjunctExpr), ImmutableSet.of(),
+                                ImmutableSet.of(), hyperTableBitSet);
                 topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
                 // Replace expressions by expression map
                 List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
@@ -167,27 +185,17 @@ public class StructInfo {
                 return false;
             }
         }
-        // Collect relations from hyper graph which in the bottom plan
+        // Record expressions in node
         hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
             StructInfoNode structInfoNode = (StructInfoNode) node;
-            // plan relation collector and set to map
-            Plan nodePlan = node.getPlan();
-            List<CatalogRelation> nodeRelations = new ArrayList<>();
-            nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
-            relationBuilder.addAll(nodeRelations);
-            // every node should only have one relation, this is for LogicalCompatibilityContext
-            if (!nodeRelations.isEmpty()) {
-                relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
-            }
             // record expressions in node
             if (structInfoNode.getExpressions() != null) {
                 structInfoNode.getExpressions().forEach(expression -> {
                     ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
                             new ExpressionLineageReplacer.ExpressionReplaceContext(
-                                    Lists.newArrayList(expression),
-                                    ImmutableSet.of(),
-                                    ImmutableSet.of());
+                                    Lists.newArrayList(expression), ImmutableSet.of(),
+                                    ImmutableSet.of(), hyperTableBitSet);
                     structInfoNode.getPlan().accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
                     // Replace expressions by expression map
                     List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
@@ -204,18 +212,19 @@ public class StructInfo {
             filterExpressions.forEach(predicate -> {
                 // this is used for LogicalCompatibilityContext
                 ExpressionUtils.extractConjunction(predicate).forEach(expr ->
-                        shuttledHashConjunctsToConjunctsMap.put(
-                                ExpressionUtils.shuttleExpressionWithLineage(predicate, topPlan), predicate));
+                        shuttledHashConjunctsToConjunctsMap.put(ExpressionUtils.shuttleExpressionWithLineage(
+                                predicate, topPlan, hyperTableBitSet), predicate));
             });
         });
         return true;
     }
 
     // derive some useful predicate by predicates
-    private Pair<SplitPredicate, EquivalenceClass> predicatesDerive(Predicates predicates, Plan originalPlan) {
+    private Pair<SplitPredicate, EquivalenceClass> predicatesDerive(Predicates predicates, Plan originalPlan,
+            BitSet tableBitSet) {
         // construct equivalenceClass according to equals predicates
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                        new ArrayList<>(predicates.getPulledUpPredicates()), originalPlan).stream()
+                        new ArrayList<>(predicates.getPulledUpPredicates()), originalPlan, tableBitSet).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
@@ -238,20 +247,23 @@ public class StructInfo {
      * Build Struct info from plan.
      * Maybe return multi structInfo when original plan already be rewritten by mv
      */
-    public static List<StructInfo> of(Plan originalPlan) {
-        // TODO only consider the inner join currently, Should support outer join
+    public static StructInfo of(Plan originalPlan) {
+        return of(originalPlan, originalPlan);
+    }
+
+    /**
+     * Build Struct info from plan.
+     * Maybe return multi structInfo when original plan already be rewritten by mv
+     */
+    public static StructInfo of(Plan derivedPlan, Plan originalPlan) {
         // Split plan by the boundary which contains multi child
         LinkedHashSet<Class<? extends Plan>> set = Sets.newLinkedHashSet();
         set.add(LogicalJoin.class);
         PlanSplitContext planSplitContext = new PlanSplitContext(set);
         // if single table without join, the bottom is
-        originalPlan.accept(PLAN_SPLITTER, planSplitContext);
-
-        List<HyperGraph> structInfos = HyperGraph.builderForMv(planSplitContext.getBottomPlan()).buildAll();
-        return structInfos.stream()
-                .map(hyperGraph -> StructInfo.of(originalPlan, planSplitContext.getTopPlan(),
-                        planSplitContext.getBottomPlan(), hyperGraph))
-                .collect(Collectors.toList());
+        derivedPlan.accept(PLAN_SPLITTER, planSplitContext);
+        return StructInfo.of(originalPlan, planSplitContext.getTopPlan(), planSplitContext.getBottomPlan(),
+                HyperGraph.builderForMv(planSplitContext.getBottomPlan()).build());
     }
 
     /**
@@ -271,16 +283,16 @@ public class StructInfo {
             topPlan = planSplitContext.getTopPlan();
         }
         // collect struct info fromGraph
-        ImmutableList.Builder<CatalogRelation> relationBuilder = ImmutableList.builder();
+        List<CatalogRelation> relationList = new ArrayList<>();
         Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap = new LinkedHashMap<>();
         Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap = new LinkedHashMap<>();
         Map<ExprId, Expression> namedExprIdAndExprMapping = new LinkedHashMap<>();
         boolean valid = collectStructInfoFromGraph(hyperGraph, topPlan, shuttledHashConjunctsToConjunctsMap,
                 namedExprIdAndExprMapping,
-                relationBuilder,
+                relationList,
                 relationIdStructInfoNodeMap);
         return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
-                relationBuilder.build(), relationIdStructInfoNodeMap, null, shuttledHashConjunctsToConjunctsMap,
+                relationList, relationIdStructInfoNodeMap, null, shuttledHashConjunctsToConjunctsMap,
                 namedExprIdAndExprMapping);
     }
 
@@ -350,6 +362,10 @@ public class StructInfo {
         return namedExprIdAndExprMapping;
     }
 
+    public BitSet getTableBitSet() {
+        return tableBitSet;
+    }
+
     /**
      * Judge the source graph logical is whether the same as target
      * For inner join should judge only the join tables,
@@ -359,6 +375,11 @@ public class StructInfo {
             LogicalCompatibilityContext compatibilityContext) {
         return HyperGraphComparator
                 .isLogicCompatible(queryStructInfo.hyperGraph, viewStructInfo.hyperGraph, compatibilityContext);
+    }
+
+    @Override
+    public String toString() {
+        return "StructInfo{ originalPlanId = " + originalPlanId + ", relations = " + relations + '}';
     }
 
     private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {
@@ -407,6 +428,12 @@ public class StructInfo {
             }
             return super.visit(plan, context);
         }
+    }
+
+    public static boolean containsAll(BitSet source, BitSet target) {
+        BitSet intersection = (BitSet) source.clone();
+        intersection.and(target);
+        return intersection.equals(target);
     }
 
     /**

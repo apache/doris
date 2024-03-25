@@ -37,6 +37,7 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,6 +71,7 @@ public class MaterializationContext {
     // The key is the query belonged group expression objectId, the value is the fail reason
     private final Map<ObjectId, Pair<String, String>> failReason = new LinkedHashMap<>();
     private boolean enableRecordFailureDetail = false;
+    private StructInfo structInfo;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -97,10 +99,19 @@ public class MaterializationContext {
         this.mvExprToMvScanExprMapping = ExpressionMapping.generate(
                 ExpressionUtils.shuttleExpressionWithLineage(
                         mtmvCache.getOriginalPlan().getOutput(),
-                        mtmvCache.getOriginalPlan()),
+                        mtmvCache.getOriginalPlan(),
+                        new BitSet()),
                 mvScanPlan.getExpressions());
         // copy the plan from cache, which the plan in cache may change
         this.mvPlan = mtmvCache.getLogicalPlan();
+        List<StructInfo> viewStructInfos = MaterializedViewUtils.extractStructInfo(
+                mtmvCache.getLogicalPlan(), cascadesContext, new BitSet());
+        if (viewStructInfos.size() > 1) {
+            // view struct info should only have one, log error and use the first struct info
+            LOG.warn(String.format("view strut info is more than one, mv name is %s, mv plan is %s",
+                    mtmv.getName(), mvPlan.treeString()));
+        }
+        this.structInfo = viewStructInfos.get(0);
     }
 
     public boolean alreadyRewrite(GroupId groupId) {
@@ -150,6 +161,10 @@ public class MaterializationContext {
     public void setSuccess(boolean success) {
         this.success = success;
         this.failReason.clear();
+    }
+
+    public StructInfo getStructInfo() {
+        return structInfo;
     }
 
     /**
