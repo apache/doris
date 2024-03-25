@@ -72,7 +72,7 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
     fi
 
     if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-        echo "Disable swap memory before installation"
+        echo "Disable swap memory before starting be"
         exit 1
     fi
 fi
