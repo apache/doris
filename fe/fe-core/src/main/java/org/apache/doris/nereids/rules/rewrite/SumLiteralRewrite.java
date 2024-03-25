@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -193,6 +194,31 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
             this.expr = expr;
             this.isDistinct = isDistinct;
             this.isAlwaysNullable = isAlwaysNullable;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+
+            SumInfo sumInfo = (SumInfo) o;
+
+            if (isDistinct != sumInfo.isDistinct) {
+                return false;
+            }
+            if (isAlwaysNullable != sumInfo.isAlwaysNullable) {
+                return false;
+            }
+            return Objects.equals(expr, sumInfo.expr);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(expr, isDistinct, isAlwaysNullable);
         }
     }
 }
