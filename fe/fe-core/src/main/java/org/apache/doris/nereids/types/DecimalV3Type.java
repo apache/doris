@@ -40,7 +40,7 @@ public class DecimalV3Type extends FractionalType {
     public static final int MAX_DECIMAL128_PRECISION = 38;
 
     public static final DecimalV3Type WILDCARD = new DecimalV3Type(-1, -1);
-    public static final DecimalV3Type SYSTEM_DEFAULT = new DecimalV3Type(MAX_DECIMAL128_PRECISION, DEFAULT_SCALE);
+    public static final DecimalV3Type SYSTEM_DEFAULT = new DecimalV3Type(MAX_DECIMAL128_PRECISION, 9);
 
     public static final DecimalV3Type CATALOG_DEFAULT = new DecimalV3Type(MAX_DECIMAL32_PRECISION, DEFAULT_SCALE);
 
