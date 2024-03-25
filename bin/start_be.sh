@@ -79,7 +79,7 @@ fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
 if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Set maximum number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
+    echo "Set max number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
     exit 1
 fi
 
