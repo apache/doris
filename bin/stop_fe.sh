@@ -69,7 +69,7 @@ if [[ -f "${pidfile}" ]]; then
     pidcomm="$(basename "$(ps -p "${pid}" -o comm=)")"
     # check if pid process is frontend process
     if [[ "java" != "${pidcomm}" ]]; then
-        echo "ERROR: PID may not be fe"
+        echo "ERROR: PID may not be the fe process"
         exit 1
     fi
 
