@@ -87,7 +87,7 @@ public class ShowReplicaTest extends TestWithFeService {
         executor = new ShowExecutor(connectContext, skewStmt);
         resultSet = executor.execute();
         Assert.assertEquals(10, resultSet.getResultRows().size());
-        Assert.assertEquals("4", resultSet.getResultRows().get(5).get(0));
+        Assert.assertEquals("4", resultSet.getResultRows().get(4).get(1));
         Assert.assertEquals(6, resultSet.getResultRows().get(0).size());
     }
 
