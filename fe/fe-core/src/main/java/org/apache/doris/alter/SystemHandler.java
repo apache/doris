@@ -275,7 +275,7 @@ public class SystemHandler extends AlterHandler {
 
     private static void checkDecommissionWithReplicaAllocation(List<Backend> decommissionBackends)
             throws DdlException {
-        if (Config.isCloudMode()) {
+        if (Config.isCloudMode() || decommissionBackends.isEmpty()) {
             return;
         }
 
