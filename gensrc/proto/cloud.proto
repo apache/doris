@@ -1220,6 +1220,9 @@ enum MetaServiceCode {
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
 
+    // The meta service retries KV_TXN_CONFLICT error but is exceeded the max times.
+    KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES = 10001;
+
     UNDEFINED_ERR = 1000000;
 }
 
