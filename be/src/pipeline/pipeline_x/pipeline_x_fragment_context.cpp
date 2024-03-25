@@ -588,7 +588,7 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
             auto& pipeline = _pipelines[pip_idx];
             if (pipeline->need_to_create_task()) {
                 // build task runtime state
-                auto cur_task_id = i * _pipelines.size() + pip_idx;
+                auto cur_task_id = i * target_size + pip_idx;
                 _task_runtime_states[cur_task_id] = RuntimeState::create_unique(
                         this, local_params.fragment_instance_id, request.query_id,
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
