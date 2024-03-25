@@ -1151,7 +1151,7 @@ TEST(RecyclerTest, recycle_versions) {
     for (auto partition_id : partition_ids) {
         create_partition_version_kv(txn_kv.get(), table_id, partition_id);
     }
-    create_table_version_kv(xn_kv.get(), table_id);
+    create_table_version_kv(txn_kv.get(), table_id);
     // Drop partitions
     for (int i = 0; i < 5; ++i) {
         create_recycle_partiton(txn_kv.get(), table_id, partition_ids[i], index_ids);
@@ -1172,15 +1172,15 @@ TEST(RecyclerTest, recycle_versions) {
     std::unique_ptr<RangeGetIterator> iter;
     ASSERT_EQ(txn->get(partition_key_begin, partition_key_end, &iter), TxnErrorCode::TXN_OK);
     ASSERT_EQ(iter->size(), 1);
-    auto [k, v] = iter->next();
-    EXPECT_EQ(k, partition_version_key({instance_id, db_id, table_id, 30006}));
+    auto [pk, pv] = iter->next();
+    EXPECT_EQ(pk, partition_version_key({instance_id, db_id, table_id, 30006}));
     // Table 10000's table version must not be deleted
     auto table_key_begin = table_version_key({instance_id, db_id, 0});
     auto table_key_end = table_version_key({instance_id, db_id, INT64_MAX});
     ASSERT_EQ(txn->get(table_key_begin, table_key_end, &iter), TxnErrorCode::TXN_OK);
     ASSERT_EQ(iter->size(), 1);
-    auto [k, v] = iter->next();
-    EXPECT_EQ(k, table_version_key({instance_id, db_id, 10000}));
+    auto [tk, tv] = iter->next();
+    EXPECT_EQ(tk, table_version_key({instance_id, db_id, 10000}));
 
     // Drop indexes
     for (auto index_id : index_ids) {

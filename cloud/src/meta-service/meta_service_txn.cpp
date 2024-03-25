@@ -1012,8 +1012,28 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     // Save table versions
     num_put_keys += table_id_tablet_ids.size();
     for (auto& i : table_id_tablet_ids) {
+        // Todo: use int64_t instead of protobuf as a value so that we can use atomic_add
         std::string ver_key = table_version_key({instance_id, db_id, i.first});
-        txn->atomic_add(ver_key, 1);
+        std::string ver_val_str;
+        err = txn->get(ver_key, &ver_val_str);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to get table version, table_id=" << i.first << " key=" << hex(ver_key);
+            msg = ss.str();
+            return;
+        }
+        VersionPB version_pb;
+        int version = 1;
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            version_pb.set_version(version + 1);
+            version_pb.SerializeToString(&ver_val_str);
+        } else {
+            version_pb.ParseFromString(ver_val_str);
+            version = version_pb.version();
+            version_pb.set_version(version + 1);
+            version_pb.SerializeToString(&ver_val_str);
+        }
+        txn->put(ver_key, ver_val_str);
         put_size += ver_key.size();
         LOG(INFO) << "xxx atomic add table_version_key=" << hex(ver_key) << " txn_id=" << txn_id;
     }

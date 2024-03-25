@@ -519,8 +519,23 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     }
 
     // update table versions
+    // Todo: use int64_t instead of protobuf as a value so that we can use atomic_add
     std::string ver_key = table_version_key({instance_id, request->db_id(), request->table_id()});
-    txn->atomic_add(ver_key, 1);
+    std::string ver_val_str;
+    err = txn->get(ver_key, &ver_val_str);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format( "failed to get table version, table_id {}, key {}", request->table_id(), hex(ver_key));
+        return;
+    }
+    VersionPB version_pb;
+    {
+        version_pb.ParseFromString(ver_val_str);
+        int version = version_pb.version();
+        version_pb.set_version(version + 1);
+        version_pb.SerializeToString(&ver_val_str);
+    }
+    txn->put(ver_key, ver_val_str);
     LOG_INFO("update table version").tag("ver_key", hex(ver_key));
 
     err = txn->commit();
@@ -611,8 +626,23 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     if (!need_commit) return;
 
     // update table versions
+    // Todo: use int64_t instead of protobuf as a value so that we can use atomic_add
     std::string ver_key = table_version_key({instance_id, request->db_id(), request->table_id()});
-    txn->atomic_add(ver_key, 1);
+    std::string ver_val_str;
+    err = txn->get(ver_key, &ver_val_str);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format( "failed to get table version, table_id {}, key {}", request->table_id(), hex(ver_key));
+        return;
+    }
+    VersionPB version_pb;
+    {
+        version_pb.ParseFromString(ver_val_str);
+        int version = version_pb.version();
+        version_pb.set_version(version + 1);
+        version_pb.SerializeToString(&ver_val_str);
+    }
+    txn->put(ver_key, ver_val_str);
     LOG_INFO("update table version").tag("ver_key", hex(ver_key));
 
     err = txn->commit();

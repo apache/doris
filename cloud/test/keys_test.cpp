@@ -344,7 +344,7 @@ TEST(KeysTest, VersionKeyTest) {
     {
         int64_t db_id = 11111;
         int64_t table_id = 10010;
-        PartitionVersionKeyInfo v_key {instance_id, db_id, table_id};
+        TableVersionKeyInfo v_key {instance_id, db_id, table_id};
         std::string encoded_version_key0;
         table_version_key(v_key, &encoded_version_key0);
         std::cout << "version key after encode: " << hex(encoded_version_key0) << std::endl;
@@ -370,7 +370,7 @@ TEST(KeysTest, VersionKeyTest) {
         EXPECT_EQ(db_id, dec_db_id);
         EXPECT_EQ(table_id, dec_table_id);
 
-        std::get<3>(v_key) = table_id + 1;
+        std::get<2>(v_key) = table_id + 1;
         std::string encoded_version_key1;
         table_version_key(v_key, &encoded_version_key1);
         std::cout << "version key after encode: " << hex(encoded_version_key1) << std::endl;

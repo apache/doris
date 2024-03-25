@@ -4247,6 +4247,8 @@ TEST(MetaServiceTest, IndexRequest) {
     auto tablet_val = tablet_pb.SerializeAsString();
     RecycleIndexPB index_pb;
     auto index_key = recycle_index_key({instance_id, index_id});
+    VersionPB version_pb;
+    auto tbl_version_key = table_version_key({instance_id, 1, table_id});
     std::string val;
 
     // ------------Test prepare index------------
@@ -4255,6 +4257,7 @@ TEST(MetaServiceTest, IndexRequest) {
     IndexResponse res;
     meta_service->prepare_index(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    req.set_db_id(1);
     req.set_table_id(table_id);
     req.add_index_ids(index_id);
     // Last state UNKNOWN
@@ -4312,11 +4315,15 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // Prepare index should not init table version
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     // ------------Test commit index------------
     reset_meta_service();
     req.Clear();
     meta_service->commit_index(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    req.set_db_id(1);
     req.set_table_id(table_id);
     req.add_index_ids(index_id);
     // Last state UNKNOWN
@@ -4325,6 +4332,8 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     // Last state PREPARED
     reset_meta_service();
     index_pb.set_state(RecycleIndexPB::PREPARED);
@@ -4337,6 +4346,11 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // First commit index should init table version
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 1);
     // Last state DROPPED
     reset_meta_service();
     index_pb.set_state(RecycleIndexPB::DROPPED);
@@ -4351,6 +4365,8 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(index_pb.ParseFromString(val));
     ASSERT_EQ(index_pb.state(), RecycleIndexPB::DROPPED);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     // Last state RECYCLING
     reset_meta_service();
     index_pb.set_state(RecycleIndexPB::RECYCLING);
@@ -4365,6 +4381,8 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(index_pb.ParseFromString(val));
     ASSERT_EQ(index_pb.state(), RecycleIndexPB::RECYCLING);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     // Last state UNKNOWN but tablet meta existed
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4375,11 +4393,14 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     // ------------Test drop index------------
     reset_meta_service();
     req.Clear();
     meta_service->drop_index(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    req.set_db_id(1);
     req.set_table_id(table_id);
     req.add_index_ids(index_id);
     // Last state UNKNOWN
@@ -4432,6 +4453,9 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(index_pb.ParseFromString(val));
     ASSERT_EQ(index_pb.state(), RecycleIndexPB::RECYCLING);
+    // Drop index should not init table version
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(MetaServiceTest, PartitionRequest) {
@@ -4460,6 +4484,8 @@ TEST(MetaServiceTest, PartitionRequest) {
     auto tablet_val = tablet_pb.SerializeAsString();
     RecyclePartitionPB partition_pb;
     auto partition_key = recycle_partition_key({instance_id, partition_id});
+    VersionPB version_pb;
+    auto tbl_version_key = table_version_key({instance_id, 1, table_id});
     std::string val;
     // ------------Test prepare partition------------
     brpc::Controller ctrl;
@@ -4467,17 +4493,28 @@ TEST(MetaServiceTest, PartitionRequest) {
     PartitionResponse res;
     meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    req.set_db_id(1);
     req.set_table_id(table_id);
     req.add_index_ids(index_id);
     req.add_partition_ids(partition_id);
     // Last state UNKNOWN
     res.Clear();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(partition_pb.ParseFromString(val));
     ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::PREPARED);
+    // Prepare partition should not update table version
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 1);
     // Last state PREPARED
     res.Clear();
     meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
@@ -4525,11 +4562,14 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     // ------------Test commit partition------------
     reset_meta_service();
     req.Clear();
     meta_service->commit_partition(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    req.set_db_id(1);
     req.set_table_id(table_id);
     req.add_index_ids(index_id);
     req.add_partition_ids(partition_id);
@@ -4541,6 +4581,11 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     // Last state PREPARED
     reset_meta_service();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::PREPARED);
     val = partition_pb.SerializeAsString();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4551,8 +4596,18 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // Commit partition should update table version
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 2);
     // Last state DROPPED
     reset_meta_service();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::DROPPED);
     val = partition_pb.SerializeAsString();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4565,8 +4620,17 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(partition_pb.ParseFromString(val));
     ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::DROPPED);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 1);
     // Last state RECYCLING
     reset_meta_service();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::RECYCLING);
     val = partition_pb.SerializeAsString();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4579,8 +4643,17 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(partition_pb.ParseFromString(val));
     ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::RECYCLING);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 1);
     // Last state UNKNOWN but tablet meta existed
     reset_meta_service();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->put(tablet_key, tablet_val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -4589,6 +4662,10 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 1);
     // Last state UNKNOWN and tablet meta existed, but request has no index ids
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4606,19 +4683,35 @@ TEST(MetaServiceTest, PartitionRequest) {
     req.Clear();
     meta_service->drop_partition(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    req.set_db_id(1);
     req.set_table_id(table_id);
     req.add_index_ids(index_id);
     req.add_partition_ids(partition_id);
     // Last state UNKNOWN
     res.Clear();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     meta_service->drop_partition(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(partition_pb.ParseFromString(val));
     ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::DROPPED);
+    // Drop partition should update table version
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 2);
     // Last state PREPARED
     reset_meta_service();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::PREPARED);
     val = partition_pb.SerializeAsString();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4631,8 +4724,17 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(partition_pb.ParseFromString(val));
     ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::DROPPED);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 2);
     // Last state DROPPED
     reset_meta_service();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::DROPPED);
     val = partition_pb.SerializeAsString();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4645,8 +4747,17 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(partition_pb.ParseFromString(val));
     ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::DROPPED);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 1);
     // Last state RECYCLING
     reset_meta_service();
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tbl_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::RECYCLING);
     val = partition_pb.SerializeAsString();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4659,6 +4770,10 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
     ASSERT_TRUE(partition_pb.ParseFromString(val));
     ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::RECYCLING);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(version_pb.ParseFromString(val));
+    ASSERT_EQ(version_pb.version(), 1);
 }
 
 TEST(MetaServiceTxnStoreRetryableTest, MockGetVersion) {
