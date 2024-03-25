@@ -81,6 +81,7 @@ suite("regression_test_variant_github_events_p0", "nonConcurrent"){
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
 
+    sql """DROP TABLE IF EXISTS github_events_2"""
     sql """
         CREATE TABLE IF NOT EXISTS `github_events_2` (
         `k` BIGINT NULL,
