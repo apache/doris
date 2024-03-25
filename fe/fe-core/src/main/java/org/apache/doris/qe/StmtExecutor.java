@@ -558,9 +558,9 @@ public class StmtExecutor {
                     boolean isInsertCommand = parsedStmt != null
                             && parsedStmt instanceof LogicalPlanAdapter
                             && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
-                    boolean isGroupCommit = (Config.wait_internal_group_commit_finish
-                            || context.sessionVariable.isEnableInsertGroupCommit()) && isInsertCommand;
-                    boolean forceFallback = isInsertCommand && !context.isTxnModel() && !isGroupCommit;
+                     /*boolean isGroupCommit = (Config.wait_internal_group_commit_finish
+                            || context.sessionVariable.isEnableInsertGroupCommit()) && isInsertCommand;*/
+                    boolean forceFallback = isInsertCommand && !context.isTxnModel();
                     if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner
                             && !forceFallback) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
