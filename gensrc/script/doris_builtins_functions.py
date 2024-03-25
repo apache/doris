@@ -1361,8 +1361,6 @@ visible_functions = {
         [['negative'], 'DECIMAL128', ['DECIMAL128'], ''],
 
         [['oct'], 'VARCHAR', ['BIGINT'], ''],
-        [['oct'], 'VARCHAR', ['VARCHAR'], ''],
-        [['oct'], 'STRING', ['STRING'], ''],
 
         [['pi'], 'DOUBLE', [], 'ALWAYS_NOT_NULLABLE'],
         [['pmod'], 'BIGINT', ['BIGINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
