@@ -255,15 +255,6 @@ private:
     std::string _public_access;
 };
 
-class TrinoConnectorTableDescriptor : public TableDescriptor {
-public:
-    TrinoConnectorTableDescriptor(const TTableDescriptor& tdesc);
-    ~TrinoConnectorTableDescriptor() override;
-    std::string debug_string() const override;
-
-private:
-};
-
 class EsTableDescriptor : public TableDescriptor {
 public:
     EsTableDescriptor(const TTableDescriptor& tdesc);

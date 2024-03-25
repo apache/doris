@@ -211,17 +211,6 @@ std::string MaxComputeTableDescriptor::debug_string() const {
     return out.str();
 }
 
-TrinoConnectorTableDescriptor::TrinoConnectorTableDescriptor(const TTableDescriptor& tdesc)
-        : TableDescriptor(tdesc) {}
-
-TrinoConnectorTableDescriptor::~TrinoConnectorTableDescriptor() = default;
-
-std::string TrinoConnectorTableDescriptor::debug_string() const {
-    std::stringstream out;
-    out << "TrinoConnectorTable(" << TableDescriptor::debug_string() << ")";
-    return out.str();
-}
-
 EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
 EsTableDescriptor::~EsTableDescriptor() = default;
@@ -627,9 +616,6 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::MAX_COMPUTE_TABLE:
             desc = pool->add(new MaxComputeTableDescriptor(tdesc));
-            break;
-        case TTableType::TRINO_CONNECTOR_TABLE:
-            desc = pool->add(new TrinoConnectorTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
