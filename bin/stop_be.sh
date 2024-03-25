@@ -54,26 +54,26 @@ pidfile="${PID_DIR}/be.pid"
 if [[ -f "${pidfile}" ]]; then
     pid="$(cat "${pidfile}")"
 
-    # Check if PID is valid
+    # check if PID is valid
     if test -z "${pid}"; then
         echo "ERROR: Invalid PID"
         exit 1
     fi
 
-    # Check if PID process exist
+    # check if PID process exist
     if ! kill -0 "${pid}" 2>&1; then
         echo "ERROR: be process with PID ${pid} does not exist"
         exit 1
     fi
 
     pidcomm="$(basename "$(ps -p "${pid}" -o comm=)")"
-    # Check if PID process is backend process
+    # check if PID process is backend process
     if [[ "doris_be" != "${pidcomm}" ]]; then
         echo "ERROR: PID may not be the be process"
         exit 1
     fi
 
-    # Kill PID process and check it
+    # kill PID process and check it
     if kill "-${signum}" "${pid}" >/dev/null 2>&1; then
         while true; do
             if kill -0 "${pid}" >/dev/null 2>&1; then
