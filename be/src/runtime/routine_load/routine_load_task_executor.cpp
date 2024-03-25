@@ -62,10 +62,7 @@ using namespace ErrorCode;
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
-        : _exec_env(exec_env),
-          _thread_pool(config::routine_load_thread_pool_size, config::routine_load_thread_pool_size,
-                       "routine_load"),
-          _data_consumer_pool(config::routine_load_consumer_pool_size) {
+        : _exec_env(exec_env), _data_consumer_pool(config::routine_load_consumer_pool_size) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
         return _task_map.size();
@@ -79,10 +76,19 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
     _task_map.clear();
 }
 
+Status RoutineLoadTaskExecutor::init() {
+    return ThreadPoolBuilder("routine_load")
+            .set_min_threads(0)
+            .set_max_threads(config::max_routine_load_thread_pool_size)
+            .set_max_queue_size(config::max_routine_load_thread_pool_size)
+            .build(&_thread_pool);
+}
+
 void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
-    _thread_pool.shutdown();
-    _thread_pool.join();
+    if (_thread_pool) {
+        _thread_pool->shutdown();
+    }
     _data_consumer_pool.stop();
 }
 
@@ -205,10 +211,10 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::OK();
     }
 
-    if (_task_map.size() >= config::routine_load_thread_pool_size) {
+    if (_task_map.size() >= config::max_routine_load_thread_pool_size) {
         LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id)
                   << ", job id: " << task.job_id
-                  << ", queue size: " << _thread_pool.get_queue_size()
+                  << ", queue size: " << _thread_pool->get_queue_size()
                   << ", current tasks num: " << _task_map.size();
         return Status::TooManyTasks("{}_{}", UniqueId(task.id).to_string(),
                                     BackendOptions::get_localhost());
@@ -278,7 +284,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     _task_map[ctx->id] = ctx;
 
     // offer the task to thread pool
-    if (!_thread_pool.offer(std::bind<void>(
+    if (!_thread_pool->submit_func(std::bind<void>(
                 &RoutineLoadTaskExecutor::exec_task, this, ctx, &_data_consumer_pool,
                 [this](std::shared_ptr<StreamLoadContext> ctx) {
                     std::unique_lock<std::mutex> l(_lock);

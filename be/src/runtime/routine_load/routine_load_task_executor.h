@@ -27,8 +27,8 @@
 #include <vector>
 
 #include "runtime/routine_load/data_consumer_pool.h"
+#include "util/threadpool.h"
 #include "util/uid_util.h"
-#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -50,6 +50,8 @@ public:
     RoutineLoadTaskExecutor(ExecEnv* exec_env);
 
     ~RoutineLoadTaskExecutor();
+
+    Status init();
 
     void stop();
 
@@ -87,7 +89,7 @@ private:
 
 private:
     ExecEnv* _exec_env = nullptr;
-    PriorityThreadPool _thread_pool;
+    std::unique_ptr<ThreadPool> _thread_pool;
     DataConsumerPool _data_consumer_pool;
 
     std::mutex _lock;
