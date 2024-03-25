@@ -33,24 +33,31 @@ import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.analysis.ModifyFrontendHostNameClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 
 /*
  * SystemHandler is for
@@ -235,7 +242,8 @@ public class SystemHandler extends AlterHandler {
             decommissionBackends.add(backend);
         }
 
-        // TODO(cmy): check if replication num can be met
+        checkDecommissionWithReplicaAllocation(decommissionBackends);
+
         // TODO(cmy): check remaining space
 
         return decommissionBackends;
@@ -258,10 +266,72 @@ public class SystemHandler extends AlterHandler {
             decommissionBackends.add(backend);
         }
 
-        // TODO(cmy): check if replication num can be met
+        checkDecommissionWithReplicaAllocation(decommissionBackends);
+
         // TODO(cmy): check remaining space
 
         return decommissionBackends;
+    }
+
+    private static void checkDecommissionWithReplicaAllocation(List<Backend> decommissionBackends)
+            throws DdlException {
+        if (Config.isCloudMode()) {
+            return;
+        }
+
+        Map<Tag, Integer> tagAvailBackendNums = Maps.newHashMap();
+        for (Backend backend : Env.getCurrentSystemInfo().getAllBackends()) {
+            long beId = backend.getId();
+            if (!backend.isScheduleAvailable()
+                    || decommissionBackends.stream().anyMatch(be -> be.getId() == beId)) {
+                continue;
+            }
+
+            Tag tag = backend.getLocationTag();
+            if (tag != null) {
+                tagAvailBackendNums.put(tag, tagAvailBackendNums.getOrDefault(tag, 0) + 1);
+            }
+        }
+
+        Env env = Env.getCurrentEnv();
+        List<Long> dbIds = env.getInternalCatalog().getDbIds();
+        for (Long dbId : dbIds) {
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                continue;
+            }
+
+            if (db instanceof MysqlCompatibleDatabase) {
+                continue;
+            }
+
+            for (Table table : db.getTables()) {
+                table.readLock();
+                try {
+                    if (!table.needSchedule()) {
+                        continue;
+                    }
+
+                    OlapTable tbl = (OlapTable) table;
+                    for (Partition partition : tbl.getAllPartitions()) {
+                        ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
+                        for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
+                            Tag tag = entry.getKey();
+                            int replicaNum = (int) entry.getValue();
+                            int backendNum = tagAvailBackendNums.get(tag);
+                            if (replicaNum > backendNum) {
+                                throw new DdlException("Partition " + partition.getName() + " of table " + db.getName()
+                                        + "." + tbl.getName() + " 's replication allocation "
+                                        + replicaAlloc + " > available backend num " + backendNum
+                                        + " with tag " + tag + ", need decrease the partition's replication num.");
+                            }
+                        }
+                    }
+                } finally {
+                    table.readUnlock();
+                }
+            }
+        }
     }
 
     @Override
