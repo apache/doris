@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
 public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
     @Test
     public void testExtractCommonExpr() {
-        List<Expression> exprs = parseProjections("a+b, a+b+1, abs(a+b+1), a");
+        List<NamedExpression> exprs = parseProjections("a+b, a+b+1, abs(a+b+1), a");
         CommonSubExpressionCollector collector =
                 new CommonSubExpressionCollector();
         exprs.forEach(expr -> collector.visit(expr, null));
@@ -60,7 +60,7 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testMultiLayers() throws Exception {
-        List<Expression> exprs = parseProjections("a, a+b, a+b+1, abs(a+b+1), a");
+        List<NamedExpression> exprs = parseProjections("a, a+b, a+b+1, abs(a+b+1), a");
         Set<Slot> inputSlots = exprs.get(0).getInputSlots();
         CommonSubExpressionOpt opt = new CommonSubExpressionOpt();
         Method computeMultLayerProjectionsMethod = CommonSubExpressionOpt.class
@@ -69,26 +69,47 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
         List<List<NamedExpression>> multiLayers = (List<List<NamedExpression>>) computeMultLayerProjectionsMethod
                 .invoke(opt, inputSlots, exprs);
         System.out.println(multiLayers);
+        Assertions.assertEquals(3, multiLayers.size());
+        List<NamedExpression> l0 = multiLayers.get(0);
+        Assertions.assertEquals(2, l0.size());
+        Assertions.assertTrue(l0.contains(ExprParser.INSTANCE.parseExpression("a")));
+        Assertions.assertTrue(l0.get(1) instanceof Alias);
+        assertExpression(l0.get(1).child(0), "a+b");
+        Assertions.assertEquals(multiLayers.get(1).size(), 3);
+        Assertions.assertEquals(multiLayers.get(2).size(), 5);
+        List<NamedExpression> l2 = multiLayers.get(2);
+        for (int i = 0; i < 5; i++) {
+            Assertions.assertEquals(exprs.get(i).getExprId().asInt(), l2.get(i).getExprId().asInt());
+        }
+
     }
 
     private void assertExpression(Expression expr, String str) {
-        Assertions.assertEquals(PARSER.parseExpression(str), expr);
+        Assertions.assertEquals(ExprParser.INSTANCE.parseExpression(str), expr);
     }
 
-    private List<Expression> parseProjections(String exprList) {
-        List<Expression> result = new ArrayList<>();
+    private List<NamedExpression> parseProjections(String exprList) {
+        List<NamedExpression> result = new ArrayList<>();
         String[] exprArray = exprList.split(",");
-        HashMap<String, SlotReference> slotMap = new HashMap<>();
         for (String item : exprArray) {
-            Expression expr = PARSER.parseExpression(item);
-            expr = expr.accept(DataTypeAssignor.INSTANCE, slotMap);
+            Expression expr = ExprParser.INSTANCE.parseExpression(item);
             if (expr instanceof NamedExpression) {
-                result.add(expr);
+                result.add((NamedExpression) expr);
             } else {
                 result.add(new Alias(expr));
             }
         }
         return result;
+    }
+
+    public static class ExprParser {
+        public static ExprParser INSTANCE = new ExprParser();
+        HashMap<String, SlotReference> slotMap = new HashMap<>();
+
+        public Expression parseExpression(String str) {
+            Expression expr = PARSER.parseExpression(str);
+            return expr.accept(DataTypeAssignor.INSTANCE, slotMap);
+        }
     }
 
     public static class DataTypeAssignor extends DefaultExpressionRewriter<Map<String, SlotReference>> {
