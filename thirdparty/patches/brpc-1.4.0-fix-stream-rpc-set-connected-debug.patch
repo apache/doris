@@ -1,0 +1,33 @@
+From 03c646c4f3b569559ebb0f03963361394afd61fd Mon Sep 17 00:00:00 2001
+From: Kaijie Chen <ckj@apache.org>
+Date: Mon, 25 Mar 2024 14:24:24 +0800
+Subject: [PATCH 2/2] add debug log
+
+---
+ src/brpc/policy/baidu_rpc_protocol.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/brpc/policy/baidu_rpc_protocol.cpp b/src/brpc/policy/baidu_rpc_protocol.cpp
+index c47903a6..f2740be7 100644
+--- a/src/brpc/policy/baidu_rpc_protocol.cpp
++++ b/src/brpc/policy/baidu_rpc_protocol.cpp
+@@ -212,11 +212,15 @@ void SendRpcResponse(int64_t correlation_id,
+         if (Socket::Address(response_stream_id, &stream_ptr) == 0) {
+             Stream* s = (Stream*)stream_ptr->conn();
+             s->FillSettings(meta.mutable_stream_settings());
+-            s->SetHostSocket(sock);
++            if (s->SetHostSocket(sock) != 0) {
++                LOG(WARNING) << "SetHostSocket failed";
++            }
+         } else {
+             LOG(WARNING) << "Stream=" << response_stream_id 
+                          << " was closed before sending response";
+         }
++    } else {
++        LOG(WARNING) << "response stream id is invalid";
+     }
+ 
+     butil::IOBuf res_buf;
+-- 
+2.39.3
+
