@@ -20,13 +20,10 @@
 
 #pragma once
 
-#include <string>
 #include <type_traits>
-#include <typeindex>
 #include <typeinfo>
 
 #include "common/logging.h"
-#include "fmt/format.h"
 #include "vec/common/demangle.h"
 
 /** Perform static_cast in release build.
@@ -34,11 +31,13 @@
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   */
 template <typename To, typename From>
-To assert_cast(From&& from) {
+PURE To assert_cast(From&& from) {
 #ifndef NDEBUG
     try {
         if constexpr (std::is_pointer_v<To>) {
-            if (typeid(*from) == typeid(std::remove_pointer_t<To>)) return static_cast<To>(from);
+            if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
+                return static_cast<To>(from);
+            }
             if constexpr (std::is_pointer_v<std::remove_reference_t<From>>) {
                 if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
                     return ptr;
@@ -48,7 +47,9 @@ To assert_cast(From&& from) {
                                           demangle(typeid(To).name()));
             }
         } else {
-            if (typeid(from) == typeid(To)) return static_cast<To>(from);
+            if (typeid(from) == typeid(To)) {
+                return static_cast<To>(from);
+            }
         }
     } catch (const std::exception& e) {
         LOG(FATAL) << "assert cast err:" << e.what();

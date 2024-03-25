@@ -332,6 +332,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     @Override
     public boolean isNullable() {
+        // TODO: use base class's isNullLiteral() to replace this
         return this instanceof NullLiteral;
     }
 

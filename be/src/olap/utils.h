@@ -261,15 +261,14 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
 }
 
 // Util used to get string name of thrift enum item
-#define EnumToString(enum_type, index, out)                 \
-    do {                                                    \
-        std::map<int, const char*>::const_iterator it =     \
-                _##enum_type##_VALUES_TO_NAMES.find(index); \
-        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {   \
-            out = "NULL";                                   \
-        } else {                                            \
-            out = it->second;                               \
-        }                                                   \
+#define EnumToString(enum_type, index, out)                   \
+    do {                                                      \
+        auto it = _##enum_type##_VALUES_TO_NAMES.find(index); \
+        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {     \
+            out = "NULL";                                     \
+        } else {                                              \
+            out = it->second;                                 \
+        }                                                     \
     } while (0)
 
 struct RowLocation {
