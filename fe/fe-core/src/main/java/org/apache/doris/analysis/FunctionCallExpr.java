@@ -143,8 +143,8 @@ public class FunctionCallExpr extends Expr {
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
             } else if (children.size() == 2) {
                 Expr scaleExpr = children.get(1);
-                if (scaleExpr instanceof IntLiteral ||
-                        (scaleExpr instanceof CastExpr && scaleExpr.getChild(0) instanceof IntLiteral)) {
+                if (scaleExpr instanceof IntLiteral
+                        || (scaleExpr instanceof CastExpr && scaleExpr.getChild(0) instanceof IntLiteral)) {
                     if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
                         children.get(1).getChild(0).setType(children.get(1).getType());
                         children.set(1, children.get(1).getChild(0));
