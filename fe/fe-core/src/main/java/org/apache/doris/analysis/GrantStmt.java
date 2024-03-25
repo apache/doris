@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -24,6 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -37,7 +39,9 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
+import org.apache.hadoop.util.Lists;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -56,11 +60,11 @@ public class GrantStmt extends DdlStmt {
     private ResourcePattern resourcePattern;
     private WorkloadGroupPattern workloadGroupPattern;
     private Set<Privilege> privileges = Sets.newHashSet();
-    //Privilege,ctl,db,table -> cols
+    // Privilege,ctl,db,table -> cols
     private Map<ColPrivilegeKey, Set<String>> colPrivileges = Maps.newHashMap();
     // Indicates that these roles are granted to a user
     private List<String> roles;
-    //AccessPrivileges will be parsed into two parts,
+    // AccessPrivileges will be parsed into two parts,
     // with the column permissions section placed in "colPrivileges" and the others in "privileges"
     private List<AccessPrivilegeWithCols> accessPrivileges;
 
@@ -86,7 +90,7 @@ public class GrantStmt extends DdlStmt {
 
     private GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, ResourcePattern resourcePattern,
             WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> accessPrivileges,
-                      ResourceTypeEnum type) {
+            ResourceTypeEnum type) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = tblPattern;
@@ -229,29 +233,13 @@ public class GrantStmt extends DdlStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
             }
         } else {
+            ArrayList<Privilege> privs = Lists.newArrayList(privileges);
+            privs.add(Privilege.GRANT_PRIV);
+            PrivPredicate predicate = PrivPredicate.of(PrivBitSet.of(privs), Operator.AND);
             // Rule 5.1 and 5.2
-            if (tblPattern.getPrivLevel() == PrivLevel.GLOBAL) {
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-                }
-            } else if (tblPattern.getPrivLevel() == PrivLevel.CATALOG) {
-                if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(ConnectContext.get(),
-                        tblPattern.getQualifiedCtl(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-                }
-            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE) {
-                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                        tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-                }
-            } else {
-                // table level
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(),
-                                tblPattern.getTbl(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-                }
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                    && !checkPriv(ConnectContext.get(), predicate, tblPattern)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR, privs);
             }
         }
 
@@ -263,6 +251,25 @@ public class GrantStmt extends DdlStmt {
         // Rule 7
         if (!MapUtils.isEmpty(colPrivileges) && "*".equals(tblPattern.getTbl())) {
             throw new AnalysisException("Col auth must specify specific table");
+        }
+    }
+
+    private static boolean checkPriv(ConnectContext ctx, PrivPredicate wanted,
+            TablePattern tblPattern) {
+        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+        switch (tblPattern.getPrivLevel()) {
+            case GLOBAL:
+                return accessManager.checkGlobalPriv(ctx, wanted);
+            case CATALOG:
+                return accessManager.checkCtlPriv(ConnectContext.get(),
+                        tblPattern.getQualifiedCtl(), wanted);
+            case DATABASE:
+                return accessManager.checkDbPriv(ConnectContext.get(),
+                        tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(), wanted);
+            default:
+                return accessManager.checkTblPriv(ConnectContext.get(), tblPattern.getQualifiedCtl(),
+                        tblPattern.getQualifiedDb(), tblPattern.getTbl(), wanted);
+
         }
     }
 
@@ -297,7 +304,7 @@ public class GrantStmt extends DdlStmt {
                 } else if (resourcePattern.isClusterResource()) {
                     if (!Env.getCurrentEnv().getAccessManager()
                             .checkCloudPriv(ConnectContext.get(),
-                            resourcePattern.getResourceName(), PrivPredicate.GRANT, ResourceTypeEnum.CLUSTER)) {
+                                    resourcePattern.getResourceName(), PrivPredicate.GRANT, ResourceTypeEnum.CLUSTER)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                     }
                 }
