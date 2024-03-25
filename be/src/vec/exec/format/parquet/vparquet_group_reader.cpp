@@ -102,7 +102,7 @@ RowGroupReader::~RowGroupReader() {
 
 Status RowGroupReader::init(
         const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
-        std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
+        std::unordered_map<std::string, tparquet::OffsetIndex>& col_offsets,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -124,12 +124,14 @@ Status RowGroupReader::init(
     const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
     size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
-    for (auto& read_col : _read_columns) {
-        auto field = const_cast<FieldSchema*>(schema.get_column(read_col));
+    for (const auto& read_col : _read_columns) {
+        auto* field = const_cast<FieldSchema*>(schema.get_column(read_col));
         std::unique_ptr<ParquetColumnReader> reader;
+        const tparquet::OffsetIndex* offset_index =
+                col_offsets.find(read_col) != col_offsets.end() ? &col_offsets[read_col] : nullptr;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
-                                                    _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size));
+                                                    _read_ranges, _ctz, _io_ctx, offset_index,
+                                                    reader, max_buf_size));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");

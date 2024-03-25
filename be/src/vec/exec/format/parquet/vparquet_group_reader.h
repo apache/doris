@@ -150,7 +150,7 @@ public:
 
     ~RowGroupReader();
     Status init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
-                std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
+                std::unordered_map<std::string, tparquet::OffsetIndex>& col_offsets,
                 const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
                 const std::unordered_map<std::string, int>* colname_to_slot_id,
                 const VExprContextSPtrs* not_single_slot_filter_conjuncts,

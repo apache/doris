@@ -132,8 +132,8 @@ public:
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
                          const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                         io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size);
+                         io::IOContext* io_ctx, const tparquet::OffsetIndex* offset_index,
+                         std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size);
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
@@ -160,8 +160,10 @@ class ScalarColumnReader : public ParquetColumnReader {
 public:
     ScalarColumnReader(const std::vector<RowRange>& row_ranges,
                        const tparquet::ColumnChunk& chunk_meta, cctz::time_zone* ctz,
-                       io::IOContext* io_ctx)
-            : ParquetColumnReader(row_ranges, ctz, io_ctx), _chunk_meta(chunk_meta) {}
+                       io::IOContext* io_ctx, const tparquet::OffsetIndex* offset_index)
+            : ParquetColumnReader(row_ranges, ctz, io_ctx),
+              _chunk_meta(chunk_meta),
+              _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
@@ -181,6 +183,7 @@ public:
 
 private:
     tparquet::ColumnChunk _chunk_meta;
+    const tparquet::OffsetIndex* _offset_index;
     std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;

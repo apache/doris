@@ -47,24 +47,24 @@ namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
-                                     cctz::time_zone* ctz, io::IOContext* io_ctx)
+                                     cctz::time_zone* ctz, io::IOContext* io_ctx,
+                                     const tparquet::OffsetIndex* offset_index)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
-          _column_chunk(column_chunk),
           _metadata(column_chunk->meta_data),
           //          _ctz(ctz),
-          _io_ctx(io_ctx) {}
+          _io_ctx(io_ctx),
+          _offset_index(offset_index) {}
 
 Status ColumnChunkReader::init() {
     size_t start_offset = _metadata.__isset.dictionary_page_offset
                                   ? _metadata.dictionary_page_offset
                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
-    _page_reader = std::make_unique<PageReader>(_stream_reader, _io_ctx, _column_chunk,
-                                                start_offset, chunk_size);
-    RETURN_IF_ERROR(_page_reader->init());
+    _page_reader = std::make_unique<PageReader>(_stream_reader, _io_ctx, _offset_index,
+                                                _metadata.num_values, start_offset, chunk_size);
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     if (_metadata.__isset.dictionary_page_offset) {

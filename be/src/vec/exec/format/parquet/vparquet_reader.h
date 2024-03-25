@@ -257,7 +257,7 @@ private:
     int64_t _range_size;
     cctz::time_zone* _ctz = nullptr;
 
-    std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
+    std::unordered_map<std::string, tparquet::OffsetIndex> _col_offsets;
     const std::vector<std::string>* _column_names = nullptr;
 
     std::vector<std::string> _missing_cols;

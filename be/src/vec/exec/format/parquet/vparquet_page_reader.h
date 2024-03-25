@@ -43,30 +43,25 @@ public:
     };
 
     PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
-               tparquet::ColumnChunk* column_chunk, uint64_t offset, uint64_t length);
-
-    Status init() {
-        PageIndex page_index;
-        uint8_t col_index_buff[page_index._column_index_size];
-        RETURN_IF_ERROR(
-                page_index.parse_offset_index(*_column_chunk, col_index_buff, &_offset_index));
-        return Status::OK();
-    }
+               const tparquet::OffsetIndex* offset_index,int64_t num_values,
+               uint64_t offset, uint64_t length);
 
     ~PageReader() = default;
 
-    bool has_next_page() const { return _page_index < _offset_index.page_locations.size(); }
+    bool has_next_page() const { return _page_index < _offset_index->page_locations.size(); }
+
+    // Status next_page_header();
 
     Status skip_page();
 
     const tparquet::PageHeader* get_page_header();
 
     int64_t get_page_num_values() const {
-        return _page_index < _offset_index.page_locations.size() - 1
-                       ? _offset_index.page_locations[_page_index + 1].first_row_index -
-                                 _offset_index.page_locations[_page_index].first_row_index
+        return _page_index < _offset_index->page_locations.size() - 1
+                       ? _offset_index->page_locations[_page_index + 1].first_row_index -
+                                 _offset_index->page_locations[_page_index].first_row_index
                        // TODO: maybe should +1
-                       : _num_values - _offset_index.page_locations[_page_index].first_row_index;
+                       : _num_values - _offset_index->page_locations[_page_index].first_row_index;
     };
 
     Status load_page_header();
@@ -98,8 +93,7 @@ private:
 
     size_t _page_index = 0;
     int64_t _num_values;
-    tparquet::ColumnChunk* _column_chunk;
-    tparquet::OffsetIndex _offset_index;
+    const tparquet::OffsetIndex* _offset_index;
 };
 
 } // namespace doris::vectorized

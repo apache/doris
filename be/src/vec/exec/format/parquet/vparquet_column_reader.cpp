@@ -118,13 +118,13 @@ static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offset
 Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    const tparquet::RowGroup& row_group,
                                    const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                                   io::IOContext* io_ctx,
+                                   io::IOContext* io_ctx, const tparquet::OffsetIndex* offset_index,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size) {
     if (field->type.type == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                               element_reader, max_buf_size));
+                               offset_index, element_reader, max_buf_size));
         element_reader->set_nested_column();
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
@@ -133,9 +133,9 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
         RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
-                               io_ctx, key_reader, max_buf_size));
+                               io_ctx, offset_index, key_reader, max_buf_size));
         RETURN_IF_ERROR(create(file, &field->children[0].children[1], row_group, row_ranges, ctz,
-                               io_ctx, value_reader, max_buf_size));
+                               io_ctx, offset_index, value_reader, max_buf_size));
         key_reader->set_nested_column();
         value_reader->set_nested_column();
         auto map_reader = MapColumnReader::create_unique(row_ranges, ctz, io_ctx);
@@ -147,7 +147,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         for (int i = 0; i < field->children.size(); ++i) {
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
-                                   child_reader, max_buf_size));
+                                   offset_index, child_reader, max_buf_size));
             child_reader->set_nested_column();
             child_readers[field->children[i].name] = std::move(child_reader);
         }
@@ -156,7 +156,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         reader.reset(struct_reader.release());
     } else {
         const tparquet::ColumnChunk& chunk = row_group.columns[field->physical_column_index];
-        auto scalar_reader = ScalarColumnReader::create_unique(row_ranges, chunk, ctz, io_ctx);
+        auto scalar_reader =
+                ScalarColumnReader::create_unique(row_ranges, chunk, ctz, io_ctx, offset_index);
         RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
         reader.reset(scalar_reader.release());
     }
@@ -202,7 +203,7 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
     _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
                                                                     prefetch_buffer_size);
     _chunk_reader = std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field,
-                                                        _ctz, _io_ctx);
+                                                        _ctz, _io_ctx, _offset_index);
     RETURN_IF_ERROR(_chunk_reader->init());
     return Status::OK();
 }

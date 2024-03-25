@@ -84,7 +84,7 @@ public:
     };
 
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* field_schema, cctz::time_zone* ctz, io::IOContext* io_ctx);
+                      FieldSchema* field_schema, cctz::time_zone* ctz, io::IOContext* io_ctx,const tparquet::OffsetIndex* offset_index);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
@@ -200,10 +200,10 @@ private:
     tparquet::LogicalType _parquet_logical_type;
 
     io::BufferedStreamReader* _stream_reader = nullptr;
-    tparquet::ColumnChunk* _column_chunk;
     tparquet::ColumnMetaData _metadata;
     //    cctz::time_zone* _ctz;
     io::IOContext* _io_ctx = nullptr;
+    const tparquet::OffsetIndex* _offset_index;
 
     std::unique_ptr<PageReader> _page_reader;
     BlockCompressionCodec* _block_compress_codec = nullptr;

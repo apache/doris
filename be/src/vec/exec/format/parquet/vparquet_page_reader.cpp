@@ -41,14 +41,15 @@ namespace doris::vectorized {
 
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
-PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
-                       tparquet::ColumnChunk* column_chunk, uint64_t offset, uint64_t length)
+PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,const tparquet::OffsetIndex* offset_index,
+                       int64_t num_values, uint64_t offset, uint64_t length)
         : _reader(reader),
           _io_ctx(io_ctx),
           _start_offset(offset),
           _end_offset(offset + length),
-          _num_values(column_chunk->meta_data.num_values),
-          _column_chunk(column_chunk) {}
+          _num_values(num_values),
+          _offset_index(offset_index)
+          {}
 
 Status PageReader::load_page_header() {
     if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
@@ -92,7 +93,7 @@ Status PageReader::load_page_header() {
 }
 
 Status PageReader::skip_page() {
-    _offset += _offset_index.page_locations[_page_index].compressed_page_size;
+    _offset += _offset_index->page_locations[_page_index].compressed_page_size;
     _page_index++;
     _state = INITIALIZED;
     return Status::OK();
@@ -108,7 +109,7 @@ Status PageReader::get_page_data(Slice& slice) {
     if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
         return Status::EndOfFile("stop");
     }
-    slice.size = _offset_index.page_locations[_page_index].compressed_page_size;
+    slice.size = _offset_index->page_locations[_page_index].compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));
     _offset += slice.size;
     _state = INITIALIZED;
