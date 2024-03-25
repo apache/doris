@@ -371,15 +371,16 @@ public class BitmapValue {
 
     @Override
     public String toString() {
-        String toStringStr = "{}";
+        String toStringStr = "";
         switch (bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 break;
             case SINGLE_VALUE:
-                toStringStr = String.format("{%s}", singleValue);
+                toStringStr = String.valueOf(singleValue);
                 break;
             case BITMAP_VALUE:
-                toStringStr = this.bitmap.toString();
+                String string = this.bitmap.toString();
+                toStringStr = string.substring(1, string.length() - 1);
                 break;
         }
         return toStringStr;
