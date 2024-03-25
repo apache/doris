@@ -160,7 +160,7 @@ jdk_version() {
     return 0
 }
 
-# Export env variables from be.conf
+# export env variables from be.conf
 #
 # LOG_DIR
 # PID_DIR
