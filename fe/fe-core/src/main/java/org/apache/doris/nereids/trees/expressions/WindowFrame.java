@@ -215,6 +215,7 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
             return sb.toString();
         }
 
+        /** toSql*/
         public String toSql() {
             StringBuilder sb = new StringBuilder();
             boundOffset.ifPresent(value -> sb.append(value + " "));
