@@ -130,6 +130,9 @@ public:
         _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
     }
 
+    // Force clear _origin_block, currently only used in StatefulOperator.
+    void force_clear_origin_block() { _origin_block.clear(); }
+
     // Emit data, both need impl with method: sink
     // Eg: Aggregation, Sort, Scan
     [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* output_block,
