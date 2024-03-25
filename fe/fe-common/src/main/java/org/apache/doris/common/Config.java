@@ -2279,11 +2279,6 @@ public class Config extends ConfigBase {
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
 
-    @ConfField(description = {
-            "是否开启列权限",
-            "Whether to enable col auth"})
-    public static boolean enable_col_auth = false;
-
     @ConfField
     public static boolean forbid_running_alter_job = false;
 
@@ -2553,6 +2548,9 @@ public class Config extends ConfigBase {
 
     /**
      * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     *
+     * If you want to access a group of meta services, separated the endpoints by comma,
+     * like "host-1:port,host-2:port".
      */
     @ConfField
     public static String meta_service_endpoint = "";
@@ -2568,6 +2566,8 @@ public class Config extends ConfigBase {
 
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
+    //
+    // It only works if the meta_service_endpoint is not point to a group of meta services.
     @ConfField(mutable = true)
     public static int meta_service_connection_age_base_minutes = 5;
 

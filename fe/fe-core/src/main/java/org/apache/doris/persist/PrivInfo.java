@@ -56,6 +56,8 @@ public class PrivInfo implements Writable, GsonPostProcessable {
     private byte[] passwd;
     @SerializedName(value = "role")
     private String role;
+    @SerializedName(value = "comment")
+    private String comment;
     @SerializedName(value = "colPrivileges")
     private Map<ColPrivilegeKey, Set<String>> colPrivileges;
     @SerializedName(value = "passwordOptions")
@@ -74,6 +76,11 @@ public class PrivInfo implements Writable, GsonPostProcessable {
     // For create user/set password/create role/drop role
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
             PasswordOptions passwordOptions) {
+        this(userIdent, privs, passwd, role, passwordOptions, null);
+    }
+
+    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
+            PasswordOptions passwordOptions, String comment) {
         this.userIdent = userIdent;
         this.tblPattern = null;
         this.resourcePattern = null;
@@ -81,6 +88,12 @@ public class PrivInfo implements Writable, GsonPostProcessable {
         this.passwd = passwd;
         this.role = role;
         this.passwordOptions = passwordOptions;
+        this.comment = comment;
+    }
+
+    public PrivInfo(String role, String comment) {
+        this.role = role;
+        this.comment = comment;
     }
 
     // For grant/revoke
@@ -151,6 +164,10 @@ public class PrivInfo implements Writable, GsonPostProcessable {
 
     public String getRole() {
         return role;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     public String getUserId() {

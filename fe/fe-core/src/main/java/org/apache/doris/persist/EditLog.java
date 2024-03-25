@@ -479,6 +479,11 @@ public class EditLog {
                     env.getAuth().replayCreateRole(privInfo);
                     break;
                 }
+                case OperationType.OP_ALTER_ROLE: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    env.getAuth().replayAlterRole(privInfo);
+                    break;
+                }
                 case OperationType.OP_DROP_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     env.getAuth().replayDropRole(privInfo);
@@ -1502,6 +1507,10 @@ public class EditLog {
 
     public void logCreateRole(PrivInfo info) {
         logEdit(OperationType.OP_CREATE_ROLE, info);
+    }
+
+    public void logAlterRole(PrivInfo info) {
+        logEdit(OperationType.OP_ALTER_ROLE, info);
     }
 
     public void logDropRole(PrivInfo info) {

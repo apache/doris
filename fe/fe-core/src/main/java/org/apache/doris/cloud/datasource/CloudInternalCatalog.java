@@ -143,11 +143,17 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Column> columns = indexMeta.getSchema();
             KeysType keysType = indexMeta.getKeysType();
 
+            List<Index> indexes;
+            if (index.getId() == tbl.getBaseIndexId()) {
+                indexes = tbl.getIndexes();
+            } else {
+                indexes = Lists.newArrayList();
+            }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             for (Tablet tablet : index.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
-                        bfColumns, tbl.getBfFpp(), tbl.getIndexes(), columns, tbl.getDataSortInfo(),
+                        bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
                         tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
                 requestBuilder.addTabletMetas(builder);

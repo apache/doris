@@ -477,16 +477,19 @@ public class OlapTableSink extends DataSink {
         return partitionParam;
     }
 
-    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
+    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum)
+            throws UserException {
         if (partitionItem instanceof RangePartitionItem) {
             Range<PartitionKey> range = partitionItem.getItems();
-            // set start keys
+            // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
                     tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
-            // set end keys
+            // TODO: support real MaxLiteral in thrift.
+            // now we dont send it to BE. if BE meet it, treat it as default value.
+            // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));

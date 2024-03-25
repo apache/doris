@@ -446,11 +446,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        if (ctx.getSessionVariable().isIgnoreStorageDataDistribution()) {
-            // BITMAP filter is not supported to merge. So we disable this kind of runtime filter
-            // if IgnoreStorageDataDistribution is enabled.
-            return join;
-        }
 
         if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) != 0) {
             generateBitMapRuntimeFilterForNLJ(join, ctx);
