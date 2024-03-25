@@ -201,7 +201,7 @@ fi
 if [[ -z "${JAVA_HOME}" ]]; then
     echo "The JAVA_HOME environment variable is not set correctly"
     echo "This environment variable is required to run this program"
-    echo "NB: JAVA_HOME should point to a JDK and not a JRE"
+    echo "Note: JAVA_HOME should point to a JDK and not a JRE"
     echo "You can set JAVA_HOME in the be.conf configuration file"
     exit 1
 fi
