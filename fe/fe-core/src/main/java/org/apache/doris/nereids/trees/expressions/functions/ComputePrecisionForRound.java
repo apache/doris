@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.Int32OrLessType;
@@ -37,19 +38,38 @@ public interface ComputePrecisionForRound extends ComputePrecision {
         } else if (arity() == 2 && signature.getArgType(0) instanceof DecimalV3Type) {
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(getArgumentType(0));
             Expression floatLength = getArgument(1);
-            Preconditions.checkArgument(floatLength.getDataType() instanceof Int32OrLessType
-                    && (floatLength.isLiteral() || (
-                            floatLength instanceof Cast && floatLength.child(0).isLiteral()
-                                    && floatLength.child(0).getDataType() instanceof Int32OrLessType)),
-                    "2nd argument of function round/floor/ceil/truncate must be literal");
-
             int scale;
-            if (floatLength instanceof Cast) {
-                scale = ((IntegerLikeLiteral) floatLength.child(0)).getIntValue();
+
+            if (this instanceof Truncate) {
+                if (floatLength.isLiteral() || (
+                        floatLength instanceof Cast && floatLength.child(0).isLiteral()
+                                && floatLength.child(0).getDataType() instanceof Int32OrLessType)) {
+                    // Scale argument is a literal or cast from other literal
+                    if (floatLength instanceof Cast) {
+                        scale = ((IntegerLikeLiteral) floatLength.child(0)).getIntValue();
+                    } else {
+                        scale = ((IntegerLikeLiteral) floatLength).getIntValue();
+                    }
+                    scale = Math.min(Math.max(scale, 0), decimalV3Type.getScale());
+                } else {
+                    // Truncate could use Column as its scale argument.
+                    // Result scale will always same with input Decimal in this situation.
+                    scale = decimalV3Type.getScale();
+                }
             } else {
-                scale = ((IntegerLikeLiteral) floatLength).getIntValue();
+                Preconditions.checkArgument(floatLength.getDataType() instanceof Int32OrLessType
+                                && (floatLength.isLiteral() || (
+                                floatLength instanceof Cast && floatLength.child(0).isLiteral()
+                                        && floatLength.child(0).getDataType() instanceof Int32OrLessType)),
+                        "2nd argument of function round/floor/ceil must be literal");
+                if (floatLength instanceof Cast) {
+                    scale = ((IntegerLikeLiteral) floatLength.child(0)).getIntValue();
+                } else {
+                    scale = ((IntegerLikeLiteral) floatLength).getIntValue();
+                }
+                scale = Math.min(Math.max(scale, 0), decimalV3Type.getScale());
             }
-            scale = Math.min(Math.max(scale, 0), decimalV3Type.getScale());
+
             return signature.withArgumentType(0, decimalV3Type)
                     .withReturnType(DecimalV3Type.createDecimalV3Type(decimalV3Type.getPrecision(), scale));
         } else {

@@ -46,6 +46,7 @@
 #include "vec/functions/function_math_unary.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
+#include "vec/functions/function_truncate.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/round.h"
 #include "vec/functions/simple_function_factory.h"
@@ -392,16 +393,14 @@ struct DecimalRoundOneImpl {
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
-#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                           \
-    factory.register_function<                                                                   \
-            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>();    \
-    factory.register_function<                                                                   \
-            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>();    \
-    factory.register_function<                                                                   \
-            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();      \
-    factory.register_function<                                                                   \
-            FunctionRounding<IMPL<TruncateName>, RoundingMode::Trunc, TieBreakingMode::Auto>>(); \
-    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,      \
+#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                        \
+    factory.register_function<                                                                \
+            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>(); \
+    factory.register_function<                                                                \
+            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>(); \
+    factory.register_function<                                                                \
+            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();   \
+    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,   \
                                                TieBreakingMode::Bankers>>();
 
     REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
@@ -445,5 +444,9 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
+    factory.register_function<FunctionTruncate<TruncateFloatOneArgImpl>>();
+    factory.register_function<FunctionTruncate<TruncateFloatTwoArgImpl>>();
+    factory.register_function<FunctionTruncate<TruncateDecimalOneArgImpl>>();
+    factory.register_function<FunctionTruncate<TruncateDecimalTwoArgImpl>>();
 }
 } // namespace doris::vectorized

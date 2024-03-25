@@ -120,6 +120,9 @@ public:
         // types.empty() means function is not variadic
         if (!types.empty()) {
             function_variadic_set.insert(name);
+            if (name == "truncate") {
+                LOG_INFO("Register variadic function {}", name);
+            }
         }
         std::string key_str = name;
         if (!types.empty()) {
@@ -127,6 +130,11 @@ public:
                 key_str.append(type->get_family_name());
             }
         }
+
+        if (name == "truncate") {
+            LOG(INFO) << "Register function " << name << " with key " << key_str;
+        }
+
         function_creators[key_str] = ptr;
     }
 
@@ -169,6 +177,7 @@ public:
 
         // if function is variadic, added types_str as key
         if (function_variadic_set.count(key_str)) {
+            LOG_INFO("Getting variadic function {}", key_str);
             for (const auto& arg : arguments) {
                 key_str.append(arg.type->is_nullable()
                                        ? reinterpret_cast<const DataTypeNullable*>(arg.type.get())
@@ -176,6 +185,7 @@ public:
                                                  ->get_family_name()
                                        : arg.type->get_family_name());
             }
+            LOG_INFO("Reconstructed function name: {}", key_str);
         }
 
         auto iter = function_creators.find(key_str);
