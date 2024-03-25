@@ -17,11 +17,11 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest.h>
-#include <climits>
-#include <cstdint>
 
+#include <climits>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iomanip>
 #include <limits>
 #include <map>
