@@ -188,7 +188,8 @@ public class CreateViewInfo {
         for (int i = 0; i < projectExprs.size(); ++i) {
             replaceWithColsBuilder.append(projectExprs.get(i).toSql());
             replaceWithColsBuilder.append(" AS `");
-            replaceWithColsBuilder.append(finalCols.get(i).getName());
+            String escapeBacktick = finalCols.get(i).getName().replace("`", "``");
+            replaceWithColsBuilder.append(escapeBacktick);
             replaceWithColsBuilder.append('`');
             if (i != projectExprs.size() - 1) {
                 replaceWithColsBuilder.append(", ");
