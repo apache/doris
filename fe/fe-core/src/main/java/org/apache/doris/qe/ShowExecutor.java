@@ -2532,16 +2532,18 @@ public class ShowExecutor {
     private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
                                        TableIf tableIf) throws AnalysisException {
         List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(tableIf.getId());
+        // row[4] is index id, row[5] is column name.
         for (ResultRow row : resultRows) {
-            String indexName = "N/A";
+            String indexName = tableIf.getName();
             long indexId = Long.parseLong(row.get(4));
-            if (indexId != -1) {
-                indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
-                if (indexName == null) {
-                    continue;
-                }
+            if (tableIf instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
             }
-            columnStatistics.add(Pair.of(Pair.of(row.get(5), indexName), ColumnStatistic.fromResultRow(row)));
+            if (indexName == null) {
+                continue;
+            }
+            columnStatistics.add(Pair.of(Pair.of(indexName, row.get(5)), ColumnStatistic.fromResultRow(row)));
         }
     }
 
@@ -2558,28 +2560,29 @@ public class ShowExecutor {
                 indexIds.add(-1L);
             }
             for (long indexId : indexIds) {
-                String indexName = "N/A";
-                if (indexId != -1) {
-                    indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
-                    if (indexName == null) {
-                        continue;
-                    }
+                String indexName = tableIf.getName();
+                if (tableIf instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) tableIf;
+                    indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
+                }
+                if (indexName == null) {
+                    continue;
                 }
                 // Show column statistics in columnStatisticsCache.
                 if (showCache) {
                     ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                             tableIf.getDatabase().getCatalog().getId(),
                             tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else if (partitionNames == null) {
                     ColumnStatistic columnStatistic =
                             StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else {
                     String finalIndexName = indexName;
                     columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
                             colName, partitionNames.getPartitionNames())
-                            .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
+                            .stream().map(s -> Pair.of(Pair.of(finalIndexName, colName), s))
                             .collect(Collectors.toList()));
                 }
             }
@@ -2983,7 +2986,7 @@ public class ShowExecutor {
             if (table instanceof OlapTable && analysisInfo.indexId != -1) {
                 row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
             } else {
-                row.add("N/A");
+                row.add(table.getName());
             }
             row.add(analysisInfo.message);
             row.add(TimeUtils.DATETIME_FORMAT.format(
