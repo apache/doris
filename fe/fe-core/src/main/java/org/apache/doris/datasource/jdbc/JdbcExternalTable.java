@@ -18,13 +18,11 @@
 package org.apache.doris.datasource.jdbc;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.JdbcAnalysisTask;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.logging.log4j.LogManager;
@@ -110,29 +108,5 @@ public class JdbcExternalTable extends ExternalTable {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         return new JdbcAnalysisTask(info);
-    }
-
-    @Override
-    public long getRowCount() {
-        makeSureInitialized();
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
-        if (tableStats != null) {
-            long rowCount = tableStats.rowCount;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
-            }
-            return rowCount;
-        }
-        return 1;
-    }
-
-    @Override
-    public long getCacheRowCount() {
-        return getRowCount();
-    }
-
-    @Override
-    public long estimatedRowCount() {
-        return getRowCount();
     }
 }

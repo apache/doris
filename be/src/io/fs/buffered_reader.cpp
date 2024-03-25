@@ -611,6 +611,9 @@ void PrefetchBuffer::close() {
     }
     _buffer_status = BufferStatus::CLOSED;
     _prefetched.notify_all();
+}
+
+void PrefetchBuffer::_collect_profile_before_close() {
     if (_sync_profile != nullptr) {
         _sync_profile(*this);
     }
@@ -661,9 +664,6 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
 }
 
 PrefetchBufferedReader::~PrefetchBufferedReader() {
-    /// set `_sync_profile` to nullptr to avoid updating counter after the runtime profile has been released.
-    std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
-                  [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->_sync_profile = nullptr; });
     /// Better not to call virtual functions in a destructor.
     static_cast<void>(_close_internal());
 }
@@ -708,6 +708,17 @@ Status PrefetchBufferedReader::_close_internal() {
     return Status::OK();
 }
 
+void PrefetchBufferedReader::_collect_profile_before_close() {
+    std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
+                  [](std::shared_ptr<PrefetchBuffer>& buffer) {
+                      buffer->collect_profile_before_close();
+                  });
+    if (_reader != nullptr) {
+        _reader->collect_profile_before_close();
+    }
+}
+
+// InMemoryFileReader
 InMemoryFileReader::InMemoryFileReader(io::FileReaderSPtr reader) : _reader(std::move(reader)) {
     _size = _reader->size();
 }
@@ -744,6 +755,13 @@ Status InMemoryFileReader::read_at_impl(size_t offset, Slice result, size_t* byt
     return Status::OK();
 }
 
+void InMemoryFileReader::_collect_profile_before_close() {
+    if (_reader != nullptr) {
+        _reader->collect_profile_before_close();
+    }
+}
+
+// BufferedFileStreamReader
 BufferedFileStreamReader::BufferedFileStreamReader(io::FileReaderSPtr file, uint64_t offset,
                                                    uint64_t length, size_t max_buf_size)
         : _file(file),
@@ -805,43 +823,37 @@ Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset,
     return read_bytes((const uint8_t**)&slice.data, offset, slice.size, io_ctx);
 }
 
-Status DelegateReader::create_file_reader(RuntimeProfile* profile,
-                                          const FileSystemProperties& system_properties,
-                                          const FileDescription& file_description,
-                                          const io::FileReaderOptions& reader_options,
-                                          std::shared_ptr<io::FileSystem>* file_system,
-                                          io::FileReaderSPtr* file_reader, AccessMode access_mode,
-                                          const IOContext* io_ctx, const PrefetchRange file_range) {
-    io::FileReaderSPtr reader;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
-                                                    reader_options, file_system, &reader, profile));
-    if (reader->size() < config::in_memory_file_size) {
-        if (typeid_cast<io::S3FileReader*>(reader.get())) {
-            *file_reader = std::make_shared<InMemoryFileReader>(reader);
-        } else {
-            *file_reader = std::move(reader);
-        }
-    } else if (access_mode == AccessMode::SEQUENTIAL) {
-        bool is_thread_safe = false;
-        if (typeid_cast<io::S3FileReader*>(reader.get())) {
-            is_thread_safe = true;
-        } else if (io::CachedRemoteFileReader* cached_reader =
-                           typeid_cast<io::CachedRemoteFileReader*>(reader.get())) {
-            if (typeid_cast<io::S3FileReader*>(cached_reader->get_remote_reader())) {
-                is_thread_safe = true;
-            }
-        }
-        if (is_thread_safe) {
-            // PrefetchBufferedReader needs thread-safe reader to prefetch data concurrently.
-            *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, reader, file_range,
-                                                                        io_ctx);
-        } else {
-            *file_reader = std::move(reader);
-        }
-    } else {
-        *file_reader = std::move(reader);
-    }
-    return Status();
+Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
+        RuntimeProfile* profile, const FileSystemProperties& system_properties,
+        const FileDescription& file_description, const io::FileReaderOptions& reader_options,
+        AccessMode access_mode, const IOContext* io_ctx, const PrefetchRange file_range) {
+    return FileFactory::create_file_reader(system_properties, file_description, reader_options,
+                                           profile)
+            .transform([&](auto&& reader) -> io::FileReaderSPtr {
+                if (reader->size() < config::in_memory_file_size &&
+                    typeid_cast<io::S3FileReader*>(reader.get())) {
+                    return std::make_shared<InMemoryFileReader>(std::move(reader));
+                }
+
+                if (access_mode == AccessMode::SEQUENTIAL) {
+                    bool is_thread_safe = false;
+                    if (typeid_cast<io::S3FileReader*>(reader.get())) {
+                        is_thread_safe = true;
+                    } else if (auto* cached_reader =
+                                       typeid_cast<io::CachedRemoteFileReader*>(reader.get());
+                               cached_reader &&
+                               typeid_cast<io::S3FileReader*>(cached_reader->get_remote_reader())) {
+                        is_thread_safe = true;
+                    }
+                    if (is_thread_safe) {
+                        // PrefetchBufferedReader needs thread-safe reader to prefetch data concurrently.
+                        return std::make_shared<io::PrefetchBufferedReader>(
+                                profile, std::move(reader), file_range, io_ctx);
+                    }
+                }
+
+                return reader;
+            });
 }
 } // namespace io
 } // namespace doris

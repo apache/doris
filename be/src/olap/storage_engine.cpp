@@ -108,6 +108,7 @@ bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
 BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
+          _stop_background_threads_latch(1),
           _segment_meta_mem_tracker(std::make_shared<MemTracker>(
                   "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())) {}
 
@@ -149,7 +150,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _stopped(false),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
-          _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _default_rowset_type(BETA_ROWSET),
@@ -1081,12 +1081,7 @@ void StorageEngine::start_delete_unused_rowset() {
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-            uint64_t now = UnixSeconds();
             auto&& rs = it->second;
-            if (now > rs->delayed_expired_timestamp()) {
-                // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                evict_querying_rowset(it->second->rowset_id());
-            }
             if (rs.use_count() == 1 && rs->need_delete_file()) {
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
                 if (rs->is_local()) {
@@ -1281,6 +1276,19 @@ bool BaseStorageEngine::notify_listener(std::string_view name) {
     return found;
 }
 
+void BaseStorageEngine::_evict_quring_rowset_thread_callback() {
+    int32_t interval = config::quering_rowsets_evict_interval;
+    do {
+        _evict_querying_rowset();
+        interval = config::quering_rowsets_evict_interval;
+        if (interval <= 0) {
+            LOG(WARNING) << "quering_rowsets_evict_interval config is illegal: " << interval
+                         << ", force set to 1";
+            interval = 1;
+        }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
 // check whether any unused rowsets's id equal to rowset_id
 bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
     std::lock_guard<std::mutex> lock(_gc_mutex);
@@ -1396,12 +1404,12 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
     return Status::OK();
 }
 
-void StorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
+void BaseStorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
     std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
     _querying_rowsets.emplace(rs->rowset_id(), rs);
 }
 
-RowsetSharedPtr StorageEngine::get_quering_rowset(RowsetId rs_id) {
+RowsetSharedPtr BaseStorageEngine::get_quering_rowset(RowsetId rs_id) {
     std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
     auto it = _querying_rowsets.find(rs_id);
     if (it != _querying_rowsets.end()) {
@@ -1410,9 +1418,19 @@ RowsetSharedPtr StorageEngine::get_quering_rowset(RowsetId rs_id) {
     return nullptr;
 }
 
-void StorageEngine::evict_querying_rowset(RowsetId rs_id) {
-    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
-    _querying_rowsets.erase(rs_id);
+void BaseStorageEngine::_evict_querying_rowset() {
+    {
+        std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+        for (auto it = _querying_rowsets.begin(); it != _querying_rowsets.end();) {
+            uint64_t now = UnixSeconds();
+            // We delay the GC time of this rowset since it's maybe still needed, see #20732
+            if (now > it->second->delayed_expired_timestamp()) {
+                it = _querying_rowsets.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
 }
 
 bool StorageEngine::add_broken_path(std::string path) {
@@ -1469,10 +1487,10 @@ void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {
-    auto lru_handle = cache()->lookup(key);
+    auto* lru_handle = lookup(key);
     if (lru_handle) {
-        Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
-        auto value = (CacheValue*)cache()->value(lru_handle);
+        Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
+        auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
         VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
         return value->idx;
     }
@@ -1481,14 +1499,10 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
 
 void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
-    CacheValue* value = new CacheValue;
+    auto* value = new CacheValue;
     value->idx = next_idx;
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        CacheValue* cache_value = (CacheValue*)value;
-        delete cache_value;
-    };
-    auto lru_handle = cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
-    cache()->release(lru_handle);
+    auto* lru_handle = insert(key, value, 1, sizeof(int), CachePriority::NORMAL);
+    release(lru_handle);
 }
 
 } // namespace doris

@@ -45,10 +45,6 @@ WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
 }
 WalTable::~WalTable() {}
 
-#ifdef BE_TEST
-Status k_stream_load_exec_status;
-#endif
-
 void WalTable::add_wal(int64_t wal_id, std::string wal) {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     LOG(INFO) << "add replay wal=" << wal;
@@ -94,19 +90,18 @@ Status WalTable::_relay_wal_one_by_one() {
     for (auto wal_info : _replaying_queue) {
         wal_info->add_retry_num();
         auto st = _replay_wal_internal(wal_info->get_wal_path());
-        if (!st.ok()) {
-            doris::wal_fail << 1;
-            LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
-                         << ", st=" << st.to_string();
-            if (!st.is<ErrorCode::NOT_FOUND>()) {
-                need_retry_wals.push_back(wal_info);
-            } else {
-                need_delete_wals.push_back(wal_info);
-            }
-        } else {
+        auto msg = st.msg();
+        if (st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() || st.is<ErrorCode::NOT_FOUND>() ||
+            st.is<ErrorCode::DATA_QUALITY_ERROR>() ||
+            msg.find("LabelAlreadyUsedException") != msg.npos) {
             LOG(INFO) << "succeed to replay wal=" << wal_info->get_wal_path()
                       << ", st=" << st.to_string();
             need_delete_wals.push_back(wal_info);
+        } else {
+            doris::wal_fail << 1;
+            LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
+                         << ", st=" << st.to_string();
+            need_retry_wals.push_back(wal_info);
         }
     }
     {
@@ -200,7 +195,7 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
         [[maybe_unused]] auto st = _try_abort_txn(_db_id, label);
     }
 #endif
-    return _replay_one_txn_with_stremaload(wal_id, wal, label);
+    return _replay_one_wal_with_streamload(wal_id, wal, label);
 }
 
 Status WalTable::_construct_sql_str(const std::string& wal, const std::string& label,
@@ -241,6 +236,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->sql_str = sql_str;
     ctx->wal_id = wal_id;
     ctx->label = label;
+    ctx->need_commit_self = false;
     ctx->auth.token = "relay_wal"; // this is a fake, fe not check it now
     ctx->auth.user = "admin";
     ctx->group_commit = false;
@@ -263,19 +259,13 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     return st;
 }
 
-Status WalTable::_replay_one_txn_with_stremaload(int64_t wal_id, const std::string& wal,
+Status WalTable::_replay_one_wal_with_streamload(int64_t wal_id, const std::string& wal,
                                                  const std::string& label) {
-    bool success = false;
 #ifndef BE_TEST
-    auto st = _handle_stream_load(wal_id, wal, label);
-    auto msg = st.msg();
-    success = st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() ||
-              msg.find("LabelAlreadyUsedException") != msg.npos;
+    return _handle_stream_load(wal_id, wal, label);
 #else
-    success = k_stream_load_exec_status.ok();
-    auto st = Status::OK();
+    return Status::OK();
 #endif
-    return success ? Status::OK() : st;
 }
 
 void WalTable::stop() {
@@ -331,7 +321,10 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
 Status WalTable::_read_wal_header(const std::string& wal_path, std::string& columns) {
     std::shared_ptr<doris::WalReader> wal_reader = std::make_shared<WalReader>(wal_path);
     RETURN_IF_ERROR(wal_reader->init());
-    RETURN_IF_ERROR(wal_reader->read_header(columns));
+    uint32_t version = 0;
+    RETURN_IF_ERROR(wal_reader->read_header(version, columns));
+    VLOG_DEBUG << "wal=" << wal_path << ",version=" << std::to_string(version)
+               << ",columns=" << columns;
     RETURN_IF_ERROR(wal_reader->finalize());
     return Status::OK();
 }

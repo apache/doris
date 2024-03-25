@@ -60,7 +60,7 @@ public:
 
     Status write(Block& block) override;
 
-    Status close(Status s = Status::OK()) override;
+    Status close(Status exec_status) override;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
@@ -83,7 +83,7 @@ private:
     // get next export file name
     Status _get_next_file_name(std::string* file_name);
     Status _get_success_file_name(std::string* file_name);
-    Status _get_file_url(std::string* file_url);
+    void _get_file_url(std::string* file_url);
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
     Status _close_file_writer(bool done);

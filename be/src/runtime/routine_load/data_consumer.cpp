@@ -80,7 +80,7 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     };
 
     RETURN_IF_ERROR(set_conf("metadata.broker.list", ctx->kafka_info->brokers));
-    RETURN_IF_ERROR(set_conf("enable.partition.eof", "false"));
+    RETURN_IF_ERROR(set_conf("enable.partition.eof", "true"));
     RETURN_IF_ERROR(set_conf("enable.auto.offset.store", "false"));
     // TODO: set it larger than 0 after we set rd_kafka_conf_set_stats_cb()
     RETURN_IF_ERROR(set_conf("statistics.interval.ms", "0"));
@@ -162,6 +162,7 @@ Status KafkaDataConsumer::assign_topic_partitions(
         RdKafka::TopicPartition* tp1 =
                 RdKafka::TopicPartition::create(topic, entry.first, entry.second);
         topic_partitions.push_back(tp1);
+        _consuming_partition_ids.insert(entry.first);
         ss << "[" << entry.first << ": " << entry.second << "] ";
     }
 
@@ -219,6 +220,9 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
         consumer_watch.stop();
         switch (msg->err()) {
         case RdKafka::ERR_NO_ERROR:
+            if (_consuming_partition_ids.count(msg->partition()) <= 0) {
+                _consuming_partition_ids.insert(msg->partition());
+            }
             if (msg->len() == 0) {
                 // ignore msg with length 0.
                 // put empty msg into queue will cause the load process shutting down.
@@ -245,6 +249,15 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                 break;
             }
             [[fallthrough]];
+        case RdKafka::ERR__PARTITION_EOF: {
+            LOG(INFO) << "consumer meet partition eof: " << _id
+                      << " partition offset: " << msg->offset();
+            _consuming_partition_ids.erase(msg->partition());
+            if (_consuming_partition_ids.size() <= 0) {
+                done = true;
+            }
+            break;
+        }
         default:
             LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << msg->errstr();
             done = true;

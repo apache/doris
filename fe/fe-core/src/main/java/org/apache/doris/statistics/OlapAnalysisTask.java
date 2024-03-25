@@ -39,6 +39,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,7 +66,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     public void doExecute() throws Exception {
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if ((info.emptyJob && info.analysisMethod.equals(AnalysisInfo.AnalysisMethod.SAMPLE))
+        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod)
                 || partitionNames == null || partitionNames.isEmpty()) {
             if (partitionNames == null) {
                 LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
@@ -109,7 +110,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         String tabletStr = tabletIds.stream()
                 .map(Object::toString)
                 .collect(Collectors.joining(", "));
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(
+                info.jobType.equals(JobType.SYSTEM), false)) {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
             String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0
@@ -254,7 +256,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<Long> sampleTabletIds = new ArrayList<>();
         long actualSampledRowCount = 0;
         boolean enough = false;
-        for (Partition p : olapTable.getPartitions()) {
+        List<Partition> sortedPartitions = olapTable.getPartitions().stream().sorted(
+                Comparator.comparing(Partition::getName)).collect(Collectors.toList());
+        for (Partition p : sortedPartitions) {
             MaterializedIndex materializedIndex = info.indexId == -1 ? p.getBaseIndex() : p.getIndex(info.indexId);
             if (materializedIndex == null) {
                 continue;

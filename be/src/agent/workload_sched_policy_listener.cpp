@@ -69,9 +69,7 @@ void WorkloadschedPolicyListener::handle_topic_info(const std::vector<TopicInfo>
         policy_map.emplace(tpolicy.id, std::move(policy_ptr));
     }
     size_t new_policy_size = policy_map.size();
-    if (new_policy_size > 0) {
-        _exec_env->workload_sched_policy_mgr()->update_workload_sched_policy(std::move(policy_map));
-    }
+    _exec_env->workload_sched_policy_mgr()->update_workload_sched_policy(std::move(policy_map));
     LOG(INFO) << "[workload_schedule]finish update workload schedule policy, size="
               << new_policy_size;
 }

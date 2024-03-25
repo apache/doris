@@ -56,7 +56,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
         out->mutable_delete_predicate()->CopyFrom(in.delete_predicate());
     }
     out->set_empty(in.empty());
-    out->mutable_load_id()->CopyFrom(in.load_id());
+    if (in.has_load_id()) {
+        out->mutable_load_id()->CopyFrom(in.load_id());
+    }
     out->set_delete_flag(in.delete_flag());
     out->set_creation_time(in.creation_time());
     if (in.has_tablet_uid()) {
@@ -79,6 +81,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
+    out->set_has_variant_type_in_schema(in.has_has_variant_type_in_schema());
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -102,7 +105,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
         out->mutable_delete_predicate()->Swap(in.mutable_delete_predicate());
     }
     out->set_empty(in.empty());
-    out->mutable_load_id()->CopyFrom(in.load_id());
+    if (in.has_load_id()) {
+        out->mutable_load_id()->CopyFrom(in.load_id());
+    }
     out->set_delete_flag(in.delete_flag());
     out->set_creation_time(in.creation_time());
     if (in.has_tablet_uid()) {
@@ -126,6 +131,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
+    out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
@@ -421,6 +427,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
             in.time_series_compaction_time_threshold_seconds());
     out->set_time_series_compaction_empty_rowsets_threshold(
             in.time_series_compaction_empty_rowsets_threshold());
+    out->set_time_series_compaction_level_threshold(in.time_series_compaction_level_threshold());
     out->set_index_id(in.index_id());
     out->set_is_in_memory(in.is_in_memory());
     out->set_is_persistent(in.is_persistent());
@@ -486,6 +493,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
             in.time_series_compaction_time_threshold_seconds());
     out->set_time_series_compaction_empty_rowsets_threshold(
             in.time_series_compaction_empty_rowsets_threshold());
+    out->set_time_series_compaction_level_threshold(in.time_series_compaction_level_threshold());
     out->set_index_id(in.index_id());
     out->set_is_in_memory(in.is_in_memory());
     out->set_is_persistent(in.is_persistent());
@@ -560,6 +568,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
             in.time_series_compaction_time_threshold_seconds());
     out->set_time_series_compaction_empty_rowsets_threshold(
             in.time_series_compaction_empty_rowsets_threshold());
+    out->set_time_series_compaction_level_threshold(in.time_series_compaction_level_threshold());
     out->set_index_id(in.index_id());
     out->set_is_in_memory(in.is_in_memory());
     out->set_is_persistent(in.is_persistent());
@@ -625,6 +634,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
             in.time_series_compaction_time_threshold_seconds());
     out->set_time_series_compaction_empty_rowsets_threshold(
             in.time_series_compaction_empty_rowsets_threshold());
+    out->set_time_series_compaction_level_threshold(in.time_series_compaction_level_threshold());
     out->set_index_id(in.index_id());
     out->set_is_in_memory(in.is_in_memory());
     out->set_is_persistent(in.is_persistent());

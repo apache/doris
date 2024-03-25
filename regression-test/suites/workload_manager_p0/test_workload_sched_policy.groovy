@@ -20,7 +20,6 @@ suite("test_workload_sched_policy") {
     sql "set experimental_enable_nereids_planner = false;"
 
     sql "drop workload schedule policy if exists test_cancel_policy;"
-    sql "drop workload schedule policy if exists move_action_policy;"
     sql "drop workload schedule policy if exists set_action_policy;"
     sql "drop workload schedule policy if exists fe_policy;"
     sql "drop workload schedule policy if exists be_policy;"
@@ -30,17 +29,12 @@ suite("test_workload_sched_policy") {
             " conditions(query_time > 10) " +
             " actions(cancel_query) properties('enabled'='false'); "
 
-    // 2 create cancel policy
-    sql "create workload schedule policy move_action_policy " +
-            "conditions(query_time > 10) " +
-            "actions(move_query_to_group 'normal');"
-
-    // 3 create set policy
+    // 2 create set policy
     sql "create workload schedule policy set_action_policy " +
             "conditions(username='root') " +
             "actions(set_session_variable 'workload_group=normal');"
 
-    // 4 create policy run in fe
+    // 3 create policy run in fe
     sql "create workload schedule policy fe_policy " +
             "conditions(username='root') " +
             "actions(set_session_variable 'workload_group=normal') " +
@@ -49,7 +43,7 @@ suite("test_workload_sched_policy") {
             "'priority'='10' " +
             ");"
 
-    // 5 create policy run in be
+    // 4 create policy run in be
     sql "create workload schedule policy be_policy " +
             "conditions(query_time > 10) " +
             "actions(cancel_query) " +
@@ -98,14 +92,6 @@ suite("test_workload_sched_policy") {
 
     test {
         sql "create workload schedule policy conflict_policy " +
-                "conditions (query_time > 0)" +
-                "actions(cancel_query, move_query_to_group 'normal');"
-
-        exception "can not exist in one policy at same time"
-    }
-
-    test {
-        sql "create workload schedule policy conflict_policy " +
                 "conditions (query_time > 0) " +
                 "actions(cancel_query, cancel_query);"
 
@@ -122,7 +108,6 @@ suite("test_workload_sched_policy") {
 
     // drop
     sql "drop workload schedule policy test_cancel_policy;"
-    sql "drop workload schedule policy move_action_policy;"
     sql "drop workload schedule policy set_action_policy;"
     sql "drop workload schedule policy fe_policy;"
     sql "drop workload schedule policy be_policy;"

@@ -25,6 +25,7 @@
 #include "exchange_sink_buffer.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
+#include "vec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -64,9 +65,24 @@ private:
     int _mult_cast_id = -1;
 };
 
-class ExchangeSinkLocalState final : public PipelineXSinkLocalState<AndSharedState> {
+class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
-    using Base = PipelineXSinkLocalState<AndSharedState>;
+    using Base = PipelineXSinkLocalState<>;
+
+private:
+    class HashPartitionFunction {
+    public:
+        HashPartitionFunction(vectorized::PartitionerBase* partitioner)
+                : _partitioner(partitioner) {}
+
+        int get_partition(vectorized::Block* block, int position) {
+            uint32_t* partition_ids = (uint32_t*)_partitioner->get_channel_ids();
+            return partition_ids[position];
+        }
+
+    private:
+        vectorized::PartitionerBase* _partitioner;
+    };
 
 public:
     ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -79,6 +95,16 @@ public:
                 state->get_query_ctx());
     }
 
+    std::vector<Dependency*> dependencies() const override {
+        std::vector<Dependency*> dep_vec;
+        dep_vec.push_back(_queue_dependency.get());
+        if (_broadcast_dependency) {
+            dep_vec.push_back(_broadcast_dependency.get());
+        }
+        std::for_each(_local_channels_dependency.begin(), _local_channels_dependency.end(),
+                      [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+        return dep_vec;
+    }
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
@@ -112,12 +138,19 @@ public:
     std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;
     std::string debug_string(int indentation_level) const override;
-
+    static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
+        return Status::OK();
+    }
+    Status _send_new_partition_batch();
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
             channel_shared_ptrs;
     int current_channel_idx; // index of current channel to send to if _random == true
     bool only_local_exchange;
+
+    // for external table sink hash partition
+    std::unique_ptr<vectorized::ScaleWriterPartitioningExchanger<HashPartitionFunction>>
+            scale_writer_partitioning_exchanger;
 
 private:
     friend class ExchangeSinkOperatorX;
@@ -154,8 +187,8 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<Dependency> _queue_dependency;
-    std::shared_ptr<Dependency> _broadcast_dependency;
+    std::shared_ptr<Dependency> _queue_dependency = nullptr;
+    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
 
     /**
      * We use this to control the execution for local exchange.
@@ -180,6 +213,25 @@ private:
     int _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
+
+    // for shuffle data by partition and tablet
+    int64_t _txn_id = -1;
+    vectorized::VExprContextSPtrs _fake_expr_ctxs;
+    std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
+    std::unique_ptr<vectorized::OlapTabletFinder> _tablet_finder = nullptr;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
+    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor = nullptr;
+    TupleDescriptor* _tablet_sink_tuple_desc = nullptr;
+    RowDescriptor* _tablet_sink_row_desc = nullptr;
+    OlapTableLocationParam* _location = nullptr;
+    vectorized::VRowDistribution _row_distribution;
+    RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
+    std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
+    int64_t _number_input_rows = 0;
+    TPartitionType::type _part_type;
+
+    // for external table sink hash partition
+    std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -194,8 +246,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
@@ -210,6 +261,11 @@ private:
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
                             const HashValueType* channel_ids, int rows, vectorized::Block* block,
                             bool eos);
+
+    template <typename Channels>
+    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+                                     std::vector<std::vector<uint32_t>>& channel2rows,
+                                     vectorized::Block* block, bool eos);
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr>& _texprs;
@@ -233,6 +289,19 @@ private:
     bool _transfer_large_data_by_brpc = false;
 
     segment_v2::CompressionTypePB _compression_type;
+
+    // for tablet sink shuffle
+    const TOlapTableSchemaParam& _tablet_sink_schema;
+    const TOlapTablePartitionParam& _tablet_sink_partition;
+    const TOlapTableLocationParam& _tablet_sink_location;
+    const TTupleId& _tablet_sink_tuple_id;
+    int64_t _tablet_sink_txn_id = -1;
+    std::shared_ptr<ObjectPool> _pool;
+
+    // for external table sink random partition
+    // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
+    size_t _data_processed = 0;
+    int _writer_count = 1;
 };
 
 } // namespace pipeline

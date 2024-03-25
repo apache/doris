@@ -131,8 +131,12 @@ struct RuntimeFilterParams {
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
+
+    bool bloom_filter_size_calculated_by_ndv = false;
+    bool null_aware = false;
 };
-struct FilterFuncBase {
+
+struct RuntimeFilterFuncBase {
 public:
     void set_filter_id(int filter_id) {
         if (_filter_id == -1) {
@@ -144,9 +148,13 @@ public:
 
     bool is_runtime_filter() const { return _filter_id != -1; }
 
-private:
+    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
+
+protected:
     int _filter_id = -1;
+    bool _null_aware = false;
 };
+
 struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
@@ -227,7 +235,8 @@ public:
     PrimitiveType column_type() const;
 
     Status get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                              std::vector<vectorized::VExprSPtr>& push_exprs, bool is_late_arrival);
+                              std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
+                              bool is_late_arrival);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
@@ -278,7 +287,7 @@ public:
 
     static Status create_wrapper(const UpdateRuntimeFilterParamsV2* param,
                                  RuntimePredicateWrapper** wrapper);
-    void change_to_bloom_filter();
+    Status change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
     void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
@@ -362,7 +371,7 @@ protected:
     static Status _create_wrapper(const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
-    void _set_push_down() { _is_push_down = true; }
+    void _set_push_down(bool push_down) { _is_push_down = push_down; }
 
     std::string _format_status() const;
 

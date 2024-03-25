@@ -34,10 +34,13 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.types.DateTimeType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 
 /**
@@ -91,11 +94,15 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
+    /** prune */
     public List<Long> prune() {
-        return partitions.stream()
-                .filter(partitionEvaluator -> !canPrune(partitionEvaluator))
-                .map(OnePartitionEvaluator::getPartitionId)
-                .collect(ImmutableList.toImmutableList());
+        Builder<Long> scanPartitionIds = ImmutableList.builder();
+        for (OnePartitionEvaluator partition : partitions) {
+            if (!canBePrunedOut(partition)) {
+                scanPartitionIds.add(partition.getPartitionId());
+            }
+        }
+        return scanPartitionIds.build();
     }
 
     /**
@@ -107,11 +114,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
-        List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
-                .stream()
-                .map(kv -> toPartitionEvaluator(kv.getKey(), kv.getValue(), partitionSlots, cascadesContext,
-                        partitionTableType))
-                .collect(ImmutableList.toImmutableList());
+
+        List<OnePartitionEvaluator> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
+        for (Entry<Long, PartitionItem> kv : idToPartitions.entrySet()) {
+            evaluators.add(toPartitionEvaluator(
+                    kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, partitionTableType));
+        }
 
         partitionPredicate = OrToIn.INSTANCE.rewrite(partitionPredicate, null);
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
@@ -125,13 +133,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public static final OnePartitionEvaluator toPartitionEvaluator(long id, PartitionItem partitionItem,
             List<Slot> partitionSlots, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
         if (partitionItem instanceof ListPartitionItem) {
-            if (partitionTableType == PartitionTableType.HIVE
-                    && ((ListPartitionItem) partitionItem).isHiveDefaultPartition()) {
-                return new HiveDefaultPartitionEvaluator(id, partitionSlots);
-            } else {
-                return new OneListPartitionEvaluator(
-                        id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
-            }
+            return new OneListPartitionEvaluator(
+                    id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
         } else if (partitionItem instanceof RangePartitionItem) {
             return new OneRangePartitionEvaluator(
                     id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext);
@@ -140,14 +143,19 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
-    private boolean canPrune(OnePartitionEvaluator evaluator) {
+    /**
+     * return true if partition is not qualified. that is, can be pruned out.
+     */
+    private boolean canBePrunedOut(OnePartitionEvaluator evaluator) {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
         for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
+            // evaluate wether there's possible for this partition to accept this predicate
             Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
             if (!result.equals(BooleanLiteral.FALSE) && !(result instanceof NullLiteral)) {
                 return false;
             }
         }
+        // only have false result: Can be pruned out. have other exprs: CanNot be pruned out
         return true;
     }
 }

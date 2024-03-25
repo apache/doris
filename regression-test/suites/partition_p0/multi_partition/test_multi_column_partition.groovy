@@ -77,21 +77,21 @@ suite("test_multi_partition_key", "p0") {
     )
 
     // partition columns are int & datetime
-    test {
-        sql """
-        CREATE TABLE err_1 ( 
-          k1 TINYINT NOT NULL,  
-          k5 DATETIME NOT NULL, 
-          v1 DATE REPLACE NOT NULL) 
-        PARTITION BY RANGE(k1,k5) ( 
-          PARTITION partition_a VALUES LESS THAN ("-127","2010-01-01"), 
-          PARTITION partition_e VALUES LESS THAN ("4","2010-01-01"), 
-          PARTITION partition_f VALUES LESS THAN MAXVALUE ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 53
-        PROPERTIES("replication_allocation" = "tag.location.default: 1")
-        """
-        exception "Invalid datetime value: 2010-01-01"
-    }
+
+    sql " drop table if exists err_1 "
+    sql """
+    CREATE TABLE err_1 ( 
+      k1 TINYINT NOT NULL,  
+      k5 DATETIME NOT NULL, 
+      v1 DATE REPLACE NOT NULL) 
+    PARTITION BY RANGE(k1,k5) ( 
+      PARTITION partition_a VALUES LESS THAN ("-127","2010-01-01"), 
+      PARTITION partition_e VALUES LESS THAN ("4","2010-01-01"), 
+      PARTITION partition_f VALUES LESS THAN MAXVALUE ) 
+    DISTRIBUTED BY HASH(k1) BUCKETS 53
+    PROPERTIES("replication_allocation" = "tag.location.default: 1")
+    """
+
     testPartitionTbl(
             "test_multi_partition_key_2",
             """
@@ -366,7 +366,9 @@ suite("test_multi_partition_key", "p0") {
     assertEquals(12, table_schema.size())
     qt_sql12 "select * from test_multi_col_test_rollup order by k1, k2"
     // test partition modify, check partition replication_num
-    sql "ALTER TABLE test_multi_col_test_rollup MODIFY PARTITION partition_a SET( 'replication_num' = '1')"
+    if (!isCloudMode()) {
+        sql "ALTER TABLE test_multi_col_test_rollup MODIFY PARTITION partition_a SET( 'replication_num' = '1')"
+    }
     ret = sql "SHOW PARTITIONS FROM test_multi_col_test_rollup WHERE PartitionName='partition_a'"
     assertEquals('1', ret[0][9])
     // create table with range partition

@@ -18,12 +18,14 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcherException;
@@ -78,11 +80,16 @@ public class Role implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "roleName")
     private String roleName;
+
+    @SerializedName(value = "comment")
+    private String comment;
     // Will be persisted
     @SerializedName(value = "tblPatternToPrivs")
     private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "resourcePatternToPrivs")
     private Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = Maps.newConcurrentMap();
+    @SerializedName(value = "clusterPatternToPrivs")
+    private Map<ResourcePattern, PrivBitSet> clusterPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "workloadGroupPatternToPrivs")
     private Map<WorkloadGroupPattern, PrivBitSet> workloadGroupPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "colPrivMap")
@@ -94,6 +101,8 @@ public class Role implements Writable, GsonPostProcessable {
     private DbPrivTable dbPrivTable = new DbPrivTable();
     private TablePrivTable tablePrivTable = new TablePrivTable();
     private ResourcePrivTable resourcePrivTable = new ResourcePrivTable();
+    // reuse ResourcePrivTable and ResourcePrivEntry for grant/revoke cloudClusterName
+    private ResourcePrivTable cloudClusterPrivTable = new ResourcePrivTable();
     private WorkloadGroupPrivTable workloadGroupPrivTable = new WorkloadGroupPrivTable();
 
 
@@ -110,7 +119,12 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public Role(String roleName) {
+        this(roleName, "");
+    }
+
+    public Role(String roleName, String comment) {
         this.roleName = roleName;
+        this.comment = comment;
     }
 
     public Role(String roleName, TablePattern tablePattern, PrivBitSet privs) throws DdlException {
@@ -129,7 +143,12 @@ public class Role implements Writable, GsonPostProcessable {
 
     public Role(String roleName, ResourcePattern resourcePattern, PrivBitSet privs) throws DdlException {
         this.roleName = roleName;
-        this.resourcePatternToPrivs.put(resourcePattern, privs);
+        // grant has trans privs
+        if (resourcePattern.isGeneralResource()) {
+            this.resourcePatternToPrivs.put(resourcePattern, privs);
+        } else if (resourcePattern.isClusterResource()) {
+            this.clusterPatternToPrivs.put(resourcePattern, privs);
+        }
         grantPrivs(resourcePattern, privs.copy());
     }
 
@@ -175,6 +194,10 @@ public class Role implements Writable, GsonPostProcessable {
         return resourcePatternToPrivs;
     }
 
+    public Map<ResourcePattern, PrivBitSet> getClusterPatternToPrivs() {
+        return clusterPatternToPrivs;
+    }
+
     public Map<WorkloadGroupPattern, PrivBitSet> getWorkloadGroupPatternToPrivs() {
         return workloadGroupPatternToPrivs;
     }
@@ -196,6 +219,15 @@ public class Role implements Writable, GsonPostProcessable {
                 existPrivs.or(entry.getValue());
             } else {
                 resourcePatternToPrivs.put(entry.getKey(), entry.getValue());
+            }
+            grantPrivs(entry.getKey(), entry.getValue().copy());
+        }
+        for (Map.Entry<ResourcePattern, PrivBitSet> entry : other.clusterPatternToPrivs.entrySet()) {
+            if (clusterPatternToPrivs.containsKey(entry.getKey())) {
+                PrivBitSet existPrivs = clusterPatternToPrivs.get(entry.getKey());
+                existPrivs.or(entry.getValue());
+            } else {
+                clusterPatternToPrivs.put(entry.getKey(), entry.getValue());
             }
             grantPrivs(entry.getKey(), entry.getValue().copy());
         }
@@ -370,6 +402,24 @@ public class Role implements Writable, GsonPostProcessable {
         return false;
     }
 
+    public boolean checkCloudPriv(String cloudName,
+            PrivPredicate wanted, ResourceTypeEnum type) {
+        ResourcePrivTable cloudPrivTable = getCloudPrivTable(type);
+        if (cloudPrivTable == null) {
+            LOG.warn("cloud resource type err: {}", type);
+            return false;
+        }
+
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        if (checkGlobalInternal(wanted, savedPrivs)
+                || checkCloudInternal(cloudName, wanted, savedPrivs, cloudPrivTable, type)) {
+            return true;
+        }
+
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        return false;
+    }
+
     public boolean checkColPriv(String ctl, String db, String tbl, String col, PrivPredicate wanted) {
         Optional<Privilege> colPrivilege = wanted.getColPrivilege();
         Preconditions.checkState(colPrivilege.isPresent(), "this privPredicate should not use checkColPriv:" + wanted);
@@ -407,6 +457,13 @@ public class Role implements Writable, GsonPostProcessable {
         resourcePrivTable.getPrivs(resourceName, savedPrivs);
         return Privilege.satisfy(savedPrivs, wanted);
     }
+
+    private boolean checkCloudInternal(String cloudName, PrivPredicate wanted,
+            PrivBitSet savedPrivs, ResourcePrivTable table, ResourceTypeEnum type) {
+        table.getPrivs(cloudName, savedPrivs);
+        return Privilege.satisfy(savedPrivs, wanted);
+    }
+
 
     public boolean checkWorkloadGroupPriv(String workloadGroupName, PrivPredicate wanted) {
         // For compatibility with older versions, it is not needed to check the privileges of the default group.
@@ -480,8 +537,20 @@ public class Role implements Writable, GsonPostProcessable {
         return resourcePrivTable;
     }
 
+    public ResourcePrivTable getCloudClusterPrivTable() {
+        return cloudClusterPrivTable;
+    }
+
     public WorkloadGroupPrivTable getWorkloadGroupPrivTable() {
         return workloadGroupPrivTable;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
     }
 
     public boolean checkCanEnterCluster(String clusterName) {
@@ -510,7 +579,11 @@ public class Role implements Writable, GsonPostProcessable {
                 grantGlobalPrivs(privs);
                 break;
             case RESOURCE:
-                grantResourcePrivs(resourcePattern.getResourceName(), privs);
+                if (resourcePattern.isClusterResource()) {
+                    grantCloudClusterPrivs(resourcePattern.getResourceName(), false, false, privs);
+                } else {
+                    grantResourcePrivs(resourcePattern.getResourceName(), privs);
+                }
                 break;
             default:
                 Preconditions.checkNotNull(null, resourcePattern.getPrivLevel());
@@ -586,6 +659,27 @@ public class Role implements Writable, GsonPostProcessable {
         resourcePrivTable.addEntry(entry, false, false);
     }
 
+    private void grantCloudClusterPrivs(String cloudClusterName, boolean errOnExist,
+            boolean errOnNonExist, PrivBitSet privs) throws DdlException {
+        ResourcePrivEntry entry;
+        try {
+            entry = ResourcePrivEntry.create(cloudClusterName, privs);
+        } catch (AnalysisException | PatternMatcherException e) {
+            throw new DdlException(e.getMessage());
+        }
+        cloudClusterPrivTable.addEntry(entry, errOnExist, errOnNonExist);
+        LOG.info("cloud cluster add list {}", cloudClusterPrivTable);
+    }
+
+    private ResourcePrivTable getCloudPrivTable(ResourceTypeEnum type) {
+        if (type == ResourceTypeEnum.CLUSTER) {
+            return cloudClusterPrivTable;
+        } else {
+            // cloud resource not GENERAL type
+            return null;
+        }
+    }
+
     private void grantCatalogPrivs(String ctl, PrivBitSet privs) throws DdlException {
         CatalogPrivEntry entry;
         try {
@@ -627,6 +721,17 @@ public class Role implements Writable, GsonPostProcessable {
         workloadGroupPrivTable.addEntry(entry, false, false);
     }
 
+    private void revokeCloudClusterPrivs(String cloudClusterName, PrivBitSet privs) throws DdlException {
+        ResourcePrivEntry entry;
+        try {
+            entry = ResourcePrivEntry.create(cloudClusterName, privs);
+        } catch (AnalysisException | PatternMatcherException e) {
+            throw new DdlException(e.getMessage());
+        }
+        cloudClusterPrivTable.revoke(entry, false, true);
+        LOG.info("cloud cluster revoke list {}", cloudClusterPrivTable);
+    }
+
     public void revokePrivs(TablePattern tblPattern, PrivBitSet privs, Map<ColPrivilegeKey, Set<String>> colPrivileges,
             boolean errOnNonExist)
             throws DdlException {
@@ -661,7 +766,12 @@ public class Role implements Writable, GsonPostProcessable {
 
     public void revokePrivs(ResourcePattern resourcePattern, PrivBitSet privs, boolean errOnNonExist)
             throws DdlException {
-        PrivBitSet existingPriv = resourcePatternToPrivs.get(resourcePattern);
+        PrivBitSet existingPriv = null;
+        if (resourcePattern.isClusterResource()) {
+            existingPriv = clusterPatternToPrivs.get(resourcePattern);
+        } else {
+            existingPriv = resourcePatternToPrivs.get(resourcePattern);
+        }
         if (existingPriv == null) {
             if (errOnNonExist) {
                 throw new DdlException(resourcePattern + " does not exist in role " + roleName);
@@ -678,7 +788,11 @@ public class Role implements Writable, GsonPostProcessable {
                 revokeGlobalPrivs(privs);
                 break;
             case RESOURCE:
-                revokeResourcePrivs(resourcePattern.getResourceName(), privs);
+                if (resourcePattern.isGeneralResource()) {
+                    revokeResourcePrivs(resourcePattern.getResourceName(), privs);
+                } else {
+                    revokeCloudClusterPrivs(resourcePattern.getResourceName(), privs);
+                }
                 break;
         }
     }
@@ -822,7 +936,6 @@ public class Role implements Writable, GsonPostProcessable {
                 privBitSet.or(modifiedGlobalPrivs);
             }
         }
-
         // rebuild these priv tables
         rebuildPrivTables();
     }
@@ -832,6 +945,7 @@ public class Role implements Writable, GsonPostProcessable {
         StringBuilder sb = new StringBuilder();
         sb.append("role: ").append(roleName).append(", db table privs: ").append(tblPatternToPrivs);
         sb.append(", resource privs: ").append(resourcePatternToPrivs);
+        sb.append(", cluster privs: ").append(clusterPatternToPrivs);
         sb.append(", workload group privs: ").append(workloadGroupPatternToPrivs);
         return sb.toString();
     }
@@ -890,7 +1004,47 @@ public class Role implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() {
         removeClusterPrefix();
+        compatibilityErrEnum();
         rebuildPrivTables();
+    }
+
+    private void compatibilityErrEnum() {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_129) {
+            if (Config.isNotCloudMode()) {
+                // not cloud mode,
+                // SHOW_VIEW_PRIV_DEPRECATED -> SHOW_VIEW_PRIV (9 -> 14)
+                tblPatternToPrivs.values().forEach(privBitSet -> {
+                    if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_DEPRECATED)) {
+                        // remove SHOW_VIEW_PRIV_DEPRECATED
+                        privBitSet.unset(Privilege.SHOW_VIEW_PRIV_DEPRECATED.getIdx());
+                        // add SHOW_VIEW_PRIV
+                        privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
+                    }
+                });
+            } else {
+                // cloud mode
+                // CLUSTER_USAGE_PRIV_DEPRECATED -> CLUSTER_USAGE_PRIV (9 -> 12)
+                clusterPatternToPrivs.values().forEach(privBitSet -> {
+                    if (privBitSet.containsPrivs(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED)) {
+                        // remove CLUSTER_USAGE_PRIV_DEPRECATED
+                        privBitSet.unset(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED.getIdx());
+                        // add CLUSTER_USAGE_PRIV
+                        privBitSet.set(Privilege.CLUSTER_USAGE_PRIV.getIdx());
+                    }
+                });
+                // todo(dx): if doris has stage
+                // STAGE_USAGE_PRIV_DEPRECATED -> STAGE_USAGE_PRIV (10 -> 13)
+                // SHOW_VIEW_PRIV_CLOUD_DEPRECATED -> SHOW_VIEW_PRIV (11 -> 14)
+                tblPatternToPrivs.values().forEach(privBitSet -> {
+                    if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED)) {
+                        // remove SHOW_VIEW_PRIV_CLOUD_DEPRECATED
+                        privBitSet.unset(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED.getIdx());
+                        // add SHOW_VIEW_PRIV
+                        privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
+                    }
+                });
+            }
+        }
     }
 
     private void rebuildPrivTables() {
@@ -914,6 +1068,17 @@ public class Role implements Writable, GsonPostProcessable {
                 LOG.warn("grant failed,", e);
             }
         }
+        for (Entry<ResourcePattern, PrivBitSet> entry : clusterPatternToPrivs.entrySet()) {
+            try {
+                grantPrivs(entry.getKey(), entry.getValue().copy());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("cloud cluster entry {}", entry);
+                }
+            } catch (DdlException e) {
+                LOG.warn("grant failed exception {} entry {}", e, entry);
+            }
+        }
+        // todo(dx): if add stage priv
         for (Entry<WorkloadGroupPattern, PrivBitSet> entry : workloadGroupPatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());

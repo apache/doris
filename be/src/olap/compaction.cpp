@@ -27,15 +27,20 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <numeric>
 #include <ostream>
 #include <set>
 #include <shared_mutex>
 #include <utility>
 
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "common/sync_point.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
@@ -48,7 +53,9 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_compaction.h"
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
@@ -79,7 +86,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
     // check segment size
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(rhs.get());
     std::vector<size_t> segments_size;
-    static_cast<void>(beta_rowset->get_segments_size(&segments_size));
+    RETURN_FALSE_IF_ERROR(beta_rowset->get_segments_size(&segments_size));
     for (auto segment_size : segments_size) {
         // is segment is too small, need to do compaction
         if (segment_size < min_tidy_size) {
@@ -177,6 +184,8 @@ Status Compaction::merge_input_rowsets() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_output_rs_writer->build(_output_rowset),
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
+
+    //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // Now we support delete in cumu compaction, to make all data in rowsets whose version
     // is below output_version to be delete in the future base compaction, we should carry
@@ -493,9 +502,11 @@ Status CompactionMixin::do_inverted_index_compaction() {
     // src index files
     // format: rowsetId_segmentId
     std::vector<std::string> src_index_files(src_segment_num);
+    std::vector<RowsetId> src_rowset_ids;
     for (const auto& m : src_seg_to_id_map) {
         std::pair<RowsetId, uint32_t> p = m.first;
         src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
+        src_rowset_ids.push_back(p.first);
     }
 
     // dest index files
@@ -506,13 +517,107 @@ Status CompactionMixin::do_inverted_index_compaction() {
         dest_index_files[i] = prefix;
     }
 
+    // Only write info files when debug index compaction is enabled.
+    // The files are used to debug index compaction and works with index_tool.
+    if (config::debug_inverted_index_compaction) {
+        auto write_json_to_file = [&](const nlohmann::json& json_obj,
+                                      const std::string& file_name) {
+            io::FileWriterPtr file_writer;
+            std::string file_path = fmt::format("{}/{}.json", config::sys_log_dir, file_name);
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
+            RETURN_IF_ERROR(file_writer->append(json_obj.dump()));
+            RETURN_IF_ERROR(file_writer->append("\n"));
+            return file_writer->close();
+        };
+
+        // Convert trans_vec to JSON and print it
+        nlohmann::json trans_vec_json = trans_vec;
+        auto output_version =
+                _output_version.to_string().substr(1, _output_version.to_string().size() - 2);
+        RETURN_IF_ERROR(write_json_to_file(
+                trans_vec_json,
+                fmt::format("trans_vec_{}_{}", _tablet->tablet_id(), output_version)));
+
+        nlohmann::json src_index_files_json = src_index_files;
+        RETURN_IF_ERROR(write_json_to_file(
+                src_index_files_json,
+                fmt::format("src_idx_dirs_{}_{}", _tablet->tablet_id(), output_version)));
+
+        nlohmann::json dest_index_files_json = dest_index_files;
+        RETURN_IF_ERROR(write_json_to_file(
+                dest_index_files_json,
+                fmt::format("dest_idx_dirs_{}_{}", _tablet->tablet_id(), output_version)));
+
+        nlohmann::json dest_segment_num_rows_json = dest_segment_num_rows;
+        RETURN_IF_ERROR(write_json_to_file(
+                dest_segment_num_rows_json,
+                fmt::format("dest_seg_num_rows_{}_{}", _tablet->tablet_id(), output_version)));
+    }
+
     // create index_writer to compaction indexes
     const auto& fs = _output_rowset->rowset_meta()->fs();
     const auto& tablet_path = _tablet->tablet_path();
 
+    // src index dirs
+    // format: rowsetId_segmentId
+    std::vector<std::unique_ptr<InvertedIndexFileReader>> inverted_index_file_readers(
+            src_segment_num);
+    for (const auto& m : src_seg_to_id_map) {
+        std::pair<RowsetId, uint32_t> p = m.first;
+        auto segment_file_name = p.first.to_string() + "_" + std::to_string(p.second) + ".dat";
+        auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+                fs, tablet_path, segment_file_name,
+                _cur_tablet_schema->get_inverted_index_storage_format());
+        bool open_idx_file_cache = false;
+        auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                   open_idx_file_cache);
+        if (!st.ok()) {
+            LOG(ERROR) << "init inverted index "
+                       << InvertedIndexDescriptor::get_index_file_name(segment_file_name)
+                       << " failed in compaction when init inverted index file reader";
+            return st;
+        }
+        inverted_index_file_readers[m.second] = std::move(inverted_index_file_reader);
+    }
+
+    // dest index files
+    // format: rowsetId_segmentId
+    std::vector<std::unique_ptr<InvertedIndexFileWriter>> inverted_index_file_writers(
+            dest_segment_num);
+    for (int i = 0; i < dest_segment_num; ++i) {
+        auto prefix = dest_rowset_id.to_string() + "_" + std::to_string(i) + ".dat";
+        auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+                fs, tablet_path, prefix, _cur_tablet_schema->get_inverted_index_storage_format());
+        bool open_idx_file_cache = false;
+        auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                   open_idx_file_cache);
+        if (st.ok()) {
+            auto index_not_need_to_compact =
+                    DORIS_TRY(inverted_index_file_reader->get_all_directories());
+            auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                    fs, tablet_path, prefix,
+                    _cur_tablet_schema->get_inverted_index_storage_format());
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    inverted_index_file_writer->initialize(index_not_need_to_compact),
+                    "failed to initialize inverted_index_file_writer for " +
+                            inverted_index_file_writer->get_index_file_name());
+            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+        } else if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+            auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                    fs, tablet_path, prefix,
+                    _cur_tablet_schema->get_inverted_index_storage_format());
+            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+        } else {
+            LOG(ERROR) << "init inverted index "
+                       << InvertedIndexDescriptor::get_index_file_name(prefix)
+                       << " failed in compaction when create inverted index file writer";
+            return st;
+        }
+    }
+
     // we choose the first destination segment name as the temporary index writer path
     // Used to distinguish between different index compaction
-    auto index_writer_path = tablet_path + "/" + dest_index_files[0];
+    auto index_tmp_path = tablet_path + "/" + dest_rowset_id.to_string() + "_" + "tmp";
     LOG(INFO) << "start index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", source index size=" << src_segment_num
               << ", destination index size=" << dest_segment_num << ".";
@@ -529,20 +634,67 @@ Status CompactionMixin::do_inverted_index_compaction() {
         }
     };
 
+    Status status = Status::OK();
     for (auto&& column_uniq_id : ctx.skip_inverted_index) {
-        auto index_id = _cur_tablet_schema->get_inverted_index(column_uniq_id, "")->index_id();
+        auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
+        const auto* index_meta = _cur_tablet_schema->get_inverted_index(col);
+
+        // if index properties are different, index compaction maybe needs to be skipped.
+        bool is_continue = false;
+        std::optional<std::map<std::string, std::string>> first_properties;
+        for (const auto& rowset_id : src_rowset_ids) {
+            auto rowset_ptr = _tablet->get_rowset(rowset_id);
+            const auto* tablet_index = rowset_ptr->tablet_schema()->get_inverted_index(col);
+            const auto& properties = tablet_index->properties();
+            if (!first_properties.has_value()) {
+                first_properties = properties;
+            } else {
+                if (properties != first_properties.value()) {
+                    error_handler(index_meta->index_id(), column_uniq_id);
+                    status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
+                            "if index properties are different, index compaction needs to be "
+                            "skipped.");
+                    is_continue = true;
+                    break;
+                }
+            }
+        }
+        if (is_continue) {
+            continue;
+        }
+
+        std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
+        std::vector<lucene::store::Directory*> src_index_dirs(src_segment_num);
         try {
-            auto st = compact_column(index_id, src_segment_num, dest_segment_num, src_index_files,
-                                     dest_index_files, fs, index_writer_path, tablet_path,
-                                     trans_vec, dest_segment_num_rows);
+            for (int src_segment_id = 0; src_segment_id < src_segment_num; src_segment_id++) {
+                auto src_dir =
+                        DORIS_TRY(inverted_index_file_readers[src_segment_id]->open(index_meta));
+                src_index_dirs[src_segment_id] = src_dir.release();
+            }
+            for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
+                auto* dest_dir =
+                        DORIS_TRY(inverted_index_file_writers[dest_segment_id]->open(index_meta));
+                dest_index_dirs[dest_segment_id] = dest_dir;
+            }
+            auto st = compact_column(index_meta->index_id(), src_index_dirs, dest_index_dirs, fs,
+                                     index_tmp_path, trans_vec, dest_segment_num_rows);
             if (!st.ok()) {
-                error_handler(index_id, column_uniq_id);
-                return Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+                error_handler(index_meta->index_id(), column_uniq_id);
+                status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
             }
         } catch (CLuceneError& e) {
-            error_handler(index_id, column_uniq_id);
-            return Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
+            error_handler(index_meta->index_id(), column_uniq_id);
+            status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }
+    }
+    for (auto& inverted_index_file_writer : inverted_index_file_writers) {
+        if (Status st = inverted_index_file_writer->close(); !st.ok()) {
+            status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+        }
+    }
+    // check index compaction status. If status is not ok, we should return error and end this compaction round.
+    if (!status.ok()) {
+        return status;
     }
 
     LOG(INFO) << "succeed to do index compaction"
@@ -563,7 +715,7 @@ void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
 
         auto col_unique_id = index.col_unique_ids()[0];
         auto has_inverted_index = [&](const RowsetSharedPtr& src_rs) {
-            auto rowset = static_cast<BetaRowset*>(src_rs.get());
+            auto* rowset = static_cast<BetaRowset*>(src_rs.get());
             if (rowset->is_skip_index_compaction(col_unique_id)) {
                 LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] rowset["
                              << rowset->rowset_id() << "] column_unique_id[" << col_unique_id
@@ -571,7 +723,7 @@ void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
                 return false;
             }
 
-            auto& fs = rowset->rowset_meta()->fs();
+            const auto& fs = rowset->rowset_meta()->fs();
 
             const auto* index_meta = rowset->tablet_schema()->get_inverted_index(col_unique_id, "");
             if (index_meta == nullptr) {
@@ -582,53 +734,54 @@ void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
 
             for (auto i = 0; i < rowset->num_segments(); i++) {
                 auto segment_file = rowset->segment_file_path(i);
-                std::string inverted_index_src_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(
-                                segment_file, index_meta->index_id(),
-                                index_meta->get_index_suffix());
+                io::Path segment_path(segment_file);
+                auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+                        fs, segment_path.parent_path(), segment_path.filename(),
+                        _cur_tablet_schema->get_inverted_index_storage_format());
+                bool open_idx_file_cache = false;
+                auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                           open_idx_file_cache);
+                if (!st.ok()) {
+                    LOG(WARNING) << "init index "
+                                 << inverted_index_file_reader->get_index_file_path(index_meta)
+                                 << " error:" << st;
+                    return false;
+                }
+
                 bool exists = false;
-                if (!fs->exists(inverted_index_src_file_path, &exists).ok()) {
-                    LOG(ERROR) << inverted_index_src_file_path << " fs->exists error";
+                if (!inverted_index_file_reader->index_file_exist(index_meta, &exists).ok()) {
+                    LOG(ERROR) << inverted_index_file_reader->get_index_file_path(index_meta)
+                               << " fs->exists error";
                     return false;
                 }
 
                 if (!exists) {
                     LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
-                                 << col_unique_id << "]," << inverted_index_src_file_path
+                                 << col_unique_id << "],"
+                                 << inverted_index_file_reader->get_index_file_path(index_meta)
                                  << " is not exists, will skip index compaction";
                     return false;
                 }
 
-                // check idx file size
-                int64_t file_size = 0;
-                if (fs->file_size(inverted_index_src_file_path, &file_size) != Status::OK()) {
-                    LOG(ERROR) << inverted_index_src_file_path << " fs->file_size error";
-                    return false;
-                }
-
-                if (file_size == 0) {
-                    LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
-                                 << col_unique_id << "]," << inverted_index_src_file_path
-                                 << " is empty file, will skip index compaction";
-                    return false;
-                }
-
                 // check index meta
-                std::filesystem::path p(inverted_index_src_file_path);
-                std::string dir_str = p.parent_path().string();
-                std::string file_str = p.filename().string();
-                lucene::store::Directory* dir =
-                        DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str());
-                DorisCompoundReader reader(dir, file_str.c_str());
+                auto result = inverted_index_file_reader->open(index_meta);
+                if (!result.has_value()) {
+                    LOG(WARNING) << "open index "
+                                 << inverted_index_file_reader->get_index_file_path(index_meta)
+                                 << " error:" << result.error();
+                    return false;
+                }
+                auto reader = std::move(result.value());
                 std::vector<std::string> files;
-                reader.list(&files);
-                reader.close();
+                reader->list(&files);
+                reader->close();
 
                 // why is 3?
                 // bkd index will write at least 3 files
                 if (files.size() < 3) {
                     LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
-                                 << col_unique_id << "]," << inverted_index_src_file_path
+                                 << col_unique_id << "],"
+                                 << inverted_index_file_reader->get_index_file_path(index_meta)
                                  << " is corrupted, will skip index compaction";
                     return false;
                 }
@@ -647,8 +800,10 @@ void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
 }
 
 Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
+    // only do index compaction for dup_keys and unique_keys with mow enabled
     if (config::inverted_index_compaction_enable &&
-        ((_tablet->keys_type() == KeysType::UNIQUE_KEYS ||
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
           _tablet->keys_type() == KeysType::DUP_KEYS))) {
         construct_skip_inverted_index(ctx);
     }
@@ -842,6 +997,81 @@ void Compaction::_load_segment_to_cache() {
                      << _output_rowset->start_version() << "-" << _output_rowset->end_version()
                      << ".";
     }
+}
+
+void CloudCompactionMixin::build_basic_info() {
+    _output_version =
+            Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
+
+    _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
+
+    std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
+    std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
+                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+}
+
+int64_t CloudCompactionMixin::get_compaction_permits() {
+    int64_t permits = 0;
+    for (auto&& rowset : _input_rowsets) {
+        permits += rowset->rowset_meta()->get_compaction_score();
+    }
+    return permits;
+}
+
+CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
+                                           const std::string& label)
+        : Compaction(tablet, label), _engine(engine) {}
+
+Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
+    OlapStopWatch watch;
+
+    build_basic_info();
+
+    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
+              << ", output_version=" << _output_version << ", permits: " << permits;
+
+    RETURN_IF_ERROR(merge_input_rowsets());
+
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
+
+    // 4. modify rowsets in memory
+    RETURN_IF_ERROR(modify_rowsets());
+
+    return Status::OK();
+}
+
+Status CloudCompactionMixin::execute_compact() {
+    TEST_INJECTION_POINT("Compaction::do_compaction");
+    int64_t permits = get_compaction_permits();
+    Status st = execute_compact_impl(permits);
+    if (!st.ok()) {
+        garbage_collection();
+        return st;
+    }
+    _load_segment_to_cache();
+    return st;
+}
+
+Status CloudCompactionMixin::modify_rowsets() {
+    return Status::OK();
+}
+
+Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
+    ctx.fs = _engine.latest_fs();
+    ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
+                 std::numeric_limits<int64_t>::max(); // MUST be positive
+    ctx.txn_expiration = _expiration;
+
+    ctx.version = _output_version;
+    ctx.rowset_state = VISIBLE;
+    ctx.segments_overlap = NONOVERLAPPING;
+    ctx.tablet_schema = _cur_tablet_schema;
+    ctx.newest_write_timestamp = _newest_write_timestamp;
+    ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
+    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
+    return Status::OK();
 }
 
 } // namespace doris

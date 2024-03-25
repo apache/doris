@@ -32,6 +32,7 @@ import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.Scope;
 import org.apache.doris.plsql.Var;
 import org.apache.doris.plsql.metastore.PlsqlMetaClient;
+import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.qe.ConnectContext;
 
@@ -39,8 +40,11 @@ import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -66,10 +70,9 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     @Override
     public void remove(FuncNameInfo procedureName) {
         try {
-            client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
-                    procedureName.getDb());
+            client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtlId(), procedureName.getDbId());
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("failed to remove procedure", e);
         }
     }
 
@@ -86,6 +89,35 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         return (ConnectContext.get().getDatabase() + "." + name).toUpperCase();
     }
 
+    @Override
+    public void showProcedure(List<List<String>> columns) {
+        Map<PlsqlProcedureKey, PlsqlStoredProcedure> allProc = client.getAllPlsqlStoredProcedures();
+        for (Map.Entry<PlsqlProcedureKey, PlsqlStoredProcedure> entry : allProc.entrySet()) {
+            List<String> row = new ArrayList<>();
+            PlsqlStoredProcedure proc = entry.getValue();
+            row.add(proc.getName());
+            row.add(Long.toString(proc.getCatalogId()));
+            row.add(Long.toString(proc.getDbId()));
+            row.add(proc.getPackageName());
+            row.add(proc.getOwnerName());
+            row.add(proc.getCreateTime());
+            row.add(proc.getModifyTime());
+            row.add(proc.getSource());
+            columns.add(row);
+        }
+    }
+
+    @Override
+    public void showCreateProcedure(FuncNameInfo procedureName, List<List<String>> columns) {
+        List<String> row = new ArrayList<>();
+        PlsqlStoredProcedure proc = client.getPlsqlStoredProcedure(procedureName.getName(),
+                                                                procedureName.getCtlId(), procedureName.getDbId());
+        if (proc != null) {
+            row.add(proc.getName());
+            row.add(proc.getSource());
+            columns.add(row);
+        }
+    }
 
     @Override
     public boolean exec(FuncNameInfo procedureName, Expr_func_paramsContext ctx) {
@@ -124,8 +156,8 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         }
     }
 
-    private void callWithParameters(Expr_func_paramsContext ctx, ParserRuleContext procCtx,
-            HashMap<String, Var> out, ArrayList<Var> actualParams) {
+    private void callWithParameters(Expr_func_paramsContext ctx, ParserRuleContext procCtx, HashMap<String, Var> out,
+            ArrayList<Var> actualParams) {
         if (procCtx instanceof Create_function_stmtContext) {
             Create_function_stmtContext func = (Create_function_stmtContext) procCtx;
             InMemoryFunctionRegistry.setCallParameters(func.multipartIdentifier().getText(), ctx, actualParams,
@@ -152,9 +184,8 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     }
 
     private Optional<PlsqlStoredProcedure> getProc(FuncNameInfo procedureName) {
-        return Optional.ofNullable(
-                client.getPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
-                        procedureName.getDb()));
+        return Optional.ofNullable(client.getPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtlId(),
+                procedureName.getDbId()));
     }
 
     private ArrayList<Var> getActualCallParameters(Expr_func_paramsContext actual) {
@@ -179,7 +210,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         }
         trace(ctx, "CREATE FUNCTION " + procedureName.toString());
         saveInCache(procedureName.toString(), ctx);
-        saveStoredProc(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
+        save(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
     }
 
     @Override
@@ -192,13 +223,30 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         }
         trace(ctx, "CREATE PROCEDURE " + procedureName.toString());
         saveInCache(procedureName.toString(), ctx);
-        saveStoredProc(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
+        save(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
     }
 
-    private void saveStoredProc(FuncNameInfo procedureName, String source, boolean isForce) {
-        client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
-                procedureName.getDb(),
-                ConnectContext.get().getQualifiedUser(), source, isForce);
+    @Override
+    public void save(FuncNameInfo procedureName, String source, boolean isForce) {
+        try {
+            SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String createTime = f.format(Calendar.getInstance().getTime());
+            String modifyTime = createTime;
+            if (isForce) {
+                // need to get create time and use that.
+                PlsqlStoredProcedure oldProc = client.getPlsqlStoredProcedure(procedureName.getName(),
+                                                        procedureName.getCtlId(), procedureName.getDbId());
+                if (oldProc != null) {
+                    createTime = oldProc.getCreateTime();
+                }
+            }
+            // TODO support packageName
+            client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtlId(), procedureName.getDbId(),
+                    "",
+                    ConnectContext.get().getQualifiedUser(), source, createTime, modifyTime, isForce);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to save procedure", e);
+        }
     }
 
     private void saveInCache(String name, ParserRuleContext procCtx) {

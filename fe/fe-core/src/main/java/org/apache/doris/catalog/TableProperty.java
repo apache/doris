@@ -26,6 +26,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -79,6 +80,8 @@ public class TableProperty implements Writable {
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
+    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.DEFAULT;
+
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
     private boolean enableLightSchemaChange = false;
@@ -105,6 +108,9 @@ public class TableProperty implements Writable {
     private long timeSeriesCompactionEmptyRowsetsThreshold
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
 
+    private long timeSeriesCompactionLevelThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -128,7 +134,7 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_REPLICATION_NUM:
                 buildReplicaAllocation();
                 break;
-            case OperationType.OP_MODIFY_IN_MEMORY:
+            case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                 buildInMemory();
                 buildMinLoadReplicaNum();
                 buildStorageMedium();
@@ -142,6 +148,8 @@ public class TableProperty implements Writable {
                 buildEnableSingleReplicaCompaction();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                buildTimeSeriesCompactionLevelThreshold();
+                buildTTLSeconds();
                 break;
             default:
                 break;
@@ -308,6 +316,17 @@ public class TableProperty implements Writable {
         return timeSeriesCompactionEmptyRowsetsThreshold;
     }
 
+    public TableProperty buildTimeSeriesCompactionLevelThreshold() {
+        timeSeriesCompactionLevelThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionLevelThreshold() {
+        return timeSeriesCompactionLevelThreshold;
+    }
+
     public TableProperty buildMinLoadReplicaNum() {
         minLoadReplicaNum = Short.parseShort(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, "-1"));
@@ -427,6 +446,13 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildInvertedIndexStorageFormat() {
+        invertedIndexStorageFormat = TInvertedIndexStorageFormat.valueOf(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                TInvertedIndexStorageFormat.DEFAULT.name()));
+        return this;
+    }
+
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
@@ -488,6 +514,10 @@ public class TableProperty implements Writable {
             return TStorageFormat.V2;
         }
         return storageFormat;
+    }
+
+    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+        return invertedIndexStorageFormat;
     }
 
     public DataSortInfo getDataSortInfo() {
@@ -570,6 +600,7 @@ public class TableProperty implements Writable {
                 .buildMinLoadReplicaNum()
                 .buildStorageMedium()
                 .buildStorageFormat()
+                .buildInvertedIndexStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
@@ -584,7 +615,8 @@ public class TableProperty implements Writable {
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
-                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold()
+                .buildTimeSeriesCompactionLevelThreshold();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
@@ -612,5 +644,22 @@ public class TableProperty implements Writable {
                 && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
         }
+    }
+
+    // Return null if storage vault has not been set
+    public String getStorageVaultId() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID);
+    }
+
+    public void setStorageVaultId(String storageVaultId) {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, storageVaultId);
+    }
+
+    public String getStorageVauldName() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
+    }
+
+    public void setStorageVaultName(String storageVaultName) {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
     }
 }

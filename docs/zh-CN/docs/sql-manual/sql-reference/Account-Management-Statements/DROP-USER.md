@@ -43,7 +43,7 @@ DROP USER
         user@['domain']
 ```
 
- 删除指定的 user identitiy.
+ 删除指定的 user identity.
 
 ### Example
 

@@ -2595,6 +2595,357 @@ false	true	true	false	false
 5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
 5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
 
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !right_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !hash_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !right_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !hash_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !right_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !hash_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !right_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !hash_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !right_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !hash_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !left_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !right_join --
+1	\N	null	\N	\N	8.9	1	\N	null	\N	\N	8.9
+1	\N	null	\N	\N	8.9	2	\N	2	\N	\N	8.9
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+2	\N	2	\N	\N	8.9	2	\N	2	\N	\N	8.9
+2	\N	2	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+2	\N	2	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !hash_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	1	\N	null	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	2	\N	2	\N	\N	8.9
+\N	\N	\N	\N	\N	\N	3	\N	null	2019-09-09	\N	8.9
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+
+-- !cross_join --
+\N	\N	\N	\N	\N	\N	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	1	\N	null	\N	\N	8.9
+3	\N	null	2019-09-09	\N	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	1	\N	null	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
+
 -- !join_null_value1 --
 
 -- !join_null_value2 --
@@ -2888,4 +3239,7 @@ false	true	true	false	false
 15
 
 -- !test --
+
+-- !sql --
+4
 

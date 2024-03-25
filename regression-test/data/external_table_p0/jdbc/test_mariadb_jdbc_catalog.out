@@ -2,6 +2,11 @@
 -- !sql --
 internal
 
+-- !show_db --
+doris_test
+information_schema
+performance_schema
+
 -- !sql --
 internal
 
@@ -23,6 +28,8 @@ mariadb_jdbc_catalog
 115	abg
 
 -- !information_schema --
+active_queries
+backend_active_tasks
 character_sets
 collations
 column_privileges
@@ -36,6 +43,7 @@ key_column_usage
 metadata_name_ids
 parameters
 partitions
+processlist
 profiling
 referential_constraints
 routines
@@ -50,6 +58,7 @@ tables
 triggers
 user_privileges
 views
+workload_groups
 
 -- !auto_default_t --
 0

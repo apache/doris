@@ -17,6 +17,7 @@
 
 #include "async_result_writer.h"
 
+#include "common/status.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -86,33 +87,35 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
     return block;
 }
 
-void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
+Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
     // Should set to false here, to
     _writer_thread_closed = false;
+    if (_finish_dependency) {
+        _finish_dependency->block();
+    }
     // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
     if (state->get_query_ctx() && state->get_query_ctx()->get_non_pipe_exec_thread_pool()) {
         ThreadPool* pool_ptr = state->get_query_ctx()->get_non_pipe_exec_thread_pool();
-        static_cast<void>(pool_ptr->submit_func([this, state, profile, task_ctx]() {
+        RETURN_IF_ERROR(pool_ptr->submit_func([this, state, profile, task_ctx]() {
             auto task_lock = task_ctx.lock();
             if (task_lock == nullptr) {
-                _writer_thread_closed = true;
                 return;
             }
             this->process_block(state, profile);
         }));
     } else {
-        static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
                 [this, state, profile, task_ctx]() {
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
-                        _writer_thread_closed = true;
                         return;
                     }
                     this->process_block(state, profile);
                 }));
     }
+    return Status::OK();
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
@@ -161,6 +164,8 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     if (_writer_status.ok() && _eos) {
         _writer_status = finish(state);
     }
+    // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
+    _set_ready_to_finish();
 
     Status close_st = close(_writer_status);
     // If it is already failed before, then not update the write status so that we could get
@@ -169,6 +174,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         _writer_status = close_st;
     }
     _writer_thread_closed = true;
+}
+
+void AsyncResultWriter::_set_ready_to_finish() {
     if (_finish_dependency) {
         _finish_dependency->set_ready();
     }

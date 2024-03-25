@@ -59,6 +59,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
@@ -234,27 +236,33 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return scan;
     }
 
-    private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
-                                       CascadesContext cascadesContext) {
+    private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
+                                               List<String> tableQualifier, CascadesContext cascadesContext) {
         switch (table.getType()) {
             case OLAP:
             case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
-                Plan viewPlan = parseAndAnalyzeView(((View) table).getInlineViewDef(), cascadesContext);
-                return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
+                View view = (View) table;
+                String inlineViewDef = view.getInlineViewDef();
+                Plan viewBody = parseAndAnalyzeView(inlineViewDef, cascadesContext);
+                LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
+                return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
             case HMS_EXTERNAL_TABLE:
-                if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {
-                    String hiveCatalog = ((HMSExternalTable) table).getCatalog().getName();
-                    String ddlSql = ((HMSExternalTable) table).getViewText();
+                HMSExternalTable hmsTable = (HMSExternalTable) table;
+                if (Config.enable_query_hive_views && hmsTable.isView()) {
+                    String hiveCatalog = hmsTable.getCatalog().getName();
+                    String ddlSql = hmsTable.getViewText();
                     Plan hiveViewPlan = parseAndAnalyzeHiveView(hiveCatalog, ddlSql, cascadesContext);
                     return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                 }
+                hmsTable.setScanParams(unboundRelation.getScanParams());
                 return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier,
                     unboundRelation.getTableSample());
             case ICEBERG_EXTERNAL_TABLE:
             case PAIMON_EXTERNAL_TABLE:
             case MAX_COMPUTE_EXTERNAL_TABLE:
+            case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table, tableQualifier,
                     unboundRelation.getTableSample());
             case SCHEMA:
@@ -266,6 +274,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 return new LogicalOdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
             case ES_EXTERNAL_TABLE:
                 return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
+            case TEST_EXTERNAL_TABLE:
+                return new LogicalTestScan(unboundRelation.getRelationId(), table, tableQualifier);
             default:
                 throw new AnalysisException("Unsupported tableType " + table.getType());
         }
@@ -291,7 +301,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
-        viewContext.newAnalyzer(true, customTableResolver).analyze();
+        viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
+            viewContext.newAnalyzer(true, customTableResolver).analyze();
+        });
+        parentContext.addPlanProcesses(viewContext.getPlanProcesses());
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }

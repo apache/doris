@@ -261,7 +261,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         newConjuncts.addAll(simpleConjuncts);
                     }
                     Plan newJoin = join.withConjunctsChildren(join.getHashJoinConjuncts(),
-                            newConjuncts.build(), leftChildPlan, rightChildPlan);
+                            newConjuncts.build(), leftChildPlan, rightChildPlan, null);
                     return newJoin;
                 }))
         );

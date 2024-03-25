@@ -113,6 +113,9 @@ public:
 
     Status close(Status s = Status::OK()) override;
 
+    Status test_connection();
+    Status clean_datasource();
+
 protected:
     JdbcConnectorParam _conn_param;
 
@@ -131,13 +134,16 @@ private:
                                   int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
+    jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
 
     bool _closed = false;
+    jclass _executor_factory_clazz;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
     jclass _executor_string_clazz;
     jobject _executor_obj;
+    jmethodID _executor_factory_ctor_id;
     jmethodID _executor_ctor_id;
     jmethodID _executor_stmt_write_id;
     jmethodID _executor_read_id;
@@ -152,6 +158,8 @@ private:
     jmethodID _executor_begin_trans_id;
     jmethodID _executor_finish_trans_id;
     jmethodID _executor_abort_trans_id;
+    jmethodID _executor_test_connection_id;
+    jmethodID _executor_clean_datasource_id;
 
     std::map<int, int> _map_column_idx_to_cast_idx_hll;
     std::vector<DataTypePtr> _input_hll_string_types;

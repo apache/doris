@@ -53,7 +53,7 @@ public:
     AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
 
-    Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override;
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return false; }
 
@@ -67,6 +67,7 @@ private:
     int64_t _desired_num_rows;
     const std::string _subquery_string;
     TAssertion::type _assertion;
+    bool _should_convert_output_to_nullable;
 };
 
 } // namespace pipeline

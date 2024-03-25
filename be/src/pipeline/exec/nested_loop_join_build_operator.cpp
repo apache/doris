@@ -87,7 +87,7 @@ Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
 }
 
 Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* block,
-                                              SourceState source_state) {
+                                              bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
@@ -104,7 +104,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
         }
     }
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         COUNTER_UPDATE(local_state._build_rows_counter, local_state._build_rows);
         vectorized::RuntimeFilterBuild<NestedLoopJoinBuildSinkLocalState> rf_ctx(&local_state);
         RETURN_IF_ERROR(rf_ctx(state));

@@ -16,5 +16,50 @@
 // under the License.
 
 testGroups = "p0"
-testDirectories = "ddl_p0,database_p0,load,load_p0,query_p0,table_p0,account_p0,autobucket,bitmap_functions,bloom_filter_p0,cast_decimal_to_boolean,cast_double_to_decimal,compression_p0,connector_p0,correctness,correctness_p0,csv_header_p0,data_model_p0,database_p0,datatype_p0,delete_p0,demo_p0,empty_relation,export_p0,external_table_p0,fault_injection_p0,flink_connector_p0,insert_overwrite_p0,insert_p0,internal_schema_p0,javaudf_p0,job_p0,json_p0,jsonb_p0,meta_action_p0,metrics_p0,mtmv_p0,mysql_fulltext,mysql_ssl_p0,mysql_tupleconvert_p0,mysqldump_p0,nereids_arith_p0,nereids_function_p0,nereids_p0,nereids_rules_p0,nereids_syntax_p0,nereids_tpcds_p0,nereids_tpch_p0,partition_p0,performance_p0,point_query_p0,postgres,query_profile,row_store,show_p0,source_p0,sql_block_rule_p0,ssb_unique_load_zstd_p0,ssb_unique_sql_zstd_p0,statistics,table_p0,tpch_unique_sql_zstd_p0,trino_p0,types,types_p0,update,version_p0,view_p0,with_clause_p0,workload_manager_p0"
+// exclude groups and exclude suites is more prior than include groups and include suites.
+// keep them in lexico order(add/remove cases between the sentinals and sort):
+// * sort lines in vim: select lines and then type :sort
+// * sort lines in vscode: https://ulfschneider.io/2023-09-01-sort-in-vscode/
+excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "set_and_unset_variable," +
+    "set_replica_status," + // not a case for cloud mode, no need to run
+    "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
+    "test_bitmap_filter," +
+    "test_compaction_uniq_cluster_keys_with_delete," +
+    "test_compaction_uniq_keys_cluster_key," +
+    "test_disable_move_memtable," +
+    "test_dump_image," +
+    "test_index_failure_injection," +
+    "test_information_schema_external," +
+    "test_insert_move_memtable," +
+    "test_materialized_view_move_memtable," +
+    "test_pk_uk_case_cluster," +
+    "test_point_query_cluster_key," +
+    "test_profile," +
+    "test_publish_timeout," +
+    "test_refresh_mtmv," + // not supported yet
+    "test_report_version_missing," +
+    "test_set_partition_version," +
+    "test_show_transaction," + // not supported yet
+    "test_spark_load," +
+    "test_stream_load_move_memtable," +
+    "test_stream_load_new_move_memtable," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
+
+excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "cloud/multi_cluster," + // run in specific regression pipeline
+    "workload_manager_p1," +
+    "nereids_rules_p0/subquery," +
+    "unique_with_mow_p0/cluster_key," +
+    "unique_with_mow_p0/ssb_unique_sql_zstd_cluster," +
+    "unique_with_mow_p0/ssb_unique_load_zstd_c," +
+    "nereids_rules_p0/mv," +
+    "backup_restore," + // not a case for cloud mode, no need to run
+    "cold_heat_separation," +
+    "storage_medium_p0," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+
+max_failure_num = 100
+
+// vim: tw=10086 et ts=4 sw=4:

@@ -70,7 +70,9 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
             .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
             .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
-            .add(WorkloadGroup.SCAN_THREAD_NUM)
+            .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
+            .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
+            .add(WorkloadGroup.SPILL_THRESHOLD_LOW_WATERMARK).add(WorkloadGroup.SPILL_THRESHOLD_HIGH_WATERMARK)
             .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
@@ -86,15 +88,14 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public void startUpdateThread() {
         WorkloadGroupMgr wgMgr = this;
-        updatePropThread = new Thread(new Runnable() {
-            public void run() {
-                while (true) {
-                    try {
-                        wgMgr.resetQueryQueueProp();
-                        Thread.sleep(Config.query_queue_update_interval_ms);
-                    } catch (Throwable e) {
-                        LOG.warn("reset query queue failed ", e);
-                    }
+        updatePropThread = new Thread(() -> {
+            Thread.currentThread().setName("reset-query-queue-prop");
+            while (true) {
+                try {
+                    wgMgr.resetQueryQueueProp();
+                    Thread.sleep(Config.query_queue_update_interval_ms);
+                } catch (Throwable e) {
+                    LOG.warn("reset query queue failed ", e);
                 }
             }
         });
@@ -135,6 +136,13 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public WorkloadGroupMgr() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(WorkloadGroup.CPU_SHARE, "1024");
+        properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+        WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(1, DEFAULT_GROUP_NAME, properties);
+        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
+        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
     }
 
     public static WorkloadGroupMgr read(DataInput in) throws IOException {
@@ -158,12 +166,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         lock.writeLock().unlock();
     }
 
-    public void init() {
-        if (Config.enable_workload_group || Config.use_fuzzy_session_variable /* for github workflow */) {
-            checkAndCreateDefaultGroup();
-        }
-    }
-
     public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
         String groupName = getWorkloadGroupNameAndCheckPriv(context);
         List<TPipelineWorkloadGroup> workloadGroups = Lists.newArrayList();
@@ -181,13 +183,48 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return workloadGroups;
     }
 
-    public WorkloadGroup getWorkloadGroupById(long wgId) {
+    public long getWorkloadGroup(UserIdentity currentUser, String groupName) throws UserException {
+        Long workloadId = getWorkloadGroupIdByName(groupName);
+        if (workloadId == null) {
+            throw new UserException("Workload group " + groupName + " does not exist");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkWorkloadGroupPriv(currentUser, groupName, PrivPredicate.USAGE)) {
+            ErrorReport.reportAnalysisException(
+                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'.",
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName);
+        }
+        return workloadId.longValue();
+    }
+
+    public List<TPipelineWorkloadGroup> getTWorkloadGroupById(long wgId) {
+        List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
         readLock();
         try {
-            return idToWorkloadGroup.get(wgId);
+            WorkloadGroup wg = idToWorkloadGroup.get(wgId);
+            if (wg != null) {
+                tWorkloadGroups.add(wg.toThrift());
+            }
         } finally {
             readUnlock();
         }
+        return tWorkloadGroups;
+    }
+
+    public List<TPipelineWorkloadGroup> getTWorkloadGroupByUserIdentity(UserIdentity user) throws UserException {
+        String groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(user.getQualifiedUser());
+        List<TPipelineWorkloadGroup> ret = new ArrayList<>();
+        readLock();
+        try {
+            WorkloadGroup wg = nameToWorkloadGroup.get(groupName);
+            if (wg == null) {
+                throw new UserException("can not find workload group " + groupName);
+            }
+            ret.add(wg.toThrift());
+        } finally {
+            readUnlock();
+        }
+        return ret;
     }
 
     public List<TopicInfo> getPublishTopicInfo() {
@@ -237,29 +274,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName);
         }
         return groupName;
-    }
-
-    private void checkAndCreateDefaultGroup() {
-        WorkloadGroup defaultWorkloadGroup = null;
-        writeLock();
-        try {
-            if (nameToWorkloadGroup.containsKey(DEFAULT_GROUP_NAME)) {
-                return;
-            }
-            Map<String, String> properties = Maps.newHashMap();
-            properties.put(WorkloadGroup.CPU_SHARE, "1024");
-            properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
-            properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-            defaultWorkloadGroup = WorkloadGroup.create(DEFAULT_GROUP_NAME, properties);
-            nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-            idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
-            Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(defaultWorkloadGroup);
-        } catch (DdlException e) {
-            LOG.warn("Create workload group " + DEFAULT_GROUP_NAME + " fail");
-        } finally {
-            writeUnlock();
-        }
-        LOG.info("Create workload group success: {}", defaultWorkloadGroup);
     }
 
     public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {

@@ -42,15 +42,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
  * Internal representation of partition-related metadata.
  */
 public class CloudPartition extends Partition {
-    // Every partition starts from version 1, version 1 has no data
-    public static long EMPTY_VERSION = 1;
-
     private static final Logger LOG = LogManager.getLogger(CloudPartition.class);
 
     // not Serialized
@@ -58,6 +56,8 @@ public class CloudPartition extends Partition {
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
+
+    private ReentrantLock lock = new ReentrantLock(true);
 
     public CloudPartition(long id, String name, MaterializedIndex baseIndex,
                           DistributionInfo distributionInfo, long dbId, long tableId) {
@@ -94,8 +94,15 @@ public class CloudPartition extends Partition {
         return;
     }
 
-    protected void setCachedVisibleVersion(long version) {
-        super.setVisibleVersion(version);
+    public void setCachedVisibleVersion(long version) {
+        // we only care the version should increase monotonically and ignore the readers
+        LOG.debug("setCachedVisibleVersion use CloudPartition {}, version: {}, old version: {}",
+                super.getId(), version, super.getVisibleVersion());
+        lock.lock();
+        if (version > super.getVisibleVersion()) {
+            super.setVisibleVersion(version);
+        }
+        lock.unlock();
     }
 
     @Override
@@ -116,17 +123,14 @@ public class CloudPartition extends Partition {
             long version = -1;
             if (resp.getStatus().getCode() == MetaServiceCode.OK) {
                 version = resp.getVersion();
+                // Cache visible version, see hasData() for details.
+                setCachedVisibleVersion(version);
             } else {
                 assert resp.getStatus().getCode() == MetaServiceCode.VERSION_NOT_FOUND;
-                version = 0;
+                version = Partition.PARTITION_INIT_VERSION;
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get version from meta service, version: {}, partition: {}", version, super.getId());
-            }
-            // Cache visible version, see hasData() for details.
-            super.setVisibleVersion(version);
-            if (version == 0 && isEmptyPartitionPruneDisabled()) {
-                version = 1;
             }
             return version;
         } catch (RpcException e) {
@@ -158,7 +162,7 @@ public class CloudPartition extends Partition {
 
             int size = versions.size();
             for (int i = 0; i < size; i++) {
-                if (versions.get(i) > CloudPartition.EMPTY_VERSION) {
+                if (versions.get(i) > Partition.PARTITION_INIT_VERSION) {
                     nonEmptyPartitionIds.add(unknowns.get(i).getId());
                 }
             }
@@ -192,7 +196,7 @@ public class CloudPartition extends Partition {
         int size = versions.size();
         for (int i = 0; i < size; ++i) {
             Long version = versions.get(i);
-            if (version > EMPTY_VERSION) {
+            if (version > Partition.PARTITION_INIT_VERSION) {
                 partitions.get(i).setCachedVisibleVersion(versions.get(i));
             }
         }
@@ -287,10 +291,6 @@ public class CloudPartition extends Partition {
         return;
     }
 
-    @Override
-    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
-    }
-
     // Determine whether data this partition has, according to the cached visible version.
     public boolean hasDataCached() {
         // In order to determine whether a partition is empty, a get_version RPC is issued to
@@ -303,7 +303,7 @@ public class CloudPartition extends Partition {
 
         // Every partition starts from version 1, version 1 has no data.
         // So as long as version is greater than 1, it can be determined that there is data here.
-        return super.getVisibleVersion() > EMPTY_VERSION;
+        return super.getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
     }
 
     /**
@@ -321,7 +321,7 @@ public class CloudPartition extends Partition {
             profile.incGetPartitionVersionByHasDataCount();
         }
 
-        return getVisibleVersion() > EMPTY_VERSION;
+        return getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
     }
 
     private static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)

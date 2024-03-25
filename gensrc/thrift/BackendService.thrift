@@ -68,6 +68,8 @@ struct TRoutineLoadTask {
     15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     16: optional bool is_multi_table
     17: optional bool memtable_on_sink_node;
+    18: optional string qualified_user
+    19: optional string cloud_cluster
 }
 
 struct TKafkaMetaProxyRequest {
@@ -258,17 +260,16 @@ struct TWorkloadGroupInfo {
   7: optional bool enable_memory_overcommit
   8: optional bool enable_cpu_hard_limit
   9: optional i32 scan_thread_num
-}
-
-struct TWorkloadMoveQueryToGroupAction {
-    1: optional Types.TUniqueId query_id
-    2: optional i64 workload_group_id
+  10: optional i32 max_remote_scan_thread_num
+  11: optional i32 min_remote_scan_thread_num
+  12: optional i32 spill_threshold_low_watermark
+  13: optional i32 spill_threshold_high_watermark
 }
 
 enum TWorkloadMetricType {
     QUERY_TIME
-    SCAN_ROWS
-    SCAN_BYTES
+    BE_SCAN_ROWS
+    BE_SCAN_BYTES
 }
 
 enum TCompareOperator {
@@ -307,8 +308,7 @@ struct TWorkloadSchedPolicy {
 
 struct TopicInfo {
     1: optional TWorkloadGroupInfo workload_group_info
-    2: optional TWorkloadMoveQueryToGroupAction move_action
-    3: optional TWorkloadSchedPolicy workload_sched_policy
+    2: optional TWorkloadSchedPolicy workload_sched_policy
 }
 
 struct TPublishTopicRequest {

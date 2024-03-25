@@ -73,6 +73,7 @@ import java.util.stream.Collectors;
 public class ExportCommand extends Command implements ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
+    public static final String DATA_CONSISTENCY = "data_consistency";
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
@@ -81,6 +82,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
+            .add(DATA_CONSISTENCY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
@@ -309,6 +311,17 @@ public class ExportCommand extends Command implements ForwardWithSync {
         // set sessions
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
+
+        // set data consistency
+        String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
+        if (dataConsistencyStr != null) {
+            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_PARTITION)) {
+                throw new AnalysisException("The value of data_consistency is invalid, only partition is allowed!");
+            }
+            exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
+        } else {
+            exportJob.setDataConsistency(ExportJob.CONSISTENT_NONE);
+        }
 
         // Must copy session variable, because session variable may be changed during export job running.
         SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(

@@ -76,7 +76,7 @@ public:
     Status sink(Block* block, bool eos);
 
     // Add the IO thread task process block() to thread pool to dispose the IO
-    void start_writer(RuntimeState* state, RuntimeProfile* profile);
+    Status start_writer(RuntimeState* state, RuntimeProfile* profile);
 
     Status get_writer_status() {
         std::lock_guard l(_m);
@@ -95,6 +95,7 @@ private:
     void process_block(RuntimeState* state, RuntimeProfile* profile);
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
+    void _set_ready_to_finish();
 
     std::unique_ptr<Block> _get_block_from_queue();
 

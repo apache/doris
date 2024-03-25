@@ -45,7 +45,7 @@ suite("test_agg_state") {
     sql """
             create table a_table(
                 k1 int null,
-                k2 agg_state max_by(int not null,int)
+                k2 agg_state<max_by(int not null,int)> generic
             )
             aggregate key (k1)
             distributed BY hash(k1) buckets 3
@@ -71,7 +71,6 @@ suite("test_agg_state") {
 
     test {
         sql "select avg_state(1) from d_table;"
-        exception "write_column_to_pb with type ColumnFixedLengthObject"
     }
 
     qt_ndv """select ndv_merge(t) from (select ndv_union(ndv_state(1)) as t from d_table group by k1)p;"""

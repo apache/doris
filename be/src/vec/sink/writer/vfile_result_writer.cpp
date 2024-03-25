@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
+#include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -101,10 +102,9 @@ void VFileResultWriter::_init_profile(RuntimeProfile* parent_profile) {
 Status VFileResultWriter::_create_success_file() {
     std::string file_name;
     RETURN_IF_ERROR(_get_success_file_name(&file_name));
-    RETURN_IF_ERROR(FileFactory::create_file_writer(
+    _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
-            _file_writer_impl));
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name));
     // must write somthing because s3 file writer can not writer empty file
     RETURN_IF_ERROR(_file_writer_impl->append({"success"}));
     return _file_writer_impl->close();
@@ -137,11 +137,9 @@ Status VFileResultWriter::_create_next_file_writer() {
 }
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
-    RETURN_IF_ERROR(FileFactory::create_file_writer(
+    _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
-            _file_writer_impl));
-    RETURN_IF_ERROR(_file_writer_impl->open());
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
@@ -199,7 +197,7 @@ Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
 // S3: {file_path}{fragment_instance_id}_
 // BROKER: {file_path}{fragment_instance_id}_
 
-Status VFileResultWriter::_get_file_url(std::string* file_url) {
+void VFileResultWriter::_get_file_url(std::string* file_url) {
     std::stringstream ss;
     if (_storage_type == TStorageBackendType::LOCAL) {
         ss << "file:///" << BackendOptions::get_localhost();
@@ -207,7 +205,6 @@ Status VFileResultWriter::_get_file_url(std::string* file_url) {
     ss << _file_opts->file_path;
     ss << print_id(_fragment_instance_id) << "_";
     *file_url = ss.str();
-    return Status::OK();
 }
 
 std::string VFileResultWriter::_file_format_to_name() {
@@ -306,7 +303,7 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
-    static_cast<void>(_get_file_url(&file_url));
+    _get_file_url(&file_url);
     std::stringstream ss;
     ss << file_url << "*";
     file_url = ss.str();
@@ -383,25 +380,20 @@ Status VFileResultWriter::_fill_result_block() {
 Status VFileResultWriter::_delete_dir() {
     // get dir of file_path
     std::string dir = _file_opts->file_path.substr(0, _file_opts->file_path.find_last_of('/') + 1);
-    std::shared_ptr<io::FileSystem> file_system = nullptr;
     switch (_storage_type) {
     case TStorageBackendType::LOCAL:
-        file_system = io::LocalFileSystem::create(dir, "");
-        break;
+        return io::global_local_filesystem()->delete_directory(dir);
     case TStorageBackendType::BROKER: {
-        std::shared_ptr<io::BrokerFileSystem> broker_fs = nullptr;
-        RETURN_IF_ERROR(io::BrokerFileSystem::create(_file_opts->broker_addresses[0],
-                                                     _file_opts->broker_properties, &broker_fs));
-        file_system = broker_fs;
-        break;
+        auto fs = DORIS_TRY(io::BrokerFileSystem::create(_file_opts->broker_addresses[0],
+                                                         _file_opts->broker_properties,
+                                                         io::FileSystem::TMP_FS_ID));
+        return fs->delete_directory(dir);
     }
     case TStorageBackendType::HDFS: {
         THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
-        std::shared_ptr<io::HdfsFileSystem> hdfs_fs = nullptr;
-        RETURN_IF_ERROR(
-                io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &hdfs_fs));
-        file_system = hdfs_fs;
-        break;
+        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
+                                                       io::FileSystem::TMP_FS_ID, nullptr));
+        return fs->delete_directory(dir);
     }
     case TStorageBackendType::S3: {
         S3URI s3_uri(dir);
@@ -410,28 +402,29 @@ Status VFileResultWriter::_delete_dir() {
         std::shared_ptr<io::S3FileSystem> s3_fs = nullptr;
         RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(
                 _file_opts->broker_properties, s3_uri, &s3_conf));
-        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &s3_fs));
-        file_system = s3_fs;
-        break;
+        auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, io::FileSystem::TMP_FS_ID));
+        return fs->delete_directory(dir);
     }
     default:
         return Status::NotSupported("Unsupported storage type: {}", std::to_string(_storage_type));
     }
-    RETURN_IF_ERROR(file_system->delete_directory(dir));
-    return Status::OK();
 }
 
-Status VFileResultWriter::close(Status) {
-    // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
-    // must be outside the `_close_file_writer()`.
-    // because `_close_file_writer()` may be called in deconstructor,
-    // at that time, the RuntimeState may already been deconstructed,
-    // so does the profile in RuntimeState.
-    if (_written_rows_counter) {
-        COUNTER_SET(_written_rows_counter, _written_rows);
-        SCOPED_TIMER(_writer_close_timer);
+Status VFileResultWriter::close(Status exec_status) {
+    Status st = exec_status;
+    if (st.ok()) {
+        // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
+        // must be outside the `_close_file_writer()`.
+        // because `_close_file_writer()` may be called in deconstructor,
+        // at that time, the RuntimeState may already been deconstructed,
+        // so does the profile in RuntimeState.
+        if (_written_rows_counter) {
+            COUNTER_SET(_written_rows_counter, _written_rows);
+            SCOPED_TIMER(_writer_close_timer);
+        }
+        st = _close_file_writer(true);
     }
-    return _close_file_writer(true);
+    return st;
 }
 
 } // namespace doris::vectorized

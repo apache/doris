@@ -20,12 +20,16 @@
 #include <fmt/format.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <stdlib.h>
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
@@ -51,9 +55,10 @@ namespace doris {
 Reusable::~Reusable() {}
 constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                      size_t block_size) {
+                      const TQueryOptions& query_options, size_t block_size) {
     SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
+    _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
@@ -109,7 +114,7 @@ int64_t Reusable::mem_size() const {
 
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
     DCHECK(ExecEnv::GetInstance()->get_lookup_connection_cache() == nullptr);
-    LookupConnectionCache* res = new LookupConnectionCache(capacity);
+    auto* res = new LookupConnectionCache(capacity);
     return res;
 }
 
@@ -121,7 +126,7 @@ RowCache::RowCache(int64_t capacity, int num_shards)
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
     DCHECK(ExecEnv::GetInstance()->get_row_cache() == nullptr);
-    RowCache* res = new RowCache(capacity, num_shards);
+    auto* res = new RowCache(capacity, num_shards);
     return res;
 }
 
@@ -131,29 +136,30 @@ RowCache* RowCache::instance() {
 
 bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
     const std::string& encoded_key = key.encode();
-    auto lru_handle = cache()->lookup(encoded_key);
+    auto* lru_handle = LRUCachePolicy::lookup(encoded_key);
     if (!lru_handle) {
         // cache miss
         return false;
     }
-    *handle = CacheHandle(cache(), lru_handle);
+    *handle = CacheHandle(this, lru_handle);
     return true;
 }
 
 void RowCache::insert(const RowCacheKey& key, const Slice& value) {
-    auto deleter = [](const doris::CacheKey& key, void* value) { free(value); };
     char* cache_value = static_cast<char*>(malloc(value.size));
     memcpy(cache_value, value.data, value.size);
+    auto* row_cache_value = new RowCacheValue;
+    row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto handle =
-            cache()->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
+    auto* handle = LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, value.size,
+                                          CachePriority::NORMAL);
     // handle will released
-    auto tmp = CacheHandle {cache(), handle};
+    auto tmp = CacheHandle {this, handle};
 }
 
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
-    cache()->erase(encoded_key);
+    LRUCachePolicy::erase(encoded_key);
 }
 
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
@@ -182,22 +188,26 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                 reinterpret_cast<const uint8_t*>(request->output_expr().data()), &len, false,
                 &t_output_exprs));
         _reusable = reusable_ptr;
+        TQueryOptions t_query_options;
+        len = request->query_options().size();
+        if (request->has_query_options()) {
+            RETURN_IF_ERROR(deserialize_thrift_msg(
+                    reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
+                    &t_query_options));
+        }
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
-            RETURN_IF_ERROR(
-                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, s_preallocted_blocks_num));
+            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
+                                               s_preallocted_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
+            RETURN_IF_ERROR(
+                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options, 1));
         }
     }
-    // TODO(plat1ko): CloudStorageEngine
-    _tablet = ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_tablet(
-            request->tablet_id());
-    if (_tablet == nullptr) {
-        LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
-                     << "] is not exist";
-        return Status::NotFound(fmt::format("tablet {} not exist", request->tablet_id()));
+    _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
+    if (request->has_version() && request->version() >= 0) {
+        _version = request->version();
     }
     RETURN_IF_ERROR(_init_keys(request));
     _result_block = _reusable->get_block();
@@ -267,6 +277,10 @@ Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     // 2. lookup row location
     Status st;
+    if (_version >= 0) {
+        CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+    }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());

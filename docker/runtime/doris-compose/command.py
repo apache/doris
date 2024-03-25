@@ -31,8 +31,14 @@ LOG = utils.get_logger()
 
 
 # return for_all, related_nodes, related_node_num
-def get_ids_related_nodes(cluster, fe_ids, be_ids, ignore_not_exists=False):
-    if fe_ids is None and be_ids is None:
+def get_ids_related_nodes(cluster,
+                          fe_ids,
+                          be_ids,
+                          ms_ids,
+                          recycle_ids,
+                          fdb_ids,
+                          ignore_not_exists=False):
+    if fe_ids is None and be_ids is None and ms_ids is None and recycle_ids is None and fdb_ids is None:
         return True, None, cluster.get_all_nodes_num()
 
     def get_ids_related_nodes_with_type(node_type, ids):
@@ -55,9 +61,17 @@ def get_ids_related_nodes(cluster, fe_ids, be_ids, ignore_not_exists=False):
                         raise e
             return nodes
 
-    nodes = get_ids_related_nodes_with_type(
-        CLUSTER.Node.TYPE_FE, fe_ids) + get_ids_related_nodes_with_type(
-            CLUSTER.Node.TYPE_BE, be_ids)
+    type_ids = [
+        (CLUSTER.Node.TYPE_FE, fe_ids),
+        (CLUSTER.Node.TYPE_BE, be_ids),
+        (CLUSTER.Node.TYPE_MS, ms_ids),
+        (CLUSTER.Node.TYPE_RECYCLE, recycle_ids),
+        (CLUSTER.Node.TYPE_FDB, fdb_ids),
+    ]
+
+    nodes = []
+    for node_type, ids in type_ids:
+        nodes.extend(get_ids_related_nodes_with_type(node_type, ids))
 
     related_node_num = len(nodes)
 
@@ -68,6 +82,9 @@ class Command(object):
 
     def __init__(self, name):
         self.name = name
+
+    def print_use_time(self):
+        return True
 
     def add_parser(self, args_parsers):
         raise Exception("No implemented")
@@ -88,12 +105,36 @@ class Command(object):
                 "if specific --fe-id but not specific ids, apply to all fe. Example: '--fe-id 2 3' will select fe-2 and fe-3.")
         group.add_argument("--be-id", nargs="*", type=int, help="Specify up be ids, support multiple ids, " \
                 "if specific --be-id but not specific ids, apply to all be. Example: '--be-id' will select all backends.")
+        group.add_argument(
+            "--ms-id",
+            nargs="*",
+            type=int,
+            help=
+            "Specify up ms ids, support multiple ids. Only use in cloud cluster."
+        )
+        group.add_argument(
+            "--recycle-id",
+            nargs="*",
+            type=int,
+            help=
+            "Specify up recycle ids, support multiple ids. Only use in cloud cluster."
+        )
+        group.add_argument(
+            "--fdb-id",
+            nargs="*",
+            type=int,
+            help=
+            "Specify up fdb ids, support multiple ids. Only use in cloud cluster."
+        )
 
     def _get_parser_bool_action(self, is_store_true):
-        if sys.version_info.major == 3 and sys.version_info.minor >= 9:
+        if self._support_boolean_action():
             return argparse.BooleanOptionalAction
         else:
             return "store_true" if is_store_true else "store_false"
+
+    def _support_boolean_action(self):
+        return sys.version_info.major == 3 and sys.version_info.minor >= 9
 
 
 class SimpleCommand(Command):
@@ -104,7 +145,8 @@ class SimpleCommand(Command):
         self.help = help
 
     def add_parser(self, args_parsers):
-        help = self.help + " If none of --fe-id, --be-id is specific, then apply to all containers."
+        help = self.help + " If none of --fe-id, --be-id, --ms-id, --recycle-id, --fdb-id is specific, "\
+                "then apply to all containers."
         parser = args_parsers.add_parser(self.command, help=help)
         parser.add_argument("NAME", help="Specify cluster name.")
         self._add_parser_ids_args(parser)
@@ -113,7 +155,8 @@ class SimpleCommand(Command):
     def run(self, args):
         cluster = CLUSTER.Cluster.load(args.NAME)
         _, related_nodes, related_node_num = get_ids_related_nodes(
-            cluster, args.fe_id, args.be_id)
+            cluster, args.fe_id, args.be_id, args.ms_id, args.recycle_id,
+            args.fdb_id)
         utils.exec_docker_compose_command(cluster.get_compose_file(),
                                           self.command,
                                           nodes=related_nodes)
@@ -128,13 +171,22 @@ class UpCommand(Command):
     def add_parser(self, args_parsers):
         parser = args_parsers.add_parser("up", help="Create and upgrade doris containers, "\
                 "or add new containers. " \
-                "If none of --add-fe-num, --add-be-num, --fe-id, --be-id is specific, " \
+                "If none of --add-fe-num, --add-be-num, --add-ms-num, --add-recycle-num, "\
+                "--fe-id, --be-id, --ms-id, --recycle-id, --fdb-id is specific, " \
                 "then apply to all containers.")
         parser.add_argument("NAME", default="", help="Specific cluster name.")
         parser.add_argument("IMAGE",
                             default="",
                             nargs="?",
                             help="Specify docker image.")
+
+        parser.add_argument(
+            "--cloud",
+            default=False,
+            action=self._get_parser_bool_action(True),
+            help=
+            "Create cloud cluster, default is false. Only use when creating new cluster."
+        )
 
         parser.add_argument(
             "--wait-timeout",
@@ -161,6 +213,18 @@ class UpCommand(Command):
             help=
             "Specify add be num, default: 3 for a new cluster, 0 for a existing cluster."
         )
+        group1.add_argument(
+            "--add-ms-num",
+            type=int,
+            help=
+            "Specify add ms num, default: 1 for a new cloud cluster, 0 for a existing cluster. Only use in cloud cluster"
+        )
+        group1.add_argument(
+            "--add-recycle-num",
+            type=int,
+            help=
+            "Specify add recycle num, default: 1 for a new cloud cluster, 0 for a existing cluster. Only use in cloud cluster"
+        )
         group1.add_argument("--fe-config",
                             nargs="*",
                             type=str,
@@ -171,6 +235,16 @@ class UpCommand(Command):
                             type=str,
                             help="Specify be configs for be.conf. "\
                                     "Example: --be-config \"enable_debug_points = true\" \"enable_auth = true\".")
+        group1.add_argument("--ms-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify ms configs for doris_cloud.conf. "\
+                                    "Example: --ms-config \"log_level = warn\".")
+        group1.add_argument("--recycle-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify recycle configs for doris_cloud.conf. "\
+                                    "Example: --recycle-config \"log_level = warn\".")
         group1.add_argument("--be-disks",
                             nargs="*",
                             default=["HDD=1"],
@@ -180,16 +254,32 @@ class UpCommand(Command):
                                   "Example: --be-disks \"HDD=1\", \"SSD=1,10\", \"SSD=2,100\""\
                                   "means each be has 1 HDD without capactity limit, 1 SSD with 10GB capactity limit, "\
                                   "2 SSD with 100GB capactity limit")
+        group1.add_argument(
+            "--be-cluster",
+            type=str,
+            help=
+            "be cluster name, if not specific, will use compute_cluster. Only use in cloud cluster."
+        )
 
         self._add_parser_ids_args(parser)
 
         group2 = parser.add_mutually_exclusive_group()
-        group2.add_argument(
-            "--start",
-            default=True,
-            action=self._get_parser_bool_action(False),
-            help="Start containers, default is true. If specific --no-start, "\
-            "will create or update config image only but not start containers.")
+        if self._support_boolean_action():
+            group2.add_argument(
+                "--start",
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help="Start containers, default is true. If specific --no-start, "\
+                "will create or update config image only but not start containers.")
+        else:
+            group2.add_argument(
+                "--no-start",
+                dest='start',
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help=
+                "Create or update config image only and don't start containers."
+            )
         group2.add_argument("--force-recreate",
                            default=False,
                            action=self._get_parser_bool_action(True),
@@ -198,15 +288,64 @@ class UpCommand(Command):
 
         parser.add_argument("--coverage-dir",
                             default="",
-                            help="code coverage output directory")
+                            help="Set code coverage output directory")
+
+        parser.add_argument(
+            "--fdb-version",
+            type=str,
+            default="7.1.26",
+            help="fdb image version. Only use in cloud cluster.")
+
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--detach",
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help="Detached mode: Run containers in the background. If specific --no-detach, "\
+                "will run containers in frontend. ")
+        else:
+            parser.add_argument("--no-detach",
+                                dest='detach',
+                                default=True,
+                                action=self._get_parser_bool_action(False),
+                                help="Run containers in frontend. ")
+
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--reg-be",
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help="Register be to meta server in cloud mode, use for multi clusters test. If specific --no-reg-be, "\
+                "will not register be to meta server. ")
+        else:
+            parser.add_argument(
+                "--no-reg-be",
+                dest='reg_be',
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help=
+                "Don't register be to meta server in cloud mode, use for multi clusters test"
+            )
 
     def run(self, args):
         if not args.NAME:
             raise Exception("Need specific not empty cluster name")
         for_all = True
+        add_fdb_num = 0
         try:
             cluster = CLUSTER.Cluster.load(args.NAME)
-            if args.fe_id != None or args.be_id != None or args.add_fe_num or args.add_be_num:
+
+            if not cluster.is_cloud:
+                args.add_ms_num = None
+                args.add_recycle_num = None
+                args.ms_id = None
+                args.recycle_id = None
+                args.fdb_id = None
+
+            if args.fe_id != None or args.be_id != None \
+                or args.ms_id != None or args.recycle_id != None or args.fdb_id != None \
+                or args.add_fe_num or args.add_be_num \
+                or args.add_ms_num or args.add_recycle_num:
                 for_all = False
         except:
             # a new cluster
@@ -220,44 +359,93 @@ class UpCommand(Command):
                 args.be_id = None
                 LOG.warning(
                     utils.render_yellow("Ignore --be-id for new cluster"))
-            cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE,
-                                          args.fe_config, args.be_config,
-                                          args.be_disks, args.coverage_dir)
-            LOG.info("Create new cluster {} succ, cluster path is {}".format(
-                args.NAME, cluster.get_path()))
-            if not args.add_fe_num:
+
+            args.fdb_id = None
+            args.ms_id = None
+            args.recycle_id = None
+
+            if args.add_fe_num is None:
                 args.add_fe_num = 3
-            if not args.add_be_num:
+            if args.add_be_num is None:
                 args.add_be_num = 3
 
+            cloud_store_config = {}
+            if args.cloud:
+                add_fdb_num = 1
+                if not args.add_ms_num:
+                    args.add_ms_num = 1
+                if not args.add_recycle_num:
+                    args.add_recycle_num = 1
+                if not args.be_cluster:
+                    args.be_cluster = "compute_cluster"
+                cloud_store_config = self._get_cloud_store_config()
+            else:
+                args.add_ms_num = 0
+                args.add_recycle_num = 0
+
+            cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE, args.cloud,
+                                          args.fe_config, args.be_config,
+                                          args.ms_config, args.recycle_config,
+                                          args.be_disks, args.be_cluster,
+                                          args.reg_be, args.coverage_dir,
+                                          cloud_store_config)
+            LOG.info("Create new cluster {} succ, cluster path is {}".format(
+                args.NAME, cluster.get_path()))
+
+        if args.be_cluster and cluster.is_cloud:
+            cluster.be_cluster = args.be_cluster
+
         _, related_nodes, _ = get_ids_related_nodes(cluster, args.fe_id,
-                                                    args.be_id)
-        add_be_ids = []
+                                                    args.be_id, args.ms_id,
+                                                    args.recycle_id,
+                                                    args.fdb_id)
         add_fe_ids = []
+        add_be_ids = []
+        add_ms_ids = []
+        add_recycle_ids = []
+        add_fdb_ids = []
+
+        add_type_nums = [
+            (CLUSTER.Node.TYPE_FDB, add_fdb_num, add_fdb_ids),
+            (CLUSTER.Node.TYPE_MS, args.add_ms_num, add_ms_ids),
+            (CLUSTER.Node.TYPE_RECYCLE, args.add_recycle_num, add_recycle_ids),
+            (CLUSTER.Node.TYPE_FE, args.add_fe_num, add_fe_ids),
+            (CLUSTER.Node.TYPE_BE, args.add_be_num, add_be_ids),
+        ]
+
         if not related_nodes:
             related_nodes = []
-        if args.add_fe_num:
-            for i in range(args.add_fe_num):
-                fe = cluster.add(CLUSTER.Node.TYPE_FE)
-                related_nodes.append(fe)
-                add_fe_ids.append(fe.id)
-        if args.add_be_num:
-            for i in range(args.add_be_num):
-                be = cluster.add(CLUSTER.Node.TYPE_BE)
-                related_nodes.append(be)
-                add_be_ids.append(be.id)
+
+        def do_add_node(node_type, add_num, add_ids):
+            if not add_num:
+                return
+            for i in range(add_num):
+                node = cluster.add(node_type)
+                related_nodes.append(node)
+                add_ids.append(node.id)
+
+        for node_type, add_num, add_ids in add_type_nums:
+            do_add_node(node_type, add_num, add_ids)
+
         if args.IMAGE:
             for node in related_nodes:
                 node.set_image(args.IMAGE)
-        if for_all and args.IMAGE:
-            cluster.set_image(args.IMAGE)
+            if for_all:
+                cluster.set_image(args.IMAGE)
+
+        for node in cluster.get_all_nodes(CLUSTER.Node.TYPE_FDB):
+            node.set_image("foundationdb/foundationdb:{}".format(
+                args.fdb_version))
+
         cluster.save()
 
         options = []
         if not args.start:
             options.append("--no-start")
         else:
-            options = ["-d", "--remove-orphans"]
+            options += ["--remove-orphans"]
+            if args.detach:
+                options.append("-d")
             if args.force_recreate:
                 options.append("--force-recreate")
 
@@ -266,9 +454,15 @@ class UpCommand(Command):
             related_node_num = cluster.get_all_nodes_num()
             related_nodes = None
 
-        utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
-                                          options, related_nodes)
+        output_real_time = args.start and not args.detach
+        utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                          "up",
+                                          options,
+                                          related_nodes,
+                                          output_real_time=output_real_time)
 
+        ls_cmd = "python docker/runtime/doris-compose/doris-compose.py ls " + cluster.name
+        LOG.info("Inspect command: " + utils.render_green(ls_cmd) + "\n")
         LOG.info(
             "Master fe query address: " +
             utils.render_green(CLUSTER.get_master_fe_endpoint(cluster.name)) +
@@ -318,7 +512,58 @@ class UpCommand(Command):
             "be": {
                 "add_list": add_be_ids,
             },
+            "ms": {
+                "add_list": add_ms_ids,
+            },
+            "recycle": {
+                "add_list": add_recycle_ids,
+            },
+            "fdb": {
+                "add_list": add_fdb_ids,
+            },
         }
+
+    def _get_cloud_store_config(self):
+        example_cfg_file = os.path.join(CLUSTER.LOCAL_RESOURCE_PATH,
+                                        "cloud.ini.example")
+        if not CLUSTER.CLOUD_CFG_FILE:
+            raise Exception("Cloud cluster need S3 store, specific its config in a file.\n"     \
+                "A example file is " + example_cfg_file + ".\n"   \
+                "Then setting the env variable  `export DORIS_CLOUD_CFG_FILE=<cfg-file-path>`.")
+
+        if not os.path.exists(CLUSTER.CLOUD_CFG_FILE):
+            raise Exception("Cloud store config file '" +
+                            CLUSTER.CLOUD_CFG_FILE + "' not exists.")
+
+        config = {}
+        with open(example_cfg_file, "r") as f:
+            for line in f.readlines():
+                if line.startswith('#'):
+                    continue
+                pos = line.find('=')
+                if pos <= 0:
+                    continue
+                key = line[0:pos].strip()
+                if key:
+                    config[key] = ""
+
+        with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
+            for line in f.readlines():
+                if line.startswith('#'):
+                    continue
+                pos = line.find('=')
+                if pos <= 0:
+                    continue
+                key = line[0:pos].strip()
+                if key and config.get(key, None) != None:
+                    config[key] = line[line.find('=') + 1:].strip()
+
+        for key, value in config.items():
+            if not value:
+                raise Exception(
+                    "Should provide none empty property '{}' in file {}".
+                    format(key, CLUSTER.CLOUD_CFG_FILE))
+        return config
 
 
 class DownCommand(Command):
@@ -327,7 +572,7 @@ class DownCommand(Command):
         parser = args_parsers.add_parser("down",
                                      help="Down doris containers, networks. "\
                                            "It will also remove node from DB. " \
-                                           "If none of --fe-id, --be-id is specific, "\
+                                           "If none of --fe-id, --be-id, --ms-id, --recycle-id, --fdb-id is specific, "\
                                            "then apply to all containers.")
         parser.add_argument("NAME", help="Specify cluster name")
         self._add_parser_ids_args(parser)
@@ -353,7 +598,13 @@ class DownCommand(Command):
         except:
             return "Cluster not exists or load failed"
         for_all, related_nodes, related_node_num = get_ids_related_nodes(
-            cluster, args.fe_id, args.be_id, ignore_not_exists=True)
+            cluster,
+            args.fe_id,
+            args.be_id,
+            args.ms_id,
+            args.recycle_id,
+            args.fdb_id,
+            ignore_not_exists=True)
 
         if for_all:
             if os.path.exists(cluster.get_compose_file()):
@@ -401,8 +652,9 @@ class DownCommand(Command):
                 if args.clean:
                     utils.enable_dir_with_rw_perm(node.get_path())
                     shutil.rmtree(node.get_path())
-                    register_file = "{}/{}-register".format(
-                        CLUSTER.get_status_path(cluster.name), node.get_ip())
+                    register_file = "{}/{}-{}-register".format(
+                        CLUSTER.get_status_path(cluster.name),
+                        node.node_type(), node.get_ip())
                     if os.path.exists(register_file):
                         os.remove(register_file)
                     LOG.info(
@@ -444,8 +696,8 @@ class ListNode(object):
         result = [
             self.cluster_name, "{}-{}".format(self.node_type, self.id),
             self.ip, self.status, self.container_id, self.image, self.created,
-            self.alive, self.is_master, self.query_port, self.backend_id,
-            self.tablet_num, self.last_heartbeat, self.err_msg
+            self.alive, self.is_master, self.backend_id, self.tablet_num,
+            self.last_heartbeat, self.err_msg
         ]
         if detail:
             query_port = ""
@@ -481,6 +733,91 @@ class ListNode(object):
                 self.tablet_num = be.tablet_num
                 self.last_heartbeat = be.last_heartbeat
                 self.err_msg = be.err_msg
+
+
+class GenConfCommand(Command):
+
+    def print_use_time(self):
+        return False
+
+    def add_parser(self, args_parsers):
+        parser = args_parsers.add_parser(
+            "config",
+            help="Generate regression-conf-custom.groovy for regression test.")
+        parser.add_argument("NAME", default="", help="Specific cluster name.")
+
+        return parser
+
+    def run(self, args):
+        base_conf = '''
+jdbcUrl = "jdbc:mysql://{fe_ip}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://{fe_ip}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+feSourceThriftAddress = "{fe_ip}:9020"
+feTargetThriftAddress = "{fe_ip}:9020"
+syncerAddress = "{fe_ip}:9190"
+feHttpAddress = "{fe_ip}:8030"
+'''
+
+        cloud_conf = '''
+feCloudHttpAddress = "{fe_ip}:18030"
+metaServiceHttpAddress = "{ms_endpoint}"
+recycleServiceHttpAddress = "{recycle_endpoint}"
+multiClusterInstance = "default_instance_id"
+multiClusterBes = "{multi_cluster_bes}"
+metaServiceToken = "greedisgood9999"
+'''
+
+        def confirm_custom_file_path(doris_root_dir):
+            relative_custom_file_path = "regression-test/conf/regression-conf-custom.groovy"
+            regression_conf_custom = os.path.join(doris_root_dir,
+                                                  relative_custom_file_path)
+            ans = input(
+                "\nwrite file {} ?  y / n / c(change custom conf path):  ".
+                format(regression_conf_custom))
+            if ans == 'y':
+                return regression_conf_custom
+            elif ans == 'c':
+                return confirm_custom_file_path(
+                    input("\ninput your doris or selectdb-core root path (ie. the regression-test 's "\
+                        "parent path, for save the custom conf file): "
+                    ).strip())
+            else:
+                return ""
+
+        cluster = CLUSTER.Cluster.load(args.NAME)
+        master_fe_ip = CLUSTER.get_master_fe_endpoint(args.NAME)
+        if not master_fe_ip:
+            print("Not found cluster with name {} in directory {}".format(
+                args.NAME, CLUSTER.LOCAL_DORIS_PATH))
+            return
+        doris_root_dir = os.path.abspath(__file__)
+        for i in range(4):
+            doris_root_dir = os.path.dirname(doris_root_dir)
+
+        regression_conf_custom = confirm_custom_file_path(doris_root_dir)
+        if not regression_conf_custom:
+            print("\nNo write regression custom file.")
+            return
+
+        with open(regression_conf_custom, "w") as f:
+            fe_ip = master_fe_ip[:master_fe_ip.find(':')]
+            f.write(base_conf.format(fe_ip=fe_ip))
+            if cluster.is_cloud:
+                multi_cluster_bes = ",".join([
+                    "{}:{}:{}:{}:{}".format(be.get_ip(),
+                                            CLUSTER.BE_HEARTBEAT_PORT,
+                                            CLUSTER.BE_WEBSVR_PORT,
+                                            be.cloud_unique_id(),
+                                            CLUSTER.BE_BRPC_PORT)
+                    for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE)
+                ])
+                f.write(
+                    cloud_conf.format(
+                        fe_ip=fe_ip,
+                        ms_endpoint=cluster.get_meta_server_addr(),
+                        recycle_endpoint=cluster.get_recycle_addr(),
+                        multi_cluster_bes=multi_cluster_bes))
+        print("\nWrite succ: " + regression_conf_custom)
 
 
 class ListCommand(Command):
@@ -574,7 +911,7 @@ class ListCommand(Command):
 
         TYPE_COMPOSESERVICE = type(ComposeService("", "", ""))
         if not args.NAME:
-            header = ("CLUSTER", "OWNER", "STATUS", "MASTER FE",
+            header = ("CLUSTER", "OWNER", "STATUS", "MASTER FE", "CLOUD",
                       "CONFIG FILES")
             rows = []
             for name in sorted(clusters.keys()):
@@ -591,16 +928,24 @@ class ListCommand(Command):
                 ])
                 owner = utils.get_path_owner(CLUSTER.get_cluster_path(name))
                 compose_file = CLUSTER.get_compose_file(name)
+
+                is_cloud = ""
+                try:
+                    cluster = CLUSTER.Cluster.load(name)
+                    is_cloud = "true" if cluster.is_cloud else "false"
+                except:
+                    pass
+
                 rows.append((name, owner, show_status,
-                             CLUSTER.get_master_fe_endpoint(name),
+                             CLUSTER.get_master_fe_endpoint(name), is_cloud,
                              "{}{}".format(compose_file,
                                            cluster_info["status"])))
             return self._handle_data(header, rows)
 
         header = [
             "CLUSTER", "NAME", "IP", "STATUS", "CONTAINER ID", "IMAGE",
-            "CREATED", "alive", "is_master", "query_port", "backend_id",
-            "tablet_num", "last_heartbeat", "err_msg"
+            "CREATED", "alive", "is_master", "backend_id", "tablet_num",
+            "last_heartbeat", "err_msg"
         ]
         if args.detail:
             header += [
@@ -644,6 +989,11 @@ class ListCommand(Command):
                     node.image = ",".join(container.image.tags)
                     node.container_id = container.short_id
                     node.status = container.status
+                    if node.container_id and \
+                        node_type in (CLUSTER.Node.TYPE_FDB,
+                                     CLUSTER.Node.TYPE_MS,
+                                     CLUSTER.Node.TYPE_RECYCLE):
+                        node.alive = "true"
 
             for id, fe in db_mgr.fe_states.items():
                 if fe_ids.get(id, False):
@@ -666,17 +1016,10 @@ class ListCommand(Command):
                 node.update_db_info(db_mgr)
                 nodes.append(node)
 
-            def get_key(node):
-                key = node.id
-                if node.node_type == CLUSTER.Node.TYPE_FE:
-                    key += 0 * CLUSTER.ID_LIMIT
-                elif node.node_type == CLUSTER.Node.TYPE_BE:
-                    key += 1 * CLUSTER.ID_LIMIT
-                else:
-                    key += 2 * CLUSTER.ID_LIMIT
-                return key
+            def get_node_seq(node):
+                return CLUSTER.get_node_seq(node.node_type, node.id)
 
-            for node in sorted(nodes, key=get_key):
+            for node in sorted(nodes, key=get_node_seq):
                 rows.append(node.info(args.detail))
 
         return self._handle_data(header, rows)
@@ -690,5 +1033,6 @@ ALL_COMMANDS = [
     SimpleCommand("restart", "Restart the doris containers. "),
     SimpleCommand("pause", "Pause the doris containers. "),
     SimpleCommand("unpause", "Unpause the doris containers. "),
+    GenConfCommand("config"),
     ListCommand("ls"),
 ]

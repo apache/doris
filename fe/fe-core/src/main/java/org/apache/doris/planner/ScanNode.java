@@ -36,15 +36,19 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -67,10 +71,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Representation of the common elements of all scan nodes.
@@ -726,7 +732,7 @@ public abstract class ScanNode extends PlanNode {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
-                && !fragment.isHasNullAwareLeftAntiJoin()
+                && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
                 < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
     }
@@ -735,7 +741,70 @@ public abstract class ScanNode extends PlanNode {
         return Integer.MAX_VALUE;
     }
 
-    public boolean haveLimitAndConjunts() {
-        return hasLimit() && !conjuncts.isEmpty();
+    public boolean shouldUseOneInstance() {
+        return hasLimit() && conjuncts.isEmpty();
+    }
+
+    // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
+    // After all scan node are collected, it is possible to gain a snapshot of the partition version.
+    public static void setVisibleVersionForOlapScanNodes(List<ScanNode> scanNodes) throws UserException {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+
+        List<CloudPartition> partitions = new ArrayList<>();
+        Set<Long> partitionSet = new HashSet<>();
+        for (ScanNode node : scanNodes) {
+            if (!(node instanceof OlapScanNode)) {
+                continue;
+            }
+
+            OlapScanNode scanNode = (OlapScanNode) node;
+            OlapTable table = scanNode.getOlapTable();
+            for (Long id : scanNode.getSelectedPartitionIds()) {
+                if (!partitionSet.contains(id)) {
+                    partitionSet.add(id);
+                    partitions.add((CloudPartition) table.getPartition(id));
+                }
+            }
+        }
+
+        if (partitions.isEmpty()) {
+            return;
+        }
+
+        List<Long> versions;
+        try {
+            versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+        } catch (RpcException e) {
+            throw new UserException("get visible version for OlapScanNode failed", e);
+        }
+
+        assert versions.size() == partitions.size() : "the got num versions is not equals to acquired num versions";
+        if (versions.stream().anyMatch(x -> x <= 0)) {
+            int size = versions.size();
+            for (int i = 0; i < size; ++i) {
+                if (versions.get(i) <= 0) {
+                    LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
+                            partitions.get(i).getId(), versions.get(i));
+                    throw new UserException("partition " + partitions.get(i).getId()
+                        + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
+                }
+            }
+        }
+
+        // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
+        Map<Long, Long> visibleVersionMap = IntStream.range(0, versions.size())
+                .boxed()
+                .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
+
+        for (ScanNode node : scanNodes) {
+            if (!(node instanceof OlapScanNode)) {
+                continue;
+            }
+
+            OlapScanNode scanNode = (OlapScanNode) node;
+            scanNode.updateScanRangeVersions(visibleVersionMap);
+        }
     }
 }

@@ -20,12 +20,12 @@ package org.apache.doris.system;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
 
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -172,7 +172,7 @@ public class BeSelectionPolicy {
         return true;
     }
 
-    public List<Backend> getCandidateBackends(ImmutableCollection<Backend> backends) {
+    public List<Backend> getCandidateBackends(Collection<Backend> backends) {
         List<Backend> filterBackends = backends.stream().filter(this::isMatch).collect(Collectors.toList());
         List<Backend> preLocationFilterBackends = filterBackends.stream()
                 .filter(iterm -> preferredLocations.contains(iterm.getHost())).collect(Collectors.toList());
@@ -181,8 +181,10 @@ public class BeSelectionPolicy {
             filterBackends = preLocationFilterBackends;
         }
         Collections.shuffle(filterBackends);
+        int numComputeNode = filterBackends.stream().filter(Backend::isComputeNode).collect(Collectors.toList()).size();
         List<Backend> candidates = new ArrayList<>();
-        if (preferComputeNode) {
+        if (preferComputeNode && numComputeNode > 0) {
+            int realExpectBeNum = expectBeNum == -1 ? numComputeNode : expectBeNum;
             int num = 0;
             // pick compute node first
             for (Backend backend : filterBackends) {
@@ -192,10 +194,10 @@ public class BeSelectionPolicy {
                 }
             }
             // fill with some mix node.
-            if (num < expectBeNum) {
+            if (num < realExpectBeNum) {
                 for (Backend backend : filterBackends) {
                     if (backend.isMixNode()) {
-                        if (num >= expectBeNum) {
+                        if (num >= realExpectBeNum) {
                             break;
                         }
                         candidates.add(backend);

@@ -31,6 +31,30 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
+struct StreamingHtMinReductionEntry {
+    // Use 'streaming_ht_min_reduction' if the total size of hash table bucket directories in
+    // bytes is greater than this threshold.
+    int min_ht_mem;
+    // The minimum reduction factor to expand the hash tables.
+    double streaming_ht_min_reduction;
+};
+
+// TODO: experimentally tune these values and also programmatically get the cache size
+// of the machine that we're running on.
+static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
+        // Expand up to L2 cache always.
+        {0, 0.0},
+        // Expand into L3 cache if we look like we're getting some reduction.
+        // At present, The L2 cache is generally 1024k or more
+        {1024 * 1024, 1.1},
+        // Expand into main memory if we're getting a significant reduction.
+        // The L3 cache is generally 16MB or more
+        {16 * 1024 * 1024, 2.0},
+};
+
+static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
+        sizeof(STREAMING_HT_MIN_REDUCTION) / sizeof(STREAMING_HT_MIN_REDUCTION[0]);
+
 DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* state,
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
@@ -39,7 +63,6 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
           _agg_data(std::make_unique<vectorized::AggregatedDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
-          _child_source_state(SourceState::DEPEND_ON_SOURCE),
           _aggregated_block(vectorized::Block::create_unique()) {}
 
 Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -68,6 +91,65 @@ Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo&
         _init_hash_method(_probe_expr_ctxs);
     }
     return Status::OK();
+}
+
+bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
+    if (!_should_expand_hash_table) {
+        return false;
+    }
+
+    return std::visit(
+            [&](auto&& agg_method) -> bool {
+                auto& hash_tbl = *agg_method.hash_table;
+                auto [ht_mem, ht_rows] =
+                        std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
+
+                // Need some rows in tables to have valid statistics.
+                if (ht_rows == 0) {
+                    return true;
+                }
+
+                // Find the appropriate reduction factor in our table for the current hash table sizes.
+                int cache_level = 0;
+                while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
+                       ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
+                    ++cache_level;
+                }
+
+                // Compare the number of rows in the hash table with the number of input rows that
+                // were aggregated into it. Exclude passed through rows from this calculation since
+                // they were not in hash tables.
+                const int64_t input_rows = _input_num_rows;
+                const int64_t aggregated_input_rows = input_rows - _cur_num_rows_returned;
+                // TODO chenhao
+                //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
+                double current_reduction = static_cast<double>(aggregated_input_rows) / ht_rows;
+
+                // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
+                // inaccurate, which could lead to a divide by zero below.
+                if (aggregated_input_rows <= 0) {
+                    return true;
+                }
+
+                // Extrapolate the current reduction factor (r) using the formula
+                // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
+                // set, N is the number of input rows, excluding passed-through rows, and n is the
+                // number of rows inserted or merged into the hash tables. This is a very rough
+                // approximation but is good enough to be useful.
+                // TODO: consider collecting more statistics to better estimate reduction.
+                //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
+                //      ? current_reduction
+                //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
+                double min_reduction =
+                        STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
+
+                //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
+                //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
+                //  return estimated_reduction > min_reduction;
+                _should_expand_hash_table = current_reduction > min_reduction;
+                return _should_expand_hash_table;
+            },
+            _agg_data->method_variant);
 }
 
 void DistinctStreamingAggLocalState::_init_hash_method(
@@ -145,6 +227,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
 
     size_t key_size = _probe_expr_ctxs.size();
     vectorized::ColumnRawPtrs key_columns(key_size);
+    std::vector<int> result_idxs(key_size);
     {
         SCOPED_TIMER(_expr_timer);
         for (size_t i = 0; i < key_size; ++i) {
@@ -154,6 +237,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
+            result_idxs[i] = result_column_id;
         }
     }
 
@@ -163,24 +247,41 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
 
     RETURN_IF_CATCH_EXCEPTION(
             _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
+    // need use _cur_num_rows_returned to decide whether to do continue emplace into hash table
+    _cur_num_rows_returned += _distinct_row.size();
 
     bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&
                      out_block->mem_reuse();
     if (mem_reuse) {
         for (int i = 0; i < key_size; ++i) {
-            auto dst = out_block->get_by_position(i).column->assume_mutable();
-            key_columns[i]->append_data_by_selector(dst, _distinct_row);
+            auto output_column = out_block->get_by_position(i).column;
+            if (_stop_emplace_flag) { // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
+                out_block->replace_by_position(i, key_columns[i]->assume_mutable());
+                in_block->replace_by_position(result_idxs[i], output_column);
+            } else {
+                auto dst = output_column->assume_mutable();
+                key_columns[i]->append_data_by_selector(dst, _distinct_row);
+            }
         }
     } else {
         vectorized::ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
-            auto distinct_column = key_columns[i]->clone_empty();
-            key_columns[i]->append_data_by_selector(distinct_column, _distinct_row);
-            columns_with_schema.emplace_back(std::move(distinct_column),
-                                             _probe_expr_ctxs[i]->root()->data_type(),
-                                             _probe_expr_ctxs[i]->root()->expr_name());
+            if (_stop_emplace_flag) {
+                columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
+                                                 _probe_expr_ctxs[i]->root()->data_type(),
+                                                 _probe_expr_ctxs[i]->root()->expr_name());
+            } else {
+                auto distinct_column = key_columns[i]->clone_empty();
+                key_columns[i]->append_data_by_selector(distinct_column, _distinct_row);
+                columns_with_schema.emplace_back(std::move(distinct_column),
+                                                 _probe_expr_ctxs[i]->root()->data_type(),
+                                                 _probe_expr_ctxs[i]->root()->expr_name());
+            }
         }
         out_block->swap(vectorized::Block(columns_with_schema));
+        if (_stop_emplace_flag) {
+            in_block->clear(); // clear the column ref with stop_emplace_flag = true
+        }
     }
     return Status::OK();
 }
@@ -202,6 +303,14 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
+                auto& hash_tbl = *agg_method.hash_table;
+                if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg &&
+                    hash_tbl.add_elem_size_overflow(num_rows)) {
+                    if (!_should_expand_preagg_hash_tables()) {
+                        _stop_emplace_flag = true;
+                        return;
+                    }
+                }
                 AggState state(key_columns);
                 agg_method.init_serialized_keys(key_columns, num_rows);
                 size_t row = 0;
@@ -331,7 +440,7 @@ Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
 }
 
 Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_block,
-                                           SourceState source_state) const {
+                                           bool eos) const {
     auto& local_state = get_local_state(state);
     local_state._input_num_rows += in_block->rows();
     Status ret = Status::OK();
@@ -340,19 +449,18 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
                 in_block, local_state._aggregated_block.get()));
 
         // get enough data or reached limit rows, need push block to queue
-        if (_limit != -1 &&
+        if (!local_state._stop_emplace_flag && _limit != -1 &&
             (local_state._aggregated_block->rows() + local_state._output_distinct_rows) >= _limit) {
             auto limit_rows = _limit - local_state._output_distinct_rows;
             local_state._aggregated_block->set_num_rows(limit_rows);
             local_state._output_distinct_rows += limit_rows;
-        } else if (local_state._aggregated_block->rows() >= state->batch_size()) {
+        } else if (!local_state._stop_emplace_flag) {
             local_state._output_distinct_rows += local_state._aggregated_block->rows();
         }
     }
 
     // reach limit or source finish
-    if ((UNLIKELY(source_state == SourceState::FINISHED)) ||
-        (_limit != -1 && local_state._output_distinct_rows >= _limit)) {
+    if ((UNLIKELY(eos)) || (_limit != -1 && local_state._output_distinct_rows >= _limit)) {
         local_state._output_distinct_rows += local_state._aggregated_block->rows();
         return Status::OK(); // need given finish signal
     }
@@ -360,7 +468,7 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
 }
 
 Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block,
-                                           SourceState& source_state) const {
+                                           bool* eos) const {
     auto& local_state = get_local_state(state);
     if (!local_state._aggregated_block->empty()) {
         block->swap(*local_state._aggregated_block);
@@ -373,20 +481,14 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
         RETURN_IF_ERROR(
                 vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
     }
-
-    if (UNLIKELY(local_state._child_source_state == SourceState::FINISHED ||
-                 (_limit != -1 && local_state._output_distinct_rows >= _limit))) {
-        source_state = SourceState::FINISHED;
-    } else {
-        source_state = SourceState::DEPEND_ON_SOURCE;
-    }
+    local_state.add_num_rows_returned(block->rows());
+    *eos = local_state._child_eos || (_limit != -1 && local_state._output_distinct_rows >= _limit);
     return Status::OK();
 }
 
 bool DistinctStreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    return local_state._aggregated_block->empty() &&
-           local_state._child_source_state != SourceState::FINISHED &&
+    return local_state._aggregated_block->empty() && !local_state._child_eos &&
            (_limit == -1 || local_state._output_distinct_rows < _limit);
 }
 

@@ -89,14 +89,26 @@ function start_doris_recycler() {
     fi
 }
 
-function start_doris_fe() {
-    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+function install_java() {
     if ! java -version >/dev/null ||
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
         sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
     fi
-    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
-    export JAVA_HOME
+    # doris master branch use java-17
+    if ! java -version >/dev/null ||
+        [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*')" ]]; then
+        sudo apt update && sudo apt install openjdk-17-jdk -y >/dev/null
+    fi
+}
+
+function start_doris_fe() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if install_java && [[ -z "${JAVA_HOME}" ]]; then
+        # default to use java-8
+        JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+        export JAVA_HOME
+    fi
+    # export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
 
     if ! mysql --version >/dev/null; then sudo apt update && sudo apt install -y mysql-client; fi
@@ -116,12 +128,16 @@ function start_doris_fe() {
 
 function start_doris_be() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if ! java -version >/dev/null ||
-        [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
-        sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
+    if install_java && [[ -z "${JAVA_HOME}" ]]; then
+        # default to use java-8
+        JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+        export JAVA_HOME
     fi
-    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
-    export JAVA_HOME
+    ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"
+    if [[ -z "${ASAN_SYMBOLIZER_PATH}" ]]; then ASAN_SYMBOLIZER_PATH='/var/local/ldb-toolchain/bin/llvm-symbolizer'; fi
+    export ASAN_SYMBOLIZER_PATH
+    export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0"
+    export TCMALLOC_SAMPLE_PARAMETER=524288
     sysctl -w vm.max_map_count=2000000 &&
         ulimit -n 200000 &&
         ulimit -c unlimited &&
@@ -446,66 +462,120 @@ function set_doris_session_variables_from_file() {
 
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    archive_name="$1"
-    if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    archive_content="fe/conf fe/log be/conf be/log"
-    if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
-        archive_content="${archive_content} regression-test/log"
+    local archive_name="$1"
+    if [[ -z ${archive_name} || ${archive_name} != *".tar.gz" ]]; then
+        echo "USAGE: ${FUNCNAME[0]} xxxx.tar.gz" && return 1
     fi
-    if [[ -f "${DORIS_HOME:-}"/session_variables ]]; then
-        archive_content="${archive_content} session_variables"
-    fi
-    if [[ -d "${DORIS_HOME}"/ms ]]; then
-        mkdir -p "${DORIS_HOME}"/foundationdb/log
-        cp -rf /var/log/foundationdb/* "${DORIS_HOME}"/foundationdb/log/
-        archive_content="${archive_content} ms/conf ms/log foundationdb/log"
-    fi
-    if [[ -d "${DORIS_HOME}"/recycler ]]; then
-        archive_content="${archive_content} recycler/conf recycler/log"
-    fi
-    if [[ -d "${DORIS_HOME}"/be/storage/error_log ]]; then
-        archive_content="${archive_content} be/storage/error_log"
-    fi
+    local archive_dir="${archive_name%.tar.gz}"
+    rm -rf "${DORIS_HOME:?}/${archive_dir}"
+    mkdir -p "${DORIS_HOME}/${archive_dir}"
+    (
+        cd "${DORIS_HOME}" || return 1
+        cp --parents -rf "fe/conf" "${archive_dir}"/
+        cp --parents -rf "fe/log" "${archive_dir}"/
+        cp --parents -rf "be/conf" "${archive_dir}"/
+        cp --parents -rf "be/log" "${archive_dir}"/
+        if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
+            # try to hide ak and sk
+            if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" regression-test/log/* &>/dev/null; then :; fi
+            cp --parents -rf "regression-test/log" "${archive_dir}"/
+        fi
+        if [[ -d "${DORIS_HOME}"/../regression-test/conf ]]; then
+            # try to hide ak and sk
+            if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" ../regression-test/conf/* &>/dev/null; then :; fi
+            mkdir -p "${archive_dir}"/regression-test/conf
+            cp -rf ../regression-test/conf/* "${archive_dir}"/regression-test/conf/
+        fi
+        if [[ -f "${DORIS_HOME}"/session_variables ]]; then
+            cp --parents -rf "session_variables" "${archive_dir}"/
+        fi
+        if [[ -d "${DORIS_HOME}"/ms ]]; then
+            mkdir -p "${archive_dir}"/foundationdb/log
+            cp -rf /var/log/foundationdb/* "${archive_dir}"/foundationdb/log/
+            cp --parents -rf "ms/conf" "${archive_dir}"/
+            cp --parents -rf "ms/log" "${archive_dir}"/
+        fi
+        if [[ -d "${DORIS_HOME}"/recycler ]]; then
+            cp --parents -rf "recycler/conf" "${archive_dir}"/
+            cp --parents -rf "recycler/log" "${archive_dir}"/
+        fi
+        if [[ -d "${DORIS_HOME}"/be/storage/error_log ]]; then
+            cp --parents -rf "be/storage/error_log" "${archive_dir}"/
+        fi
+    )
 
-    # shellcheck disable=SC2086
     if tar -I pigz \
         --directory "${DORIS_HOME}" \
         -cf "${DORIS_HOME}/${archive_name}" \
-        ${archive_content}; then
+        "${archive_dir}"; then
+        rm -rf "${DORIS_HOME:?}/${archive_dir}"
         echo "${DORIS_HOME}/${archive_name}"
     else
         return 1
     fi
 }
 
+wait_coredump_file_ready() {
+    # if the size of coredump file does not changed in 5 seconds, we think it has generated done
+    local coredump_file="$1"
+    if [[ -z "${coredump_file}" ]]; then echo "ERROR: coredump_file is required" && return 1; fi
+    initial_size=$(stat -c %s "${coredump_file}")
+    while true; do
+        sleep 5
+        current_size=$(stat -c %s "${coredump_file}")
+        if [[ ${initial_size} -eq ${current_size} ]]; then
+            break
+        else
+            initial_size=${current_size}
+        fi
+    done
+}
+
 archive_doris_coredump() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
+    COREDUMP_SIZE_THRESHOLD="${COREDUMP_SIZE_THRESHOLD:-85899345920}" # if coredump size over 80G, do not archive"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    be_pid="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
-    if [[ -z "${be_id}" ]]; then echo "ERROR: can not find be id from ${DORIS_HOME}/be/bin/be.pid" && return 1; fi
-    if corename=$(find /var/lib/apport/coredump/ -type f -name "core.*${be_pid}.*"); then
-        initial_size=$(stat -c %s "${corename}")
-        while true; do
-            sleep 2
-            current_size=$(stat -c %s "${corename}")
-            if [[ ${initial_size} -eq ${current_size} ]]; then
-                break
+    local archive_dir="${archive_name%.tar.gz}"
+    rm -rf "${DORIS_HOME:?}/${archive_dir}"
+    mkdir -p "${DORIS_HOME}/${archive_dir}"
+    declare -A pids
+    pids['be']="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
+    pids['ms']="$(cat "${DORIS_HOME}"/ms/bin/doris_cloud.pid)"
+    pids['recycler']="$(cat "${DORIS_HOME}"/recycler/bin/doris_cloud.pid)"
+    local has_core=false
+    for p in "${!pids[@]}"; do
+        pid="${pids[${p}]}"
+        if [[ -z "${pid}" ]]; then continue; fi
+        if coredump_file=$(find /var/lib/apport/coredump/ -type f -name "core.*${pid}.*") &&
+            wait_coredump_file_ready "${coredump_file}"; then
+            file_size=$(stat -c %s "${coredump_file}")
+            if ((file_size <= COREDUMP_SIZE_THRESHOLD)); then
+                mkdir -p "${DORIS_HOME}/${archive_dir}/${p}"
+                if [[ "${p}" == "be" ]]; then
+                    mv "${DORIS_HOME}"/be/lib/doris_be "${DORIS_HOME}/${archive_dir}/${p}"
+                elif [[ "${p}" == "ms" ]]; then
+                    mv "${DORIS_HOME}"/ms/lib/doris_cloud "${DORIS_HOME}/${archive_dir}/${p}"
+                elif [[ "${p}" == "recycler" ]]; then
+                    mv "${DORIS_HOME}"/recycler/lib/doris_cloud "${DORIS_HOME}/${archive_dir}/${p}"
+                fi
+                mv "${coredump_file}" "${DORIS_HOME}/${archive_dir}/${p}"
+                has_core=true
             else
-                initial_size=${current_size}
+                echo -e "\n\n\n\nERROR: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
+                tail -n 100 "${DORIS_HOME}"/be/log/be.out
             fi
-        done
-        file_size=$(stat -c %s "${corename}")
-        if ((file_size > 85899345920)); then
-            echo "coredump size ${file_size} over 80G, not upload"
-            return 1
-        else
-            #压缩core文件
-            mv "${corename}" "${DORIS_HOME}"/be/lib/
-            cd "${DORIS_HOME}"/be/lib/ || return 1
-            tar -I pigz -cf core.tar.gz be/lib/doris_be "be/lib/$(basename "${corename}")" >/dev/null
-            echo "$(pwd)/core.tar.gz"
         fi
+    done
+
+    if ${has_core} && tar -I pigz \
+        --directory "${DORIS_HOME}" \
+        -cf "${DORIS_HOME}/${archive_name}" \
+        "${archive_dir}"; then
+        rm -rf "${DORIS_HOME:?}/${archive_dir}"
+        echo "${DORIS_HOME}/${archive_name}"
+    else
+        return 1
     fi
 }
 
@@ -557,22 +627,22 @@ print_doris_conf() {
 }
 
 function create_warehouse() {
-    if [[ -z ${COS_ak} || -z ${COS_sk} ]]; then
-        echo "ERROR: env COS_ak and COS_sk are required." && return 1
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk are required." && return 1
     fi
     if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
         \"instance_id\": \"cloud_instance_0\",
         \"name\":\"cloud_instance_0\",
         \"user_id\":\"user-id\",
         \"obj_info\": {
-            \"provider\": \"COS\",
-            \"region\": \"ap-hongkong\",
-            \"bucket\": \"doris-build-hk-1308700295\",
-            \"prefix\": \"ci\",
-            \"endpoint\": \"cos.ap-hongkong.myqcloud.com\",
-            \"external_endpoint\": \"cos.ap-hongkong.myqcloud.com\",
-            \"ak\": \"${COS_ak}\",
-            \"sk\": \"${COS_sk}\"
+            \"provider\": \"OSS\",
+            \"region\": \"oss-cn-hongkong\",
+            \"bucket\": \"doris-community-test\",
+            \"prefix\": \"cloud_regression\",
+            \"endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+            \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+            \"ak\": \"${oss_ak}\",
+            \"sk\": \"${oss_sk}\"
         }
     }"; then
         echo
@@ -646,5 +716,15 @@ function warehouse_add_be() {
 }
 
 function check_if_need_gcore() {
-    echo
+    exit_flag="$1"
+    if [[ ${exit_flag} == "124" ]]; then # 124 is from command timeout
+        echo "INFO: run regression timeout, gcore to find out reason"
+        be_pid=$(pgrep "doris_be")
+        if [[ -n "${be_pid}" ]]; then
+            kill -ABRT "${be_pid}"
+            sleep 10
+        fi
+    else
+        echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
+    fi
 }

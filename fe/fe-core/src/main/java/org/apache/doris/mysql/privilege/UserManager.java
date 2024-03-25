@@ -39,6 +39,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.util.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -54,7 +55,7 @@ public class UserManager implements Writable, GsonPostProcessable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
     // Concurrency control is delegated by Auth, so not concurrentMap
-    //One name may have multiple User,because host can be different
+    // One name may have multiple User,because host can be different
     @SerializedName(value = "nameToUsers")
     private Map<String, List<User>> nameToUsers = Maps.newHashMap();
 
@@ -181,7 +182,8 @@ public class UserManager implements Writable, GsonPostProcessable {
 
     }
 
-    public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver)
+    public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver,
+            String comment)
             throws PatternMatcherException {
         if (userIdentityExist(userIdent, true)) {
             User userByUserIdentity = getUserByUserIdentity(userIdent);
@@ -192,13 +194,14 @@ public class UserManager implements Writable, GsonPostProcessable {
                 return userByUserIdentity;
             }
             userByUserIdentity.setPassword(pwd);
+            userByUserIdentity.setComment(comment);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
             return userByUserIdentity;
         }
 
         PatternMatcher hostPattern = PatternMatcher
                 .createMysqlPattern(userIdent.getHost(), CaseSensibility.HOST.getCaseSensibility());
-        User user = new User(userIdent, pwd, setByResolver, domainUserIdent, hostPattern);
+        User user = new User(userIdent, pwd, setByResolver, domainUserIdent, hostPattern, comment);
         List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
         if (CollectionUtils.isEmpty(nameToLists)) {
             nameToLists = Lists.newArrayList(user);
@@ -286,7 +289,7 @@ public class UserManager implements Writable, GsonPostProcessable {
                     byte[] password = domainUser.getPassword().getPassword();
                     Preconditions.checkNotNull(password, entry.getKey());
                     try {
-                        createUser(userIdent, password, domainUser.getUserIdentity(), true);
+                        createUser(userIdent, password, domainUser.getUserIdentity(), true, "");
                     } catch (PatternMatcherException e) {
                         LOG.info("failed to create user for user ident: {}, {}", userIdent, e.getMessage());
                     }
@@ -334,4 +337,26 @@ public class UserManager implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         removeClusterPrefix();
     }
+
+    // ====== CLOUD ======
+    public Set<String> getAllUsers() {
+        return nameToUsers.keySet();
+    }
+
+    public String getUserId(String userName) {
+        if (!nameToUsers.containsKey(userName)) {
+            LOG.warn("can't find userName {} 's userId, nameToUsers {}", userName, nameToUsers);
+            return "";
+        }
+        List<User> users = nameToUsers.get(userName);
+        if (users.isEmpty()) {
+            LOG.warn("userName {}  empty users in map {}", userName, nameToUsers);
+        }
+        // here, all the users has same userid, just return one
+        String userId = users.stream().map(User::getUserId).filter(Strings::isNotEmpty).findFirst().orElse("");
+        LOG.debug("userName {}, userId {}, map {}", userName, userId, nameToUsers);
+        return userId;
+    }
+
+    // ====== CLOUD =====
 }

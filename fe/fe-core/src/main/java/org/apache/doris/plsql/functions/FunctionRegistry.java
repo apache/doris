@@ -25,6 +25,8 @@ import org.apache.doris.nereids.PLParser.Create_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 
+import java.util.List;
+
 public interface FunctionRegistry {
     boolean exec(FuncNameInfo procedureName, Expr_func_paramsContext ctx);
 
@@ -32,9 +34,15 @@ public interface FunctionRegistry {
 
     void addUserProcedure(Create_procedure_stmtContext ctx);
 
+    void save(FuncNameInfo procedureName, String source, boolean isForce);
+
     boolean exists(FuncNameInfo procedureName);
 
     void remove(FuncNameInfo procedureName);
 
     void removeCached(String name);
+
+    void showProcedure(List<List<String>> columns);
+
+    void showCreateProcedure(FuncNameInfo procedureName, List<List<String>> columns);
 }

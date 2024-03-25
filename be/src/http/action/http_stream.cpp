@@ -295,6 +295,10 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     TStreamLoadPutRequest request;
     if (http_req != nullptr) {
         request.__set_load_sql(http_req->header(HTTP_SQL));
+        if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
+            bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
+            request.__set_memtable_on_sink_node(value);
+        }
     } else {
         request.__set_token(ctx->auth.token);
         request.__set_load_sql(ctx->sql_str);
@@ -337,15 +341,19 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
     if (http_req != nullptr && http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
-        size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
-        if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-            ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-            ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
-            content_length *= 3;
+        // FIXME find a way to avoid chunked stream load write large WALs
+        size_t content_length = 0;
+        if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+            content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
+                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
+                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+                content_length *= 3;
+            }
         }
         ctx->put_result.params.__set_content_length(content_length);
     }
@@ -380,10 +388,28 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
     }
-    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
+    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                     ? 0
+                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    if (content_length < 0) {
+        std::stringstream ss;
+        ss << "This http load content length <0 (" << content_length
+           << "), please check your content length.";
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+    // allow chunked stream load in flink
+    auto is_chunk =
+            !req->header(HttpHeaders::TRANSFER_ENCODING).empty() &&
+            req->header(HttpHeaders::TRANSFER_ENCODING).find("chunked") != std::string::npos;
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") ||
+        (content_length == 0 && !is_chunk)) {
         // off_mode and empty
         ctx->group_commit = false;
         return Status::OK();
+    }
+    if (is_chunk) {
+        ctx->label = "";
     }
 
     auto partial_columns = !req->header(HTTP_PARTIAL_COLUMNS).empty() &&
@@ -396,10 +422,11 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
         }
         ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {
-            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
-            if (iequal(group_commit_mode, "sync_mode")) {
+            if (!load_size_smaller_than_wal_limit(content_length)) {
                 std::stringstream ss;
-                ss << "There is no space for group commit http load async WAL. WAL dir info: "
+                ss << "There is no space for group commit http load async WAL. This http load "
+                      "size is "
+                   << content_length << ". WAL dir info: "
                    << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
                 LOG(WARNING) << ss.str();
                 return Status::Error<EXCEEDED_LIMIT>(ss.str());

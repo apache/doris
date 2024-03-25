@@ -211,10 +211,9 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block,
-                SourceState source_state) const override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state) const override;
+                bool* eos) const override;
     const RowDescriptor& intermediate_row_desc() const override {
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }
@@ -229,7 +228,7 @@ public:
     const RowDescriptor& row_desc() const override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
-                       : *_output_row_desc;
+                       : (_output_row_descriptor ? *_output_row_descriptor : *_output_row_desc);
     }
 
     bool need_more_input_data(RuntimeState* state) const override;

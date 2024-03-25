@@ -99,6 +99,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Data
 public class ExportJob implements Writable {
@@ -107,6 +108,9 @@ public class ExportJob implements Writable {
     private static final String BROKER_PROPERTY_PREFIXES = "broker.";
 
     private static final int MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT = Config.maximum_tablets_of_outfile_in_export;
+
+    public static final String CONSISTENT_NONE = "none";
+    public static final String CONSISTENT_PARTITION = "partition";
 
     @SerializedName("id")
     private long id;
@@ -168,6 +172,8 @@ public class ExportJob implements Writable {
     private Integer tabletsNum;
     @SerializedName("withBom")
     private String withBom;
+    @SerializedName("dataConsistency")
+    private String dataConsistency;
 
     private TableRef tableRef;
 
@@ -222,11 +228,16 @@ public class ExportJob implements Writable {
         this.lineDelimiter = "\n";
         this.columns = "";
         this.withBom = "false";
+        this.dataConsistency = "all";
     }
 
     public ExportJob(long jobId) {
         this();
         this.id = jobId;
+    }
+
+    public boolean isPartitionConsistency() {
+        return dataConsistency != null && dataConsistency.equals(CONSISTENT_PARTITION);
     }
 
     public void generateOutfileStatement() throws UserException {
@@ -302,16 +313,12 @@ public class ExportJob implements Writable {
         }
 
         // get all tablets
-        List<List<Long>> tabletsListPerParallel = splitTablets();
+        List<List<List<Long>>> tabletsListPerParallel = splitTablets();
 
         // Each Outfile clause responsible for MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT tablets
-        for (List<Long> tabletsList : tabletsListPerParallel) {
+        for (List<List<Long>> tabletsList : tabletsListPerParallel) {
             List<StatementBase> logicalPlanAdapters = Lists.newArrayList();
-            for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
-                int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
-                        ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
-                List<Long> tabletIds = new ArrayList<>(tabletsList.subList(i, end));
-
+            for (List<Long> tabletIds : tabletsList) {
                 // generate LogicalPlan
                 LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, tabletIds,
                         this.partitionNames, selectLists);
@@ -471,15 +478,12 @@ public class ExportJob implements Writable {
     }
 
     private List<List<TableRef>> getTableRefListPerParallel() throws UserException {
-        List<List<Long>> tabletsListPerParallel = splitTablets();
+        List<List<List<Long>>> tabletsListPerParallel = splitTablets();
 
         List<List<TableRef>> tableRefListPerParallel = Lists.newArrayList();
-        for (List<Long> tabletsList : tabletsListPerParallel) {
+        for (List<List<Long>> tabletsList : tabletsListPerParallel) {
             List<TableRef> tableRefList = Lists.newArrayList();
-            for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
-                int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
-                        ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
-                List<Long> tablets = new ArrayList<>(tabletsList.subList(i, end));
+            for (List<Long> tablets : tabletsList) {
                 // Since export does not support the alias, here we pass the null value.
                 // we can not use this.tableRef.getAlias(),
                 // because the constructor of `Tableref` will convert this.tableRef.getAlias()
@@ -494,11 +498,13 @@ public class ExportJob implements Writable {
         return tableRefListPerParallel;
     }
 
-    private List<List<Long>> splitTablets() throws UserException {
+    private List<List<List<Long>>> splitTablets() throws UserException {
         // get tablets
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(this.tableName.getDb());
         OlapTable table = db.getOlapTableOrAnalysisException(this.tableName.getTbl());
-        List<Long> tabletIdList = Lists.newArrayList();
+
+        Integer tabletsAllNum = 0;
+        List<List<Long>> tabletIdList = Lists.newArrayList();
         table.readLock();
         try {
             final Collection<Partition> partitions = new ArrayList<Partition>();
@@ -516,13 +522,44 @@ public class ExportJob implements Writable {
 
             // get tablets
             for (Partition partition : partitions) {
-                partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
+                // Partition data consistency is not need to verify partition version.
+                if (!isPartitionConsistency()) {
+                    partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
+                }
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    tabletIdList.addAll(index.getTabletIdsInOrder());
+                    List<Long> tablets = index.getTabletIdsInOrder();
+                    tabletsAllNum += tablets.size();
+                    tabletIdList.add(tablets);
                 }
             }
         } finally {
             table.readUnlock();
+        }
+
+        if (isPartitionConsistency()) {
+            // Assign tablets of a partition to per parallel.
+            int totalPartitions = tabletIdList.size();
+            int numPerParallel = totalPartitions / this.parallelism;
+            int numPerQueryRemainder = totalPartitions - numPerParallel * this.parallelism;
+            int realParallelism = this.parallelism;
+            if (totalPartitions < this.parallelism) {
+                realParallelism = totalPartitions;
+                LOG.warn("Export Job [{}]: The number of partitions ({}) is smaller than parallelism ({}), "
+                            + "set parallelism to partition num.", id, totalPartitions, this.parallelism);
+            }
+            int start = 0;
+            List<List<List<Long>>> tabletsListPerParallel = new ArrayList<>();
+            for (int i = 0; i < realParallelism; ++i) {
+                int partitionNum = numPerParallel;
+                if (numPerQueryRemainder > 0) {
+                    partitionNum += 1;
+                    --numPerQueryRemainder;
+                }
+                List<List<Long>> tablets = new ArrayList<>(tabletIdList.subList(start, start + partitionNum));
+                start += partitionNum;
+                tabletsListPerParallel.add(tablets);
+            }
+            return tabletsListPerParallel;
         }
 
         /**
@@ -530,12 +567,11 @@ public class ExportJob implements Writable {
          * If the number of all tablets if 10, and the real parallelism is 4,
          * then, the number of tablets of per parallel should be: 3 3 2 2.
          */
-        Integer tabletsAllNum = tabletIdList.size();
         tabletsNum = tabletsAllNum;
         Integer tabletsNumPerParallel = tabletsAllNum / this.parallelism;
         Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerParallel * this.parallelism;
 
-        List<List<Long>> tabletsListPerParallel = Lists.newArrayList();
+        List<List<List<Long>>> tabletsListPerParallel = Lists.newArrayList();
         Integer realParallelism = this.parallelism;
         if (tabletsAllNum < this.parallelism) {
             realParallelism = tabletsAllNum;
@@ -543,15 +579,22 @@ public class ExportJob implements Writable {
                         + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelism);
         }
         Integer start = 0;
-        for (int i = 0; i < realParallelism; ++i) {
+        List<Long> flatTabletIdList = tabletIdList.stream().flatMap(List::stream).collect(Collectors.toList());
+        for (int j = 0; j < realParallelism; ++j) {
             Integer tabletsNum = tabletsNumPerParallel;
             if (tabletsNumPerQueryRemainder > 0) {
                 tabletsNum = tabletsNum + 1;
                 --tabletsNumPerQueryRemainder;
             }
-            ArrayList<Long> tablets = new ArrayList<>(tabletIdList.subList(start, start + tabletsNum));
-            start += tabletsNum;
+            List<Long> tabletsList = new ArrayList<>(flatTabletIdList.subList(start, start + tabletsNum));
+            List<List<Long>> tablets = new ArrayList<>();
+            for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
+                int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
+                        ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
+                tablets.add(new ArrayList<>(tabletsList.subList(i, end)));
+            }
 
+            start += tabletsNum;
             tabletsListPerParallel.add(tablets);
         }
         return tabletsListPerParallel;

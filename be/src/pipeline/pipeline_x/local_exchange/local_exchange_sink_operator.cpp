@@ -51,13 +51,13 @@ std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) con
 }
 
 Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                        SourceState source_state) {
+                                        bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, source_state, local_state));
+    RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, eos, local_state));
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         local_state._shared_state->sub_running_sink_operators();
     }
 

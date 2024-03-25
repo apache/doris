@@ -38,7 +38,10 @@
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t size) const {
-    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+    if (!doris::is_thread_context_init()) {
+        return;
+    }
+    if (doris::thread_context()->skip_memory_check != 0) {
         return;
     }
     if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
@@ -110,7 +113,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                             "Query:{} canceled asyn, after waiting for memory {}ms, {}.",
                             print_id(doris::thread_context()->task_id()), wait_milliseconds,
                             err_msg);
-                    doris::thread_context()->thread_mem_tracker_mgr->cancel_instance(err_msg);
+                    doris::thread_context()->thread_mem_tracker_mgr->cancel_query(err_msg);
                 } else {
                     LOG(INFO) << fmt::format(
                             "Query:{} throw exception, after waiting for memory {}ms, {}.",
@@ -132,10 +135,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(size_t size) const {
-    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+    if (!doris::is_thread_context_init()) {
         return;
     }
-    if (!doris::is_thread_context_init()) {
+    if (doris::thread_context()->skip_memory_check != 0) {
         return;
     }
     auto st = doris::thread_context()->thread_mem_tracker()->check_limit(size);
@@ -148,7 +151,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(siz
             if (!doris::enable_thread_catch_bad_alloc) {
                 LOG(INFO) << fmt::format("query/load:{} canceled asyn, {}.",
                                          print_id(doris::thread_context()->task_id()), err_msg);
-                doris::thread_context()->thread_mem_tracker_mgr->cancel_instance(err_msg);
+                doris::thread_context()->thread_mem_tracker_mgr->cancel_query(err_msg);
             } else {
                 LOG(INFO) << fmt::format("query/load:{} throw exception, {}.",
                                          print_id(doris::thread_context()->task_id()), err_msg);

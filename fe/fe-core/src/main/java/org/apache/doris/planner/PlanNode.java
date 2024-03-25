@@ -154,7 +154,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected int nereidsId = -1;
 
-    private List<List<Expr>> distributeExprLists = new ArrayList<>();
+    private List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
@@ -259,6 +259,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setFragment(PlanFragment fragment) {
         this.fragment = fragment;
+    }
+
+    public boolean isNullAwareLeftAntiJoin() {
+        return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
     }
 
     public PlanFragment getFragment() {
@@ -536,8 +540,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             expBuilder.append(detailPrefix).append("project output tuple id: ")
                     .append(outputTupleDesc.getId().asInt()).append("\n");
         }
-        if (!CollectionUtils.isEmpty(distributeExprLists)) {
-            for (List<Expr> distributeExprList : distributeExprLists) {
+        if (!CollectionUtils.isEmpty(childrenDistributeExprLists)) {
+            for (List<Expr> distributeExprList : childrenDistributeExprLists) {
                 expBuilder.append(detailPrefix).append("distribute expr lists: ")
                     .append(getExplainString(distributeExprList)).append("\n");
             }
@@ -634,8 +638,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
                 msg.addToOutputSlotIds(slotId.asInt());
             }
         }
-        if (!CollectionUtils.isEmpty(distributeExprLists)) {
-            for (List<Expr> exprList : distributeExprLists) {
+        if (!CollectionUtils.isEmpty(childrenDistributeExprLists)) {
+            for (List<Expr> exprList : childrenDistributeExprLists) {
                 msg.addToDistributeExprLists(new ArrayList<>());
                 for (Expr expr : exprList) {
                     msg.distribute_expr_lists.get(msg.distribute_expr_lists.size() - 1).add(expr.treeToThrift());
@@ -644,13 +648,17 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
         toThrift(msg);
         container.addToNodes(msg);
-        if (projectList != null) {
-            for (Expr expr : projectList) {
-                msg.addToProjections(expr.treeToThrift());
+
+        // legacy planner set outputTuple and projections inside join node
+        if (!(this instanceof JoinNodeBase) || !(((JoinNodeBase) this).isUseSpecificProjections())) {
+            if (outputTupleDesc != null) {
+                msg.setOutputTupleId(outputTupleDesc.getId().asInt());
             }
-        }
-        if (outputTupleDesc != null) {
-            msg.setOutputTupleId(outputTupleDesc.getId().asInt());
+            if (projectList != null) {
+                for (Expr expr : projectList) {
+                    msg.addToProjections(expr.treeToThrift());
+                }
+            }
         }
         if (this instanceof ExchangeNode) {
             msg.num_children = 0;
@@ -1194,8 +1202,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
     }
 
-    public void setDistributeExprLists(List<List<Expr>> distributeExprLists) {
-        this.distributeExprLists = distributeExprLists;
+    public void setChildrenDistributeExprLists(List<List<Expr>> childrenDistributeExprLists) {
+        this.childrenDistributeExprLists = childrenDistributeExprLists;
     }
 
     public TPushAggOp getPushDownAggNoGroupingOp() {

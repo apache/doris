@@ -88,7 +88,9 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.NewPartitionLoadedEvent;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -477,6 +479,11 @@ public class EditLog {
                     env.getAuth().replayCreateRole(privInfo);
                     break;
                 }
+                case OperationType.OP_ALTER_ROLE: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    env.getAuth().replayAlterRole(privInfo);
+                    break;
+                }
                 case OperationType.OP_DROP_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     env.getAuth().replayDropRole(privInfo);
@@ -799,7 +806,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
-                case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
@@ -1181,10 +1188,22 @@ public class EditLog {
                     env.getExternalMetaIdMgr().replayMetaIdMappingsLog((MetaIdMappingsLog) journal.getData());
                     break;
                 }
-                case OperationType.OP_LOG_UPDATE_ROWS:
-                case OperationType.OP_LOG_NEW_PARTITION_LOADED:
+                case OperationType.OP_LOG_UPDATE_ROWS: {
+                    env.getAnalysisManager().replayUpdateRowsRecord((UpdateRowsEvent) journal.getData());
+                    break;
+                }
+                case OperationType.OP_LOG_NEW_PARTITION_LOADED: {
+                    env.getAnalysisManager().replayNewPartitionLoadedEvent((NewPartitionLoadedEvent) journal.getData());
+                    break;
+                }
                 case OperationType.OP_LOG_ALTER_COLUMN_STATS: {
                     // TODO: implement this while statistics finished related work.
+                    break;
+                }
+                case OperationType.OP_UPDATE_CLOUD_REPLICA:
+                case OperationType.OP_MODIFY_TTL_SECONDS:
+                case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
+                    // TODO: support cloud replated operation type.
                     break;
                 }
                 default: {
@@ -1494,6 +1513,10 @@ public class EditLog {
 
     public void logCreateRole(PrivInfo info) {
         logEdit(OperationType.OP_CREATE_ROLE, info);
+    }
+
+    public void logAlterRole(PrivInfo info) {
+        logEdit(OperationType.OP_ALTER_ROLE, info);
     }
 
     public void logDropRole(PrivInfo info) {
@@ -1808,8 +1831,8 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM, info);
     }
 
-    public long logModifyInMemory(ModifyTablePropertyOperationLog info) {
-        return logModifyTableProperty(OperationType.OP_MODIFY_IN_MEMORY, info);
+    public long logModifyTableProperties(ModifyTablePropertyOperationLog info) {
+        return logModifyTableProperty(OperationType.OP_MODIFY_TABLE_PROPERTIES, info);
     }
 
     public long logUpdateBinlogConfig(ModifyTablePropertyOperationLog info) {
@@ -2020,6 +2043,14 @@ public class EditLog {
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
+    }
+
+    public void logUpdateRowsRecord(UpdateRowsEvent record) {
+        logEdit(OperationType.OP_LOG_UPDATE_ROWS, record);
+    }
+
+    public void logNewPartitionLoadedEvent(NewPartitionLoadedEvent event) {
+        logEdit(OperationType.OP_LOG_NEW_PARTITION_LOADED, event);
     }
 
     public void logDeleteTableStats(TableStatsDeletionLog log) {

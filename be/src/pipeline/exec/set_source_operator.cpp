@@ -54,11 +54,8 @@ Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateIn
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    auto& deps = info.upstream_dependencies;
-    _shared_state->probe_finished_children_dependency.resize(deps.size(), nullptr);
-    for (auto& dep : deps) {
-        dep->set_shared_state(_dependency->shared_state());
-    }
+    _shared_state->probe_finished_children_dependency.resize(
+            _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();
 }
 
@@ -92,7 +89,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
 
 template <bool is_intersect>
 Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectorized::Block* block,
-                                                   SourceState& source_state) {
+                                                   bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -101,8 +98,8 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
             [&](auto&& arg) -> Status {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    return _get_data_in_hashtable<HashTableCtxType>(
-                            local_state, arg, block, state->batch_size(), source_state);
+                    return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
+                                                                    state->batch_size(), eos);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
@@ -111,7 +108,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
     RETURN_IF_ERROR(st);
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 
@@ -135,7 +132,7 @@ template <bool is_intersect>
 template <typename HashTableContext>
 Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         SetSourceLocalState<is_intersect>& local_state, HashTableContext& hash_table_ctx,
-        vectorized::Block* output_block, const int batch_size, SourceState& source_state) {
+        vectorized::Block* output_block, const int batch_size, bool* eos) {
     int left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
     auto& iter = hash_table_ctx.iterator;
@@ -155,9 +152,7 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         }
     }
 
-    if (iter == hash_table_ctx.hash_table->end()) {
-        source_state = SourceState::FINISHED;
-    }
+    *eos = iter == hash_table_ctx.hash_table->end();
     if (!output_block->mem_reuse()) {
         for (int i = 0; i < left_col_len; ++i) {
             output_block->insert(

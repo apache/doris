@@ -49,6 +49,7 @@ Usage: $0 <options>
      --spark-dpp            build Spark DPP application. Default ON.
      --hive-udf             build Hive UDF library for Spark Load. Default ON.
      --be-java-extensions   build Backend java extensions. Default ON.
+     --be-extension-ignore  build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --clean                clean and build target
      --output               specify the output directory
      -j                     build Backend parallel
@@ -71,6 +72,7 @@ Usage: $0 <options>
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
+    $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hudi-scanner
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -127,6 +129,7 @@ if ! OPTS="$(getopt \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
+    -l 'be-extension-ignore:' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -154,6 +157,7 @@ HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
+BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
@@ -237,6 +241,10 @@ else
             ;;
         --output)
             DORIS_OUTPUT="$2"
+            shift 2
+            ;;
+        --be-extension-ignore)
+            BE_EXTENSION_IGNORE="$2"
             shift 2
             ;;
         --)
@@ -392,6 +400,24 @@ if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
     fi
 fi
 
+if [[ -n "${DISABLE_BUILD_UI}" ]]; then
+    if [[ "${DISABLE_BUILD_UI}" == "ON" ]]; then
+        BUILD_UI=0
+    fi
+fi
+
+if [[ -n "${DISABLE_BUILD_SPARK_DPP}" ]]; then
+    if [[ "${DISABLE_BUILD_SPARK_DPP}" == "ON" ]]; then
+        BUILD_SPARK_DPP=0
+    fi
+fi
+
+if [[ -n "${DISABLE_BUILD_HIVE_UDF}" ]]; then
+    if [[ "${DISABLE_BUILD_HIVE_UDF}" == "ON" ]]; then
+        BUILD_HIVE_UDF=0
+    fi
+fi
+
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
@@ -478,9 +504,18 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
+    modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
     modules+=("be-java-extensions/preload-extensions")
+
+    # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
+    if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
+        IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
+        for module in "${ignore_modules[@]}"; do
+            modules=("${modules[@]/be-java-extensions\/${module}/}")
+        done
+    fi
 fi
 FE_MODULES="$(
     IFS=','
@@ -621,7 +656,9 @@ function build_ui() {
 
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
-    build_ui
+    if [[ "${BUILD_UI}" -eq 1 ]]; then
+        build_ui
+    fi
 fi
 
 # Clean and build Frontend
@@ -634,15 +671,15 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}"
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}}
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -T 1C
         fi
     else
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}"
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}}
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -T 1C
         fi
     fi
     cd "${DORIS_HOME}"
@@ -674,6 +711,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
+    mkdir -p "${DORIS_OUTPUT}/fe/connectors"
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
@@ -717,8 +755,10 @@ EOF
 
     # Fix Killed: 9 error on MacOS (arm64).
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
-    rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
-    cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    if [[ -f "${DORIS_HOME}/be/output/lib/doris_be" ]]; then
+        rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
+        cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    fi
     if [[ -d "${DORIS_HOME}/be/output/lib/doris_be.dSYM" ]]; then
         rm -rf "${DORIS_OUTPUT}/be/lib/doris_be.dSYM"
         cp -r "${DORIS_HOME}/be/output/lib/doris_be.dSYM" "${DORIS_OUTPUT}/be/lib"/
@@ -726,12 +766,6 @@ EOF
     if [[ -f "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
-
-    # make a soft link palo_be point to doris_be, for forward compatibility
-    cd "${DORIS_OUTPUT}/be/lib"
-    rm -f palo_be
-    ln -s doris_be palo_be
-    cd -
 
     if [[ "${BUILD_META_TOOL}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
@@ -754,25 +788,53 @@ EOF
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hudi-scanner")
     extensions_modules+=("paimon-scanner")
+    extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
     extensions_modules+=("preload-extensions")
+
+    if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
+        IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
+        new_modules=()
+        for module in "${extensions_modules[@]}"; do
+            module=${module// /}
+            if [[ -n "${module}" ]]; then
+                ignore=0
+                for ignore_module in "${ignore_modules[@]}"; do
+                    if [[ "${module}" == "${ignore_module}" ]]; then
+                        ignore=1
+                        break
+                    fi
+                done
+                if [[ "${ignore}" -eq 0 ]]; then
+                    new_modules+=("${module}")
+                fi
+            fi
+        done
+        extensions_modules=("${new_modules[@]}")
+    fi
 
     BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
     rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
     mkdir "${BE_JAVA_EXTENSIONS_DIR}"
     for extensions_module in "${extensions_modules[@]}"; do
-        module_path="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
+        module_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
+        module_proj_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-project.jar"
         mkdir "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-        if [[ -f "${module_path}" ]]; then
-            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+        if [[ -f "${module_jar}" ]]; then
+            cp "${module_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+        fi
+        if [[ -f "${module_proj_jar}" ]]; then
+            cp "${module_proj_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
         fi
     done
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
+    mkdir -p "${DORIS_OUTPUT}/be/log/tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
+    mkdir -p "${DORIS_OUTPUT}/be/connectors"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

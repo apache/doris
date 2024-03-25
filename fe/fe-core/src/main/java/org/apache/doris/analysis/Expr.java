@@ -72,6 +72,7 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Root of the expr node hierarchy.
@@ -87,6 +88,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_STATE_SUFFIX = "_state";
     public static final String AGG_UNION_SUFFIX = "_union";
     public static final String AGG_MERGE_SUFFIX = "_merge";
+    public static final String AGG_FOREACH_SUFFIX = "_foreach";
     public static final String DEFAULT_EXPR_NAME = "expr";
 
     protected boolean disableTableName = false;
@@ -465,7 +467,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             setSelectivity();
         }
         analysisDone();
-        if (type.isAggStateType() && !(this instanceof SlotRef) && ((AggStateType) type).getSubTypes() == null) {
+        if (type.isAggStateType() && !(this instanceof SlotRef) && !children.get(0).getType().isAggStateType()) {
             type = createAggStateType(((AggStateType) type), Arrays.asList(collectChildReturnTypes()),
                     Arrays.asList(collectChildReturnNullables()));
         }
@@ -1045,10 +1047,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Append a flattened version of this expr, including all children, to 'container'.
     protected void treeToThriftHelper(TExpr container) {
         TExprNode msg = new TExprNode();
-        if (type.isAggStateType() && ((AggStateType) type).getSubTypes() == null) {
-            type = createAggStateType(((AggStateType) type), Arrays.asList(collectChildReturnTypes()),
-                    Arrays.asList(collectChildReturnNullables()));
-        }
         msg.type = type.toThrift();
         msg.num_children = children.size();
         if (fn != null) {
@@ -1964,9 +1962,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     throw new AnalysisException("merge/union function must input one agg_state");
                 }
                 AggStateType aggState = (AggStateType) argList.get(0);
-                if (aggState.getSubTypes() == null) {
-                    throw new AnalysisException("agg_state's subTypes is null");
-                }
                 nestedArgList = aggState.getSubTypes();
             }
 
@@ -1979,7 +1974,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
             if (isState) {
                 f = new ScalarFunction(new FunctionName(name + AGG_STATE_SUFFIX), Arrays.asList(f.getArgs()),
-                        Expr.createAggStateType(name, null, null), f.hasVarArgs(), f.isUserVisible());
+                        Expr.createAggStateType(name, nestedArgList,
+                                nestedArgList.stream().map(e -> true).collect(Collectors.toList())),
+                        f.hasVarArgs(), f.isUserVisible());
                 f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
             } else {
                 Function original = f;

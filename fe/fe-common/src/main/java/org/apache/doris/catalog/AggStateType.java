@@ -43,11 +43,10 @@ public class AggStateType extends ScalarType {
     public AggStateType(String functionName, Boolean resultIsNullable, List<Type> subTypes,
             List<Boolean> subTypeNullables) {
         super(PrimitiveType.AGG_STATE);
-        Preconditions.checkState((subTypes == null) == (subTypeNullables == null));
-        if (subTypes != null && subTypeNullables != null) {
-            Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
-                    "AggStateType' subTypes.size()!=subTypeNullables.size()");
-        }
+        Preconditions.checkState(subTypes != null);
+        Preconditions.checkState(subTypeNullables != null);
+        Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
+                "AggStateType' subTypes.size()!=subTypeNullables.size()");
         this.functionName = functionName;
         this.subTypes = subTypes;
         this.subTypeNullables = subTypeNullables;
@@ -73,7 +72,7 @@ public class AggStateType extends ScalarType {
     @Override
     public String toSql(int depth) {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("AGG_STATE(");
+        stringBuilder.append("AGG_STATE<").append(functionName).append("(");
         for (int i = 0; i < subTypes.size(); i++) {
             if (i > 0) {
                 stringBuilder.append(", ");
@@ -83,24 +82,22 @@ public class AggStateType extends ScalarType {
                 stringBuilder.append(" NULL");
             }
         }
-        stringBuilder.append(")");
+        stringBuilder.append(")>");
         return stringBuilder.toString();
     }
 
     @Override
     public void toThrift(TTypeDesc container) {
         super.toThrift(container);
-        if (subTypes != null) {
-            List<TTypeDesc> types = new ArrayList<TTypeDesc>();
-            for (int i = 0; i < subTypes.size(); i++) {
-                TTypeDesc desc = new TTypeDesc();
-                desc.setTypes(new ArrayList<TTypeNode>());
-                subTypes.get(i).toThrift(desc);
-                desc.setIsNullable(subTypeNullables.get(i));
-                types.add(desc);
-            }
-            container.setSubTypes(types);
+        List<TTypeDesc> types = new ArrayList<TTypeDesc>();
+        for (int i = 0; i < subTypes.size(); i++) {
+            TTypeDesc desc = new TTypeDesc();
+            desc.setTypes(new ArrayList<TTypeNode>());
+            subTypes.get(i).toThrift(desc);
+            desc.setIsNullable(subTypeNullables.get(i));
+            types.add(desc);
         }
+        container.setSubTypes(types);
         container.setResultIsNullable(resultIsNullable);
         container.setFunctionName(functionName);
     }
@@ -111,12 +108,6 @@ public class AggStateType extends ScalarType {
             return false;
         }
         AggStateType other = (AggStateType) o;
-        if ((subTypes == null) != (other.getSubTypes() == null)) {
-            return false;
-        }
-        if (subTypes == null) {
-            return true;
-        }
         int subTypeNumber = subTypeNullables.size();
         if (subTypeNumber != other.subTypeNullables.size()) {
             return false;

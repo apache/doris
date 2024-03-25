@@ -673,9 +673,9 @@ exit_flag=0
         insert_into_select_speed_threshold=${insert_into_select_speed_threshold_branch20:-410}  # 单位 Krows/s
     fi
     if [[ ${stream_load_json_speed} -lt ${stream_load_json_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_json_speed} is less than the threshold ${stream_load_json_speed_threshold}" && exit 1; fi
-    if [[ ${stream_load_orc_speed} -lt ${stream_load_orc_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_orc_speed} is less than the threshold ${stream_load_orc_speed_threshold}" && exit 1; fi
-    if [[ ${stream_load_parquet_speed} -lt ${stream_load_parquet_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_parquet_speed} is less than the threshold ${stream_load_parquet_speed_threshold}" && exit 1; fi
-    if [[ ${insert_into_select_speed} -lt ${insert_into_select_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${insert_into_select_speed} is less than the threshold ${insert_into_select_speed_threshold}" && exit 1; fi
+    if [[ ${stream_load_orc_speed} -lt ${stream_load_orc_speed_threshold} ]]; then echo "ERROR: stream_load_orc_speed ${stream_load_orc_speed} is less than the threshold ${stream_load_orc_speed_threshold}" && exit 1; fi
+    if [[ ${stream_load_parquet_speed} -lt ${stream_load_parquet_speed_threshold} ]]; then echo "ERROR: stream_load_parquet_speed ${stream_load_parquet_speed} is less than the threshold ${stream_load_parquet_speed_threshold}" && exit 1; fi
+    if [[ ${insert_into_select_speed} -lt ${insert_into_select_speed_threshold} ]]; then echo "ERROR: insert_into_select_speed ${insert_into_select_speed} is less than the threshold ${insert_into_select_speed_threshold}" && exit 1; fi
 
     echo "#### 4. comment result on tpch"
     comment_body="Load test result on commit ${commit_id_from_trigger:-} with default session variables"
@@ -694,7 +694,7 @@ if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi

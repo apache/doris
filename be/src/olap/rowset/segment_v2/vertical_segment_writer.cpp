@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <memory>
 #include <ostream>
 #include <unordered_map>
 #include <utility>
@@ -31,7 +32,9 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "gutil/port.h"
+#include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -39,6 +42,7 @@
 #include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -53,6 +57,7 @@
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -73,7 +78,8 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir, uint32_t max_row_per_segment,
                                              const VerticalSegmentWriterOptions& opts,
-                                             std::shared_ptr<MowContext> mow_context)
+                                             std::shared_ptr<MowContext> mow_context,
+                                             const io::FileSystemSPtr& fs)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
@@ -98,6 +104,17 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
         const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
         _seq_coder = get_key_coder(column.type());
     }
+    if (!_tablet_schema->auto_increment_column().empty()) {
+        _auto_inc_id_buffer = vectorized::GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+                _tablet_schema->db_id(), _tablet_schema->table_id(),
+                _tablet_schema->column(_tablet_schema->auto_increment_column()).unique_id());
+    }
+    if (_tablet_schema->has_inverted_index()) {
+        _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                fs ? fs : io::global_local_filesystem(), _file_writer->path().parent_path(),
+                _file_writer->path().filename(),
+                _tablet_schema->get_inverted_index_storage_format());
+    }
 }
 
 VerticalSegmentWriter::~VerticalSegmentWriter() {
@@ -115,8 +132,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
     meta->set_frac(column.frac());
-    if (!column.path_info().empty()) {
-        column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    if (column.has_path_info()) {
+        column.path_info_ptr()->to_protobuf(meta->mutable_column_path_info(),
+                                            column.parent_unique_id());
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
@@ -150,7 +168,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
         // skip write inverted index for index compaction
-        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
+        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.contains(column.unique_id());
     }
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
@@ -163,14 +181,19 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         (column.is_extracted_column() && column.is_array_type())) {
         // variant and jsonb type skip write index
         opts.indexes.clear();
+        opts.need_zone_map = false;
+        opts.need_bloom_filter = false;
+        opts.need_bitmap_index = false;
     }
-    for (auto index : opts.indexes) {
-        if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
+    for (const auto* index : opts.indexes) {
+        if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
             opts.inverted_index = index;
+            opts.need_inverted_index = true;
             // TODO support multiple inverted index
             break;
         }
     }
+    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
 
 #define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
@@ -188,7 +211,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     CHECK_FIELD_TYPE(JSONB, "jsonb")
     CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
     CHECK_FIELD_TYPE(MAP, "map")
-    CHECK_FIELD_TYPE(VARIANT, "variant")
     CHECK_FIELD_TYPE(OBJECT, "object")
     CHECK_FIELD_TYPE(HLL, "hll")
     CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
@@ -290,11 +312,6 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data) {
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): CloudStorageEngine
-        return Status::NotSupported("append_block_with_partial_content");
-    }
-
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
     DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
 
@@ -350,7 +367,23 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(tablet->get_header_lock());
-        specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        // Under normal circumstances, `get_rowset_by_ids` does not need to consider the stale
+        // rowset, in other word, if a rowset id is not found in the normal rowset, we can ignore
+        // it. This is because even if we handle stale rowset here, we need to recalculate the
+        // new rowset generated by the corresponding compaction in the publish phase.
+        // However, for partial update, ignoring the stale rowset may cause some keys to not be
+        // found in the flush phase (lookup_row_key returns KEY_NOT_FOUND), and thus be mistaken
+        // as new keys in the flush phase, which will cause the load to fail in the following
+        // two cases:
+        // 1. when strict_mode is enabled, new keys are not allowed to be added.
+        // 2. Some columns that need to be filled are neither nullable nor have a default value,
+        //    in which case the value of the field cannot be filled as a new key, leading to a
+        //    failure of the load.
+        bool should_include_stale =
+                _opts.rowset_ctx->partial_update_info->is_strict_mode ||
+                !_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update;
+        specified_rowsets =
+                tablet->get_rowset_by_ids(&_mow_context->rowset_ids, should_include_stale);
         if (_opts.rowset_ctx->partial_update_info->is_strict_mode &&
             specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
@@ -412,7 +445,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                     std::string error_column;
                     for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
                         const TabletColumn& col = _tablet_schema->column(cid);
-                        if (!col.has_default_value() && !col.is_nullable()) {
+                        if (!col.has_default_value() && !col.is_nullable() &&
+                            !(_tablet_schema->auto_increment_column() == col.name())) {
                             error_column = col.name();
                             break;
                         }
@@ -433,10 +467,12 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             return st;
         }
 
-        // if the delete sign is marked, it means that the value columns of the row
-        // will not be read. So we don't need to read the missing values from the previous rows.
-        // But we still need to mark the previous row on delete bitmap
-        if (have_delete_sign) {
+        // 1. if the delete sign is marked, it means that the value columns of the row will not
+        //    be read. So we don't need to read the missing values from the previous rows.
+        // 2. the one exception is when there are sequence columns in the table, we need to read
+        //    the sequence columns, otherwise it may cause the merge-on-read based compaction
+        //    policy to produce incorrect results
+        if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
         } else {
@@ -527,10 +563,6 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         vectorized::MutableColumns& mutable_full_columns,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const size_t& segment_start_pos) {
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): CloudStorageEngine
-        return Status::NotSupported("fill_missing_columns");
-    }
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
@@ -597,6 +629,18 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         }
     }
 
+    // deal with partial update auto increment column when there no key in old block.
+    if (!_tablet_schema->auto_increment_column().empty()) {
+        if (_auto_inc_id_allocator.total_count < use_default_or_null_flag.size()) {
+            std::vector<std::pair<int64_t, size_t>> res;
+            RETURN_IF_ERROR(
+                    _auto_inc_id_buffer->sync_request_ids(use_default_or_null_flag.size(), &res));
+            for (auto [start, length] : res) {
+                _auto_inc_id_allocator.insert_ids(start, length);
+            }
+        }
+    }
+
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
         // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
@@ -609,7 +653,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             (delete_sign_column_data != nullptr &&
              delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
             for (auto i = 0; i < missing_cids.size(); ++i) {
-                // if the column has default value, fiil it with default value
+                // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
                 const auto& tablet_column = _tablet_schema->column(missing_cids[i]);
                 if (tablet_column.has_default_value()) {
@@ -619,6 +663,12 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                     auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
                             mutable_full_columns[missing_cids[i]].get());
                     nullable_column->insert_null_elements(1);
+                } else if (_tablet_schema->auto_increment_column() == tablet_column.name()) {
+                    DCHECK(_opts.rowset_ctx->tablet_schema->column(tablet_column.name()).type() ==
+                           FieldType::OLAP_FIELD_TYPE_BIGINT);
+                    auto auto_inc_column = assert_cast<vectorized::ColumnInt64*>(
+                            mutable_full_columns[missing_cids[i]].get());
+                    auto_inc_column->insert(_auto_inc_id_allocator.next_id());
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
@@ -843,11 +893,10 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
 }
 
 size_t VerticalSegmentWriter::_calculate_inverted_index_file_size() {
-    size_t total_size = 0;
-    for (auto& column_writer : _column_writers) {
-        total_size += column_writer->get_inverted_index_size();
+    if (_inverted_index_file_writer != nullptr) {
+        return _inverted_index_file_writer->get_index_file_size();
     }
-    return total_size;
+    return 0;
 }
 
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
@@ -942,6 +991,9 @@ Status VerticalSegmentWriter::_write_bitmap_index() {
 Status VerticalSegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
+    }
+    if (_inverted_index_file_writer != nullptr) {
+        RETURN_IF_ERROR(_inverted_index_file_writer->close());
     }
     return Status::OK();
 }

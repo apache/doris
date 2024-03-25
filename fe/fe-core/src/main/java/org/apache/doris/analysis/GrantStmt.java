@@ -20,13 +20,13 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
@@ -66,17 +66,17 @@ public class GrantStmt extends DdlStmt {
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern,
             List<AccessPrivilegeWithCols> privileges) {
-        this(userIdent, role, tblPattern, null, null, privileges);
+        this(userIdent, role, tblPattern, null, null, privileges, ResourceTypeEnum.GENERAL);
     }
 
     public GrantStmt(UserIdentity userIdent, String role,
-            ResourcePattern resourcePattern, List<AccessPrivilegeWithCols> privileges) {
-        this(userIdent, role, null, resourcePattern, null, privileges);
+            ResourcePattern resourcePattern, List<AccessPrivilegeWithCols> privileges, ResourceTypeEnum type) {
+        this(userIdent, role, null, resourcePattern, null, privileges, type);
     }
 
     public GrantStmt(UserIdentity userIdent, String role,
             WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> privileges) {
-        this(userIdent, role, null, null, workloadGroupPattern, privileges);
+        this(userIdent, role, null, null, workloadGroupPattern, privileges, ResourceTypeEnum.GENERAL);
     }
 
     public GrantStmt(List<String> roles, UserIdentity userIdent) {
@@ -85,12 +85,16 @@ public class GrantStmt extends DdlStmt {
     }
 
     private GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, ResourcePattern resourcePattern,
-            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> accessPrivileges) {
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> accessPrivileges,
+                      ResourceTypeEnum type) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = tblPattern;
         this.resourcePattern = resourcePattern;
         this.workloadGroupPattern = workloadGroupPattern;
+        if (this.resourcePattern != null) {
+            this.resourcePattern.setResourceType(type);
+        }
         this.accessPrivileges = accessPrivileges;
     }
 
@@ -167,6 +171,7 @@ public class GrantStmt extends DdlStmt {
         if (tblPattern != null) {
             checkTablePrivileges(privileges, role, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
+            privileges = PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
             checkResourcePrivileges(privileges, role, resourcePattern);
         } else if (workloadGroupPattern != null) {
             checkWorkloadGroupPrivileges(privileges, role, workloadGroupPattern);
@@ -178,7 +183,7 @@ public class GrantStmt extends DdlStmt {
     public static void checkAccessPrivileges(
             List<AccessPrivilegeWithCols> accessPrivileges) throws AnalysisException {
         for (AccessPrivilegeWithCols access : accessPrivileges) {
-            if ((!access.getAccessPrivilege().canHasColPriv() || !Config.enable_col_auth) && !CollectionUtils
+            if ((!access.getAccessPrivilege().canHasColPriv()) && !CollectionUtils
                     .isEmpty(access.getCols())) {
                 throw new AnalysisException(
                         String.format("%s do not support col auth.", access.getAccessPrivilege().name()));
@@ -251,7 +256,7 @@ public class GrantStmt extends DdlStmt {
         }
 
         // Rule 6
-        if (privileges.contains(Privilege.USAGE_PRIV)) {
+        if (privileges.contains(Privilege.USAGE_PRIV) || privileges.contains(Privilege.CLUSTER_USAGE_PRIV)) {
             throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from database or table");
         }
 
@@ -284,9 +289,17 @@ public class GrantStmt extends DdlStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else {
-                if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
-                        resourcePattern.getResourceName(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
+                if (resourcePattern.isGeneralResource()) {
+                    if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
+                            resourcePattern.getResourceName(), PrivPredicate.GRANT)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
+                    }
+                } else if (resourcePattern.isClusterResource()) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkCloudPriv(ConnectContext.get(),
+                            resourcePattern.getResourceName(), PrivPredicate.GRANT, ResourceTypeEnum.CLUSTER)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
+                    }
                 }
             }
         }

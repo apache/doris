@@ -84,7 +84,7 @@ public class ModifyBackendTest {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
                         + "Create failed replications:\n"
-                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
+                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: HDD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
 
         createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n" + "buckets 3 properties(\n"

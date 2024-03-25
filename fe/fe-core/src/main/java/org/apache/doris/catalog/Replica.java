@@ -74,6 +74,19 @@ public class Replica implements Writable {
         DROP,  // user force drop replica on this backend
     }
 
+    public static class ReplicaContext {
+        public long replicaId;
+        public long backendId;
+        public ReplicaState state;
+        public long version;
+        public int schemaHash;
+        public long dbId;
+        public long tableId;
+        public long partitionId;
+        public long indexId;
+        public Replica originReplica;
+    }
+
     @SerializedName(value = "id")
     private long id;
     @SerializedName(value = "backendId")
@@ -159,10 +172,16 @@ public class Replica implements Writable {
      */
     private long preWatermarkTxnId = -1;
     private long postWatermarkTxnId = -1;
+    private long segmentCount = 0L;
+    private long rowsetCount = 0L;
 
     private long userDropTime = -1;
 
     public Replica() {
+    }
+
+    public Replica(ReplicaContext context) {
+        this(context.replicaId, context.backendId, context.state, context.version, context.schemaHash);
     }
 
     // for rollup
@@ -239,6 +258,14 @@ public class Replica implements Writable {
 
     public long getRowCount() {
         return rowCount;
+    }
+
+    public long getSegmentCount() {
+        return segmentCount;
+    }
+
+    public long getRowsetCount() {
+        return rowsetCount;
     }
 
     public long getLastFailedVersion() {
@@ -332,6 +359,13 @@ public class Replica implements Writable {
         this.remoteDataSize = remoteDataSize;
         this.rowCount = rowNum;
         this.versionCount = versionCount;
+    }
+
+    public synchronized void updateCloudStat(long dataSize, long rowsetNum, long segmentNum, long rowNum) {
+        this.dataSize = dataSize;
+        this.rowsetCount = rowsetNum;
+        this.segmentCount = segmentNum;
+        this.rowCount = rowNum;
     }
 
     public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRemoteDataSize,

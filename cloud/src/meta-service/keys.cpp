@@ -50,6 +50,7 @@ namespace doris::cloud {
 [[maybe_unused]] static const char* META_KEY_INFIX_TABLET     = "tablet";
 [[maybe_unused]] static const char* META_KEY_INFIX_TABLET_IDX = "tablet_index";
 [[maybe_unused]] static const char* META_KEY_INFIX_SCHEMA     = "schema";
+[[maybe_unused]] static const char* META_KEY_INFIX_ROWSET_SCHEMA     = "rowset_schema";
 [[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP = "delete_bitmap";
 [[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP_LOCK = "delete_bitmap_lock";
 [[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending";
@@ -66,6 +67,7 @@ namespace doris::cloud {
 [[maybe_unused]] static const char* COPY_JOB_KEY_INFIX        = "job";
 [[maybe_unused]] static const char* COPY_FILE_KEY_INFIX       = "loading_file";
 [[maybe_unused]] static const char* STAGE_KEY_INFIX           = "stage";
+[[maybe_unused]] static const char* VAULT_KEY_PREFIX          = "storage_vault";
 
 // clang-format on
 
@@ -115,7 +117,7 @@ static void encode_prefix(const T& t, std::string* key) {
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
-        CopyJobKeyInfo, CopyFileKeyInfo>);
+        CopyJobKeyInfo, CopyFileKeyInfo, MetaRowsetSchemaKeyInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -131,6 +133,7 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaTabletKeyInfo>
                       || std::is_same_v<T, MetaTabletIdxKeyInfo>
                       || std::is_same_v<T, MetaSchemaKeyInfo>
+                      || std::is_same_v<T, MetaRowsetSchemaKeyInfo>
                       || std::is_same_v<T, MetaDeleteBitmapInfo>
                       || std::is_same_v<T, MetaDeleteBitmapUpdateLockInfo>
                       || std::is_same_v<T, MetaPendingDeleteBitmapInfo>) {
@@ -263,6 +266,13 @@ void meta_schema_key(const MetaSchemaKeyInfo& in, std::string* out) {
     encode_bytes(META_KEY_INFIX_SCHEMA, out); // "schema"
     encode_int64(std::get<1>(in), out);       // index_id
     encode_int64(std::get<2>(in), out);       // schema_version
+}
+
+void meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                   // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_ROWSET_SCHEMA, out); // "rowset_schema"
+    encode_int64(std::get<1>(in), out);       // tablet_id 
+    encode_bytes(std::get<2>(in), out);              // rowset_id 
 }
 
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out) {
@@ -446,6 +456,16 @@ std::string system_meta_service_encryption_key_info_key() {
     encode_bytes("meta-service", &ret);
     encode_bytes("encryption_key_info", &ret);
     return ret;
+}
+
+//==============================================================================
+// Storage Vault keys
+//==============================================================================
+
+void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
+    encode_bytes(VAULT_KEY_PREFIX, out);
+    encode_bytes(std::get<0>(in), out);
+    encode_bytes(std::get<1>(in), out);
 }
 
 //==============================================================================

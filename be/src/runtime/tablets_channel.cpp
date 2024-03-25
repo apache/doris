@@ -193,6 +193,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.is_high_priority = _is_high_priority;
         wrequest.table_schema_param = _schema;
         wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
+        wrequest.storage_vault_id = params.storage_vault_id();
 
         auto delta_writer = create_delta_writer(wrequest);
         {
@@ -524,7 +525,7 @@ Status BaseTabletsChannel::_write_block_data(
     Defer defer {
             [&]() { g_tablets_channel_send_data_allocated_size << -send_data.allocated_bytes(); }};
 
-    auto write_tablet_data = [&](uint32_t tablet_id,
+    auto write_tablet_data = [&](int64_t tablet_id,
                                  std::function<Status(BaseDeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();

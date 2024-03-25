@@ -86,6 +86,8 @@ public:
     IntCounter* base_compaction_bytes_total = nullptr;
     IntCounter* cumulative_compaction_deltas_total = nullptr;
     IntCounter* cumulative_compaction_bytes_total = nullptr;
+    IntCounter* full_compaction_deltas_total = nullptr;
+    IntCounter* full_compaction_bytes_total = nullptr;
 
     IntCounter* publish_task_request_total = nullptr;
     IntCounter* publish_task_failed_total = nullptr;
@@ -187,8 +189,6 @@ public:
     UIntGauge* query_cache_memory_total_byte = nullptr;
     UIntGauge* query_cache_sql_total_count = nullptr;
     UIntGauge* query_cache_partition_total_count = nullptr;
-
-    IntGauge* lru_cache_memory_bytes = nullptr;
 
     UIntGauge* scanner_thread_pool_queue_size = nullptr;
     UIntGauge* add_batch_task_queue_size = nullptr;

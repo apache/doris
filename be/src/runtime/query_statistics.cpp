@@ -26,19 +26,6 @@
 
 namespace doris {
 
-void NodeStatistics::merge(const NodeStatistics& other) {
-    peak_memory_bytes = std::max(other.peak_memory_bytes, peak_memory_bytes);
-}
-
-void NodeStatistics::to_pb(PNodeStatistics* node_statistics) {
-    DCHECK(node_statistics != nullptr);
-    node_statistics->set_peak_memory_bytes(peak_memory_bytes);
-}
-
-void NodeStatistics::from_pb(const PNodeStatistics& node_statistics) {
-    peak_memory_bytes = node_statistics.peak_memory_bytes();
-}
-
 void QueryStatistics::merge(const QueryStatistics& other) {
     scan_rows += other.scan_rows.load(std::memory_order_relaxed);
     scan_bytes += other.scan_bytes.load(std::memory_order_relaxed);
@@ -55,12 +42,6 @@ void QueryStatistics::merge(const QueryStatistics& other) {
     if (other_memory_used > 0) {
         this->current_used_memory_bytes = other_memory_used;
     }
-
-    for (auto& other_node_statistics : other._nodes_statistics_map) {
-        int64_t node_id = other_node_statistics.first;
-        auto node_statistics = add_nodes_statistics(node_id);
-        node_statistics->merge(*other_node_statistics.second);
-    }
 }
 
 void QueryStatistics::to_pb(PQueryStatistics* statistics) {
@@ -70,11 +51,6 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     statistics->set_cpu_ms(cpu_nanos / NANOS_PER_MILLIS);
     statistics->set_returned_rows(returned_rows);
     statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
-    for (auto iter = _nodes_statistics_map.begin(); iter != _nodes_statistics_map.end(); ++iter) {
-        auto node_statistics = statistics->add_nodes_statistics();
-        node_statistics->set_node_id(iter->first);
-        iter->second->to_pb(node_statistics);
-    }
 }
 
 void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
@@ -94,21 +70,6 @@ void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
     scan_rows = statistics.scan_rows();
     scan_bytes = statistics.scan_bytes();
     cpu_nanos = statistics.cpu_ms() * NANOS_PER_MILLIS;
-    for (auto& p_node_statistics : statistics.nodes_statistics()) {
-        int64_t node_id = p_node_statistics.node_id();
-        auto node_statistics = add_nodes_statistics(node_id);
-        node_statistics->from_pb(p_node_statistics);
-    }
-}
-
-int64_t QueryStatistics::calculate_max_peak_memory_bytes() {
-    int64_t max_peak_memory = 0;
-    for (auto iter = _nodes_statistics_map.begin(); iter != _nodes_statistics_map.end(); ++iter) {
-        if (max_peak_memory < iter->second->peak_memory_bytes) {
-            max_peak_memory = iter->second->peak_memory_bytes;
-        }
-    }
-    return max_peak_memory;
 }
 
 void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {
@@ -123,16 +84,7 @@ void QueryStatistics::merge(QueryStatisticsRecvr* recvr, int sender_id) {
     }
 }
 
-void QueryStatistics::clearNodeStatistics() {
-    for (auto& pair : _nodes_statistics_map) {
-        delete pair.second;
-    }
-    _nodes_statistics_map.clear();
-}
-
-QueryStatistics::~QueryStatistics() {
-    clearNodeStatistics();
-}
+QueryStatistics::~QueryStatistics() {}
 
 void QueryStatisticsRecvr::insert(const PQueryStatistics& statistics, int sender_id) {
     std::lock_guard<std::mutex> l(_lock);

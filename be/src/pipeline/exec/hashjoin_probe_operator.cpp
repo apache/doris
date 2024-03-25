@@ -173,6 +173,9 @@ void HashJoinProbeLocalState::init_for_probe(RuntimeState* state) {
 
 void HashJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     DCHECK(_parent->cast<HashJoinProbeOperatorX>()._is_outer_join);
+    if (!_parent->cast<HashJoinProbeOperatorX>()._use_specific_projections) {
+        return;
+    }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
     auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
     auto& left_null_map = reinterpret_cast<vectorized::ColumnUInt8&>(*p0);
@@ -214,6 +217,7 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
         column_type.column = remove_nullable(column_type.column);
         column_type.type = remove_nullable(column_type.type);
     }
+    _key_columns_holder.clear();
     _probe_block.clear_column_data(_parent->get_child()->row_desc().num_materialized_slots());
 }
 
@@ -232,13 +236,13 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
                                    : std::vector<TExpr> {}) {}
 
 Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                                    SourceState& source_state) const {
+                                    bool* eos) const {
     auto& local_state = get_local_state(state);
     local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
-        source_state = SourceState::FINISHED;
+        *eos = true;
         return Status::OK();
     }
 
@@ -249,9 +253,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         // If we use a short-circuit strategy, should return block directly by add additional null data.
         auto block_rows = local_state._probe_block.rows();
         if (local_state._probe_eos && block_rows == 0) {
-            if (local_state._probe_eos) {
-                source_state = SourceState::FINISHED;
-            }
+            *eos = local_state._probe_eos;
             return Status::OK();
         }
 
@@ -287,7 +289,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
 
         /// No need to check the block size in `_filter_data_and_build_output` because here dose not
         /// increase the output rows count(just same as `_probe_block`'s rows count).
-        RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, source_state,
+        RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &temp_block, false));
         temp_block.clear();
         local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
@@ -341,10 +343,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                         if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                bool eos = false;
                                 st = process_hashtable_ctx.process_data_in_hashtable(
-                                        arg, mutable_join_block, &temp_block, &eos, _is_mark_join);
-                                source_state = eos ? SourceState::FINISHED : source_state;
+                                        arg, mutable_join_block, &temp_block, eos, _is_mark_join);
                             } else {
                                 st = Status::InternalError("uninited hash table");
                             }
@@ -355,7 +355,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     *local_state._shared_state->hash_table_variants,
                     *local_state._process_hashtable_ctx_variants);
         } else {
-            source_state = SourceState::FINISHED;
+            *eos = true;
             return Status::OK();
         }
     } else {
@@ -365,8 +365,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         return st;
     }
 
-    RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, source_state,
-                                                             &temp_block));
+    RETURN_IF_ERROR(
+            local_state.filter_data_and_build_output(state, output_block, eos, &temp_block));
     // Here make _join_block release the columns' ptr
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
     mutable_join_block.clear();
@@ -378,7 +378,15 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
                                                      vectorized::ColumnRawPtrs& raw_ptrs,
                                                      const std::vector<int>& res_col_ids) {
     auto& shared_state = *_shared_state;
+    auto& p = _parent->cast<HashJoinProbeOperatorX>();
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
+        if (p._should_convert_to_nullable[i]) {
+            _key_columns_holder.emplace_back(
+                    vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
+            raw_ptrs[i] = _key_columns_holder.back().get();
+            continue;
+        }
+
         if (shared_state.is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
@@ -417,7 +425,7 @@ std::vector<uint16_t> HashJoinProbeLocalState::_convert_block_to_null(vectorized
 
 Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state,
                                                              vectorized::Block* output_block,
-                                                             SourceState& source_state,
+                                                             bool* eos,
                                                              vectorized::Block* temp_block,
                                                              bool check_rows_count) {
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
@@ -434,9 +442,9 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
                                                                temp_block->columns()));
     }
 
-    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_output_block(temp_block, output_block, false));
     _reset_tuple_is_null_column();
-    reached_limit(output_block, source_state);
+    reached_limit(output_block, eos);
     return Status::OK();
 }
 
@@ -468,10 +476,10 @@ Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
 }
 
 Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
-                                    SourceState source_state) const {
+                                    bool eos) const {
     auto& local_state = get_local_state(state);
     local_state.prepare_for_next();
-    local_state._probe_eos = source_state == SourceState::FINISHED;
+    local_state._probe_eos = eos;
     if (input_block->rows() > 0) {
         COUNTER_UPDATE(local_state._probe_rows_counter, input_block->rows());
         int probe_expr_ctxs_sz = local_state._probe_expr_ctxs.size();
@@ -528,6 +536,18 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
                 null_aware ||
                 (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
         conjuncts_index++;
+        const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
+                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+
+        /// If it's right anti join,
+        /// we should convert the probe to nullable if the build side is nullable.
+        /// And if it is 'null safe equal',
+        /// we must make sure the build side and the probe side are both nullable or non-nullable.
+        const bool should_convert_to_nullable =
+                (is_null_safe_equal || _join_op == TJoinOp::RIGHT_ANTI_JOIN) &&
+                !eq_join_conjunct.left.nodes[0].is_nullable &&
+                eq_join_conjunct.right.nodes[0].is_nullable;
+        _should_convert_to_nullable.emplace_back(should_convert_to_nullable);
     }
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
         _probe_ignore_null |= !probe_not_ignore_null[i];

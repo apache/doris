@@ -24,13 +24,14 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
-#include <execution>
+#include <cstdint>
 #include <mutex>
 #include <ranges>
 #include <string>
 #include <unordered_map>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -40,17 +41,14 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "service/brpc.h"
-#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
-#include "util/threadpool.h"
-#include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_stub.h"
+// NOLINTNEXTLINE(unused-includes)
+#include "vec/sink/load_stream_stub.h" // IWYU pragma: keep
 #include "vec/sink/load_stream_stub_pool.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
@@ -107,6 +105,8 @@ Status VTabletWriterV2::_incremental_open_streams(
                     }
                     _indexes_from_node[node].emplace_back(tablet);
                     known_indexes.insert(index.index_id);
+                    VLOG_DEBUG << "incremental open stream (" << partition->id << ", " << tablet_id
+                               << ")";
                 }
             }
         }
@@ -207,7 +207,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
                 "output_tuple_slot_num {} should be equal to output_expr_num {}",
                 _output_tuple_desc->slots().size() + 1, _vec_output_expr_ctxs.size());
     });
-    if (_vec_output_expr_ctxs.size() > 0 &&
+    if (!_vec_output_expr_ctxs.empty() &&
         _output_tuple_desc->slots().size() != _vec_output_expr_ctxs.size()) {
         LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
                      << "output_tuple_slot_num " << _output_tuple_desc->slots().size()
@@ -298,7 +298,7 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
     for (const auto& partition : _vpartition->get_partitions()) {
         for (const auto& index : partition->indexes) {
             for (const auto& tablet_id : index.tablets) {
-                auto tablet_location = _location->find_tablet(tablet_id);
+                auto* tablet_location = _location->find_tablet(tablet_id);
                 DBUG_EXECUTE_IF("VTabletWriterV2._build_tablet_node_mapping.tablet_location_null",
                                 { tablet_location = nullptr; });
                 if (tablet_location == nullptr) {
@@ -359,6 +359,7 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         tablet.set_partition_id(partition_id);
         tablet.set_index_id(index_id);
         tablet.set_tablet_id(tablet_id);
+        VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
         streams.emplace_back(_streams_for_node.at(node_id)->streams().at(_stream_index));
         RETURN_IF_ERROR(streams[0]->wait_for_schema(partition_id, index_id, tablet_id));
@@ -427,7 +428,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .index_id = rows.index_id,
                 .partition_id = rows.partition_id,
                 .load_id = _load_id,
-                .tuple_desc = _output_tuple_desc,
+                .tuple_desc = _schema->tuple_desc(),
                 .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
@@ -560,7 +561,7 @@ Status VTabletWriterV2::close(Status exec_status) {
                                      << print_id(_load_id);
                         return Status::TimedOut("load timed out before close waiting");
                     }
-                    RETURN_IF_ERROR(stream->close_wait(remain_ms));
+                    RETURN_IF_ERROR(stream->close_wait(_state, remain_ms));
                 }
             }
         }
@@ -632,10 +633,22 @@ Status VTabletWriterV2::close(Status exec_status) {
 Status VTabletWriterV2::_close_load(const Streams& streams) {
     auto node_id = streams[0]->dst_id();
     std::vector<PTabletID> tablets_to_commit;
+    std::vector<int64_t> partition_ids;
     for (auto [tablet_id, tablet] : _tablets_for_node[node_id]) {
         if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
+            if (VLOG_DEBUG_IS_ON) {
+                partition_ids.push_back(tablet.partition_id());
+            }
             tablets_to_commit.push_back(tablet);
         }
+    }
+    if (VLOG_DEBUG_IS_ON) {
+        std::string msg("close load partitions: ");
+        msg.reserve(partition_ids.size() * 7);
+        for (auto v : partition_ids) {
+            msg.append(std::to_string(v) + ", ");
+        }
+        LOG(WARNING) << msg;
     }
     for (const auto& stream : streams) {
         RETURN_IF_ERROR(stream->close_load(tablets_to_commit));

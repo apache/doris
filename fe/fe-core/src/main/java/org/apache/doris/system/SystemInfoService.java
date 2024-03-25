@@ -488,7 +488,7 @@ public class SystemInfoService {
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
-    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+    public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
             TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
@@ -523,6 +523,7 @@ public class SystemInfoService {
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 // first time empty, retry with different storage medium
                 // if only for check, no need to retry different storage medium to get backend
+                TStorageMedium originalStorageMedium = storageMedium;
                 if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
                     builder.setStorageMedium(storageMedium);
@@ -537,10 +538,10 @@ public class SystemInfoService {
                 }
                 // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
-                    LOG.error("failed backend(s) for policy:" + policy);
+                    LOG.error("failed backend(s) for policy: {} real medium {}", policy, originalStorageMedium);
                     String errorReplication = "replication tag: " + entry.getKey()
                             + ", replication num: " + entry.getValue()
-                            + ", storage medium: " + storageMedium;
+                            + ", storage medium: " + originalStorageMedium;
                     failedEntries.add(errorReplication);
                 } else {
                     chosenBackendIds.put(entry.getKey(), beIds);
@@ -557,7 +558,7 @@ public class SystemInfoService {
         }
 
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
-        return chosenBackendIds;
+        return Pair.of(chosenBackendIds, storageMedium);
     }
 
     /**
@@ -992,12 +993,35 @@ public class SystemInfoService {
         return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
     }
 
+    // CloudSystemInfoService override
+    public List<Backend> getBackendsByCurrentCluster() throws UserException {
+        return idToBackendRef.values().stream().collect(Collectors.toList());
+    }
+
+    // CloudSystemInfoService override
+    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws UserException {
+        return getIdToBackend();
+    }
+
     public int getMinPipelineExecutorSize() {
-        if (idToBackendRef.size() == 0) {
+        if (Config.isCloudMode() && ConnectContext.get() != null
+                && Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster(false))) {
+            return 1;
+        }
+        List<Backend> currentBackends = null;
+        try {
+            currentBackends = getBackendsByCurrentCluster();
+        } catch (UserException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get current cluster backends failed: ", e);
+            }
+            return 1;
+        }
+        if (currentBackends.size() == 0) {
             return 1;
         }
         int minPipelineExecutorSize = Integer.MAX_VALUE;
-        for (Backend be : idToBackendRef.values()) {
+        for (Backend be : currentBackends) {
             int size = be.getPipelineExecutorSize();
             if (size > 0) {
                 minPipelineExecutorSize = Math.min(minPipelineExecutorSize, size);

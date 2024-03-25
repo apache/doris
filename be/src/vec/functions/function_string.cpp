@@ -817,7 +817,7 @@ struct ToBase64Impl {
                 dst = dst_uptr.get();
             }
 
-            int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
+            auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
@@ -860,7 +860,7 @@ struct ToBase64OldImpl {
                 dst = dst_uptr.get();
             }
 
-            int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
+            auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
@@ -902,7 +902,7 @@ struct FromBase64Impl {
                 dst_uptr.reset(new char[cipher_len]);
                 dst = dst_uptr.get();
             }
-            int outlen = base64_decode(source, srclen, dst);
+            auto outlen = base64_decode(source, srclen, dst);
 
             if (outlen < 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
@@ -1116,6 +1116,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
     factory.register_function<FunctionUrlDecode>();
+    factory.register_function<FunctionRandomBytes>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
@@ -1137,7 +1138,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alternative_function<FunctionLeftOld>();
     factory.register_alternative_function<FunctionRightOld>();
     factory.register_alternative_function<FunctionSubstringIndexOld>();
-    factory.register_alternative_function<FunctionStringRepeatOld>();
     factory.register_alternative_function<FunctionUnHexOld>();
     factory.register_alternative_function<FunctionToBase64Old>();
 

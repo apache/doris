@@ -64,6 +64,8 @@ suite("test_crud_wlg") {
     """
 
     sql "ADMIN SET FRONTEND CONFIG ('enable_workload_group' = 'true');"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_alter_queue_prop_sync' = 'true');"
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '100');"
 
     sql "create workload group if not exists normal " +
             "properties ( " +
@@ -115,7 +117,7 @@ suite("test_crud_wlg") {
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
+    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test memory_limit
     test {
@@ -126,7 +128,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'memory_limit'='11%' );"
     qt_mem_limit_1 """ select count(1) from ${table_name} """
-    qt_mem_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
+    qt_mem_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test enable_memory_overcommit
     test {
@@ -139,7 +141,7 @@ suite("test_crud_wlg") {
     qt_mem_overcommit_1 """ select count(1) from ${table_name} """
     sql "alter workload group test_group properties ( 'enable_memory_overcommit'='false' );"
     qt_mem_overcommit_2 """ select count(1) from ${table_name} """
-    qt_mem_overcommit_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
+    qt_mem_overcommit_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test cpu_hard_limit
     test {
@@ -158,7 +160,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'cpu_hard_limit'='20%' );"
     qt_cpu_hard_limit_1 """ select count(1) from ${table_name} """
-    qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
+    qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test query queue
     test {
@@ -181,7 +183,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
     qt_queue_1 """ select count(1) from ${table_name} """
-    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
+    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test create group failed
     // failed for cpu_share
@@ -259,7 +261,7 @@ suite("test_crud_wlg") {
     }
 
     // test show workload groups
-    qt_select_tvf_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from workload_groups() order by name;"
+    qt_select_tvf_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test auth
     sql """drop user if exists test_wlg_user"""
@@ -286,10 +288,10 @@ suite("test_crud_wlg") {
     }
 
     // test query queue limit
-    sql "ADMIN SET FRONTEND CONFIG ('enable_alter_queue_prop_sync' = 'true');"
     sql "set workload_group=test_group;"
     sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
     sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
+    Thread.sleep(10000)
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
@@ -312,6 +314,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'max_queue_size'='1' );"
     sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
+    Thread.sleep(10000)
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
@@ -319,7 +322,84 @@ suite("test_crud_wlg") {
     }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
-    sql "select 1;"
+    Thread.sleep(10000)
+    sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
     sql "set workload_group=normal;"
+
+    // test workload spill property
+    // 1 create group
+    test {
+        sql "create workload group if not exists spill_group_test_failed properties (  'spill_threshold_low_watermark'='90%');"
+        exception "should bigger than spill_threshold_low_watermark"
+    }
+    sql "create workload group if not exists spill_group_test properties (  'spill_threshold_low_watermark'='10%','spill_threshold_high_watermark'='10%');"
+    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+
+    test {
+        sql "create workload group if not exists spill_group_test properties (  'spill_threshold_low_watermark'='20%','spill_threshold_high_watermark'='10%');"
+        exception "should bigger than spill_threshold_low_watermark"
+    }
+
+    // 2 alter low
+    sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='-1' );"
+    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+
+    sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='5%' );"
+    qt_show_spill_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='20%' );"
+        exception "should bigger than spill_threshold_low_watermark"
+    }
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='0%' );"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='101%' );"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_low_watermark'='0%')"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_low_watermark'='101%')"
+        exception "must be a positive integer"
+    }
+
+    // 3 alter high
+    sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='40%' );"
+    qt_show_spill_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='1%' );"
+        exception "should bigger than spill_threshold_low_watermark"
+    }
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='0%' );"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='101%' );"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_high_watermark'='0%')"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_high_watermark'='101%')"
+        exception "must be a positive integer"
+    }
+
     sql "drop workload group test_group;"
+    sql "drop workload group spill_group_test;"
 }

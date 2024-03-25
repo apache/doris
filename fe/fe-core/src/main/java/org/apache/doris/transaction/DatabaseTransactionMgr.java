@@ -1040,6 +1040,7 @@ public class DatabaseTransactionMgr {
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.clearErrorMsg();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
+                setTableVersion(transactionState, db);
                 unprotectUpsertTransactionState(transactionState, false);
                 txnOperated = true;
                 // TODO(cmy): We found a very strange problem. When delete-related transactions are processed here,
@@ -1068,6 +1069,20 @@ public class DatabaseTransactionMgr {
         transactionState.countdownVisibleLatch();
         LOG.info("finish transaction {} successfully, publish times {}, publish result {}",
                 transactionState, transactionState.getPublishCount(), publishResult.name());
+    }
+
+    private void setTableVersion(TransactionState transactionState, Database db) {
+        Map<Long, TableCommitInfo> idToTableCommitInfos = transactionState.getIdToTableCommitInfos();
+        for (Entry<Long, TableCommitInfo> entry : idToTableCommitInfos.entrySet()) {
+            OlapTable table = (OlapTable) db.getTableNullable(entry.getKey());
+            if (table == null) {
+                LOG.warn("table {} does not exist when setTableVersion. transaction: {}, db: {}",
+                        entry.getKey(), transactionState.getTransactionId(), db.getId());
+                continue;
+            }
+            entry.getValue().setVersion(table.getNextVersion());
+            entry.getValue().setVersionTime(System.currentTimeMillis());
+        }
     }
 
     private boolean finishCheckPartitionVersion(TransactionState transactionState, Database db,
@@ -1323,8 +1338,7 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
-                    System.currentTimeMillis());
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 String partitionRange = "";
@@ -1364,8 +1378,7 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
-                    System.currentTimeMillis());
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
@@ -1912,6 +1925,7 @@ public class DatabaseTransactionMgr {
     private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        List<Long> newPartitionLoadedTableIds = new ArrayList<>();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1973,7 +1987,7 @@ public class DatabaseTransactionMgr {
                 long versionTime = partitionCommitInfo.getVersionTime();
                 if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION
                         && version > Partition.PARTITION_INIT_VERSION) {
-                    analysisManager.setNewPartitionLoaded(tableId);
+                    newPartitionLoadedTableIds.add(tableId);
                 }
                 partition.updateVisibleVersionAndTime(version, versionTime);
                 if (LOG.isDebugEnabled()) {
@@ -2000,7 +2014,8 @@ public class DatabaseTransactionMgr {
         if (LOG.isDebugEnabled()) {
             LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
         }
-        tableIdToNumDeltaRows.forEach(analysisManager::updateUpdatedRows);
+        analysisManager.setNewPartitionLoaded(newPartitionLoadedTableIds);
+        analysisManager.updateUpdatedRows(tableIdToNumDeltaRows);
         return true;
     }
 

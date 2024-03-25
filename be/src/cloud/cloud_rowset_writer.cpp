@@ -17,6 +17,7 @@
 
 #include "cloud/cloud_rowset_writer.h"
 
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/rowset/rowset_factory.h"
 
 namespace doris {
@@ -31,9 +32,9 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     if (_context.fs) {
         _rowset_meta->set_fs(_context.fs);
     } else {
-        // TODO(plat1ko):
         // In cloud mode, this branch implies it is an intermediate rowset for external merge sort,
         // we use `global_local_filesystem` to write data to `tmp_file_dir`(see `BetaRowset::segment_file_path`).
+        _context.rowset_dir = io::FileCacheFactory::instance()->get_cache_path();
     }
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
@@ -57,7 +58,6 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
-    RETURN_IF_ERROR(_segment_creator.init(_context));
     return Status::OK();
 }
 
@@ -100,7 +100,16 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->set_tablet_schema(_context.tablet_schema);
     }
 
-    // TODO(plat1ko): Record segment file size in rowset meta
+    if (_rowset_meta->newest_write_timestamp() == -1) {
+        _rowset_meta->set_newest_write_timestamp(UnixSeconds());
+    }
+
+    if (auto seg_file_size = _seg_files.segments_file_size(_segment_start_id);
+        !seg_file_size.has_value()) [[unlikely]] {
+        LOG(ERROR) << "expected segment file sizes, but none presents: " << seg_file_size.error();
+    } else {
+        _rowset_meta->add_segments_file_size(seg_file_size.value());
+    }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
@@ -108,11 +117,6 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
             "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
-}
-
-Status CloudRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
-    // TODO(plat1ko)
-    return Status::NotSupported("CloudRowsetWriter::_generate_delete_bitmap is not implemented");
 }
 
 } // namespace doris

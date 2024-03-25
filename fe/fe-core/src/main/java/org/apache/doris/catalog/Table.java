@@ -57,6 +57,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -82,6 +83,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @SerializedName(value = "createTime")
     protected long createTime;
     protected QueryableReentrantReadWriteLock rwLock;
+    // Used for queuing commit transaction tasks to avoid fdb transaction conflicts,
+    // especially to reduce conflicts when obtaining delete bitmap update locks for
+    // MoW table
+    protected ReentrantLock commitLock;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -131,6 +136,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
+        this.commitLock = new ReentrantLock(true);
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -155,6 +161,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
+        this.commitLock = new ReentrantLock(true);
     }
 
     public void markDropped() {
@@ -297,6 +304,28 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return false;
     }
 
+    public void commitLock() {
+        this.commitLock.lock();
+    }
+
+    public boolean tryCommitLock(long timeout, TimeUnit unit) {
+        try {
+            boolean res = this.commitLock.tryLock(timeout, unit);
+            if (!res && unit.toSeconds(timeout) >= 1) {
+                LOG.warn("Failed to try table {}'s cloud commit lock. timeout {} {}. Current owner: {}",
+                        name, timeout, unit.name(), rwLock.getOwner());
+            }
+            return res;
+        } catch (InterruptedException e) {
+            LOG.warn("failed to try cloud commit lock at table[" + name + "]", e);
+            return false;
+        }
+    }
+
+    public void commitUnlock() {
+        this.commitLock.unlock();
+    }
+
     public boolean isTypeRead() {
         return isTypeRead;
     }
@@ -394,11 +423,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public long getRowCount() {
-        return 0;
-    }
-
-    public long getCacheRowCount() {
-        return getRowCount();
+        return fetchRowCount();
     }
 
     public long getAvgRowLength() {
@@ -605,24 +630,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         throw new NotImplementedException("createAnalysisTask not implemented");
     }
 
-    /**
-     * for NOT-ANALYZED Olap table, return estimated row count,
-     * for other table, return 1
-     * @return estimated row count
-     */
-    public long estimatedRowCount() {
-        long cardinality = 0;
-        if (this instanceof OlapTable) {
-            OlapTable table = (OlapTable) this;
-            for (long selectedPartitionId : table.getPartitionIds()) {
-                final Partition partition = table.getPartition(selectedPartitionId);
-                final MaterializedIndex baseIndex = partition.getBaseIndex();
-                cardinality += baseIndex.getRowCount();
-            }
-        }
-        return Math.max(cardinality, 1);
-    }
-
     @Override
     public DatabaseIf getDatabase() {
         return Env.getCurrentInternalCatalog().getDbNullable(qualifiedDbName);
@@ -648,5 +655,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
+    }
+
+    @Override
+    public long fetchRowCount() {
+        return 0;
     }
 }

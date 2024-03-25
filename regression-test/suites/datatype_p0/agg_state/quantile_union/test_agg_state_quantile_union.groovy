@@ -21,7 +21,7 @@ suite("test_agg_state_quantile_union") {
     sql """
             create table a_table(
             k1 int not null,
-            k2 agg_state quantile_union(quantile_state not null)
+            k2 agg_state<quantile_union(quantile_state not null)> generic
         )
         aggregate key (k1)
         distributed BY hash(k1)
@@ -38,4 +38,7 @@ suite("test_agg_state_quantile_union") {
              """
     qt_select """ select quantile_percent(quantile_union_merge(tmp),0.5) from (select k1,quantile_union_union(k2) tmp from a_table group by k1)t;
              """
+    test {
+        sql "select * from a_table;"
+    }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -28,24 +29,35 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.datasource.hudi.source.COWIncrementalRelation;
+import org.apache.doris.datasource.hudi.source.IncrementalRelation;
+import org.apache.doris.datasource.hudi.source.MORIncrementalRelation;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
 import org.apache.doris.statistics.StatsType;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -62,6 +74,7 @@ import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -69,6 +82,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -105,7 +119,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private static final String SPARK_STATS_HISTOGRAM = ".histogram";
 
     private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
-
 
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
@@ -146,11 +159,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private DLAType dlaType = DLAType.UNKNOWN;
 
-    // No as precise as row count in TableStats, but better than none.
-    private long estimatedRowCount = -1;
-
     // record the event update time when enable hms event listener
     protected volatile long eventUpdateTime;
+
+    // for hudi incremental read
+    private TableScanParams scanParams = null;
+    private IncrementalRelation incrementalRelation = null;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
@@ -196,7 +210,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 }
             }
             objectCreated = true;
-            estimatedRowCount = getRowCountFromExternalSource(true);
         }
     }
 
@@ -218,8 +231,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (remoteTable.getSd() == null) {
             return false;
         }
+        Map<String, String> paras = remoteTable.getParameters();
         String inputFormatName = remoteTable.getSd().getInputFormat();
-        return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
+        // compatible with flink hive catalog
+        return (paras != null && "hudi".equalsIgnoreCase(paras.get("flink.connector")))
+                || (inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName));
     }
 
     public boolean isHoodieCowTable() {
@@ -227,7 +243,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return false;
         }
         String inputFormatName = remoteTable.getSd().getInputFormat();
-        return "org.apache.hudi.hadoop.HoodieParquetInputFormat".equals(inputFormatName);
+        Map<String, String> params = remoteTable.getParameters();
+        return "org.apache.hudi.hadoop.HoodieParquetInputFormat".equals(inputFormatName)
+                || "skip_merge".equals(getCatalogProperties().get("hoodie.datasource.merge.type"))
+                || (params != null && "COPY_ON_WRITE".equalsIgnoreCase(params.get("flink.table.type")));
     }
 
     /**
@@ -284,6 +303,82 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return partitionColumns;
     }
 
+    public TableScanParams getScanParams() {
+        return scanParams;
+    }
+
+    public void setScanParams(TableScanParams scanParams) {
+        if (scanParams != null && scanParams.incrementalRead()) {
+            Map<String, String> optParams = getHadoopProperties();
+            if (scanParams.getParams().containsKey("beginTime")) {
+                optParams.put("hoodie.datasource.read.begin.instanttime", scanParams.getParams().get("beginTime"));
+            }
+            if (scanParams.getParams().containsKey("endTime")) {
+                optParams.put("hoodie.datasource.read.end.instanttime", scanParams.getParams().get("endTime"));
+            }
+            scanParams.getParams().forEach((k, v) -> {
+                if (k.startsWith("hoodie.")) {
+                    optParams.put(k, v);
+                }
+            });
+            HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(this);
+            try {
+                boolean isCowOrRoTable = isHoodieCowTable();
+                if (isCowOrRoTable) {
+                    Map<String, String> serd = remoteTable.getSd().getSerdeInfo().getParameters();
+                    if ("true".equals(serd.get("hoodie.query.as.ro.table"))
+                            && remoteTable.getTableName().endsWith("_ro")) {
+                        // Incremental read RO table as RT table, I don't know why?
+                        isCowOrRoTable = false;
+                        LOG.warn("Execute incremental read on RO table");
+                    }
+                }
+                if (isCowOrRoTable) {
+                    incrementalRelation = new COWIncrementalRelation(
+                            optParams, HiveMetaStoreClientHelper.getConfiguration(this), hudiClient);
+                } else {
+                    incrementalRelation = new MORIncrementalRelation(
+                            optParams, HiveMetaStoreClientHelper.getConfiguration(this), hudiClient);
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to create incremental relation", e);
+            }
+        }
+        this.scanParams = scanParams;
+    }
+
+    public IncrementalRelation getIncrementalRelation() {
+        return incrementalRelation;
+    }
+
+    /**
+     * replace incremental params as AND expression
+     * incr('beginTime'='20240308110257169', 'endTime'='20240308110677278') =>
+     * _hoodie_commit_time >= 20240308110257169 and _hoodie_commit_time <= '20240308110677278'
+     */
+    public Set<Expression> generateIncrementalExpression(List<Slot> slots) {
+        if (incrementalRelation == null) {
+            return Collections.emptySet();
+        }
+        SlotReference timeField = null;
+        for (Slot slot : slots) {
+            if ("_hoodie_commit_time".equals(slot.getName())) {
+                timeField = (SlotReference) slot;
+                break;
+            }
+        }
+        if (timeField == null) {
+            return Collections.emptySet();
+        }
+        StringLiteral upperValue = new StringLiteral(incrementalRelation.getEndTs());
+        StringLiteral lowerValue = new StringLiteral(incrementalRelation.getStartTs());
+        ComparisonPredicate less = new LessThanEqual(timeField, upperValue);
+        ComparisonPredicate great = incrementalRelation.isIncludeStartTime()
+                ? new GreaterThanEqual(timeField, lowerValue)
+                : new GreaterThan(timeField, lowerValue);
+        return ImmutableSet.of(great, less);
+    }
+
     public boolean isHiveTransactionalTable() {
         return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
                 && isSupportedTransactionalFileFormat();
@@ -316,27 +411,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return 0;
     }
 
-    @Override
-    public long getRowCount() {
-        makeSureInitialized();
-        long rowCount = getRowCountFromExternalSource(false);
-        if (rowCount == -1) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Will estimate row count from file list.");
-            }
-            rowCount = StatisticsUtil.getRowCountFromFileList(this);
-        }
-        return rowCount;
-    }
-
-    private long getRowCountFromExternalSource(boolean isInit) {
+    private long getRowCountFromExternalSource() {
         long rowCount;
         switch (dlaType) {
             case HIVE:
-                rowCount = StatisticsUtil.getHiveRowCount(this, isInit);
+                rowCount = StatisticsUtil.getHiveRowCount(this);
                 break;
             case ICEBERG:
-                rowCount = StatisticsUtil.getIcebergRowCount(this);
+                rowCount = IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
                 break;
             default:
                 if (LOG.isDebugEnabled()) {
@@ -511,47 +593,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public long getCacheRowCount() {
-        //Cached accurate information
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
-        if (tableStats != null) {
-            long rowCount = tableStats.rowCount;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
-            }
-            return rowCount;
+    public long fetchRowCount() {
+        makeSureInitialized();
+        // Get row count from hive metastore property.
+        long rowCount = getRowCountFromExternalSource();
+        // Only hive table supports estimate row count by listing file.
+        if (rowCount == -1 && dlaType.equals(DLAType.HIVE)) {
+            LOG.debug("Will estimate row count from file list.");
+            rowCount = StatisticsUtil.getRowCountFromFileList(this);
         }
-
-        //estimated information
-        if (estimatedRowCount != -1) {
-            return estimatedRowCount;
-        }
-        return -1;
-    }
-
-    @Override
-    public long estimatedRowCount() {
-        try {
-            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
-            if (tableStats != null) {
-                long rowCount = tableStats.rowCount;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
-                }
-                return rowCount;
-            }
-
-            if (estimatedRowCount != -1) {
-                return estimatedRowCount;
-            }
-            // Cache the estimated row count in this structure
-            // though the table never get analyzed, since the row estimation might be expensive caused by RPC.
-            estimatedRowCount = getRowCount();
-            return estimatedRowCount;
-        } catch (Exception e) {
-            LOG.warn("Fail to get row count for table {}", name, e);
-        }
-        return 1;
+        return rowCount;
     }
 
     private void initPartitionColumns(List<Column> schema) {
@@ -763,7 +814,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
-        estimatedRowCount = -1;
     }
 
     @Override
@@ -820,15 +870,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public Map<Long, PartitionItem> getPartitionItems() {
+    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
-
-        return hivePartitionValues.getIdToPartitionItem().entrySet().stream()
-                .filter(entry -> !entry.getValue().isDefaultPartition())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        return hivePartitionValues.getIdToPartitionItem();
     }
 
     @Override
@@ -863,7 +910,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         long partitionId = 0L;
         long maxVersionTime = 0L;
         long visibleVersionTime;
-        for (Entry<Long, PartitionItem> entry : getPartitionItems().entrySet()) {
+        for (Entry<Long, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
             visibleVersionTime = getPartitionLastModifyTime(entry.getKey());
             if (visibleVersionTime > maxVersionTime) {
                 maxVersionTime = visibleVersionTime;
@@ -878,7 +925,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private HivePartition getPartitionById(long partitionId) throws AnalysisException {
-        PartitionItem item = getPartitionItems().get(partitionId);
+        PartitionItem item = getAndCopyPartitionItems().get(partitionId);
         List<List<String>> partitionValuesList = transferPartitionItemToPartitionValues(item);
         List<HivePartition> partitions = getPartitionsByPartitionValues(partitionValuesList);
         if (partitions.size() != 1) {

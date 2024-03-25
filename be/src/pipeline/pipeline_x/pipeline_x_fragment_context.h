@@ -96,7 +96,7 @@ public:
 
     Status submit() override;
 
-    void close_if_prepare_failed() override;
+    void close_if_prepare_failed(Status st) override;
     void close_sink() override;
 
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
@@ -169,8 +169,6 @@ private:
                                 const std::map<int, int>& shuffle_idx_to_instance_idx,
                                 const bool ignore_data_distribution);
 
-    bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
-
     bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
     OperatorXPtr _root_op = nullptr;
@@ -192,8 +190,6 @@ private:
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-
-    std::atomic_bool _canceled = false;
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag;

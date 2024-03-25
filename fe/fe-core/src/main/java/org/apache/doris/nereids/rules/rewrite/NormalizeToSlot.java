@@ -29,13 +29,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiFunction;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -119,9 +117,11 @@ public interface NormalizeToSlot {
 
         public <E extends Expression> List<E> normalizeToUseSlotRefWithoutWindowFunction(
                 Collection<E> expressions) {
-            return expressions.stream()
-                    .map(e -> (E) e.accept(NormalizeWithoutWindowFunction.INSTANCE, normalizeToSlotMap))
-                    .collect(Collectors.toList());
+            ImmutableList.Builder<E> normalized = ImmutableList.builderWithExpectedSize(expressions.size());
+            for (E expression : expressions) {
+                normalized.add((E) expression.accept(NormalizeWithoutWindowFunction.INSTANCE, normalizeToSlotMap));
+            }
+            return normalized.build();
         }
 
         /**
@@ -155,8 +155,9 @@ public interface NormalizeToSlot {
 
         @Override
         public Expression visit(Expression expr, Map<Expression, NormalizeToSlotTriplet> replaceMap) {
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr).remainExpr;
+            NormalizeToSlotTriplet triplet = replaceMap.get(expr);
+            if (triplet != null) {
+                return triplet.remainExpr;
             }
             return super.visit(expr, replaceMap);
         }
@@ -164,10 +165,12 @@ public interface NormalizeToSlot {
         @Override
         public Expression visitWindow(WindowExpression windowExpression,
                 Map<Expression, NormalizeToSlotTriplet> replaceMap) {
-            if (replaceMap.containsKey(windowExpression)) {
-                return replaceMap.get(windowExpression).remainExpr;
+            NormalizeToSlotTriplet triplet = replaceMap.get(windowExpression);
+            if (triplet != null) {
+                return triplet.remainExpr;
             }
-            List<Expression> newChildren = new ArrayList<>();
+            ImmutableList.Builder<Expression> newChildren =
+                    ImmutableList.builderWithExpectedSize(windowExpression.arity());
             Expression function = super.visit(windowExpression.getFunction(), replaceMap);
             newChildren.add(function);
             boolean hasNewChildren = function != windowExpression.getFunction();
@@ -185,10 +188,13 @@ public interface NormalizeToSlot {
                 }
                 newChildren.add(newChild);
             }
+            if (!hasNewChildren) {
+                return windowExpression;
+            }
             if (windowExpression.getWindowFrame().isPresent()) {
                 newChildren.add(windowExpression.getWindowFrame().get());
             }
-            return hasNewChildren ? windowExpression.withChildren(newChildren) : windowExpression;
+            return windowExpression.withChildren(newChildren.build());
         }
     }
 

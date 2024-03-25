@@ -51,9 +51,9 @@ suite("test_workload_group_mtmv") {
         """
     order_qt_alter "select MvProperties from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
-            refresh MATERIALIZED VIEW ${mvName};
+            refresh MATERIALIZED VIEW ${mvName} AUTO;
         """
-    jobName = getJobName(dbName, mvName);
+    def jobName = getJobName(dbName, mvName);
     logger.info(jobName)
     waitingMTMVTaskFinishedNotNeedSuccess(jobName)
     def errors = sql """select ErrorMsg from tasks('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"""

@@ -17,21 +17,42 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.load.loadv2.LoadJobScheduler;
+import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.planner.GroupCommitPlanner;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
+import org.apache.thrift.TException;
+
 import java.lang.reflect.Type;
+import java.util.List;
 import java.util.Map;
+
+// EnvFactory is responsed for create none-cloud object.
+// CloudEnvFactory is responsed for create cloud object.
 
 public class EnvFactory {
 
@@ -82,6 +103,10 @@ public class EnvFactory {
         return new Replica();
     }
 
+    public Replica createReplica(Replica.ReplicaContext context) {
+        return new Replica(context);
+    }
+
     public ReplicaAllocation createDefReplicaAllocation() {
         return new ReplicaAllocation((short) 3);
     }
@@ -105,5 +130,33 @@ public class EnvFactory {
 
     public BrokerLoadJob createBrokerLoadJob() {
         return new BrokerLoadJob();
+    }
+
+    public Coordinator createCoordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+                                         StatsErrorEstimator statsErrorEstimator) {
+        return new Coordinator(context, analyzer, planner, statsErrorEstimator);
+    }
+
+    public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
+                                         List<PlanFragment> fragments, List<ScanNode> scanNodes,
+                                         String timezone, boolean loadZeroTolerance) {
+        return new Coordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
+    }
+
+    public GroupCommitPlanner createGroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames,
+            TUniqueId queryId, String groupCommit) throws UserException, TException {
+        return  new GroupCommitPlanner(db, table, targetColumnNames, queryId, groupCommit);
+    }
+
+    public RoutineLoadManager createRoutineLoadManager() {
+        return new RoutineLoadManager();
+    }
+
+    public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler) {
+        return new LoadManager(loadJobScheduler);
+    }
+
+    public MasterDaemon createTabletStatMgr() {
+        return new TabletStatMgr();
     }
 }

@@ -17,6 +17,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -128,6 +129,12 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_unused_rowset_monitor_thread_callback(); },
             &_unused_rowset_monitor_thread));
     LOG(INFO) << "unused rowset monitor thread started";
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "evict_querying_rowset_thread",
+            [this]() { this->_evict_quring_rowset_thread_callback(); },
+            &_evict_quering_rowset_thread));
+    LOG(INFO) << "evict quering thread started";
 
     // start thread for monitoring the snapshot and trash folder
     RETURN_IF_ERROR(Thread::create(
@@ -267,7 +274,7 @@ Status StorageEngine::start_bg_threads() {
 }
 
 void StorageEngine::_cache_clean_callback() {
-    int32_t interval = config::cache_prune_stale_interval;
+    int32_t interval = config::cache_periodic_prune_stale_sweep_sec;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         if (interval <= 0) {
             LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
@@ -278,7 +285,6 @@ void StorageEngine::_cache_clean_callback() {
         CacheManager::instance()->for_each_cache_prune_stale();
 
         // Dynamically modify the config to clear the cache, each time the disable cache will only be cleared once.
-        // TODO, Support page cache and other caches.
         if (config::disable_segment_cache) {
             if (!_clear_segment_cache) {
                 CacheManager::instance()->clear_once(CachePolicy::CacheType::SEGMENT_CACHE);
@@ -286,6 +292,16 @@ void StorageEngine::_cache_clean_callback() {
             }
         } else {
             _clear_segment_cache = false;
+        }
+        if (config::disable_storage_page_cache) {
+            if (!_clear_page_cache) {
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::DATA_PAGE_CACHE);
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::INDEXPAGE_CACHE);
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE);
+                _clear_page_cache = true;
+            }
+        } else {
+            _clear_page_cache = false;
         }
     }
 }
@@ -971,7 +987,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
-                                            compaction_type, permits, is_low_priority_task,
+                                            compaction_type, permits, force, is_low_priority_task,
                                             this]() {
             if (is_low_priority_task && !_increase_low_priority_task_nums(tablet->data_dir())) {
                 VLOG_DEBUG << "skip low priority compaction task for tablet: "
@@ -983,11 +999,15 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     _decrease_low_priority_task_nums(tablet->data_dir());
                 }
             }
-            _permit_limiter.release(permits);
+            if (!force) {
+                _permit_limiter.release(permits);
+            }
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         });
         if (!st.ok()) {
-            _permit_limiter.release(permits);
+            if (!force) {
+                _permit_limiter.release(permits);
+            }
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
@@ -1150,21 +1170,6 @@ void StorageEngine::do_remove_unused_remote_files() {
     constexpr int64_t max_files_in_buffer = 1000000;
 
     auto calc_unused_remote_files = [&req, &buffer, &num_files_in_buffer, this](Tablet* t) {
-        auto storage_policy = get_storage_policy(t->storage_policy_id());
-        if (storage_policy == nullptr) {
-            LOG(WARNING) << "could not find storage_policy, storage_policy_id="
-                         << t->storage_policy_id();
-            return;
-        }
-        auto resource = get_storage_resource(storage_policy->resource_id);
-        auto dest_fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
-        if (dest_fs == nullptr) {
-            LOG(WARNING) << "could not find resource, resouce_id=" << storage_policy->resource_id;
-            return;
-        }
-        DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
-        DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
-
         std::shared_ptr<io::RemoteFileSystem> fs;
         auto st = get_remote_file_system(t->storage_policy_id(), &fs);
         if (!st.ok()) {
@@ -1177,7 +1182,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
         bool exists = true;
-        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
+        st = fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
@@ -1227,7 +1232,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
         files.shrink_to_fit();
         num_files_in_buffer += files.size();
-        buffer.insert({t->tablet_id(), {std::move(dest_fs), std::move(files)}});
+        buffer.insert({t->tablet_id(), {std::move(fs), std::move(files)}});
         auto& info = req.confirm_list.emplace_back();
         info.__set_tablet_id(t->tablet_id());
         info.__set_cooldown_replica_id(cooldown_replica_id);
@@ -1399,22 +1404,25 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(
-                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.insert(t->tablet_id());
-                        }
-                        auto st = t->cooldown();
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
-                        }
-                        if (!st.ok()) {
-                            LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                         << " err=" << st;
-                        }
-                    }));
+            static_cast<void>(_cold_data_compaction_thread_pool->submit_func([&,
+                                                                              t = std::move(
+                                                                                      tablet)]() {
+                {
+                    std::lock_guard lock(tablet_submitted_mtx);
+                    tablet_submitted.insert(t->tablet_id());
+                }
+                auto st = t->cooldown();
+                {
+                    std::lock_guard lock(tablet_submitted_mtx);
+                    tablet_submitted.erase(t->tablet_id());
+                }
+                if (!st.ok()) {
+                    // The cooldown of the replica may be relatively slow
+                    // resulting in a short period of time where following cannot be successful
+                    LOG_EVERY_N(WARNING, 5)
+                            << "failed to cooldown. tablet_id=" << t->tablet_id() << " err=" << st;
+                }
+            }));
         }
     }
 }

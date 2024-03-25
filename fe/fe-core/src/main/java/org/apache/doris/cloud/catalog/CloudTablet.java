@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.InternalErrorCode;
@@ -45,10 +46,7 @@ public class CloudTablet extends Tablet {
         return null;
     }
 
-    @Override
-    public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
-        Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMap();
-
+    private Multimap<Long, Long> backendPathMapReprocess(Multimap<Long, Long> pathMap) throws UserException {
         if (pathMap.containsKey(-1L)) {
             pathMap.removeAll(-1L);
             if (pathMap.isEmpty()) {
@@ -58,6 +56,17 @@ public class CloudTablet extends Tablet {
         }
 
         return pathMap;
+    }
+
+    @Override
+    public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+        Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMap();
+        return backendPathMapReprocess(pathMap);
+    }
+
+    public Multimap<Long, Long> getNormalReplicaBackendPathMapCloud(String beEndpoint) throws UserException {
+        Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMapCloud(beEndpoint);
+        return backendPathMapReprocess(pathMap);
     }
 
     @Override
@@ -76,6 +85,15 @@ public class CloudTablet extends Tablet {
         }
 
         return delete || !hasBackend;
+    }
+
+    public void addReplica(Replica replica, boolean isRestore) {
+        if (isLatestReplicaAndDeleteOld(replica)) {
+            replicas.add(replica);
+            if (!isRestore) {
+                Env.getCurrentInvertedIndex().addReplica(id, replica);
+            }
+        }
     }
 
 }

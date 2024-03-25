@@ -38,12 +38,11 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.LinkedBlockingDeque;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
@@ -61,7 +60,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     private static final long SLOT_FULL_SLEEP_MS = 10000; // 10s
 
     private RoutineLoadManager routineLoadManager;
-    private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
+    private LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue = new LinkedBlockingDeque<>();
 
     private long lastBackendSlotUpdateTime = -1;
 
@@ -105,7 +104,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
                     < routineLoadTaskInfo.getTimeoutMs()) {
                 // try to delay scheduling this task for 'timeout', to void too many failure
-                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                 return;
             }
             scheduleOneTask(routineLoadTaskInfo);
@@ -133,7 +132,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             // check if topic has more data to consume
             if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
-                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                 return;
             }
 
@@ -141,7 +140,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.
             if (!allocateTaskToBe(routineLoadTaskInfo)) {
                 // allocate failed, push it back to the queue to wait next scheduling
-                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                needScheduleTasksQueue.addFirst(routineLoadTaskInfo);
                 return;
             }
         } catch (UserException e) {
@@ -164,7 +163,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 // begin txn failed. push it back to the queue to wait next scheduling
                 // set BE id to -1 to release the BE slot
                 routineLoadTaskInfo.setBeId(-1);
-                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                needScheduleTasksQueue.addFirst(routineLoadTaskInfo);
                 return;
             }
         } catch (Exception e) {
@@ -300,7 +299,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     // try to allocate a task to BE which has idle slot.
-    // 1. First is to check if the previous allocated BE is available. If yes, allocate task to previous BE.
+    // 1. First is to check if the previous allocated BE has more than half of available slots.
+    //    If yes, allocate task to previous BE.
     // 2. If not, try to find a better one with most idle slots.
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.

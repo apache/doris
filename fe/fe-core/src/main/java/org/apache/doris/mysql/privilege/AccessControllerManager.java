@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
@@ -35,7 +36,10 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -222,6 +226,17 @@ public class AccessControllerManager {
         return defaultAccessController.checkResourcePriv(currentUser, resourceName, wanted);
     }
 
+    // ==== Cloud ====
+    public boolean checkCloudPriv(ConnectContext ctx, String cloudName, PrivPredicate wanted, ResourceTypeEnum type) {
+        return checkCloudPriv(ctx.getCurrentUserIdentity(), cloudName, wanted, type);
+    }
+
+    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
+            PrivPredicate wanted, ResourceTypeEnum type) {
+        return defaultAccessController.checkCloudPriv(currentUser, cloudName, wanted, type);
+    }
+
+
     public boolean checkWorkloadGroupPriv(ConnectContext ctx, String workloadGroupName, PrivPredicate wanted) {
         return checkWorkloadGroupPriv(ctx.getCurrentUserIdentity(), workloadGroupName, wanted);
     }
@@ -247,5 +262,33 @@ public class AccessControllerManager {
             }
         }
         return true;
+    }
+
+    public Map<String, Optional<DataMaskPolicy>> evalDataMaskPolicies(UserIdentity currentUser, String
+            ctl, String db, String tbl, Set<String> cols) {
+        Map<String, Optional<DataMaskPolicy>> res = Maps.newHashMap();
+        for (String col : cols) {
+            res.put(col, evalDataMaskPolicy(currentUser, ctl, db, tbl, col));
+        }
+        return res;
+    }
+
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String
+            ctl, String db, String tbl, String col) {
+        Objects.requireNonNull(currentUser, "require currentUser object");
+        Objects.requireNonNull(ctl, "require ctl object");
+        Objects.requireNonNull(db, "require db object");
+        Objects.requireNonNull(tbl, "require tbl object");
+        Objects.requireNonNull(col, "require col object");
+        return getAccessControllerOrDefault(ctl).evalDataMaskPolicy(currentUser, ctl, db, tbl, col.toLowerCase());
+    }
+
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String
+            ctl, String db, String tbl) {
+        Objects.requireNonNull(currentUser, "require currentUser object");
+        Objects.requireNonNull(ctl, "require ctl object");
+        Objects.requireNonNull(db, "require db object");
+        Objects.requireNonNull(tbl, "require tbl object");
+        return getAccessControllerOrDefault(ctl).evalRowFilterPolicies(currentUser, ctl, db, tbl);
     }
 }

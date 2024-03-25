@@ -22,7 +22,6 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -176,7 +175,15 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
         vectorized::Block& block, vectorized::ColumnUInt8::MutablePtr& null_map,
         vectorized::ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids) {
     auto& shared_state = *_shared_state;
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
+        if (p._should_convert_to_nullable[i]) {
+            _key_columns_holder.emplace_back(
+                    vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
+            raw_ptrs[i] = _key_columns_holder.back().get();
+            continue;
+        }
+
         if (shared_state.is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
@@ -354,8 +361,22 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     }
                     return;
                 }
+
+                std::vector<vectorized::DataTypePtr> data_types;
+                for (size_t i = 0; i != _build_expr_ctxs.size(); ++i) {
+                    auto& ctx = _build_expr_ctxs[i];
+                    auto data_type = ctx->root()->data_type();
+
+                    /// For 'null safe equal' join,
+                    /// the build key column maybe be converted to nullable from non-nullable.
+                    if (p._should_convert_to_nullable[i]) {
+                        data_type = vectorized::make_nullable(data_type);
+                    }
+                    data_types.emplace_back(std::move(data_type));
+                }
+
                 if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32>(
-                            *_shared_state->hash_table_variants, _build_expr_ctxs)) {
+                            *_shared_state->hash_table_variants, data_types)) {
                     _shared_state->hash_table_variants
                             ->emplace<vectorized::SerializedHashTableContext>();
                 }
@@ -412,7 +433,11 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
                                         eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
 
+        const bool should_convert_to_nullable = is_null_safe_equal &&
+                                                !eq_join_conjunct.right.nodes[0].is_nullable &&
+                                                eq_join_conjunct.left.nodes[0].is_nullable;
         _is_null_safe_eq_join.push_back(is_null_safe_equal);
+        _should_convert_to_nullable.emplace_back(should_convert_to_nullable);
 
         // if is null aware, build join column and probe join column both need dispose null value
         _store_null_in_hash_table.emplace_back(
@@ -427,7 +452,7 @@ Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
 }
 
 Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                        SourceState source_state) {
+                                        bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -469,7 +494,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         }
     }
 
-    if (local_state._should_build_hash_table && source_state == SourceState::FINISHED) {
+    if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
@@ -560,7 +585,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         }
     }
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         local_state.init_short_circuit_for_probe();
         // Since the comparison of null values is meaningless, null aware left anti/semi join should not output null
         // when the build side is not empty.

@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterUserStmt.OpType;
 import org.apache.doris.analysis.CreateRoleStmt;
@@ -96,7 +97,7 @@ public class Auth implements Writable {
     public static final String UNKNOWN_USER = "unknown";
     public static final String DEFAULT_CATALOG = InternalCatalog.INTERNAL_CATALOG_NAME;
 
-    //There is no concurrency control logic inside roleManager,userManager,userRoleManage and rpropertyMgr,
+    // There is no concurrency control logic inside roleManager,userManager,userRoleManage and rpropertyMgr,
     // and it is completely managed by Auth.
     // Therefore, their methods cannot be directly called outside, and should be called indirectly through Auth.
     private RoleManager roleManager = new RoleManager();
@@ -129,7 +130,7 @@ public class Auth implements Writable {
     }
 
     public enum PrivLevel {
-        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP
+        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER
     }
 
     public Auth() {
@@ -399,8 +400,25 @@ public class Auth implements Writable {
 
     // ==== cloud ====
     public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
-        throw new RuntimeException("Auth.checkCloudPriv is not implemented");
+            PrivPredicate wanted, ResourceTypeEnum type) {
+        readLock();
+        try {
+            ConnectContext ctx = ConnectContext.get();
+            if (ctx != null) {
+                if (ctx.getNoAuth()) {
+                    return true;
+                }
+            }
+            Set<String> roles = userRoleManager.getRolesByUser(currentUser);
+            for (String roleName : roles) {
+                if (roleManager.getRole(roleName).checkCloudPriv(cloudName, wanted, type)) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            readUnlock();
+        }
     }
 
     // ==== Other ====
@@ -431,20 +449,21 @@ public class Auth implements Writable {
     // create user
     public void createUser(CreateUserStmt stmt) throws DdlException {
         createUserInternal(stmt.getUserIdent(), stmt.getQualifiedRole(),
-                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(), false);
+                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(), stmt.getComment(), false);
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
         try {
             createUserInternal(privInfo.getUserIdent(), privInfo.getRole(), privInfo.getPasswd(), false,
-                    privInfo.getPasswordOptions(), true);
+                    privInfo.getPasswordOptions(), privInfo.getComment(), true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
     }
 
     private void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
-            boolean ignoreIfExists, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
+            boolean ignoreIfExists, PasswordOptions passwordOptions, String comment, boolean isReplay)
+            throws DdlException {
         writeLock();
         try {
             // check if role exist
@@ -468,7 +487,7 @@ public class Auth implements Writable {
             // create user
             try {
                 // we should not throw AnalysisException at here,so transfer it
-                userManager.createUser(userIdent, password, null, false);
+                userManager.createUser(userIdent, password, null, false, comment);
             } catch (PatternMatcherException e) {
                 throw new DdlException("create user failed,", e);
             }
@@ -476,7 +495,7 @@ public class Auth implements Writable {
                 // save password to password history
                 passwdPolicyManager.updatePassword(userIdent, password);
             }
-            //4.create defaultRole
+            // 4.create defaultRole
             Role defaultRole = roleManager.createDefaultRole(userIdent);
             // 5.create user role
             userRoleManager.addUserRole(userIdent, defaultRole.getRoleName());
@@ -490,7 +509,7 @@ public class Auth implements Writable {
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
 
             if (!isReplay) {
-                PrivInfo privInfo = new PrivInfo(userIdent, null, password, roleName, passwordOptions);
+                PrivInfo privInfo = new PrivInfo(userIdent, null, password, roleName, passwordOptions, comment);
                 Env.getCurrentEnv().getEditLog().logCreateUser(privInfo);
             }
             LOG.info("finished to create user: {}, is replay: {}", userIdent, isReplay);
@@ -525,7 +544,7 @@ public class Auth implements Writable {
 
             // drop default role
             roleManager.removeDefaultRole(userIdent);
-            //drop user role
+            // drop user role
             userRoleManager.dropUser(userIdent);
             passwdPolicyManager.dropUser(userIdent);
             userManager.removeUser(userIdent);
@@ -584,7 +603,7 @@ public class Auth implements Writable {
     }
 
     // grant for TablePattern
-    //if no role,role is default role of userIdent
+    // if no role,role is default role of userIdent
     private void grantInternal(UserIdentity userIdent, String role, TablePattern tblPattern, PrivBitSet privs,
             Map<ColPrivilegeKey, Set<String>> colPrivileges, boolean errOnNonExist, boolean isReplay)
             throws DdlException {
@@ -658,7 +677,7 @@ public class Auth implements Writable {
             if (userManager.getUserByUserIdentity(userIdent) == null) {
                 throw new DdlException("user: " + userIdent + " does not exist");
             }
-            //roles must exist
+            // roles must exist
             for (String roleName : roles) {
                 if (roleManager.getRole(roleName) == null) {
                     throw new DdlException("role:" + roleName + " does not exist");
@@ -802,7 +821,7 @@ public class Auth implements Writable {
             if (userManager.getUserByUserIdentity(userIdent) == null) {
                 throw new DdlException("user: " + userIdent + " does not exist");
             }
-            //roles must exist
+            // roles must exist
             for (String roleName : roles) {
                 if (roleManager.getRole(roleName) == null) {
                     throw new DdlException("role:" + roleName + " does not exist");
@@ -881,19 +900,44 @@ public class Auth implements Writable {
 
     // create role
     public void createRole(CreateRoleStmt stmt) throws DdlException {
-        createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), false);
+        createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), stmt.getComment(), false);
+    }
+
+    public void alterRole(AlterRoleStmt stmt) throws DdlException {
+        alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }
 
     public void replayCreateRole(PrivInfo info) {
         try {
-            createRoleInternal(info.getRole(), false, true);
+            createRoleInternal(info.getRole(), false, info.getComment(), true);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
         }
     }
 
-    private void createRoleInternal(String role, boolean ignoreIfExists, boolean isReplay) throws DdlException {
-        Role emptyPrivsRole = new Role(role);
+    public void replayAlterRole(PrivInfo info) {
+        try {
+            alterRoleInternal(info.getRole(), info.getComment(), true);
+        } catch (DdlException e) {
+            LOG.error("should not happened", e);
+        }
+    }
+
+    private void alterRoleInternal(String roleName, String comment, boolean isReplay) throws DdlException {
+        Role role = roleManager.getRole(roleName);
+        if (role == null) {
+            throw new DdlException("Role " + roleName + " not exist");
+        }
+        role.setComment(comment);
+        if (!isReplay) {
+            PrivInfo info = new PrivInfo(roleName, comment);
+            Env.getCurrentEnv().getEditLog().logAlterRole(info);
+        }
+    }
+
+    private void createRoleInternal(String role, boolean ignoreIfExists, String comment, boolean isReplay)
+            throws DdlException {
+        Role emptyPrivsRole = new Role(role, comment);
         writeLock();
         try {
             if (ignoreIfExists && roleManager.getRole(role) != null) {
@@ -904,7 +948,7 @@ public class Auth implements Writable {
             roleManager.addOrMergeRole(emptyPrivsRole, true /* err on exist */);
 
             if (!isReplay) {
-                PrivInfo info = new PrivInfo(null, null, null, role, null);
+                PrivInfo info = new PrivInfo(role, comment);
                 Env.getCurrentEnv().getEditLog().logCreateRole(info);
             }
         } finally {
@@ -1140,6 +1184,8 @@ public class Auth implements Writable {
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
+            // ============== Comment ==============
+            userAuthInfo.add(FeConstants.null_string);
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(userIdent.getQualifiedUser());
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
@@ -1151,7 +1197,10 @@ public class Auth implements Writable {
             if (user == null) {
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(FeConstants.null_string);
             } else {
+                // ============== Comment ==============
+                userAuthInfo.add(user.getComment());
                 // ============== Password ==============
                 userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
                 // ============== Roles ==============
@@ -1232,6 +1281,20 @@ public class Auth implements Writable {
             userAuthInfo.add(Joiner.on("; ").join(resourcePrivs));
         }
 
+        // cloudCluster
+        List<String> cloudClusterPrivs = Lists.newArrayList();
+        for (PrivEntry entry : getUserCloudClusterPrivTable(userIdent).entries) {
+            ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
+            PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
+            cloudClusterPrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
+        }
+
+        if (cloudClusterPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(cloudClusterPrivs));
+        }
+
         // workload group
         List<String> workloadGroupPrivs = Lists.newArrayList();
         for (PrivEntry entry : getUserWorkloadGroupPrivTable(userIdent).entries) {
@@ -1247,6 +1310,15 @@ public class Auth implements Writable {
         }
 
         userAuthInfos.add(userAuthInfo);
+    }
+
+    private ResourcePrivTable getUserCloudClusterPrivTable(UserIdentity userIdentity) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getCloudClusterPrivTable());
+        }
+        return table;
     }
 
     private GlobalPrivTable getUserGlobalPrivTable(UserIdentity userIdentity) {
@@ -1329,11 +1401,11 @@ public class Auth implements Writable {
             UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
             rootUser.setIsAnalyzed();
             createUserInternal(rootUser, Role.OPERATOR_ROLE, new byte[0],
-                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
+                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, "ROOT", true /* is replay */);
             UserIdentity adminUser = new UserIdentity(ADMIN_USER, "%");
             adminUser.setIsAnalyzed();
             createUserInternal(adminUser, Role.ADMIN_ROLE, new byte[0],
-                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
+                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, "ADMIN", true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
         }
@@ -1532,20 +1604,20 @@ public class Auth implements Writable {
 
     public void alterUser(AlterUserStmt stmt) throws DdlException {
         alterUserInternal(stmt.isIfExist(), stmt.getOpType(), stmt.getUserIdent(), stmt.getPassword(), stmt.getRole(),
-                stmt.getPasswordOptions(), false);
+                stmt.getPasswordOptions(), stmt.getComment(), false);
     }
 
     public void replayAlterUser(AlterUserOperationLog log) {
         try {
             alterUserInternal(true, log.getOp(), log.getUserIdent(), log.getPassword(), log.getRole(),
-                    log.getPasswordOptions(), true);
+                    log.getPasswordOptions(), log.getComment(), true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
     }
 
     private void alterUserInternal(boolean ifExists, OpType opType, UserIdentity userIdent, byte[] password,
-            String role, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
+            String role, PasswordOptions passwordOptions, String comment, boolean isReplay) throws DdlException {
         writeLock();
         try {
             if (!doesUserExist(userIdent)) {
@@ -1567,6 +1639,9 @@ public class Auth implements Writable {
                 case UNLOCK_ACCOUNT:
                     passwdPolicyManager.unlockUser(userIdent);
                     break;
+                case MODIFY_COMMENT:
+                    modifyComment(userIdent, comment);
+                    break;
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
             }
@@ -1574,7 +1649,7 @@ public class Auth implements Writable {
                 // For SET_PASSWORD:
                 //      the edit log is wrote in "setPasswordInternal"
                 AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,
-                        passwordOptions);
+                        passwordOptions, comment);
                 Env.getCurrentEnv().getEditLog().logAlterUser(log);
             }
         } finally {
@@ -1582,7 +1657,7 @@ public class Auth implements Writable {
         }
     }
 
-    //tmp for current user can only has one role
+    // tmp for current user can only has one role
     private void setRoleToUser(UserIdentity userIdent, String role) throws DdlException {
         // 1. check if role exist
         Role newRole = roleManager.getRole(role);
@@ -1592,6 +1667,14 @@ public class Auth implements Writable {
         userRoleManager.dropUser(userIdent);
         userRoleManager.addUserRole(userIdent, role);
         userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
+    }
+
+    private void modifyComment(UserIdentity userIdent, String comment) throws DdlException {
+        User user = userManager.getUserByUserIdentity(userIdent);
+        if (user == null) {
+            throw new DdlException("UserIdentity " + userIdent + " does not exist");
+        }
+        user.setComment(comment);
     }
 
     public Set<String> getAllUser() {
@@ -1671,15 +1754,15 @@ public class Auth implements Writable {
     private void upgradeToVersion116(UserPrivTable userPrivTable, CatalogPrivTable catalogPrivTable,
             DbPrivTable dbPrivTable, TablePrivTable tablePrivTable, ResourcePrivTable resourcePrivTable)
             throws AnalysisException, DdlException, PatternMatcherException {
-        //OPERATOR and Admin role not save users,if not inituser,root will do not have admin role
+        // OPERATOR and Admin role not save users,if not inituser,root will do not have admin role
         initUser();
         for (Entry<String, UserProperty> entry : propertyMgr.propertyMap.entrySet()) {
             for (Entry<String, byte[]> userEntry : entry.getValue().getWhiteList().getPasswordMap().entrySet()) {
-                //create user
+                // create user
                 User user = userManager
                         .createUser(UserIdentity.createAnalyzedUserIdentWithDomain(entry.getKey(), userEntry.getKey()),
-                                userEntry.getValue(), null, false);
-                //create default role
+                                userEntry.getValue(), null, false, "");
+                // create default role
                 Role defaultRole = roleManager.createDefaultRole(user.getUserIdentity());
                 userRoleManager
                         .addUserRole(user.getUserIdentity(), defaultRole.getRoleName());
@@ -1688,21 +1771,21 @@ public class Auth implements Writable {
         List<PrivEntry> userPrivTableEntries = userPrivTable.getEntries();
         for (PrivEntry privEntry : userPrivTableEntries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
-            //may repeat with created user from propertyMgr,but no influence
+            // may repeat with created user from propertyMgr,but no influence
             User user = userManager
                     .createUser(globalPrivEntry.userIdentity, globalPrivEntry.password, globalPrivEntry.domainUserIdent,
-                            globalPrivEntry.isSetByDomainResolver);
-            //create default role
+                            globalPrivEntry.isSetByDomainResolver, "");
+            // create default role
             Role defaultRole = roleManager.createDefaultRole(user.getUserIdentity());
             userRoleManager
                     .addUserRole(user.getUserIdentity(), defaultRole.getRoleName());
             if (globalPrivEntry.privSet.isEmpty()) {
                 continue;
             }
-            //grant global auth
+            // grant global auth
             if (globalPrivEntry.privSet.containsResourcePriv()) {
                 roleManager.addOrMergeRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
-                        ResourcePattern.ALL, PrivBitSet.of(Privilege.USAGE_PRIV)), false);
+                        ResourcePattern.ALL_GENERAL, PrivBitSet.of(Privilege.USAGE_PRIV)), false);
             }
             PrivBitSet copy = globalPrivEntry.privSet.copy();
             copy.unset(Privilege.USAGE_PRIV.getIdx());
@@ -1758,7 +1841,7 @@ public class Auth implements Writable {
         for (PrivEntry privEntry : resourcePrivTableEntries) {
             ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) privEntry;
             ResourcePattern resourcePattern = new ResourcePattern(
-                    ClusterNamespace.getNameFromFullName(resourcePrivEntry.origResource));
+                    ClusterNamespace.getNameFromFullName(resourcePrivEntry.origResource), ResourceTypeEnum.GENERAL);
             resourcePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(resourcePrivEntry.userIdentity),
                     resourcePattern, resourcePrivEntry.privSet);
@@ -1777,4 +1860,32 @@ public class Auth implements Writable {
         sb.append(ldapInfo).append("\n");
         return sb.toString();
     }
+
+    // ====== BEGIN CLOUD ======
+    public List<String> getCloudClusterUsers(String clusterName) {
+        return propertyMgr.getCloudClusterUsers(userManager.getAllUsers(), clusterName);
+    }
+
+    public Set<String> getAllUsers() {
+        return userManager.getAllUsers();
+    }
+
+    // just for ut
+    public UserManager getUserManager() {
+        return userManager;
+    }
+
+    public String getDefaultCloudCluster(String user) {
+        String cluster = "";
+        readLock();
+        try {
+            cluster = propertyMgr.getDefaultCloudCluster(user);
+        } catch (DdlException e) {
+            LOG.warn("cant get default cloud cluster , user {}", user);
+        } finally {
+            readUnlock();
+        }
+        return cluster;
+    }
+    // ====== END CLOUD ======
 }

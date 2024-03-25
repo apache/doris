@@ -35,6 +35,7 @@ public enum PlanType {
     LOGICAL_JDBC_SCAN,
     LOGICAL_ODBC_SCAN,
     LOGICAL_OLAP_SCAN,
+    LOGICAL_TEST_SCAN,
     LOGICAL_ONE_ROW_RELATION,
     LOGICAL_SCHEMA_SCAN,
     LOGICAL_TVF_RELATION,
@@ -45,8 +46,10 @@ public enum PlanType {
     // logical sinks
     LOGICAL_FILE_SINK,
     LOGICAL_OLAP_TABLE_SINK,
+    LOGICAL_HIVE_TABLE_SINK,
     LOGICAL_RESULT_SINK,
     LOGICAL_UNBOUND_OLAP_TABLE_SINK,
+    LOGICAL_UNBOUND_HIVE_TABLE_SINK,
     LOGICAL_UNBOUND_RESULT_SINK,
 
     // logical others
@@ -71,6 +74,7 @@ public enum PlanType {
     LOGICAL_REPEAT,
     LOGICAL_SELECT_HINT,
     LOGICAL_SUBQUERY_ALIAS,
+    LOGICAL_VIEW,
     LOGICAL_SORT,
     LOGICAL_TOP_N,
     LOGICAL_UNION,
@@ -78,7 +82,7 @@ public enum PlanType {
     LOGICAL_WINDOW,
 
     // physical plans
-    // logical relations
+    // physical relations
     PHYSICAL_CTE_CONSUMER,
     PHYSICAL_EMPTY_RELATION,
     PHYSICAL_ES_SCAN,
@@ -90,12 +94,13 @@ public enum PlanType {
     PHYSICAL_SCHEMA_SCAN,
     PHYSICAL_TVF_RELATION,
 
-    // logical sinks
+    // physical sinks
     PHYSICAL_FILE_SINK,
     PHYSICAL_OLAP_TABLE_SINK,
+    PHYSICAL_HIVE_TABLE_SINK,
     PHYSICAL_RESULT_SINK,
 
-    // logical others
+    // physical others
     PHYSICAL_HASH_AGGREGATE,
     PHYSICAL_ASSERT_NUM_ROWS,
     PHYSICAL_CTE_PRODUCER,
@@ -141,5 +146,7 @@ public enum PlanType {
     CANCEL_MTMV_TASK_COMMAND,
     CALL_COMMAND,
     CREATE_PROCEDURE_COMMAND,
-    DROP_PROCEDURE_COMMAND
+    DROP_PROCEDURE_COMMAND,
+    SHOW_PROCEDURE_COMMAND,
+    SHOW_CREATE_PROCEDURE_COMMAND
 }

@@ -503,7 +503,8 @@ public class LeadingHint extends Hint {
                             distributeHint,
                             Optional.empty(),
                             newStackTop.second.first,
-                            logicalPlan);
+                            logicalPlan, null);
+                    logicalJoin.getJoinReorderContext().setLeadingJoin(true);
                     distributeIndex = newStackTop.second.second;
                     logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second.first), getBitmap(logicalPlan)));
                     if (stackTopLevel > 0) {
@@ -528,9 +529,14 @@ public class LeadingHint extends Hint {
                     return null;
                 }
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
-                stack.push(Pair.of(currentLevel, Pair.of(logicalPlan, index)));
+                stack.push(Pair.of(currentLevel, Pair.of(logicalPlan, index - 1)));
                 stackTopLevel = currentLevel;
             }
+        }
+        if (stack.size() > 1) {
+            this.setStatus(HintStatus.SYNTAX_ERROR);
+            this.setErrorMessage("please check your brace pairs in leading");
+            return null;
         }
 
         LogicalJoin finalJoin = (LogicalJoin) stack.pop().second.first;

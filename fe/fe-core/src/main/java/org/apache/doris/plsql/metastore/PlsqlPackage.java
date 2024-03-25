@@ -36,11 +36,11 @@ public class PlsqlPackage implements Writable {
     @SerializedName(value = "name")
     private String name;
 
-    @SerializedName(value = "catalogName")
-    private String catalogName;
+    @SerializedName(value = "catalogId")
+    private long catalogId;
 
-    @SerializedName(value = "dbName")
-    private String dbName;
+    @SerializedName(value = "dbId")
+    private long dbId;
 
     @SerializedName(value = "ownerName")
     private String ownerName;
@@ -57,12 +57,12 @@ public class PlsqlPackage implements Writable {
     }
 
     public TPlsqlPackage toThrift() {
-        return new TPlsqlPackage().setName(name).setCatalogName(catalogName).setDbName(dbName).setOwnerName(ownerName)
+        return new TPlsqlPackage().setName(name).setCatalogId(catalogId).setDbId(dbId).setOwnerName(ownerName)
                 .setHeader(header).setBody(body);
     }
 
     public static PlsqlPackage fromThrift(TPlsqlPackage pkg) {
-        return new PlsqlPackage(pkg.getName(), pkg.getCatalogName(), pkg.getDbName(), pkg.getOwnerName(),
+        return new PlsqlPackage(pkg.getName(), pkg.getCatalogId(), pkg.getDbId(), pkg.getOwnerName(),
                 pkg.getHeader(), pkg.getBody());
     }
 

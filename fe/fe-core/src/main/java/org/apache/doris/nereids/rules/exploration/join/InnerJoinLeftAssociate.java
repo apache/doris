@@ -51,7 +51,6 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
         return innerLogicalJoin(group(), innerLogicalJoin())
                 .when(InnerJoinLeftAssociate::checkReorder)
                 .whenNot(join -> join.hasDistributeHint() || join.right().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.right().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right();
                     GroupPlan a = topJoin.left();
@@ -85,9 +84,9 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
 
                     // new join.
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(
-                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, a, b);
+                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, a, b, null);
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
-                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts, newBottomJoin, c);
+                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts, newBottomJoin, c, null);
                     newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
 
                     return newTopJoin;
@@ -96,6 +95,10 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
 
     /** Check JoinReorderContext. */
     public static boolean checkReorder(LogicalJoin<GroupPlan, ? extends Plan> topJoin) {
+        if (topJoin.isLeadingJoin()
+                || JoinExchange.isChildLeadingJoin(topJoin.right())) {
+            return false;
+        }
         return !topJoin.getJoinReorderContext().hasCommute()
                 && !topJoin.getJoinReorderContext().hasLeftAssociate()
                 && !topJoin.getJoinReorderContext().hasRightAssociate()

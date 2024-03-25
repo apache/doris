@@ -103,7 +103,8 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = true;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<BaseTableInfo>) any, (Set<String>) any);
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<Long>) any, (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
                 minTimes = 0;
                 result = true;
 
@@ -129,7 +130,8 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 2L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<BaseTableInfo>) any, (Set<String>) any);
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<Long>) any, (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -148,7 +150,8 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 1L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<BaseTableInfo>) any, (Set<String>) any);
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<Long>) any, (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -177,7 +180,8 @@ public class MTMVRewriteUtilTest {
     public void testGetMTMVCanRewritePartitionsNotSync() throws AnalysisException {
         new Expectations() {
             {
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<BaseTableInfo>) any, (Set<String>) any);
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<Long>) any, (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
                 minTimes = 0;
                 result = false;
             }

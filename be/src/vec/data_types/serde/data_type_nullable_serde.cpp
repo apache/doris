@@ -262,11 +262,11 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
 **/
 void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                   arrow::ArrayBuilder* array_builder, int start,
-                                                  int end) const {
+                                                  int end, const cctz::time_zone& ctz) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
                                         &column_nullable.get_null_map_data(), array_builder, start,
-                                        end);
+                                        end, ctz);
 }
 
 void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
@@ -286,7 +286,7 @@ template <bool is_binary_format>
 Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
                                                      MysqlRowBuffer<is_binary_format>& result,
                                                      int row_idx, bool col_const) const {
-    auto& col = static_cast<const ColumnNullable&>(column);
+    auto& col = assert_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     col_const = col_const || is_column_const(nested_col);
     const auto col_index = index_check_const(row_idx, col_const);
@@ -334,29 +334,33 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-void DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                                   rapidjson::Document::AllocatorType& allocator,
-                                                   int row_num) const {
+Status DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column,
+                                                     rapidjson::Value& result,
+                                                     rapidjson::Document::AllocatorType& allocator,
+                                                     int row_num) const {
     auto& col = static_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     if (col.is_null_at(row_num)) {
         result.SetNull();
     } else {
-        nested_serde->write_one_cell_to_json(nested_col, result, allocator, row_num);
+        RETURN_IF_ERROR(
+                nested_serde->write_one_cell_to_json(nested_col, result, allocator, row_num));
     }
+    return Status::OK();
 }
 
-void DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
-                                                    const rapidjson::Value& result) const {
+Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
+                                                      const rapidjson::Value& result) const {
     auto& col = static_cast<ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     if (result.IsNull()) {
         col.insert_default();
     } else {
         // TODO sanitize data
-        nested_serde->read_one_cell_from_json(nested_col, result);
+        RETURN_IF_ERROR(nested_serde->read_one_cell_from_json(nested_col, result));
         col.get_null_map_column().get_data().push_back(0);
     }
+    return Status::OK();
 }
 
 } // namespace vectorized

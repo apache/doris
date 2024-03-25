@@ -56,6 +56,29 @@ class SegmentWriter;
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
 
+class SegmentFileCollection {
+public:
+    ~SegmentFileCollection();
+
+    Status add(int seg_id, io::FileWriterPtr&& writer);
+
+    // Return `nullptr` if no file writer matches `seg_id`
+    io::FileWriter* get(int seg_id) const;
+
+    // Close all file writers
+    Status close();
+
+    // Get segments file size in segment id order.
+    // `seg_id_offset` is the offset of the segment id relative to the subscript of `_file_writers`,
+    // for more details, see `Tablet::create_transient_rowset_writer`.
+    Result<std::vector<size_t>> segments_file_size(int seg_id_offset);
+
+private:
+    mutable SpinLock _lock;
+    std::unordered_map<int /* seg_id */, io::FileWriterPtr> _file_writers;
+    bool _closed {false};
+};
+
 class BaseBetaRowsetWriter : public RowsetWriter {
 public:
     BaseBetaRowsetWriter();
@@ -100,7 +123,7 @@ public:
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard l(_segid_statistics_map_mutex);
         *segment_num_rows = _segment_num_rows;
         return Status::OK();
     }
@@ -125,12 +148,11 @@ public:
     }
 
 private:
-    virtual Status _generate_delete_bitmap(int32_t segment_id) = 0;
-
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
+    Status _generate_delete_bitmap(int32_t segment_id);
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
@@ -144,11 +166,11 @@ protected:
     std::mutex _segment_set_mutex;     // mutex for _segment_set
     int32_t _segment_start_id;         // basic write start from 0, partial update may be different
 
-    mutable SpinLock _lock; // protect following vectors.
+    SegmentFileCollection _seg_files;
+
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
-    std::vector<io::FileWriterPtr> _file_writers;
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
 
@@ -159,7 +181,7 @@ protected:
     // TODO rowset Zonemap
 
     std::map<uint32_t, SegmentStatistics> _segid_statistics_map;
-    std::mutex _segid_statistics_map_mutex;
+    mutable std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;
     bool _already_built = false;
@@ -193,8 +215,6 @@ public:
             KeyBoundsPB& key_bounds);
 
 private:
-    Status _generate_delete_bitmap(int32_t segment_id) override;
-
     // segment compaction
     friend class SegcompactionWorker;
     Status _close_file_writers() override;

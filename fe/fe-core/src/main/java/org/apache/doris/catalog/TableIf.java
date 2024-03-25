@@ -55,35 +55,59 @@ import java.util.stream.Collectors;
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
 
-    void readLock();
+    default void readLock() {
+    }
 
-    boolean tryReadLock(long timeout, TimeUnit unit);
+    default boolean tryReadLock(long timeout, TimeUnit unit) {
+        return true;
+    }
 
-    void readUnlock();
+    default void readUnlock() {
+    }
 
-    void writeLock();
+    ;
 
-    boolean writeLockIfExist();
+    default void writeLock() {
+    }
 
-    boolean tryWriteLock(long timeout, TimeUnit unit);
+    default boolean writeLockIfExist() {
+        return true;
+    }
 
-    void writeUnlock();
+    default boolean tryWriteLock(long timeout, TimeUnit unit) {
+        return true;
+    }
 
-    boolean isWriteLockHeldByCurrentThread();
+    default void writeUnlock() {
+    }
 
-    <E extends Exception> void writeLockOrException(E e) throws E;
+    default boolean isWriteLockHeldByCurrentThread() {
+        return true;
+    }
 
-    void writeLockOrDdlException() throws DdlException;
+    default <E extends Exception> void writeLockOrException(E e) throws E {
+    }
 
-    void writeLockOrMetaException() throws MetaNotFoundException;
+    default void writeLockOrDdlException() throws DdlException {
+    }
 
-    void writeLockOrAlterCancelException() throws AlterCancelException;
+    default void writeLockOrMetaException() throws MetaNotFoundException {
+    }
 
-    boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException;
+    default void writeLockOrAlterCancelException() throws AlterCancelException {
+    }
 
-    <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E;
+    default boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
+        return true;
+    }
 
-    boolean tryWriteLockIfExist(long timeout, TimeUnit unit);
+    default <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
+        return true;
+    }
+
+    default boolean tryWriteLockIfExist(long timeout, TimeUnit unit) {
+        return true;
+    }
 
     long getId();
 
@@ -135,9 +159,7 @@ public interface TableIf {
 
     long getRowCount();
 
-    // Get the exact number of rows in the internal table;
-    // Get the number of cached rows or estimated rows in the external table, if not, return -1.
-    long getCacheRowCount();
+    long fetchRowCount();
 
     long getDataLength();
 
@@ -151,7 +173,10 @@ public interface TableIf {
 
     BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
 
-    long estimatedRowCount();
+    // For empty table, nereids require getting 1 as row count. This is a wrap function for nereids to call getRowCount.
+    default long getRowCountForNereids() {
+        return Math.max(getRowCount(), 1);
+    }
 
     DatabaseIf getDatabase();
 
@@ -395,7 +420,7 @@ public interface TableIf {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {

@@ -16,6 +16,21 @@
 // under the License.
 
 suite("test_hive_statistic_cache", "p2,external,hive,external_remote,external_remote_hive") {
+
+    def wait_row_count_reported = { table, expected ->
+        for (int i = 0; i < 10; i++) {
+            result = sql """show table stats ${table}"""
+            logger.info("show table stats result: " + result)
+            assertTrue(result.size() == 1)
+            if (result[0][2] == "0") {
+                Thread.sleep(1000)
+                continue;
+            }
+            assertEquals(expected, result[0][2])
+            break;
+        }
+    }
+
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
@@ -38,30 +53,15 @@ suite("test_hive_statistic_cache", "p2,external,hive,external_remote,external_re
         sql """desc part""";
         sql """desc partsupp""";
         sql """desc supplier""";
-        Thread.sleep(1000);
-        def result = sql """show table cached stats customer"""
-        assertEquals(result[0][2], "150000000")
 
-        result = sql """show table cached stats lineitem"""
-        assertEquals(result[0][2], "5999989709")
-
-        result = sql """show table cached stats region"""
-        assertEquals(result[0][2], "5")
-
-        result = sql """show table cached stats nation"""
-        assertEquals(result[0][2], "25")
-
-        result = sql """show table cached stats orders"""
-        assertEquals(result[0][2], "1500000000")
-
-        result = sql """show table cached stats part"""
-        assertEquals(result[0][2], "200000000")
-
-        result = sql """show table cached stats partsupp"""
-        assertEquals(result[0][2], "800000000")
-
-        result = sql """show table cached stats supplier"""
-        assertEquals(result[0][2], "10000000")
+        wait_row_count_reported("customer", "150000000")
+        wait_row_count_reported("lineitem", "5999989709")
+        wait_row_count_reported("region", "5")
+        wait_row_count_reported("nation", "25")
+        wait_row_count_reported("orders", "1500000000")
+        wait_row_count_reported("part", "200000000")
+        wait_row_count_reported("partsupp", "800000000")
+        wait_row_count_reported("supplier", "10000000")
 
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""

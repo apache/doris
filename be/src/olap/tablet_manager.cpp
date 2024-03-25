@@ -943,19 +943,28 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                 io::global_local_filesystem()->list(schema_hash_path, true, &files, &exists));
         for (auto& file : files) {
             auto& filename = file.file_name;
-            if (!filename.ends_with(".binlog")) {
+            std::string new_suffix;
+            std::string old_suffix;
+
+            if (filename.ends_with(".binlog")) {
+                old_suffix = ".binlog";
+                new_suffix = ".dat";
+            } else if (filename.ends_with(".binlog-index")) {
+                old_suffix = ".binlog-index";
+                new_suffix = ".idx";
+            } else {
                 continue;
             }
 
-            // change clone_file suffix .binlog to .dat
             std::string new_filename = filename;
-            new_filename.replace(filename.size() - 7, 7, ".dat");
+            new_filename.replace(filename.size() - old_suffix.size(), old_suffix.size(),
+                                 new_suffix);
             auto from = fmt::format("{}/{}", schema_hash_path, filename);
             auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
             RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
         }
 
-        auto meta = store->get_meta();
+        auto* meta = store->get_meta();
         // if ingest binlog metas error, it will be gc in gc_unused_binlog_metas
         RETURN_IF_ERROR(
                 RowsetMetaManager::ingest_binlog_metas(meta, tablet_uid, &rowset_binlog_metas_pb));
@@ -968,7 +977,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // should change tablet uid when tablet object changed
     tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
-    RETURN_IF_ERROR(tablet_meta->serialize(&meta_binary));
+    tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_STATUS_WITH_WARN(
             load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
                                   true),
@@ -993,7 +1002,7 @@ Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     return res;
 }
 
-Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
+void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     DCHECK(tablets_info != nullptr);
     VLOG_NOTICE << "begin to build all report tablets info";
 
@@ -1032,7 +1041,6 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
     DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
             tablet_version_num_hist);
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
-    return Status::OK();
 }
 
 Status TabletManager::start_trash_sweep() {
@@ -1525,6 +1533,26 @@ std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
     }
 
     return bad_tablets;
+}
+
+bool TabletManager::update_tablet_partition_id(::doris::TPartitionId partition_id,
+                                               ::doris::TTabletId tablet_id) {
+    std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
+    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "get tablet err partition_id: " << partition_id
+                     << " tablet_id:" << tablet_id;
+        return false;
+    }
+    _remove_tablet_from_partition(tablet);
+    auto st = tablet->tablet_meta()->set_partition_id(partition_id);
+    if (!st.ok()) {
+        LOG(WARNING) << "set partition id err partition_id: " << partition_id
+                     << " tablet_id:" << tablet_id;
+        return false;
+    }
+    _add_tablet_to_partition(tablet);
+    return true;
 }
 
 } // end namespace doris

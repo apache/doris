@@ -33,6 +33,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
+import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob.RootRewriteJobContext;
 import org.apache.doris.nereids.jobs.scheduler.JobPool;
 import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
 import org.apache.doris.nereids.jobs.scheduler.JobStack;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -70,6 +72,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -90,9 +94,11 @@ import javax.annotation.Nullable;
  * Context used in memo.
  */
 public class CascadesContext implements ScheduleContext {
+    private static final Logger LOG = LogManager.getLogger(CascadesContext.class);
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
+    private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
     private final StatementContext statementContext;
@@ -105,6 +111,7 @@ public class CascadesContext implements ScheduleContext {
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
+    private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
     private Map<Long, TableIf> tables = null;
 
@@ -118,13 +125,20 @@ public class CascadesContext implements ScheduleContext {
     private final List<MaterializationContext> materializationContexts;
     private boolean isLeadingJoin = false;
 
+    private boolean isLeadingDisableJoinReorder = false;
+
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+    private final ThreadLocal<Boolean> showPlanProcess = new ThreadLocal<>();
+
+    // This list is used to listen the change event of the plan which
+    // trigger by rule and show by `explain plan process` statement
+    private final List<PlanProcess> planProcesses = new ArrayList<>();
 
     /**
      * Constructor of OptimizerContext.
      *
-     * @param memo {@link Memo} reference
      * @param statementContext {@link StatementContext} reference
+     * @param memo {@link Memo} reference
      */
     private CascadesContext(Optional<CascadesContext> parent, Optional<CTEId> currentTree,
             StatementContext statementContext, Plan plan, Memo memo,
@@ -159,7 +173,8 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newContextWithCteContext(CascadesContext cascadesContext,
             Plan initPlan, CTEContext cteContext) {
         return newContext(Optional.of(cascadesContext), Optional.empty(),
-                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY);
+                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY
+        );
     }
 
     public static CascadesContext newCurrentTreeContext(CascadesContext context) {
@@ -178,9 +193,10 @@ public class CascadesContext implements ScheduleContext {
     }
 
     private static CascadesContext newContext(Optional<CascadesContext> parent, Optional<CTEId> subtree,
-            StatementContext statementContext, Plan initPlan,
-            CTEContext cteContext, PhysicalProperties requireProperties) {
-        return new CascadesContext(parent, subtree, statementContext, initPlan, null, cteContext, requireProperties);
+            StatementContext statementContext, Plan initPlan, CTEContext cteContext,
+            PhysicalProperties requireProperties) {
+        return new CascadesContext(parent, subtree, statementContext, initPlan, null,
+            cteContext, requireProperties);
     }
 
     public CascadesContext getRoot() {
@@ -267,6 +283,10 @@ public class CascadesContext implements ScheduleContext {
 
     public RuntimeFilterContext getRuntimeFilterContext() {
         return runtimeFilterContext;
+    }
+
+    public TopnFilterContext getTopnFilterContext() {
+        return topnFilterContext;
     }
 
     public void setCurrentJobContext(JobContext currentJobContext) {
@@ -636,7 +656,70 @@ public class CascadesContext implements ScheduleContext {
         isLeadingJoin = leadingJoin;
     }
 
+    public boolean isLeadingDisableJoinReorder() {
+        return isLeadingDisableJoinReorder;
+    }
+
+    public void setLeadingDisableJoinReorder(boolean leadingDisableJoinReorder) {
+        isLeadingDisableJoinReorder = leadingDisableJoinReorder;
+    }
+
     public Map<String, Hint> getHintMap() {
         return hintMap;
+    }
+
+    public void addPlanProcess(PlanProcess planProcess) {
+        planProcesses.add(planProcess);
+    }
+
+    public void addPlanProcesses(List<PlanProcess> planProcesses) {
+        this.planProcesses.addAll(planProcesses);
+    }
+
+    public List<PlanProcess> getPlanProcesses() {
+        return planProcesses;
+    }
+
+    public Optional<RootRewriteJobContext> getCurrentRootRewriteJobContext() {
+        return currentRootRewriteJobContext;
+    }
+
+    public void setCurrentRootRewriteJobContext(RootRewriteJobContext currentRootRewriteJobContext) {
+        this.currentRootRewriteJobContext = Optional.ofNullable(currentRootRewriteJobContext);
+    }
+
+    public boolean showPlanProcess() {
+        Boolean show = showPlanProcess.get();
+        return show != null && show;
+    }
+
+    /** set showPlanProcess in task scope */
+    public void withPlanProcess(boolean showPlanProcess, Runnable task) {
+        Boolean originSetting = this.showPlanProcess.get();
+        try {
+            this.showPlanProcess.set(showPlanProcess);
+            task.run();
+        } finally {
+            if (originSetting == null) {
+                this.showPlanProcess.remove();
+            } else {
+                this.showPlanProcess.set(originSetting);
+            }
+        }
+    }
+
+    /** keepOrShowPlanProcess */
+    public void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
+        if (showPlanProcess) {
+            withPlanProcess(showPlanProcess, task);
+        } else {
+            task.run();
+        }
+    }
+
+    public void printPlanProcess() {
+        for (PlanProcess row : planProcesses) {
+            LOG.info("RULE: " + row.ruleName + "\nBEFORE:\n" + row.beforeShape + "\nafter:\n" + row.afterShape);
+        }
     }
 }

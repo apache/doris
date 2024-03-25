@@ -20,6 +20,7 @@ package org.apache.doris.cloud.datasource;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
@@ -51,8 +52,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TSortType;
-import org.apache.doris.thrift.TStorageFormat;
-import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
@@ -78,36 +77,34 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     // TODO(merge-cloud): merge code with InternalCatalog
     @Override
-    protected Partition createPartitionWithIndices(long dbId, long tableId, String tableName,
-            long baseIndexId, long partitionId, String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
-            DistributionInfo distributionInfo, TStorageMedium storageMedium, ReplicaAllocation replicaAlloc,
-            Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
-            boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
-            DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite, String storagePolicy,
-            IdGeneratorBuffer idGeneratorBuffer, boolean disableAutoCompaction,
-            boolean enableSingleReplicaCompaction, boolean skipWriteIndexOnLoad,
-            String compactionPolicy, Long timeSeriesCompactionGoalSizeMbytes,
-            Long timeSeriesCompactionFileCountThreshold, Long timeSeriesCompactionTimeThresholdSeconds,
-            Long timeSeriesCompactionEmptyRowsetsThreshold,
-            boolean storeRowColumn, BinlogConfig binlogConfig,
-            boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes,
-            long ttlSeconds) throws DdlException {
+    protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
+                                                   String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
+                                                   DistributionInfo distributionInfo, DataProperty dataProperty,
+                                                   ReplicaAllocation replicaAlloc,
+                                                   Long versionInfo, Set<String> bfColumns, Set<Long> tabletIdSet,
+                                                   boolean isInMemory,
+                                                   TTabletType tabletType,
+                                                   String storagePolicy,
+                                                   IdGeneratorBuffer idGeneratorBuffer,
+                                                   BinlogConfig binlogConfig,
+                                                   boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes)
+            throws DdlException {
         // create base index first.
-        Preconditions.checkArgument(baseIndexId != -1);
-        MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
+        Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
+        MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
 
         LOG.info("begin create cloud partition");
         // create partition with base index
         Partition partition = new CloudPartition(partitionId, partitionName, baseIndex,
-                distributionInfo, dbId, tableId);
+                distributionInfo, dbId, tbl.getId());
 
         // add to index map
         Map<Long, MaterializedIndex> indexMap = Maps.newHashMap();
-        indexMap.put(baseIndexId, baseIndex);
+        indexMap.put(tbl.getBaseIndexId(), baseIndex);
 
         // create rollup index if has
         for (long indexId : indexIdToMeta.keySet()) {
-            if (indexId == baseIndexId) {
+            if (indexId == tbl.getBaseIndexId()) {
                 continue;
             }
 
@@ -121,6 +118,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         long version = partition.getVisibleVersion();
 
+        final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
+        boolean storageVaultIdSet = false;
+        // We don't need to set the vault name if the table has no property
+        if (storageVaultName == null || storageVaultName.isEmpty()) {
+            storageVaultIdSet = true;
+        }
+
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
@@ -129,7 +133,8 @@ public class CloudInternalCatalog extends InternalCatalog {
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
-            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
+            TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
+                    indexId, schemaHash, dataProperty.getStorageMedium());
             createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
                     tabletMeta, tabletIdSet);
 
@@ -138,33 +143,46 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Column> columns = indexMeta.getSchema();
             KeysType keysType = indexMeta.getKeysType();
 
+            List<Index> indexes;
+            if (index.getId() == tbl.getBaseIndexId()) {
+                indexes = tbl.getIndexes();
+            } else {
+                indexes = Lists.newArrayList();
+            }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             for (Tablet tablet : index.getTablets()) {
-                OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tableId, indexId,
+                OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
-                        bfColumns, bfFpp, indexes, columns, dataSortInfo, compressionType,
-                        storagePolicy, isInMemory, false, tableName, ttlSeconds,
-                        enableUniqueKeyMergeOnWrite, storeRowColumn, indexMeta.getSchemaVersion());
+                        bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
+                        tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
+                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
                 requestBuilder.addTabletMetas(builder);
+            }
+            if (!storageVaultIdSet) {
+                requestBuilder.setStorageVaultName(storageVaultName);
             }
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
                     + "indexId: {}",
-                    dbId, tableId, tableName, partitionId, partitionName, indexId);
-            sendCreateTabletsRpc(requestBuilder);
-            if (index.getId() != baseIndexId) {
+                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
+            Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
+            if (resp.hasStorageVaultId() && !storageVaultIdSet) {
+                tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
+                storageVaultIdSet = true;
+            }
+            if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
                 partition.createRollupIndex(index);
             }
         }
 
         LOG.info("succeed in creating partition[{}-{}], table : [{}-{}]", partitionId, partitionName,
-                tableId, tableName);
+                tbl.getId(), tbl.getName());
 
         return partition;
     }
 
-    private OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
+    public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
             long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
             short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
@@ -336,7 +354,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     protected void beforeCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
         if (partitionIds == null) {
-            prepareMaterializedIndex(tableId, indexIds);
+            prepareMaterializedIndex(tableId, indexIds, 0);
         } else {
             preparePartition(dbId, tableId, partitionIds, indexIds);
         }
@@ -419,12 +437,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void prepareMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    // if `expiration` = 0, recycler will delete uncommitted indexes in `retention_seconds`
+    public void prepareMaterializedIndex(Long tableId, List<Long> indexIds, long expiration) throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setTableId(tableId);
-        indexRequestBuilder.setExpiration(0);
+        indexRequestBuilder.setExpiration(expiration);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;
@@ -450,7 +469,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void commitMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    public void commitMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -480,25 +499,36 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
+    public Cloud.CreateTabletsResponse
+            sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
         }
-        Cloud.CreateTabletsResponse response;
-        try {
-            response = MetaServiceProxy.getInstance().createTablets(createTabletsReq);
-        } catch (RpcException e) {
-            LOG.warn("failed to send create tablets rpc {}", e.getMessage());
-            throw new RuntimeException(e);
+        Cloud.CreateTabletsResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+            try {
+                response = MetaServiceProxy.getInstance().createTablets(createTabletsReq);
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, create tablets RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
         }
         LOG.info("create tablets response: {}", response);
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             throw new DdlException(response.getStatus().getMsg());
         }
+        return response;
     }
 
     // END CREATE TABLE
@@ -627,7 +657,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void dropMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    public void dropMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);

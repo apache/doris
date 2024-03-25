@@ -90,6 +90,7 @@ protected:
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
+    std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
     int64_t _build_side_mem_used = 0;
@@ -135,8 +136,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     bool should_dry_run(RuntimeState* state) override {
         return _is_broadcast_join && !state->get_sink_local_state()
@@ -173,6 +173,8 @@ private:
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
+
+    std::vector<bool> _should_convert_to_nullable;
 
     bool _is_broadcast_join = false;
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;

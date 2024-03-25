@@ -84,6 +84,9 @@ public class FunctionCallExpr extends Expr {
             String.CASE_INSENSITIVE_ORDER)
             .add("round").add("round_bankers").add("ceil").add("floor")
             .add("truncate").add("dround").add("dceil").add("dfloor").build();
+    public static final ImmutableSet<String> STRING_SEARCH_FUNCTION_SET = new ImmutableSortedSet.Builder(
+            String.CASE_INSENSITIVE_ORDER)
+            .add("multi_search_all_positions").add("multi_match_any").build();
 
     private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
@@ -840,12 +843,6 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(
                         "COUNT must have DISTINCT for multiple arguments: " + this.toSql());
             }
-
-            for (Expr child : children) {
-                if (child.type.isOnlyMetricType() && !child.type.isComplexType()) {
-                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-                }
-            }
             return;
         }
 
@@ -1546,6 +1543,8 @@ public class FunctionCallExpr extends Expr {
 
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
                 || fnName.getFunction().equalsIgnoreCase("nvl")) {
+            Preconditions.checkArgument(children != null && children.size() == 2,
+                    "The " + fnName + " function must have two params");
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true,
                     enableDecimal256);
@@ -1771,6 +1770,13 @@ public class FunctionCallExpr extends Expr {
                     .contains(constParam)) {
                 throw new AnalysisException("date_trunc function second param only support argument is "
                         + "year|quarter|month|week|day|hour|minute|second");
+            }
+        }
+        if (fnName.getFunction().equalsIgnoreCase("array_range")
+                || fnName.getFunction().equalsIgnoreCase("sequence")) {
+            if (getChild(0) instanceof DateLiteral && !(getChild(2) instanceof StringLiteral)) {
+                throw new AnalysisException("To generate datetime array, please use interval literal like: "
+                        + "interval 1 day.");
             }
         }
         if (fnName.getFunction().equalsIgnoreCase("char")) {

@@ -45,11 +45,9 @@ class RuntimeProfile;
 
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
-namespace taskgroup {
-struct TgTrackerLimiterGroup;
-class TaskGroup;
-using TaskGroupPtr = std::shared_ptr<TaskGroup>;
-} // namespace taskgroup
+struct WgTrackerLimiterGroup;
+class WorkloadGroup;
+using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.
@@ -192,7 +190,12 @@ public:
     static int64_t free_top_memory_query(
             int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
-            RuntimeProfile* profile, GCType GCtype);
+            RuntimeProfile* profile, GCType gctype);
+
+    static int64_t tg_free_top_memory_query(
+            int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
+            const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
+            RuntimeProfile* profile, GCType gctype);
 
     static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
                                         const std::string& mem_available_str,
@@ -210,7 +213,12 @@ public:
     static int64_t free_top_overcommit_query(
             int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
-            RuntimeProfile* profile, GCType GCtype);
+            RuntimeProfile* profile, GCType gctype);
+
+    static int64_t tg_free_top_overcommit_query(
+            int64_t min_free_mem, Type type, std::vector<WgTrackerLimiterGroup>& tracker_groups,
+            const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
+            RuntimeProfile* profile, GCType gctype);
 
     static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
                                             const std::string& mem_available_str,
@@ -218,12 +226,6 @@ public:
         return free_top_overcommit_query(min_free_mem, vm_rss_str, mem_available_str, profile,
                                          Type::LOAD);
     }
-
-    static int64_t tg_memory_limit_gc(
-            int64_t request_free_memory, int64_t used_memory, uint64_t id, const std::string& name,
-            int64_t memory_limit,
-            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups,
-            RuntimeProfile* profile);
 
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {

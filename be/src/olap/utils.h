@@ -95,11 +95,6 @@ Status split_string(const std::string& base, const T separator, std::vector<std:
     return Status::OK();
 }
 
-template <typename T>
-void _destruct_object(const void* obj, void*) {
-    delete ((const T*)obj);
-}
-
 uint32_t olap_adler32_init();
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 
@@ -266,15 +261,14 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
 }
 
 // Util used to get string name of thrift enum item
-#define EnumToString(enum_type, index, out)                 \
-    do {                                                    \
-        std::map<int, const char*>::const_iterator it =     \
-                _##enum_type##_VALUES_TO_NAMES.find(index); \
-        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {   \
-            out = "NULL";                                   \
-        } else {                                            \
-            out = it->second;                               \
-        }                                                   \
+#define EnumToString(enum_type, index, out)                   \
+    do {                                                      \
+        auto it = _##enum_type##_VALUES_TO_NAMES.find(index); \
+        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {     \
+            out = "NULL";                                     \
+        } else {                                              \
+            out = it->second;                                 \
+        }                                                     \
     } while (0)
 
 struct RowLocation {

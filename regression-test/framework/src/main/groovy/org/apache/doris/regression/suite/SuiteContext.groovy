@@ -46,6 +46,7 @@ class SuiteContext implements Closeable {
     public final ThreadLocal<ConnectionInfo> threadArrowFlightSqlConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveDockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadDB2DockerConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -180,14 +181,28 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
+    Connection getDB2DockerConnection(){
+        def threadConn = threadDB2DockerConn.get()
+        if (threadConn == null) {
+            threadConn = getConnectionByDB2DockerConfig()
+            threadDB2DockerConn.set(threadConn)
+        }
+        return threadConn
+    }
+
     private String getJdbcNetInfo() {
         String subJdbc = config.jdbcUrl.substring(config.jdbcUrl.indexOf("://") + 3)
         return subJdbc.substring(0, subJdbc.indexOf("/"))
     }
 
-    private Map<String, String> getSpec() {
+    private String getDownstreamJdbcNetInfo() {
+        String subJdbc = config.ccrDownstreamUrl.substring(config.ccrDownstreamUrl.indexOf("://") + 3)
+        return subJdbc.substring(0, subJdbc.indexOf("/"))
+    }
+
+    private Map<String, String> getSpec(String[] jdbc) {
         Map<String, String> spec = Maps.newHashMap()
-        String[] jdbc = getJdbcNetInfo().split(":")
+
         spec.put("host", jdbc[0])
         spec.put("port", jdbc[1])
         spec.put("user", config.feSyncerUser)
@@ -198,7 +213,8 @@ class SuiteContext implements Closeable {
     }
 
     Map<String, String> getSrcSpec() {
-        Map<String, String> spec = getSpec()
+        String[] jdbc = getJdbcNetInfo().split(":")
+        Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feSourceThriftNetworkAddress.port.toString())
         spec.put("database", dbName)
 
@@ -206,7 +222,8 @@ class SuiteContext implements Closeable {
     }
 
     Map<String, String> getDestSpec() {
-        Map<String, String> spec = getSpec()
+        String[] jdbc = getDownstreamJdbcNetInfo().split(":")
+        Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feTargetThriftNetworkAddress.port.toString())
         spec.put("database", "TEST_" + dbName)
 
@@ -233,10 +250,20 @@ class SuiteContext implements Closeable {
         return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
     }
 
+    Connection getConnectionByDB2DockerConfig() {
+        Class.forName("com.ibm.db2.jcc.DB2Driver");
+        String db2Host = config.otherConfigs.get("externalEnvIp")
+        String db2Port = config.otherConfigs.get("db2_11_port")
+        String db2JdbcUrl = "jdbc:db2://${db2Host}:${db2Port}/doris"
+        String db2JdbcUser =  "db2inst1"
+        String db2JdbcPassword = "123456"
+        return DriverManager.getConnection(db2JdbcUrl, db2JdbcUser, db2JdbcPassword)
+    }
+
     Connection getTargetConnection(Suite suite) {
         def context = getSyncer(suite).context
         if (context.targetConnection == null) {
-            context.targetConnection = config.getConnectionByDbName("TEST_" + dbName)
+            context.targetConnection = config.getDownstreamConnectionByDbName("TEST_" + dbName)
         }
         return context.targetConnection
     }

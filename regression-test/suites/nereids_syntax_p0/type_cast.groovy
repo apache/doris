@@ -52,4 +52,16 @@ suite("type_cast") {
         sql("select '12' = id from (select '1' as id)a")
         result([[false]])
     }
+
+    sql """
+        drop table if exists test_time_cast_to_string;
+    """
+
+    sql """
+        create table test_time_cast_to_string (id int) distributed by random properties('replication_num'='1');
+    """
+
+    sql """
+        select concat('a', sec_to_time(id)) from test_time_cast_to_string;
+    """
 }

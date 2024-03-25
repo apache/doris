@@ -19,14 +19,19 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ListPartitionItem extends PartitionItem {
@@ -78,6 +83,41 @@ public class ListPartitionItem extends PartitionItem {
         List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
                 .collect(Collectors.toList());
         return PartitionKeyDesc.createIn(inValues);
+    }
+
+    @Override
+    public PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException {
+        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+                .collect(Collectors.toList());
+        Set<List<PartitionValue>> res = Sets.newHashSet();
+        for (List<PartitionValue> values : inValues) {
+            if (values.size() <= pos) {
+                throw new AnalysisException(
+                        String.format("toPartitionKeyDesc IndexOutOfBounds, values: %s, pos: %d", values.toString(),
+                                pos));
+            }
+            res.add(Lists.newArrayList(values.get(pos)));
+        }
+        return PartitionKeyDesc.createIn(Lists.newArrayList(res));
+    }
+
+    @Override
+    public boolean isGreaterThanSpecifiedTime(int pos, Optional<String> dateFormatOptional, long nowTruncSubSec)
+            throws AnalysisException {
+        for (PartitionKey partitionKey : partitionKeys) {
+            if (partitionKey.getKeys().size() <= pos) {
+                throw new AnalysisException(
+                        String.format("toPartitionKeyDesc IndexOutOfBounds, partitionKey: %s, pos: %d",
+                                partitionKey.toString(),
+                                pos));
+            }
+            if (!isDefaultPartition() && MTMVUtil.getExprTimeSec(partitionKey.getKeys().get(pos), dateFormatOptional)
+                    >= nowTruncSubSec) {
+                // As long as one of the partitionKeys meets the requirements, this partition needs to be retained
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -160,16 +200,5 @@ public class ListPartitionItem extends PartitionItem {
         }
 
         return sb.toString();
-    }
-
-    // If any partition key is hive default partition, return true.
-    // Only used for hive table.
-    public boolean isHiveDefaultPartition() {
-        for (PartitionKey partitionKey : partitionKeys) {
-            if (partitionKey.isHiveDefaultPartition()) {
-                return true;
-            }
-        }
-        return false;
     }
 }

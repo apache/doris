@@ -133,9 +133,6 @@ public class Column implements Writable, GsonPostProcessable {
     @SerializedName(value = "uniqueId")
     private int uniqueId;
 
-    @SerializedName(value = "genericAggregationName")
-    private String genericAggregationName;
-
     @SerializedName(value = "clusterKeyId")
     private int clusterKeyId = -1;
 
@@ -249,8 +246,8 @@ public class Column implements Writable, GsonPostProcessable {
                 c.setIsAllowNull(aggState.getSubTypeNullables().get(i));
                 addChildrenColumn(c);
             }
-            this.genericAggregationName = aggState.getFunctionName();
-            this.aggregationType = AggregateType.GENERIC_AGGREGATION;
+            this.isAllowNull = false;
+            this.aggregationType = AggregateType.GENERIC;
         }
     }
 
@@ -454,11 +451,7 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public String getAggregationString() {
-        if (getAggregationType() == AggregateType.GENERIC_AGGREGATION) {
-            return getGenericAggregationString();
-        } else {
-            return getAggregationType().name();
-        }
+        return getAggregationType().name();
     }
 
     public boolean isAggregated() {
@@ -686,12 +679,20 @@ public class Column implements Writable, GsonPostProcessable {
                 return 8;
             case DECIMAL128I:
                 return 16;
+            case DECIMAL256:
+                return 32;
             case DECIMALV2:
                 return 12; // use 12 bytes in olap engine.
             case STRUCT:
                 return 65535;
             case MAP:
                 return 65535;
+            case IPV4:
+                return 4;
+            case IPV6:
+                return 16;
+            case VARIANT:
+                return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
             default:
                 LOG.warn("unknown field type. [type= << {} << ]", type);
                 throw new DdlException("unknown field type. type: " + type);
@@ -907,22 +908,6 @@ public class Column implements Writable, GsonPostProcessable {
         return toSql(isUniqueTable, false);
     }
 
-    public String getGenericAggregationString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(genericAggregationName).append("(");
-        for (int i = 0; i < children.size(); i++) {
-            if (i != 0) {
-                sb.append(", ");
-            }
-            sb.append(children.get(i).getType().toSql());
-            if (children.get(i).isAllowNull()) {
-                sb.append(" NULL");
-            }
-        }
-        sb.append(")");
-        return sb.toString();
-    }
-
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
@@ -934,11 +919,9 @@ public class Column implements Writable, GsonPostProcessable {
         } else {
             sb.append(typeStr);
         }
-        if (aggregationType == AggregateType.GENERIC_AGGREGATION) {
-            sb.append(" ").append(getGenericAggregationString());
-        } else if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
+        if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
-            sb.append(" ").append(aggregationType.name());
+            sb.append(" ").append(aggregationType.toSql());
         }
         if (isAllowNull) {
             sb.append(" NULL");
@@ -1027,14 +1010,14 @@ public class Column implements Writable, GsonPostProcessable {
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
                 && clusterKeyId == other.clusterKeyId;
 
-        if (!ok) {
-            LOG.info("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+        if (!ok && LOG.isDebugEnabled()) {
+            LOG.debug("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
                             + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
                             + "children {}, realDefaultValue {}, clusterKeyId {}",
                     name, getDefaultValue(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
                     getDataType(), getStrLen(), getPrecision(), getScale(), visible, children, realDefaultValue,
                     clusterKeyId);
-            LOG.info("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+            LOG.debug("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
                             + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {}, "
                             + "children {}, realDefaultValue {}, clusterKeyId {}",
                     other.name, other.getDefaultValue(), other.aggregationType, other.isAggregationTypeImplicit,

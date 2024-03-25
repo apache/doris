@@ -25,6 +25,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
@@ -53,17 +54,27 @@ public class CloudEnv extends Env {
 
     private static final Logger LOG = LogManager.getLogger(CloudEnv.class);
 
+    private CloudInstanceStatusChecker cloudInstanceStatusChecker;
     private CloudClusterChecker cloudClusterCheck;
 
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
+        this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
     }
 
+    @Override
     protected void startMasterOnlyDaemonThreads() {
         LOG.info("start cloud Master only daemon threads");
         super.startMasterOnlyDaemonThreads();
         cloudClusterCheck.start();
+    }
+
+    @Override
+    protected void startNonMasterDaemonThreads() {
+        LOG.info("start cloud Non Master only daemon threads");
+        super.startNonMasterDaemonThreads();
+        cloudInstanceStatusChecker.start();
     }
 
     public static String genFeNodeNameFromMeta(String host, int port, long timeMs) {
@@ -377,5 +388,32 @@ public class CloudEnv extends Env {
             throw new DdlException(String.format("Cluster %s not exist", clusterName),
                 ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
         }
+    }
+
+    public void changeCloudCluster(String clusterName, ConnectContext ctx) throws DdlException {
+        checkCloudClusterPriv(clusterName);
+        CloudSystemInfoService.waitForAutoStart(clusterName);
+        try {
+            ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster(clusterName, "");
+        } catch (UserException e) {
+            throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
+        }
+        ctx.setCloudCluster(clusterName);
+        ctx.getState().setOk();
+    }
+
+    public String analyzeCloudCluster(String name, ConnectContext ctx) throws DdlException {
+        String[] res = name.split("@");
+        if (res.length != 1 && res.length != 2) {
+            LOG.warn("invalid database name {}", name);
+            throw new DdlException("Invalid database name: " + name, ErrorCode.ERR_BAD_DB_ERROR);
+        }
+
+        if (res.length == 1) {
+            return name;
+        }
+
+        changeCloudCluster(res[1], ctx);
+        return res[0];
     }
 }

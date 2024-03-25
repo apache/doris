@@ -44,6 +44,10 @@ public class WorkloadConditionMeta {
             return WorkloadMetricType.USERNAME;
         } else if (WorkloadMetricType.QUERY_TIME.toString().equalsIgnoreCase(metricStr)) {
             return WorkloadMetricType.QUERY_TIME;
+        } else if (WorkloadMetricType.BE_SCAN_ROWS.toString().equalsIgnoreCase(metricStr)) {
+            return WorkloadMetricType.BE_SCAN_ROWS;
+        } else if (WorkloadMetricType.BE_SCAN_BYTES.toString().equalsIgnoreCase(metricStr)) {
+            return WorkloadMetricType.BE_SCAN_BYTES;
         }
         throw new UserException("invalid metric name:" + metricStr);
     }

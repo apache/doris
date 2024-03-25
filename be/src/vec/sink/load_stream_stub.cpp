@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "olap/rowset/rowset_writer.h"
+#include "runtime/query_context.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/network_util.h"
@@ -164,7 +165,8 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     opt.messages_in_batch = config::load_stream_messages_in_batch;
     opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, self);
     brpc::Controller cntl;
-    if (int ret = StreamCreate(&_stream_id, cntl, &opt)) {
+    if (int ret = brpc::StreamCreate(&_stream_id, cntl, &opt)) {
+        delete opt.handler;
         return Status::Error<true>(ret, "Failed to create stream");
     }
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
@@ -192,6 +194,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
                                               resp.enable_unique_key_merge_on_write());
     }
     if (cntl.Failed()) {
+        brpc::StreamClose(_stream_id);
         return Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
                                      cntl.ErrorText());
     }
@@ -304,7 +307,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     return Status::OK();
 }
 
-Status LoadStreamStub::close_wait(int64_t timeout_ms) {
+Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
         while (true) {
         };
@@ -318,12 +321,16 @@ Status LoadStreamStub::close_wait(int64_t timeout_ms) {
     }
     DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
     std::unique_lock<bthread::Mutex> lock(_close_mutex);
-    if (!_is_closed.load()) {
-        int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-        if (ret != 0) {
+    auto timeout_sec = timeout_ms / 1000;
+    while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {
+        //the query maybe cancel, so need check after wait 1s
+        timeout_sec = timeout_sec - 1;
+        int ret = _close_cv.wait_for(lock, 1000000);
+        if (ret != 0 && timeout_sec <= 0) {
             return Status::InternalError(
-                    "stream close_wait timeout, error={}, load_id={}, dst_id={}, stream_id={}", ret,
-                    print_id(_load_id), _dst_id, _stream_id);
+                    "stream close_wait timeout, error={}, timeout_ms={}, load_id={}, dst_id={}, "
+                    "stream_id={}",
+                    ret, timeout_ms, print_id(_load_id), _dst_id, _stream_id);
         }
     }
     RETURN_IF_ERROR(_check_cancel());

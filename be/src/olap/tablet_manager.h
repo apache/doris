@@ -132,7 +132,7 @@ public:
     //        Status::Error<INVALID_ARGUMENT>(), if tables is null
     Status report_tablet_info(TTabletInfo* tablet_info);
 
-    Status build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
+    void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
     Status start_trash_sweep();
 
@@ -162,6 +162,9 @@ public:
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 
     std::set<int64_t> check_all_tablet_segment(bool repair);
+
+    bool update_tablet_partition_id(::doris::TPartitionId partition_id,
+                                    ::doris::TTabletId tablet_id);
 
 private:
     // Add a tablet pointer to StorageEngine

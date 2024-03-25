@@ -48,9 +48,13 @@ public class PlsqlManager implements Writable {
         return nameToStoredProcedures.get(plsqlProcedureKey);
     }
 
+    public Map<PlsqlProcedureKey, PlsqlStoredProcedure> getAllPlsqlStoredProcedures() {
+        return nameToStoredProcedures;
+    }
+
     public void addPlsqlStoredProcedure(PlsqlStoredProcedure procedure, boolean isForce) {
-        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogName(),
-                procedure.getDbName());
+        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogId(),
+                procedure.getDbId());
         if (isForce) {
             nameToStoredProcedures.put(plsqlProcedureKey, procedure);
         } else if (nameToStoredProcedures.putIfAbsent(plsqlProcedureKey, procedure) != null) {
@@ -61,8 +65,8 @@ public class PlsqlManager implements Writable {
     }
 
     public void replayAddPlsqlStoredProcedure(PlsqlStoredProcedure procedure) {
-        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogName(),
-                procedure.getDbName());
+        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogId(),
+                procedure.getDbId());
         nameToStoredProcedures.put(plsqlProcedureKey, procedure);
         LOG.info("Replay add stored procedure success: {}", plsqlProcedureKey);
     }
@@ -83,8 +87,8 @@ public class PlsqlManager implements Writable {
     }
 
     public void addPackage(PlsqlPackage pkg, boolean isForce) {
-        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(pkg.getName(), pkg.getCatalogName(),
-                pkg.getDbName());
+        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(pkg.getName(), pkg.getCatalogId(),
+                pkg.getDbId());
         nameToPackages.put(plsqlProcedureKey, pkg);
         if (isForce) {
             nameToPackages.put(plsqlProcedureKey, pkg);
@@ -96,8 +100,8 @@ public class PlsqlManager implements Writable {
     }
 
     public void replayAddPlsqlPackage(PlsqlPackage pkg) {
-        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(pkg.getName(), pkg.getCatalogName(),
-                pkg.getDbName());
+        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(pkg.getName(), pkg.getCatalogId(),
+                pkg.getDbId());
         nameToPackages.put(plsqlProcedureKey, pkg);
         LOG.info("Replay add plsql package success: {}", plsqlProcedureKey);
     }

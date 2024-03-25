@@ -37,6 +37,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.tuple.Pair;
@@ -331,14 +332,20 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (selectedIndexId != ((OlapTable) table).getBaseIndexId()) {
             return getOutputByIndex(selectedIndexId);
         }
-        return table.getBaseSchema(true).stream().map(col -> {
-            if (cacheSlotWithSlotName.containsKey(Pair.of(selectedIndexId, col.getName()))) {
-                return cacheSlotWithSlotName.get(Pair.of(selectedIndexId, col.getName()));
+        List<Column> baseSchema = table.getBaseSchema(true);
+        Builder<Slot> slots = ImmutableList.builder();
+        for (Column col : baseSchema) {
+            Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
+            Slot slot = cacheSlotWithSlotName.get(key);
+            if (slot != null) {
+                slots.add(slot);
+            } else {
+                slot = SlotReference.fromColumn(table, col, qualified(), this);
+                cacheSlotWithSlotName.put(key, slot);
+                slots.add(slot);
             }
-            Slot slot = SlotReference.fromColumn(table, col, qualified(), this);
-            cacheSlotWithSlotName.put(Pair.of(selectedIndexId, col.getName()), slot);
-            return slot;
-        }).collect(ImmutableList.toImmutableList());
+        }
+        return slots.build();
     }
 
     @Override

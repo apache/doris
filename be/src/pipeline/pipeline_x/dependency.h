@@ -42,6 +42,7 @@
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vpartition_sort_node.h"
 #include "vec/exec/vset_operation_node.h"
+#include "vec/spill/spill_stream.h"
 
 namespace doris::pipeline {
 
@@ -70,9 +71,18 @@ struct BasicSharedState {
                 << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET*>(this);
     }
-    DependencySPtr source_dep = nullptr;
-    DependencySPtr sink_dep = nullptr;
+    std::vector<DependencySPtr> source_deps;
+    std::vector<DependencySPtr> sink_deps;
+    int id = 0;
+    std::set<int> related_op_ids;
+
     virtual ~BasicSharedState() = default;
+
+    Dependency* create_source_dependency(int operator_id, int node_id, std::string name,
+                                         QueryContext* ctx);
+
+    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name,
+                                       QueryContext* ctx);
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
@@ -94,20 +104,15 @@ public:
               _query_ctx(query_ctx) {}
     virtual ~Dependency() = default;
 
+    bool is_write_dependency() const { return _is_write_dependency; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
-    void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
     BasicSharedState* shared_state() { return _shared_state; }
     void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
-    void start_watcher() {
-        for (auto& child : _children) {
-            child->start_watcher();
-        }
-        _watcher.start();
-    }
+    void start_watcher() { _watcher.start(); }
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
@@ -116,21 +121,21 @@ public:
     void set_ready();
     void set_ready_to_read() {
         DCHECK(_is_write_dependency) << debug_string();
-        DCHECK(_shared_state->source_dep != nullptr) << debug_string();
-        _shared_state->source_dep->set_ready();
+        DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
+        _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
         DCHECK(_is_write_dependency) << debug_string();
-        DCHECK(_shared_state->source_dep != nullptr) << debug_string();
-        _shared_state->source_dep->block();
+        DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
+        _shared_state->source_deps.front()->block();
     }
     void set_ready_to_write() {
-        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
-        _shared_state->sink_dep->set_ready();
+        DCHECK(_shared_state->sink_deps.size() == 1) << debug_string();
+        _shared_state->sink_deps.front()->set_ready();
     }
     void set_block_to_write() {
-        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
-        _shared_state->sink_dep->block();
+        DCHECK(_shared_state->sink_deps.size() == 1) << debug_string();
+        _shared_state->sink_deps.front()->block();
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
@@ -170,7 +175,6 @@ protected:
 
     BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
-    std::list<std::shared_ptr<Dependency>> _children;
 
     std::mutex _task_lock;
     std::vector<PipelineXTask*> _blocked_task;
@@ -203,9 +207,10 @@ public:
 class RuntimeFilterDependency;
 class RuntimeFilterTimer {
 public:
-    RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
+    RuntimeFilterTimer(int filter_id, int64_t registration_time, int32_t wait_time_ms,
                        std::shared_ptr<RuntimeFilterDependency> parent)
-            : _parent(std::move(parent)),
+            : _filter_id(filter_id),
+              _parent(std::move(parent)),
               _registration_time(registration_time),
               _wait_time_ms(wait_time_ms) {}
 
@@ -215,7 +220,9 @@ public:
 
     void call_has_ready();
 
-    void call_has_release();
+    // When the use count is equal to 1, only the timer queue still holds ownership,
+    // so there is no need to take any action.
+    void call_has_release() {};
 
     bool has_ready();
 
@@ -223,6 +230,7 @@ public:
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
 private:
+    int _filter_id = -1;
     bool _call_ready {};
     bool _call_timeout {};
     std::shared_ptr<RuntimeFilterDependency> _parent;
@@ -303,7 +311,7 @@ public:
             : Dependency(id, node_id, name, query_ctx) {}
     Dependency* is_blocked_by(PipelineXTask* task) override;
     void add_filters(IRuntimeFilter* runtime_filter);
-    void sub_filters();
+    void sub_filters(int id);
     void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
         _blocked_by_rf = blocked_by_rf;
     }
@@ -312,30 +320,8 @@ public:
 
 protected:
     std::atomic_int _filters;
+    phmap::flat_hash_map<int, bool> _filter_ready_map;
     std::shared_ptr<std::atomic_bool> _blocked_by_rf;
-};
-
-struct EmptySharedState final : public BasicSharedState {};
-
-struct AndSharedState final : public BasicSharedState {};
-
-class AndDependency final : public Dependency {
-public:
-    using SharedState = AndSharedState;
-    ENABLE_FACTORY_CREATOR(AndDependency);
-    AndDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AndDependency", query_ctx) {}
-
-    std::string debug_string(int indentation_level = 0) override;
-
-    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
-        for (auto& child : Dependency::_children) {
-            if (auto* dep = child->is_blocked_by(task)) {
-                return dep;
-            }
-        }
-        return nullptr;
-    }
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -345,23 +331,30 @@ public:
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
     ~AggSharedState() override {
-        if (probe_expr_ctxs.empty()) {
+        if (probe_expr_ctxs.empty() && ready_to_execute) {
             _close_without_key();
-        } else {
+        } else if (ready_to_execute) {
             _close_with_serialized_key();
         }
     }
-    void init_spill_partition_helper(size_t spill_partition_count_bits) {
-        spill_partition_helper =
-                std::make_unique<vectorized::SpillPartitionHelper>(spill_partition_count_bits);
+
+    Status reset_hash_table();
+
+    // We should call this function only at 1st phase.
+    // 1st phase: is_merge=true, only have one SlotRef.
+    // 2nd phase: is_merge=false, maybe have multiple exprs.
+    static int get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
+        auto ctxs = evaluator->input_exprs_ctxs();
+        CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
+                << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
+                << ctxs[0]->root()->debug_string();
+        return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
     }
 
     vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<vectorized::AggregateDataContainer> aggregate_data_container;
-    vectorized::AggSpillContext spill_context;
     vectorized::ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
-    std::unique_ptr<vectorized::SpillPartitionHelper> spill_partition_helper;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
@@ -381,6 +374,9 @@ public:
     };
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
+    std::atomic<bool> ready_to_execute = false;
+
+    bool enable_spill = false;
 
 private:
     void _close_with_serialized_key() {
@@ -420,9 +416,98 @@ private:
     }
 };
 
+struct AggSpillPartition;
+struct PartitionedAggSharedState : public BasicSharedState {
+public:
+    PartitionedAggSharedState() = default;
+    ~PartitionedAggSharedState() override = default;
+
+    void init_spill_params(size_t spill_partition_count_bits);
+
+    void close();
+
+    AggSharedState* in_mem_shared_state = nullptr;
+    std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
+
+    size_t partition_count_bits;
+    size_t partition_count;
+    size_t max_partition_index;
+    Status sink_status;
+    std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
+
+    size_t get_partition_index(size_t hash_value) const {
+        return (hash_value >> (32 - partition_count_bits)) & max_partition_index;
+    }
+};
+
+struct AggSpillPartition {
+    static constexpr int64_t AGG_SPILL_FILE_SIZE = 1024 * 1024 * 1024; // 1G
+
+    AggSpillPartition() = default;
+
+    void close();
+
+    Status get_spill_stream(RuntimeState* state, int node_id, RuntimeProfile* profile,
+                            vectorized::SpillStreamSPtr& spilling_stream);
+
+    // wait for current bock spilling to finish
+    Status wait_spill(RuntimeState* state) {
+        DCHECK(spilling_stream_);
+        auto status = spilling_stream_->wait_spill();
+        RETURN_IF_ERROR(status);
+        // avoid small spill files
+        if (spilling_stream_->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
+            status = spilling_stream_->spill_eof();
+            spilling_stream_.reset();
+        }
+        return status;
+    }
+
+    Status finish_current_spilling(bool eos = false) {
+        if (spilling_stream_) {
+            if (eos || spilling_stream_->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
+                auto status = spilling_stream_->spill_eof();
+                spilling_stream_.reset();
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    std::deque<vectorized::SpillStreamSPtr> spill_streams_;
+    vectorized::SpillStreamSPtr spilling_stream_;
+};
+using AggSpillPartitionSPtr = std::shared_ptr<AggSpillPartition>;
 struct SortSharedState : public BasicSharedState {
 public:
     std::unique_ptr<vectorized::Sorter> sorter;
+};
+
+struct SpillSortSharedState : public BasicSharedState {
+    SpillSortSharedState() = default;
+    ~SpillSortSharedState() override = default;
+
+    // This number specifies the maximum size of sub blocks
+    static constexpr int SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
+    void update_spill_block_batch_row_count(const vectorized::Block* block) {
+        auto rows = block->rows();
+        if (rows > 0 && 0 == avg_row_bytes) {
+            avg_row_bytes = std::max((std::size_t)1, block->bytes() / rows);
+            spill_block_batch_row_count =
+                    (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes - 1) / avg_row_bytes;
+            LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
+        }
+    }
+    void clear();
+
+    SortSharedState* in_mem_shared_state = nullptr;
+    bool enable_spill = false;
+    Status sink_status;
+    std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
+
+    std::deque<vectorized::SpillStreamSPtr> sorted_streams;
+    size_t avg_row_bytes = 0;
+    int spill_block_batch_row_count;
 };
 
 struct UnionSharedState : public BasicSharedState {
@@ -488,6 +573,12 @@ struct HashJoinSharedState : public JoinSharedState {
     std::shared_ptr<vectorized::Block> build_block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
     bool probe_ignore_null = false;
+};
+
+struct PartitionedHashJoinSharedState : public HashJoinSharedState {
+    std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
+    std::vector<vectorized::SpillStreamSPtr> spilled_streams;
+    bool need_to_spill = false;
 };
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
@@ -652,25 +743,28 @@ public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     LocalExchangeSharedState(int num_instances);
     std::unique_ptr<Exchanger> exchanger {};
-    std::vector<DependencySPtr> source_dependencies;
-    DependencySPtr sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
+    void create_source_dependencies(int operator_id, int node_id, QueryContext* ctx) {
+        for (size_t i = 0; i < source_deps.size(); i++) {
+            source_deps[i] = std::make_shared<Dependency>(
+                    operator_id, node_id, "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY", ctx);
+            source_deps[i]->set_shared_state(this);
+        }
+    };
     void sub_running_sink_operators();
     void _set_always_ready() {
-        for (auto& dep : source_dependencies) {
+        for (auto& dep : source_deps) {
             DCHECK(dep);
             dep->set_always_ready();
         }
     }
 
-    void set_dep_by_channel_id(DependencySPtr dep, int channel_id) {
-        source_dependencies[channel_id] = dep;
-    }
+    Dependency* get_dep_by_channel_id(int channel_id) { return source_deps[channel_id].get(); }
 
     void set_ready_to_read(int channel_id) {
-        auto& dep = source_dependencies[channel_id];
+        auto& dep = source_deps[channel_id];
         DCHECK(dep) << channel_id;
         dep->set_ready();
     }
@@ -691,13 +785,13 @@ public:
 
     void add_total_mem_usage(size_t delta) {
         if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
-            sink_dependency->block();
+            sink_deps.front()->block();
         }
     }
 
     void sub_total_mem_usage(size_t delta) {
         if (mem_usage.fetch_sub(delta) <= config::local_exchange_buffer_mem_limit) {
-            sink_dependency->set_ready();
+            sink_deps.front()->set_ready();
         }
     }
 };

@@ -213,7 +213,7 @@ suite("test_build_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName}
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName
@@ -492,13 +492,15 @@ suite("test_build_mtmv") {
     }
 
     // not allow use mv modify property of table
-    try {
-        sql """
-            alter Materialized View ${mvName} set("replication_num" = "1");
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
+    if (!isCloudMode()) {
+        try {
+            sql """
+                alter Materialized View ${mvName} set("replication_num" = "1");
+                """
+            Assert.fail();
+        } catch (Exception e) {
+            log.info(e.getMessage())
+        }
     }
 
     // alter rename

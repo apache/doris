@@ -110,7 +110,10 @@ public:
                int64_t time_series_compaction_goal_size_mbytes = 1024,
                int64_t time_series_compaction_file_count_threshold = 2000,
                int64_t time_series_compaction_time_threshold_seconds = 3600,
-               int64_t time_series_compaction_empty_rowsets_threshold = 5);
+               int64_t time_series_compaction_empty_rowsets_threshold = 5,
+               int64_t time_series_compaction_level_threshold = 1,
+               TInvertedIndexStorageFormat::type inverted_index_storage_format =
+                       TInvertedIndexStorageFormat::V1);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -125,7 +128,7 @@ public:
                                                   int64_t tablet_id);
     Status save_meta(DataDir* data_dir);
 
-    Status serialize(std::string* meta_binary);
+    void serialize(std::string* meta_binary);
     Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
@@ -263,6 +266,22 @@ public:
     int64_t time_series_compaction_empty_rowsets_threshold() const {
         return _time_series_compaction_empty_rowsets_threshold;
     }
+    void set_time_series_compaction_level_threshold(int64_t level_threshold) {
+        _time_series_compaction_level_threshold = level_threshold;
+    }
+    int64_t time_series_compaction_level_threshold() const {
+        return _time_series_compaction_level_threshold;
+    }
+
+    int64_t ttl_seconds() const {
+        std::shared_lock rlock(_meta_lock);
+        return _ttl_seconds;
+    }
+
+    void set_ttl_seconds(int64_t ttl_seconds) {
+        std::lock_guard wlock(_meta_lock);
+        _ttl_seconds = ttl_seconds;
+    }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -317,6 +336,10 @@ private:
     int64_t _time_series_compaction_file_count_threshold = 0;
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
+    int64_t _time_series_compaction_level_threshold = 0;
+
+    // cloud
+    int64_t _ttl_seconds = 0;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -494,7 +517,10 @@ public:
 
     class AggCache {
     public:
-        struct Value {
+        class Value : public LRUCacheValueBase {
+        public:
+            Value() : LRUCacheValueBase(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE) {}
+
             roaring::Roaring bitmap;
         };
 
@@ -509,7 +535,7 @@ public:
             }
         }
 
-        static Cache* repr() { return s_repr.load(std::memory_order_acquire)->cache(); }
+        static LRUCachePolicy* repr() { return s_repr.load(std::memory_order_acquire); }
         static std::atomic<AggCachePolicy*> s_repr;
     };
 
