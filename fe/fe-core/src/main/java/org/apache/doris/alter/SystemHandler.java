@@ -58,6 +58,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
  * SystemHandler is for
@@ -279,6 +281,8 @@ public class SystemHandler extends AlterHandler {
             return;
         }
 
+        Set<Tag> decommissionTags = decommissionBackends.stream().map(be -> be.getLocationTag())
+                .collect(Collectors.toSet());
         Map<Tag, Integer> tagAvailBackendNums = Maps.newHashMap();
         for (Backend backend : Env.getCurrentSystemInfo().getAllBackends()) {
             long beId = backend.getId();
@@ -317,8 +321,11 @@ public class SystemHandler extends AlterHandler {
                         ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
                         for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
                             Tag tag = entry.getKey();
+                            if (!decommissionTags.contains(tag)) {
+                                continue;
+                            }
                             int replicaNum = (int) entry.getValue();
-                            int backendNum = tagAvailBackendNums.get(tag);
+                            int backendNum = tagAvailBackendNums.getOrDefault(tag, 0);
                             if (replicaNum > backendNum) {
                                 throw new DdlException("Partition " + partition.getName() + " of table " + db.getName()
                                         + "." + tbl.getName() + " 's replication allocation "
