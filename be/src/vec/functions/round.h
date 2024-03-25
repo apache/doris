@@ -695,8 +695,8 @@ public:
         const IColumn& scale_column = *arguments.column;
 
         Int32 scale_arg = assert_cast<const ColumnInt32&>(
-                                assert_cast<const ColumnConst*>(&scale_column)->get_data_column())
-                                .get_element(0);
+                                  assert_cast<const ColumnConst*>(&scale_column)->get_data_column())
+                                  .get_element(0);
 
         if (scale_arg > std::numeric_limits<Int16>::max() ||
             scale_arg < std::numeric_limits<Int16>::min()) {

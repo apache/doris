@@ -50,7 +50,6 @@ struct TruncateDecimalTwoArgImpl {
     }
 };
 
-
 template <typename Impl>
 class FunctionTruncate : public FunctionRounding<Impl, RoundingMode::Trunc, TieBreakingMode::Auto> {
 public:
@@ -72,8 +71,7 @@ public:
         // 2. truncate(Column, Column)
         // 3. truncate(ColumnConst, Column)
 
-        if (arguments.size() == 2 &&
-            is_column_const(*block.get_by_position(arguments[0]).column) &&
+        if (arguments.size() == 2 && is_column_const(*block.get_by_position(arguments[0]).column) &&
             is_column_const(*block.get_by_position(arguments[1]).column)) {
             // truncate(ColumnConst, ColumnConst)
             auto col_general = assert_cast<const ColumnConst&>(*column_general.column)

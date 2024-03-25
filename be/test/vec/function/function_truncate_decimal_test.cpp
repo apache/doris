@@ -357,16 +357,14 @@ static void checker(const TestDataSet& truncate_test_cases, bool decimal_col_is_
 }
 TEST(TruncateFunctionTest, normal_decimal) {
     checker<FunctionTruncate<TruncateDecimalTwoArgImpl>, Decimal32>(truncate_decimal32_cases,
-                                                                      false);
+                                                                    false);
     checker<FunctionTruncate<TruncateDecimalTwoArgImpl>, Decimal64>(truncate_decimal64_cases,
-                                                                      false);
+                                                                    false);
 }
 
 TEST(TruncateFunctionTest, normal_decimal_const) {
-    checker<FunctionTruncate<TruncateDecimalTwoArgImpl>, Decimal32>(truncate_decimal32_cases,
-                                                                      true);
-    checker<FunctionTruncate<TruncateDecimalTwoArgImpl>, Decimal64>(truncate_decimal64_cases,
-                                                                      true);
+    checker<FunctionTruncate<TruncateDecimalTwoArgImpl>, Decimal32>(truncate_decimal32_cases, true);
+    checker<FunctionTruncate<TruncateDecimalTwoArgImpl>, Decimal64>(truncate_decimal64_cases, true);
 }
 
 } // namespace doris::vectorized
