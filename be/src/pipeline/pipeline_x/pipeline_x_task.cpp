@@ -163,6 +163,7 @@ void PipelineXTask::_init_profile() {
 
     _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
+    _sink_ready_wait_work_timer = ADD_TIMER(task_profile, "SinkReadyButWaitworkTime");
 
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
@@ -180,6 +181,7 @@ void PipelineXTask::_fresh_profile_counter() {
     COUNTER_SET(_wait_bf_timer, (int64_t)_wait_bf_watcher.elapsed_time());
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
     COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
+    COUNTER_SET(_sink_ready_wait_work_timer, (int64_t)_sink_ready_wait_work_time.elapsed_time());
 }
 
 Status PipelineXTask::_open() {
@@ -239,12 +241,12 @@ Status PipelineXTask::execute(bool* eos) {
             }
             RETURN_IF_ERROR(st);
         }
-        if (!source_can_read()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
-            return Status::OK();
-        }
         if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+            return Status::OK();
+        }
+        if (!source_can_read()) {
+            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             return Status::OK();
         }
     }
@@ -252,12 +254,12 @@ Status PipelineXTask::execute(bool* eos) {
     Status status = Status::OK();
     set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
-        if (_root->need_data_from_children(_state) && !source_can_read()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
-            break;
-        }
         if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+            break;
+        }
+        if (_root->need_data_from_children(_state) && !source_can_read()) {
+            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
         if (time_spent > THREAD_TIME_SLICE) {
@@ -312,6 +314,8 @@ Status PipelineXTask::execute(bool* eos) {
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
+            // The sink is actually executed.
+            _sink_ready_wait_work_time.stop();
             status = _sink->sink(_state, block, *eos);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);

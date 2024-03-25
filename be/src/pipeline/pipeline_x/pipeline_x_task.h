@@ -84,7 +84,15 @@ public:
         return false;
     }
 
-    bool sink_can_write() override { return _write_blocked_dependency() == nullptr; }
+    bool sink_can_write() override {
+        const bool can_write = (_write_blocked_dependency() == nullptr);
+        if (can_write) {
+            // "wait sink dependency" cannot accurately reflect the waiting time for sink
+            // because in many cases, the sink may not execute due to the source not being ready yet.
+            _sink_ready_wait_work_time.start();
+        }
+        return can_write;
+    }
 
     void finalize() override;
 
@@ -218,6 +226,9 @@ private:
 
     std::atomic<bool> _finished {false};
     std::mutex _release_lock;
+
+    MonotonicStopWatch _sink_ready_wait_work_time;
+    RuntimeProfile::Counter* _sink_ready_wait_work_timer = nullptr;
 };
 
 } // namespace doris::pipeline
