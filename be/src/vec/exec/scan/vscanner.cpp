@@ -174,7 +174,7 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
     SCOPED_TIMER(exec_timer);
     SCOPED_TIMER(projection_timer);
 
-    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
+    auto insert_column_data = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (!from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
@@ -212,7 +212,7 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
-            insert_column_datas(mutable_columns[i], column_ptr, rows);
+            insert_column_data(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
         output_block->set_columns(std::move(mutable_columns));
