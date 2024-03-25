@@ -253,10 +253,10 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-13.0.0.tar.gz"
-ARROW_NAME="apache-arrow-13.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-13.0.0"
-ARROW_MD5SUM="8ec1ec6a119514bcaea1cf7aabc9df1f"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-15.0.2.tar.gz"
+ARROW_NAME="apache-arrow-15.0.2.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-15.0.2"
+ARROW_MD5SUM="d5d051b2698be901e5ad84e36d64e7ab"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
