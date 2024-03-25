@@ -19,7 +19,6 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
 #include <cstdint>
-
 #include <memory>
 #include <string>
 #include <string_view>
