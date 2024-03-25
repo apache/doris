@@ -126,7 +126,7 @@ if [[ -n "${HADOOP_CONF_DIR}" ]]; then
     export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
 
-# The CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
+# the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
 # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
 export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
