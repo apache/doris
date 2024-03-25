@@ -191,7 +191,7 @@ else
     echo "ERROR: The jdk_version is ${java_version}, must be 17." >>"${LOG_DIR}/fe.out"
     exit 1
 fi
-echo "Using java version ${java_version}" >>"${LOG_DIR}/fe.out"
+echo "Using Java version ${java_version}" >>"${LOG_DIR}/fe.out"
 echo "${final_java_opt}" >>"${LOG_DIR}/fe.out"
 
 # add libs to CLASSPATH
