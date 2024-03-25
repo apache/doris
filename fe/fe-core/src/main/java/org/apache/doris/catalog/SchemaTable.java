@@ -486,6 +486,7 @@ public class SchemaTable extends Table {
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("SPILL_THRESHOLD_LOW_WATERMARK", ScalarType.createVarchar(256))
                             .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
+                            .column("TAG", ScalarType.createVarchar(256))
                             .build()))
             .put("processlist", new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
                     builder().column("ID", ScalarType.createType(PrimitiveType.LARGEINT))

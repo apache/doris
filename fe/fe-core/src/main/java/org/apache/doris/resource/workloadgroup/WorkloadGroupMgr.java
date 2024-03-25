@@ -48,6 +48,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,7 +60,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
@@ -73,6 +73,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
             .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
             .add(WorkloadGroup.SPILL_THRESHOLD_LOW_WATERMARK).add(WorkloadGroup.SPILL_THRESHOLD_HIGH_WATERMARK)
+            .add(WorkloadGroup.TAG)
             .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
@@ -301,38 +302,44 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         LOG.info("Create workload group success: {}", workloadGroup);
     }
 
-    private void checkGlobalUnlock(WorkloadGroup workloadGroup, WorkloadGroup old) throws DdlException {
-        double totalMemoryLimit = idToWorkloadGroup.values().stream().mapToDouble(WorkloadGroup::getMemoryLimitPercent)
-                .sum() + workloadGroup.getMemoryLimitPercent();
-        if (!Objects.isNull(old)) {
-            totalMemoryLimit -= old.getMemoryLimitPercent();
-        }
-        if (totalMemoryLimit > 100.0 + 1e-6) {
-            throw new DdlException(
-                    "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " cannot be greater than 100.0%.");
-        }
-
-        // 1, check new group
-        int newGroupCpuHardLimit = workloadGroup.getCpuHardLimit();
-        if (newGroupCpuHardLimit > 100 || newGroupCpuHardLimit < 0) {
-            throw new DdlException(
-                    "new group's " + WorkloadGroup.CPU_HARD_LIMIT
-                            + " value can not be greater than 100% or less than or equal 0%");
-        }
-
-        // 2, check sum of all cpu hard limit
+    // NOTE: used for checking sum value of 100%  for cpu_hard_limit and memory_limit
+    //  when create/alter workload group with same tag.
+    //  when oldWg is null it means caller is an alter stmt.
+    private void checkGlobalUnlock(WorkloadGroup newWg, WorkloadGroup oldWg) throws DdlException {
+        String wgTag = newWg.getTag();
+        double sumOfAllMemLimit = 0;
         int sumOfAllCpuHardLimit = 0;
         for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
-            if (old != null && entry.getKey() == old.getId()) {
+            WorkloadGroup wg = entry.getValue();
+            if (!StringUtils.equals(wgTag, wg.getTag())) {
                 continue;
             }
-            sumOfAllCpuHardLimit += entry.getValue().getCpuHardLimit();
+
+            if (oldWg != null && entry.getKey() == oldWg.getId()) {
+                continue;
+            }
+
+            if (wg.getCpuHardLimit() > 0) {
+                sumOfAllCpuHardLimit += wg.getCpuHardLimit();
+            }
+            if (wg.getMemoryLimitPercent() > 0) {
+                sumOfAllMemLimit += wg.getMemoryLimitPercent();
+            }
         }
-        sumOfAllCpuHardLimit += newGroupCpuHardLimit;
+
+        sumOfAllMemLimit += newWg.getMemoryLimitPercent();
+        sumOfAllCpuHardLimit += newWg.getCpuHardLimit();
+
+        if (sumOfAllMemLimit > 100.0 + 1e-6) {
+            throw new DdlException(
+                    "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " within tag " + wgTag
+                            + " cannot be greater than 100.0%.");
+        }
 
         if (sumOfAllCpuHardLimit > 100) {
-            throw new DdlException("sum of all workload group " + WorkloadGroup.CPU_HARD_LIMIT
-                    + " can not be greater than 100% ");
+            throw new DdlException(
+                    "sum of all workload group " + WorkloadGroup.CPU_HARD_LIMIT + " within tag "
+                            + wgTag + " can not be greater than 100% ");
         }
     }
 
