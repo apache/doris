@@ -67,19 +67,19 @@ export DORIS_HOME
 if [[ "$(uname -s)" != 'Darwin' ]]; then
     MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
     if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-        echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
+        echo "Set kernel parameter 'vm.max_map_count' to a value greater than 2000000, example: 'sysctl -w vm.max_map_count=2000000'"
         exit 1
     fi
 
     if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-        echo "Please disable swap memory before installation."
+        echo "Disable swap memory before installation"
         exit 1
     fi
 fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
 if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Please set the maximum number of open file descriptors larger than 60000, eg: 'ulimit -n 60000'."
+    echo "Set maximum number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
     exit 1
 fi
 
@@ -126,7 +126,7 @@ if [[ -n "${HADOOP_CONF_DIR}" ]]; then
     export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
 
-# the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
+# The CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
 # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
 export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
@@ -160,7 +160,7 @@ jdk_version() {
     return 0
 }
 
-# export env variables from be.conf
+# Export env variables from be.conf
 #
 # LOG_DIR
 # PID_DIR
@@ -177,7 +177,7 @@ export ODBCSYSINI="${DORIS_HOME}/conf"
 # support utf8 for oracle database
 export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
 
-# filter known leak.
+# filter known leak
 export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
 export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
 
@@ -199,10 +199,10 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
 fi
 
 if [[ -z "${JAVA_HOME}" ]]; then
-    echo "The JAVA_HOME environment variable is not defined correctly"
-    echo "This environment variable is needed to run this program"
-    echo "NB: JAVA_HOME should point to a JDK not a JRE"
-    echo "You can set it in be.conf"
+    echo "The JAVA_HOME environment variable is not set correctly"
+    echo "This environment variable is required to run this program"
+    echo "NB: JAVA_HOME should point to a JDK and not a JRE"
+    echo "You can set JAVA_HOME in the be.conf configuration file"
     exit 1
 fi
 
@@ -221,7 +221,7 @@ pidfile="${PID_DIR}/be.pid"
 
 if [[ -f "${pidfile}" ]]; then
     if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
-        echo "Backend running as process $(cat "${pidfile}"). Stop it first."
+        echo "Backend is already running as process $(cat "${pidfile}"), stop it first"
         exit 1
     else
         rm "${pidfile}"
@@ -229,7 +229,7 @@ if [[ -f "${pidfile}" ]]; then
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_be"
-echo "start time: $(date)" >>"${LOG_DIR}/be.out"
+echo "Start time: $(date)" >>"${LOG_DIR}/be.out"
 
 if [[ ! -f '/bin/limit3' ]]; then
     LIMIT=''
@@ -275,7 +275,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        echo "mem_limit is larger than whole memory of the server. ${mem_limit_mb} > ${total_mem_mb}."
+        echo "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
@@ -323,9 +323,9 @@ fi
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
 
-#echo "CLASSPATH: ${CLASSPATH}"
-#echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
-#echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
+# echo "CLASSPATH: ${CLASSPATH}"
+# echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
+# echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
     JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
