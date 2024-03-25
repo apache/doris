@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+package org.apache.hadoop.hive.metastore;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
