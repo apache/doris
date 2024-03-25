@@ -25,7 +25,8 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPut;
-import org.apache.http.entity.ByteArrayEntity;
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.DefaultRedirectStrategy;
 import org.apache.http.impl.client.HttpClientBuilder;
@@ -34,14 +35,20 @@ import org.apache.http.util.EntityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.SequenceInputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.ByteBuffer;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Vector;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -50,7 +57,6 @@ public class DorisStreamLoadObserver {
 
     private Keys options;
 
-    private long pos;
     private static final String RESULT_FAILED = "Fail";
     private static final String RESULT_LABEL_EXISTED = "Label Already Exists";
     private static final String LAEBL_STATE_VISIBLE = "VISIBLE";
@@ -60,7 +66,7 @@ public class DorisStreamLoadObserver {
     private static final String RESULT_LABEL_UNKNOWN = "UNKNOWN";
 
 
-    public DorisStreamLoadObserver ( Keys options){
+    public DorisStreamLoadObserver(Keys options) {
         this.options = options;
     }
 
@@ -90,7 +96,10 @@ public class DorisStreamLoadObserver {
                 .toString();
         LOG.info("Start to join batch data: rows[{}] bytes[{}] label[{}].", data.getRows().size(), data.getBytes(), data.getLabel());
         loadUrl = urlDecode(loadUrl);
-        Map<String, Object> loadResult = put(loadUrl, data.getLabel(), addRows(data.getRows(), data.getBytes().intValue()));
+
+        // data.getBytes() should be long , when the value exceeds Integer.MAX_VALUE,
+        // converting a long to an int will overflow, resulting in a negative value.
+        Map<String, Object> loadResult = put(loadUrl, data.getLabel(), addRows(data.getRows(), data.getBytes()));
         LOG.info("StreamLoad response :{}",JSON.toJSONString(loadResult));
         final String keyStatus = "Status";
         if (null == loadResult || !loadResult.containsKey(keyStatus)) {
@@ -152,37 +161,43 @@ public class DorisStreamLoadObserver {
         }
     }
 
-    private byte[] addRows(List<byte[]> rows, int totalBytes) {
+    private List<byte[]> addRows(List<byte[]> rows, long totalBytes) {
+
+        assert rows.size() < (Integer.MAX_VALUE >> 1) - 2;
+        List<byte[]> bytesBuffer = new ArrayList<>((rows.size() << 1) + 2);
+
         if (Keys.StreamLoadFormat.CSV.equals(options.getStreamLoadFormat())) {
-            Map<String, Object> props = (options.getLoadProps() == null ? new HashMap<> () : options.getLoadProps());
-            byte[] lineDelimiter = DelimiterParser.parse((String)props.get("line_delimiter"), "\n").getBytes(StandardCharsets.UTF_8);
-            ByteBuffer bos = ByteBuffer.allocate(totalBytes + rows.size() * lineDelimiter.length);
+            Map<String, Object> props = (options.getLoadProps() == null ? new HashMap<>() : options.getLoadProps());
+            byte[] lineDelimiter = DelimiterParser.parse((String) props.get("line_delimiter"), "\n").getBytes(StandardCharsets.UTF_8);
+
+            LOG.debug("totalBytes[{}], lineDelinmiterBytes[{}]", totalBytes, rows.size() * lineDelimiter.length);
             for (byte[] row : rows) {
-                bos.put(row);
-                bos.put(lineDelimiter);
+                bytesBuffer.add(row);
+                bytesBuffer.add(lineDelimiter);
             }
-            return bos.array();
+            return bytesBuffer;
         }
 
         if (Keys.StreamLoadFormat.JSON.equals(options.getStreamLoadFormat())) {
-            ByteBuffer bos = ByteBuffer.allocate(totalBytes + (rows.isEmpty() ? 2 : rows.size() + 1));
-            bos.put("[".getBytes(StandardCharsets.UTF_8));
+
+            bytesBuffer.add("[".getBytes(StandardCharsets.UTF_8));
             byte[] jsonDelimiter = ",".getBytes(StandardCharsets.UTF_8);
             boolean isFirstElement = true;
             for (byte[] row : rows) {
                 if (!isFirstElement) {
-                    bos.put(jsonDelimiter);
+                    bytesBuffer.add(jsonDelimiter);
                 }
-                bos.put(row);
+                bytesBuffer.add(row);
                 isFirstElement = false;
             }
-            bos.put("]".getBytes(StandardCharsets.UTF_8));
-            return bos.array();
+            bytesBuffer.add("]".getBytes(StandardCharsets.UTF_8));
+            return bytesBuffer;
         }
         throw new RuntimeException("Failed to join rows data, unsupported `format` from stream load properties:");
     }
-    private Map<String, Object> put(String loadUrl, String label, byte[] data) throws IOException {
-        LOG.info(String.format("Executing stream load to: '%s', size: '%s'", loadUrl, data.length));
+
+    private Map<String, Object> put(String loadUrl, String label, List<byte[]> data) throws IOException {
+        LOG.info(String.format("Executing stream load to: '%s', size: '%s'", loadUrl, data.stream().mapToLong(m -> m.length).sum()));
         final HttpClientBuilder httpClientBuilder = HttpClients.custom()
                 .setRedirectStrategy(new DefaultRedirectStrategy () {
                     @Override
@@ -207,7 +222,9 @@ public class DorisStreamLoadObserver {
             httpPut.setHeader("label", label);
             httpPut.setHeader("two_phase_commit", "false");
             httpPut.setHeader("Authorization", getBasicAuthHeader(options.getUsername(), options.getPassword()));
-            httpPut.setEntity(new ByteArrayEntity(data));
+            Vector<InputStream> inputStreams = new Vector<InputStream>(data.size());
+            data.forEach(bytes -> inputStreams.add(new ByteArrayInputStream(bytes)));
+            httpPut.setEntity(new InputStreamEntity(new SequenceInputStream(inputStreams.elements()), ContentType.APPLICATION_OCTET_STREAM));
             httpPut.setConfig(RequestConfig.custom().setRedirectsEnabled(true).build());
             try ( CloseableHttpResponse resp = httpclient.execute(httpPut)) {
                 HttpEntity respEntity = getHttpEntity(resp);
