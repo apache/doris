@@ -1398,12 +1398,14 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
 void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPtr existed_fs) {
     Status st;
     io::RemoteFileSystemSPtr fs;
+    std::string root_path =
+            param.hdfs_storage_param.__isset.root_path ? param.hdfs_storage_param.root_path : "";
 
     if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::HdfsFileSystem::create(param.hdfs_storage_param,
-                                              param.hdfs_storage_param.fs_name,
-                                              std::to_string(param.id), nullptr);
+        auto res = io::HdfsFileSystem::create(
+                param.hdfs_storage_param, param.hdfs_storage_param.fs_name,
+                std::to_string(param.id), nullptr, std::move(root_path));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -1421,7 +1423,8 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
     } else {
         LOG_INFO("successfully update hdfs resource")
                 .tag("resource_id", param.id)
-                .tag("resource_name", param.name);
+                .tag("resource_name", param.name)
+                .tag("root_path", fs->root_path().string());
         put_storage_resource(param.id, {std::move(fs), param.version});
     }
 }
