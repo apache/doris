@@ -245,8 +245,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
     // Iterate all the resources to return to the rpc caller
     if (!instance.resource_ids().empty()) {
-        std::string storage_vault_start = storage_vault_key({instance_id, ""});
-        std::string storage_vault_end = storage_vault_key({instance_id, "\xff"});
+        std::string storage_vault_start = storage_vault_key({instance.instance_id(), ""});
+        std::string storage_vault_end = storage_vault_key({instance.instance_id(), "\xff"});
         std::unique_ptr<RangeGetIterator> it;
         do {
             TxnErrorCode err = txn->get(storage_vault_start, storage_vault_end, &it);
@@ -259,15 +259,14 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
             while (it->has_next()) {
                 auto [k, v] = it->next();
-                StorageVaultPB vault;
-                if (!vault.ParseFromArray(v.data(), v.size())) {
+                auto *vault = response->add_storage_vault();
+                if (!vault->ParseFromArray(v.data(), v.size())) {
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                     msg = fmt::format("malformed storage vault, unable to deserialize key={}",
                                       hex(k));
                     LOG(WARNING) << msg << " key=" << hex(k);
                     return;
                 }
-                response->add_storage_vault()->MergeFrom(vault);
                 if (!it->has_next()) {
                     storage_vault_start = k;
                 }
