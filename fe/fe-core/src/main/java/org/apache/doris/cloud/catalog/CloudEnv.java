@@ -382,7 +382,6 @@ public class CloudEnv extends Env {
 
     public void changeCloudCluster(String clusterName, ConnectContext ctx) throws DdlException {
         checkCloudClusterPriv(clusterName);
-        // TODO(merge-cloud): pick cloud auto start
         CloudSystemInfoService.waitForAutoStart(clusterName);
         try {
             ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster(clusterName, "");
