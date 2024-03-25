@@ -23,6 +23,8 @@
 #include <string>
 
 #include "common/logging.h"
+#include "common/status.h"
+#include "exec/exec_node.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -123,10 +125,23 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     }
 
     // create the projections expr
-    if (tnode.__isset.projections) {
-        DCHECK(tnode.__isset.output_tuple_id);
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
+
+    if (!tnode.projections_list.empty()) {
+        for (const auto& tnode_projections : tnode.projections_list) {
+            vectorized::VExprContextSPtrs projections;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode_projections, projections));
+            _intermediate_projections.push_back(projections);
+        }
+        _projections = _intermediate_projections.back();
+        _intermediate_projections.pop_back();
+
+    } else {
+        if (tnode.__isset.projections) {
+            DCHECK(tnode.__isset.output_tuple_id);
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
+        }
     }
+
     return Status::OK();
 }
 
@@ -134,8 +149,11 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
-
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
+    for (int i = 0; i < _intermediate_projections.size(); i++) {
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_intermediate_projections[i], state,
+                                                   intermediate_row_desc(i)));
+    }
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, projections_row_desc()));
 
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->prepare(state));
@@ -149,6 +167,9 @@ Status OperatorXBase::open(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
+    for (auto& projections : _intermediate_projections) {
+        RETURN_IF_ERROR(vectorized::VExpr::open(projections, state));
+    }
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->open(state));
     }
@@ -175,7 +196,22 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     auto* local_state = state->get_local_state(operator_id());
     SCOPED_TIMER(local_state->exec_time_counter());
     SCOPED_TIMER(local_state->_projection_timer);
+    vectorized::Block input_block = *origin_block;
 
+    const size_t rows = input_block.rows();
+    if (rows == 0) {
+        return Status::OK();
+    }
+    std::vector<int> result_column_ids;
+    for (auto& projections : _intermediate_projections) {
+        result_column_ids.resize(projections.size());
+        for (int i = 0; i < projections.size(); i++) {
+            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+        }
+        input_block.shuffle_columns(result_column_ids);
+    }
+
+    DCHECK_EQ(rows, input_block.rows());
     auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (_keep_origin || !from->is_exclusive()) {
@@ -198,15 +234,13 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     vectorized::MutableBlock mutable_block =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
                                                                        *_output_row_descriptor);
-    auto rows = origin_block->rows();
-
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         DCHECK(mutable_columns.size() == local_state->_projections.size());
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
-            RETURN_IF_ERROR(local_state->_projections[i]->execute(origin_block, &result_column_id));
-            auto column_ptr = origin_block->get_by_position(result_column_id)
+            RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, &result_column_id));
+            auto column_ptr = input_block.get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
@@ -365,6 +399,15 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     for (size_t i = 0; i < _projections.size(); i++) {
         RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
     }
+    _intermediate_projections.resize(_parent->_intermediate_projections.size());
+    for (int i = 0; i < _parent->_intermediate_projections.size(); i++) {
+        _intermediate_projections[i].resize(_parent->_intermediate_projections[i].size());
+        for (int j = 0; j < _parent->_intermediate_projections[i].size(); j++) {
+            RETURN_IF_ERROR(_parent->_intermediate_projections[i][j]->clone(
+                    state, _intermediate_projections[i][j]));
+        }
+    }
+
     _rows_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
     _blocks_returned_counter =

@@ -195,6 +195,8 @@ protected:
     // It includes predicate in SQL and runtime filters.
     VExprContextSPtrs _conjuncts;
     VExprContextSPtrs _projections;
+    // Used in common subexpression elimination to compute intermediate results.
+    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
     vectorized::Block _origin_block;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
