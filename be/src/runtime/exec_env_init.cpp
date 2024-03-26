@@ -502,8 +502,8 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
-    _inverted_index_query_cache =
-            InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 256);
+    _inverted_index_query_cache = InvertedIndexQueryCache::create_global_cache(
+            inverted_index_query_cache_limit, config::inverted_index_query_cache_shards);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
