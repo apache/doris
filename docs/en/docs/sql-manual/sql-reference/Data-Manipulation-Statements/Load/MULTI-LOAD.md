@@ -97,18 +97,18 @@ NOTE:
 
 ````
 1. Import the data in the local file 'testData1' into the table 'testTbl1' in the database 'testDb', and
-Import the data of 'testData2' into table 'testTbl2' in 'testDb' (user is in defalut_cluster)
+Import the data of 'testData2' into table 'testTbl2' in 'testDb' (user is in default_cluster)
     curl --location-trusted -u root -XPOST http://host:port/api/testDb/_multi_start?label=123
     curl --location-trusted -u root -T testData1 http://host:port/api/testDb/testTbl1/_load?label=123\&sub_label=1
     curl --location-trusted -u root -T testData2 http://host:port/api/testDb/testTbl2/_load?label=123\&sub_label=2
     curl --location-trusted -u root -XPOST http://host:port/api/testDb/_multi_commit?label=123
 
-2. Abandoned in the middle of multi-table import (user is in defalut_cluster)
+2. Abandoned in the middle of multi-table import (user is in default_cluster)
     curl --location-trusted -u root -XPOST http://host:port/api/testDb/_multi_start?label=123
     curl --location-trusted -u root -T testData1 http://host:port/api/testDb/testTbl1/_load?label=123\&sub_label=1
     curl --location-trusted -u root -XPOST http://host:port/api/testDb/_multi_abort?label=123
 
-3. Multi-table import to see how much content has been submitted (the user is in the defalut_cluster)
+3. Multi-table import to see how much content has been submitted (the user is in the default_cluster)
     curl --location-trusted -u root -XPOST http://host:port/api/testDb/_multi_start?label=123
     curl --location-trusted -u root -T testData1 http://host:port/api/testDb/testTbl1/_load?label=123\&sub_label=1
     curl --location-trusted -u root -XPOST http://host:port/api/testDb/_multi_desc?label=123

@@ -164,7 +164,7 @@ PROPERTIES
 ```
 CREATE REPOSITORY `cos_repo`
 WITH S3
-ON LOCATION "s3://backet1/"
+ON LOCATION "s3://bucket1/"
 PROPERTIES
 (
     "s3.access_key" = "ak",

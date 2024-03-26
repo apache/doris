@@ -29,7 +29,7 @@ under the License.
 
 ### Name
 
-ALTER SYSTEM MKDIFY BACKEND
+ALTER SYSTEM MODIFY BACKEND
 
 ### Description
 

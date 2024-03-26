@@ -43,7 +43,7 @@ Delete a user
          user@['domain']
 ````
 
-  Delete the specified user identitiy.
+  Delete the specified user identity.
 
 ### Example
 

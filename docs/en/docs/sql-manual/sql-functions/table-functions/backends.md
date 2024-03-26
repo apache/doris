@@ -79,7 +79,7 @@ mysql> desc function backends();
 
 The information displayed by the `backends` tvf is basically consistent with the information displayed by the `show backends` statement. However, the types of each field in the `backends` tvf are more specific, and you can use the `backends` tvf to perform operations such as filtering and joining.
 
-The information displayed by the `backends` tvf is authenticated, which is consistent with the behavior of `show backends`, user must have ADMIN/OPERATOR privelege.
+The information displayed by the `backends` tvf is authenticated, which is consistent with the behavior of `show backends`, user must have ADMIN/OPERATOR privilege.
 
 ### example
 ```
