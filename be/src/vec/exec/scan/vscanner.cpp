@@ -187,12 +187,16 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
                     "scanner output {}",
                     _projections.size(), mutable_columns.size());
         }
+        std::set<int> yxc_result_id_set;
+        std::vector<int> yxc_result_id_vec;
 
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
+            yxc_result_id_set.insert(result_column_id);
+            yxc_result_id_vec.push_back(result_column_id);
             //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
             if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
                 DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
@@ -202,6 +206,13 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
                 mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
             }
         }
+        DCHECK(mutable_columns.size() == yxc_result_id_set.size()) << "yxc test error re" << [&]() {
+            std::string ret;
+            for (auto x : yxc_result_id_vec) {
+                ret += std::to_string(x) + "  , ";
+            }
+            return ret;
+        }();
         DCHECK(mutable_block.rows() == rows);
         output_block->set_columns(std::move(mutable_columns));
     }
