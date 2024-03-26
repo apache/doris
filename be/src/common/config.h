@@ -1270,6 +1270,10 @@ DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
 /** Hive sink configurations **/
 DECLARE_mInt64(hive_sink_max_file_size); // 1GB
 
+// when the memory used for rowid conversion exceeds the threshold size,
+// persistence this memory to local to reduce memory using.
+DECLARE_Int64(rowid_conversion_persistence_threshold_count);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

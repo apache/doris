@@ -1187,6 +1187,9 @@ DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 /** Hive sink configurations **/
 DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
+// 1 row may use 8.5 bytes
+DEFINE_Int64(rowid_conversion_persistence_threshold_count, "50000000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
