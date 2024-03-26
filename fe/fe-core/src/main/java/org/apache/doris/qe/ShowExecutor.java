@@ -215,7 +215,6 @@ import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
-import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
