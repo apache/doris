@@ -61,7 +61,7 @@ suite("test_grant_priv") {
         }
         // test have grant_priv, can not grant role to other user
         try {
-            sql """grant ${role1} to ${user2}"""
+            sql """grant '${role1}' to ${user2}"""
             Assert.fail("can not grant to other user");
         } catch (Exception e) {
             log.info(e.getMessage())
@@ -71,7 +71,7 @@ suite("test_grant_priv") {
     // test have global grant_priv, can grant role to other user
     sql """grant grant_priv on *.* to ${user1}"""
     try {
-        sql """grant ${role1} to ${user2}"""
+        sql """grant '${role1}' to ${user2}"""
     } catch (Exception e) {
         Assert.fail(e.getMessage());
     }
