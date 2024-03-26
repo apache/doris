@@ -123,3 +123,11 @@ python docker/runtime/doris-compose/doris-compose.py config <cluster-name>
 
 Generate regression-conf-custom.groovy to connect to the specific docker cluster.
 
+### Setup cloud multi clusters test env
+
+steps:
+
+1. Create a new cluster:  `python doris-compose.py up my-cluster  my-image  --add-fe-num 1  --add-be-num 4 --cloud --no-reg-be`
+2. Generate regression-conf-custom.groovy: `python doris-compose.py config my-cluster`
+3. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
+
