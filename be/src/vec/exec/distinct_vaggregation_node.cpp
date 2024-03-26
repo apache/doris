@@ -82,7 +82,8 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
                 out_block->replace_by_position(i, key_columns[i]->assume_mutable());
                 in_block->replace_by_position(result_idxs[i], output_column);
             } else {
-                insert_data_with_selector(output_column, i);
+                auto dst = output_column->assume_mutable();
+                key_columns[i]->append_data_by_selector(dst, _distinct_row);
             }
         }
     } else {
