@@ -603,7 +603,7 @@ DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
 // sync tablet_meta when modifying meta
-DEFINE_mBool(sync_tablet_meta, "true");
+DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
@@ -617,9 +617,9 @@ DEFINE_Bool(enable_metric_calculator, "true");
 // max consumer num in one data consumer group, for routine load
 DEFINE_mInt32(max_consumer_num_per_group, "3");
 
-// the size of thread pool for routine load task.
+// the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-DEFINE_Int32(routine_load_thread_pool_size, "10");
+DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -979,6 +979,7 @@ DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_write_index_searcher_cache, "true");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
+DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
