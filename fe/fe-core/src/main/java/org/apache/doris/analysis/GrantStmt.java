@@ -256,7 +256,9 @@ public class GrantStmt extends DdlStmt {
         }
 
         // Rule 6
-        if (privileges.contains(Privilege.USAGE_PRIV) || privileges.contains(Privilege.CLUSTER_USAGE_PRIV)) {
+        if (privileges.contains(Privilege.USAGE_PRIV)
+                || privileges.contains(Privilege.CLUSTER_USAGE_PRIV)
+                || privileges.contains(Privilege.STAGE_USAGE_PRIV)) {
             throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from database or table");
         }
 
@@ -298,6 +300,12 @@ public class GrantStmt extends DdlStmt {
                     if (!Env.getCurrentEnv().getAccessManager()
                             .checkCloudPriv(ConnectContext.get(),
                             resourcePattern.getResourceName(), PrivPredicate.GRANT, ResourceTypeEnum.CLUSTER)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
+                    }
+                } else if (resourcePattern.isStageResource()) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+                            resourcePattern.getResourceName(), PrivPredicate.GRANT, ResourceTypeEnum.STAGE)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                     }
                 }
