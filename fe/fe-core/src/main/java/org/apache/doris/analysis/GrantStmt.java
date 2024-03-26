@@ -244,7 +244,7 @@ public class GrantStmt extends DdlStmt {
         for (int i = 0; i < incorrectPrivileges.length; i++) {
             if (privileges.contains(incorrectPrivileges[i])) {
                 throw new AnalysisException(
-                        String.format("Can not grant/revoke %s on pattern to/from any other users or roles",
+                        String.format("Can not grant/revoke %s to/from any other users or roles",
                                 incorrectPrivileges[i]));
             }
         }
