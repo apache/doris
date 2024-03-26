@@ -28,8 +28,11 @@ suite("test_grant_priv") {
 
     sql """drop user if exists ${user1}"""
     sql """drop user if exists ${user2}"""
+    sql """drop role if exists ${role1}"""
     sql """DROP DATABASE IF EXISTS ${dbName}"""
+
     sql """CREATE DATABASE ${dbName}"""
+    sql """CREATE ROLE ${role1}"""
     sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
     sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
 
@@ -78,5 +81,6 @@ suite("test_grant_priv") {
 
     sql """drop user if exists ${user1}"""
     sql """drop user if exists ${user2}"""
+    sql """drop role if exists ${role1}"""
     sql """DROP DATABASE IF EXISTS ${dbName}"""
 }
