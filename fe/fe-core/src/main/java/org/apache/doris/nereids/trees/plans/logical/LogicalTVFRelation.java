@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -36,6 +37,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /** LogicalTableValuedFunctionRelation */
 public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, BlockFuncDepsPropagation {
@@ -101,6 +103,11 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
                 .stream()
                 .map(col -> SlotReference.fromColumn(function.getTable(), col, qualifier, this))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return computeOutput().stream().map(slot -> (NamedExpression) slot).collect(Collectors.toList());
     }
 
     @Override

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -42,6 +43,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * The node of logical plan for sub query and alias
@@ -97,6 +99,11 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             currentOutput.add(qualified);
         }
         return currentOutput.build();
+    }
+
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return computeOutput().stream().map(slot -> (NamedExpression) slot).collect(Collectors.toList());
     }
 
     public String getAlias() {

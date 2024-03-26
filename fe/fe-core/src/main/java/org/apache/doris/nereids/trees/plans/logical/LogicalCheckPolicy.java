@@ -81,6 +81,11 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return child().getOutputExpression();
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("LogicalCheckPolicy");
     }

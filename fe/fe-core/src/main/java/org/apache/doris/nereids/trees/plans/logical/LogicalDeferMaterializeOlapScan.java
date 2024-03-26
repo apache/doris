@@ -21,6 +21,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -105,6 +106,14 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
     @Override
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
+                .addAll(logicalOlapScan.getOutput())
+                .add(columnIdSlot)
+                .build();
+    }
+
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return ImmutableList.<NamedExpression>builder()
                 .addAll(logicalOlapScan.getOutput())
                 .add(columnIdSlot)
                 .build();

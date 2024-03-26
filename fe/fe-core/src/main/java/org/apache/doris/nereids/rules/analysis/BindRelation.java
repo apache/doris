@@ -251,7 +251,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 String inlineViewDef = view.getInlineViewDef();
                 Plan viewBody = parseAndAnalyzeView(inlineViewDef, cascadesContext);
                 LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
-                return new LogicalSubQueryAlias<>(tableQualifier, addProjectForView(view, logicalView));
+                return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
             case HMS_EXTERNAL_TABLE:
                 HMSExternalTable hmsTable = (HMSExternalTable) table;
                 if (Config.enable_query_hive_views && hmsTable.isView()) {

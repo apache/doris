@@ -67,6 +67,11 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return outputExprs;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

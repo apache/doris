@@ -105,6 +105,11 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return outputs;
+    }
+
     public List<List<NamedExpression>> collectChildrenProjections() {
         return castCommonDataTypeOutputs();
     }

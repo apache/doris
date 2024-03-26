@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -258,6 +259,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
+                .addAll(JoinUtils.getJoinOutput(joinType, left(), right()))
+                .addAll(isMarkJoin()
+                        ? ImmutableList.of(markJoinSlotReference.get()) : ImmutableList.of())
+                .build();
+    }
+
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return ImmutableList.<NamedExpression>builder()
                 .addAll(JoinUtils.getJoinOutput(joinType, left(), right()))
                 .addAll(isMarkJoin()
                         ? ImmutableList.of(markJoinSlotReference.get()) : ImmutableList.of())

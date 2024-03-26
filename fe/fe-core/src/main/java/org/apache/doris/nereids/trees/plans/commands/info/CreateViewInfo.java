@@ -30,13 +30,24 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.ExpressionContext;
+import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
+import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
+import org.apache.doris.nereids.rules.analysis.BindExpression;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
+import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -44,10 +55,12 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 
@@ -60,6 +73,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -108,11 +122,11 @@ public class CreateViewInfo {
         }
 
         analyzedPlan = parseAndAnalyzeView(querySql, ctx);
-        OutermostProjectFinder projectPlanFinder = new OutermostProjectFinder();
-        AtomicReference<LogicalProject<Plan>> outermostProject = new AtomicReference<>();
-        analyzedPlan.accept(projectPlanFinder, outermostProject);
-        outputs.addAll(outermostProject.get().getOutput());
-        projects.addAll(outermostProject.get().getProjects());
+        OutermostPlanFinder outermostPlanFinder = new OutermostPlanFinder();
+        AtomicReference<Plan> outermostPlan = new AtomicReference<>();
+        analyzedPlan.accept(outermostPlanFinder, outermostPlan);
+        outputs.addAll(outermostPlan.get().getOutput());
+        projects.addAll(outermostPlan.get().getOutputExpression());
         createFinalCols();
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : finalCols) {
@@ -135,7 +149,7 @@ public class CreateViewInfo {
         String rewrittenSql = rewriteStarToColumn(indexStringSqlMap);
 
         // rewrite project alias
-        rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
+        rewrittenSql = rewriteProjectsToUserDefineAlias2(rewrittenSql);
 
         createViewStmt.setInlineViewDef(rewrittenSql);
         createViewStmt.setFinalColumns(finalCols);
@@ -151,9 +165,8 @@ public class CreateViewInfo {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
-        viewContext.keepOrShowPlanProcess(false, () -> {
-            viewContext.newAnalyzer(true).analyze();
-        });
+        AnalyzerForCreateView analyzer = new AnalyzerForCreateView(viewContext);
+        analyzer.analyze();
         return viewContext.getRewritePlan();
     }
 
@@ -199,6 +212,33 @@ public class CreateViewInfo {
                 finder.getIndex().second + 1);
     }
 
+    private String rewriteProjectsToUserDefineAlias2(String resSql) {
+        IndexFinder finder = new IndexFinder();
+        ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
+        finder.visit(tree);
+        if (simpleColumnDefinitions.isEmpty()) {
+            return resSql;
+        }
+        List<NamedExpressionContext> namedExpressionContexts = finder.getNamedExpressionContexts();
+        StringBuilder replaceWithColsBuilder = new StringBuilder();
+        for (int i = 0; i < namedExpressionContexts.size(); ++i) {
+            NamedExpressionContext namedExpressionContext = namedExpressionContexts.get(i);
+            int start = namedExpressionContext.expression().start.getStartIndex();
+            int stop = namedExpressionContext.expression().stop.getStopIndex();
+            replaceWithColsBuilder.append(resSql, start, stop + 1);
+            replaceWithColsBuilder.append(" AS `");
+            String escapeBacktick = finalCols.get(i).getName().replace("`", "``");
+            replaceWithColsBuilder.append(escapeBacktick);
+            replaceWithColsBuilder.append('`');
+            if (i != namedExpressionContexts.size() - 1) {
+                replaceWithColsBuilder.append(", ");
+            }
+        }
+        String replaceWithCols = replaceWithColsBuilder.toString();
+        return StringUtils.overlay(resSql, replaceWithCols, finder.getIndex().first,
+                finder.getIndex().second + 1);
+    }
+
     private void createFinalCols() throws org.apache.doris.common.AnalysisException {
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
@@ -231,22 +271,40 @@ public class CreateViewInfo {
         return result;
     }
 
-    private static class OutermostProjectFinder extends DefaultPlanVisitor<Void,
-            AtomicReference<LogicalProject<Plan>>> {
+    private static class OutermostPlanFinder extends DefaultPlanVisitor<Void, AtomicReference<Plan>> {
         boolean found = false;
 
         @Override
-        public Void visit(Plan plan, AtomicReference<LogicalProject<Plan>> target) {
+        public Void visit(Plan plan, AtomicReference<Plan> target) {
             if (found) {
                 return null;
             }
-            if (plan instanceof LogicalCTEProducer) {
+            target.set(plan);
+            found = true;
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+                AtomicReference<Plan> target) {
+            if (found) {
                 return null;
-            } else if (plan instanceof LogicalProject) {
-                target.set((LogicalProject<Plan>) plan);
-                found = true;
             }
-            return super.visit(plan, target);
+            return super.visit(cteAnchor, target);
+        }
+
+        @Override
+        public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
+                AtomicReference<Plan> target) {
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalSetOperation(LogicalSetOperation setOperation, AtomicReference<Plan> target) {
+            if (found) {
+                return null;
+            }
+            return super.visit(setOperation, target);
         }
     }
 
@@ -255,6 +313,7 @@ public class CreateViewInfo {
         private boolean found = false;
         private int startIndex;
         private int stopIndex;
+        private List<NamedExpressionContext> namedExpressionContexts = Lists.newArrayList();
 
         @Override
         public Void visitChildren(RuleNode node) {
@@ -282,11 +341,48 @@ public class CreateViewInfo {
             startIndex = ctx.getStart().getStartIndex();
             stopIndex = ctx.getStop().getStopIndex();
             found = true;
+
+            // 这里默认*已经被替换了，不存在*或者* except
+            NamedExpressionSeqContext namedExpressionSeqContext = ctx.namedExpressionSeq();
+            namedExpressionContexts = namedExpressionSeqContext.namedExpression();
             return null;
         }
 
         public Pair<Integer, Integer> getIndex() {
             return Pair.of(startIndex, stopIndex);
+        }
+
+        public List<NamedExpressionContext> getNamedExpressionContexts() {
+            return namedExpressionContexts;
+        }
+    }
+
+    private static class AnalyzerForCreateView extends AbstractBatchJobExecutor {
+        private final List<RewriteJob> jobs = buildAnalyzeViewJobs();
+
+        public AnalyzerForCreateView(CascadesContext cascadesContext) {
+            super(cascadesContext);
+        }
+
+        public void analyze() {
+            execute();
+        }
+
+        @Override
+        public List<RewriteJob> getJobs() {
+            return jobs;
+        }
+
+        private static List<RewriteJob> buildAnalyzeViewJobs() {
+            return jobs(
+                    topDown(new AnalyzeCTE()),
+                    topDown(new EliminateLogicalSelectHint()),
+                    bottomUp(
+                            new BindRelation(),
+                            new CheckPolicy(),
+                            new BindExpression()
+                    )
+            );
         }
     }
 }

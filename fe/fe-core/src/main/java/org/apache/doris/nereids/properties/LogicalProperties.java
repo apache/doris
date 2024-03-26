@@ -43,11 +43,12 @@ public class LogicalProperties {
     protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
     protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
     protected final Supplier<FunctionalDependencies> fdSupplier;
+    protected final Supplier<List<NamedExpression>> outputExpressionSupplier;
     private Integer hashCode = null;
 
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<FunctionalDependencies> fdSupplier) {
-        this(outputSupplier, fdSupplier, ImmutableList::of);
+            Supplier<FunctionalDependencies> fdSupplier, Supplier<List<NamedExpression>> outputExpressionSupplier) {
+        this(outputSupplier, fdSupplier, outputExpressionSupplier, ImmutableList::of);
     }
 
     /**
@@ -58,6 +59,7 @@ public class LogicalProperties {
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
             Supplier<FunctionalDependencies> fdSupplier,
+            Supplier<List<NamedExpression>> outputExpressionSupplier,
             Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
@@ -80,6 +82,8 @@ public class LogicalProperties {
         this.fdSupplier = Suppliers.memoize(
                 Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
         );
+        this.outputExpressionSupplier = Suppliers.memoize(Objects.requireNonNull(outputExpressionSupplier,
+                "outputExpressionSupplier can not be null"));
     }
 
     public List<Slot> getOutput() {
@@ -104,6 +108,10 @@ public class LogicalProperties {
 
     public List<Id> getOutputExprIds() {
         return outputExprIdsSupplier.get();
+    }
+
+    public List<NamedExpression> getOutputExpression() {
+        return outputExpressionSupplier.get();
     }
 
     @Override

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule;
 import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -346,6 +347,11 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             }
         }
         return slots.build();
+    }
+
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return computeOutput().stream().map(slot -> (NamedExpression) slot).collect(Collectors.toList());
     }
 
     @Override

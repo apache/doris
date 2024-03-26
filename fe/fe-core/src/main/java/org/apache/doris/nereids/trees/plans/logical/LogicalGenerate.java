@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -125,6 +126,14 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     @Override
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
+                .addAll(child().getOutput())
+                .addAll(generatorOutput)
+                .build();
+    }
+
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return ImmutableList.<NamedExpression>builder()
                 .addAll(child().getOutput())
                 .addAll(generatorOutput)
                 .build();

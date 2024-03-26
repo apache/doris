@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -142,6 +143,11 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
 
     @Override
     public List<Slot> computeOutput() {
+        return ImmutableList.copyOf(producerToConsumerOutputMap.values());
+    }
+
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
         return ImmutableList.copyOf(producerToConsumerOutputMap.values());
     }
 

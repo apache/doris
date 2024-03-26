@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -158,6 +159,17 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                     ? ImmutableList.of(markJoinSlotReference.get()) : ImmutableList.of())
                 .addAll(needAddSubOutputToProjects
                     ? ImmutableList.of(right().getOutput().get(0)) : ImmutableList.of())
+                .build();
+    }
+
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return ImmutableList.<NamedExpression>builder()
+                .addAll(left().getOutputExpression())
+                .addAll(markJoinSlotReference.isPresent()
+                        ? ImmutableList.of(markJoinSlotReference.get()) : ImmutableList.of())
+                .addAll(needAddSubOutputToProjects
+                        ? ImmutableList.of(right().getOutputExpression().get(0)) : ImmutableList.of())
                 .build();
     }
 

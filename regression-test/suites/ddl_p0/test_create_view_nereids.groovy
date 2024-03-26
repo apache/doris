@@ -228,8 +228,8 @@ suite("test_create_view_nereids") {
 
     // test union
     sql "DROP VIEW  if exists test_view_union"
-    sql "CREATE VIEW test_view_union(c1,c2,c3) AS (\n" +
-            "select * from mal_test_view Union all SELECT * FROM mal_test_view);"
+    sql """CREATE VIEW test_view_union(c1,c2,c3) AS 
+            (select * from mal_test_view Union all SELECT * FROM mal_test_view);"""
     qt_test_union "select c1,c2,c3 from test_view_union order by c1,c2,c3"
     qt_test_union_sql "show create view test_view_union"
 

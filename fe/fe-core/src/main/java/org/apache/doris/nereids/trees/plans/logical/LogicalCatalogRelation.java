@@ -101,6 +101,14 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
+    public List<NamedExpression> computeOutputExpression() {
+        return table.getBaseSchema()
+                .stream()
+                .map(col -> SlotReference.fromColumn(table, col, qualified(), this))
+                .collect(ImmutableList.toImmutableList());
+    }
+
     public List<String> getQualifier() {
         return qualifier;
     }

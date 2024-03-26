@@ -101,6 +101,11 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     @Override
+    public List<NamedExpression> getOutputExpression() {
+        return projects;
+    }
+
+    @Override
     public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withProjects(prunedOutputs);
     }
