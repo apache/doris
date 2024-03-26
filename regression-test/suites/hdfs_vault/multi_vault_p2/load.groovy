@@ -31,6 +31,14 @@ suite("load") {
         );
     """
 
+    sql """
+        CREATE STORAGE VAULT IF NOT EXISTS ssb_flat_hdfs_vault
+        PROPERTIES (
+        "type"="hdfs",
+        "fs.defaultFS"="${getHdfsFs()}"
+        );
+    """
+
     // ssb_sf1_p1 is writted to test unique key table merge correctly.
     // It creates unique key table and sets bucket num to 1 in order to make sure that
     // many rowsets will be created during loading and then the merge process will be triggered.
