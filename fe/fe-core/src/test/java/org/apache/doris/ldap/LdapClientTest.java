@@ -17,6 +17,8 @@
 
 package org.apache.doris.ldap;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.mysql.authenticate.ldap.LdapClient;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.Auth;
@@ -69,7 +71,7 @@ public class LdapClientTest {
             }
         };
 
-        LdapConfig.ldap_authentication_enabled = true;
+        Config.authentication_type = "ldap";
         LdapConfig.ldap_host = "127.0.0.1";
         LdapConfig.ldap_port = 389;
         LdapConfig.ldap_admin_name = "cn=admin,dc=baidu,dc=com";
