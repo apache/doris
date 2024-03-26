@@ -720,7 +720,7 @@ message GetVersionRequest {
     repeated int64 partition_ids = 8;
 
     // True if get table version
-    optional bool is_table_version = 9 [default = false];
+    optional bool is_table_version = 9;
 };
 
 message GetVersionResponse {
