@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -56,7 +57,7 @@ import java.util.function.Supplier;
 public abstract class LogicalCatalogRelation extends LogicalRelation implements CatalogRelation {
 
     protected final TableIf table;
-    // [catalogName, databaseName, tableName]
+    // [catalogName, databaseName]
     protected final ImmutableList<String> qualifier;
 
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
@@ -81,13 +82,24 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public DatabaseIf getDatabase() throws AnalysisException {
         Preconditions.checkArgument(!qualifier.isEmpty(), "qualifier can not be empty");
         try {
-            CatalogIf catalog = qualifier.size() == 3
-                    ? Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(qualifier.get(0),
-                        s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."))
-                    : Env.getCurrentEnv().getCurrentCatalog();
-            return catalog.getDbOrException(qualifier.size() == 3 ? qualifier.get(1) : qualifier.get(0),
-                    s -> new Exception("Database [" + qualifier.get(1) + "] does not exist in catalog ["
-                        + qualifier.get(0) + "]."));
+            int len = qualifier.size();
+            if (2 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(qualifier.get(0),
+                        s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."));
+                return catalog.getDbOrException(qualifier.get(1),
+                        s -> new Exception("Database [" + qualifier.get(1) + "] does not exist in catalog ["
+                                + catalog.getName() + "]."));
+            } else if (1 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCurrentCatalog();
+                return catalog.getDbOrException(qualifier.get(0),
+                        s -> new Exception("Database [" + qualifier.get(0) + "] does not exist in catalog ["
+                                + catalog.getName() + "]."));
+            } else if (0 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCurrentCatalog();
+                ConnectContext ctx = ConnectContext.get();
+                return catalog.getDb(ctx.getDatabase()).get();
+            }
+            return null;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
