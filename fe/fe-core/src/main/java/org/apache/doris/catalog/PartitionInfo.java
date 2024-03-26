@@ -379,6 +379,11 @@ public class PartitionInfo implements Writable {
             idToReplicaAllocation.get(entry.getKey()).write(out);
             out.writeBoolean(idToInMemory.get(entry.getKey()));
         }
+        out.writeInt(idToStoragePolicy.size());
+        for (Map.Entry<Long, String> entry : idToStoragePolicy.entrySet()) {
+            out.writeLong(entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -404,6 +409,14 @@ public class PartitionInfo implements Writable {
             }
 
             idToInMemory.put(partitionId, in.readBoolean());
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124) {
+            counter = in.readInt();
+            for (int i = 0; i < counter; i++) {
+                long partitionId = in.readLong();
+                String storagePolicy = Text.readString(in);
+                idToStoragePolicy.put(partitionId, storagePolicy);
+            }
         }
     }
 
