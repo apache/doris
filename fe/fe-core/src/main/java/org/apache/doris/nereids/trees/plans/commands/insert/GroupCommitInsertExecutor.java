@@ -46,6 +46,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
