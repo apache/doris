@@ -921,13 +921,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
                 mv_param.column_name = item.column_name;
-                /*
-                 * origin_column_name is always be set now,
-                 * but origin_column_name may be not set in some materialized view function. eg:count(1)
-                */
-                if (item.__isset.origin_column_name) {
-                    mv_param.origin_column_name = item.origin_column_name;
-                }
 
                 if (item.__isset.mv_expr) {
                     mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
@@ -1169,9 +1162,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
             auto mvParam = materialized_function_map.find(column_name)->second;
             column_mapping->expr = mvParam.expr;
-            int32_t column_index = base_tablet_schema->field_index(mvParam.origin_column_name);
-            if (column_index >= 0) {
-                column_mapping->ref_column = column_index;
+            if (column_mapping->expr != nullptr) {
                 continue;
             } else if (sc_params.alter_tablet_type != ROLLUP) {
                 return Status::Error<CE_CMD_PARAMS_ERROR>(
@@ -1209,15 +1200,13 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         changer->set_where_expr(materialized_function_map.find(WHERE_SIGN)->second.expr);
     }
 
-    // Check if re-aggregation is needed.
-    *sc_sorting = false;
     // If the reference sequence of the Key column is out of order, it needs to be reordered
     int num_default_value = 0;
 
     for (int i = 0, new_schema_size = new_tablet->num_key_columns(); i < new_schema_size; ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
 
-        if (column_mapping->ref_column < 0) {
+        if (!column_mapping->has_reference()) {
             num_default_value++;
             continue;
         }
@@ -1252,6 +1241,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
+    if (sc_params.alter_tablet_type == ROLLUP) {
+        *sc_directly = true;
+        return Status::OK();
+    }
+
     if (new_tablet->enable_unique_key_merge_on_write() &&
         new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
         *sc_directly = true;
@@ -1264,36 +1258,18 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
-    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
-        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
-        if (column_mapping->ref_column < 0) {
-            continue;
-        } else {
-            auto column_new = new_tablet_schema->column(i);
-            auto column_old = base_tablet_schema->column(column_mapping->ref_column);
-            if (column_new.type() != column_old.type() ||
-                column_new.precision() != column_old.precision() ||
-                column_new.frac() != column_old.frac() ||
-                column_new.length() != column_old.length() ||
-                column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
-                new_tablet_schema->has_inverted_index(column_new.unique_id()) !=
-                        base_tablet_schema->has_inverted_index(column_old.unique_id())) {
-                *sc_directly = true;
-                return Status::OK();
-            }
-        }
-    }
-
     if (!sc_params.delete_handler->empty()) {
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
+        return Status::OK();
     }
 
-    if (base_tablet->tablet_meta()->preferred_rowset_type() !=
-        new_tablet->tablet_meta()->preferred_rowset_type()) {
-        // If the base_tablet and new_tablet rowset types are different, just use directly type
-        *sc_directly = true;
+    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
+        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
+        if (column_mapping->expr != nullptr) {
+            *sc_directly = true;
+            return Status::OK();
+        }
     }
 
     // if rs_reader has remote files, link schema change is not supported,
