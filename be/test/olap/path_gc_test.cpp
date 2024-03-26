@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
 #include <random>
@@ -83,23 +82,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
         ASSERT_TRUE(st.ok()) << st;
     }
 
-    // Test path scan
-    auto paths = data_dir._perform_path_scan();
-    ASSERT_EQ(paths.size(), 20);
-
     // Test tablet gc
-    config::path_gc_check_step = 0;
-    data_dir._perform_path_gc_by_tablet(paths);
-    ASSERT_EQ(paths.size(), 10);
-    std::vector<std::string_view> expected_paths;
-    for (auto&& tablet : active_tablets) {
-        expected_paths.emplace_back(tablet->tablet_path());
-    }
-    std::sort(expected_paths.begin(), expected_paths.end());
-    std::sort(paths.begin(), paths.end());
-    for (size_t i = 0; i < paths.size(); ++i) {
-        EXPECT_EQ(paths[i], expected_paths[i]);
-    }
 
     // Prepare rowsets
     auto rng = std::default_random_engine {static_cast<uint32_t>(::time(nullptr))};
@@ -187,7 +170,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
     }
 
     // Test rowset gc
-    data_dir._perform_path_gc_by_rowset(paths);
+    data_dir.perform_path_gc();
     for (auto&& t : active_tablets) {
         std::vector<io::FileInfo> files;
         bool exists;

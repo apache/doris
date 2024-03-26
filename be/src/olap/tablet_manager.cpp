@@ -845,7 +845,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     // For case 1 doesn't need path check because BE is just starting and not ready,
     // just check tablet meta status to judge whether tablet is delete is enough.
     // For case 2, If a tablet has just been copied to local BE,
-    // it may be cleared by gc-thread(see perform_path_gc_by_tablet) because the tablet meta may not be loaded to memory.
+    // it may be cleared by gc-thread(see perform_tablet_gc) because the tablet meta may not be loaded to memory.
     // So clone task should check path and then failed and retry in this case.
     if (check_path) {
         bool exists = true;
