@@ -432,6 +432,15 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
+                } else if constexpr (IsDataTypeNumber<FromDataType> &&
+                                     IsDataTypeNumber<ToDataType>) {
+                    for (size_t i = 0; i < size; ++i) {
+                        if (vec_from[i] < min_result || vec_from[i] > max_result) {
+                            return Status::RuntimeError("{}({}) out of range", col_to->get_name(),
+                                                        vec_from[i]);
+                        }
+                        vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                    }
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
@@ -1550,6 +1559,11 @@ struct ConvertThroughParsing {
             } else {
                 parsed = try_parse_impl<ToDataType, void*, FromDataType>(
                         vec_to[i], read_buffer, context->state()->timezone_obj());
+            }
+            bool parse_success = parsed && is_all_read(read_buffer);
+            if (string_size > 0 && !parse_success) {
+                std::string_view raw{reinterpret_cast<const char *>(&(*chars)[current_offset]), string_size};
+                return Status::RuntimeError("failed to parse '{}' as {}", raw, col_to->get_name());
             }
             (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
             current_offset = next_offset;
