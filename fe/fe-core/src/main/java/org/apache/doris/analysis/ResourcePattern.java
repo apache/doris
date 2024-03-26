@@ -81,6 +81,10 @@ public class ResourcePattern implements Writable {
         return resourceType == ResourceTypeEnum.CLUSTER;
     }
 
+    public boolean isStageResource() {
+        return resourceType == ResourceTypeEnum.STAGE;
+    }
+
     public String getResourceName() {
         return resourceName;
     }
