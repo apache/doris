@@ -89,7 +89,7 @@ public class LoadingTaskPlanner {
             BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
             boolean strictMode, boolean isPartialUpdate, String timezone, long timeoutS, int loadParallelism,
             int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo,
-            boolean singleTabletLoadPerSink, boolean enableMemTableOnSinkNode) {
+            boolean singleTabletLoadPerSink, boolean enableMemtableOnSinkNode) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -105,7 +105,7 @@ public class LoadingTaskPlanner {
         this.useNewLoadScanNode = useNewLoadScanNode;
         this.userInfo = userInfo;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
-        this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
+        this.enableMemtableOnSinkNode = enableMemtableOnSinkNode;
         if (Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
                         PrivPredicate.SELECT)) {
@@ -206,7 +206,7 @@ public class LoadingTaskPlanner {
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
-        final boolean enableSingleReplicaLoad = this.enableMemTableOnSinkNode
+        final boolean enableSingleReplicaLoad = this.enableMemtableOnSinkNode
                 ? false : Config.enable_single_replica_load;
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds,
                 enableSingleReplicaLoad);
