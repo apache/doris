@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 /**
  * Handle group commit
@@ -119,12 +120,13 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
                 filterSize += 1;
             }
         }
+        List<String> columnNames = physicalOlapTableSink.getCols().stream().map(c -> c.getName()).collect(Collectors.toList());
         for (List<Expr> list : materializedConstExprLists) {
             rows.add(GroupCommitPlanner.getRowStringValue(list, filterSize));
         }
         GroupCommitPlanner groupCommitPlanner = EnvFactory.getInstance().createGroupCommitPlanner(
                 physicalOlapTableSink.getDatabase(),
-                physicalOlapTableSink.getTargetTable(), null, ctx.queryId(),
+                physicalOlapTableSink.getTargetTable(), columnNames, ctx.queryId(),
                 ConnectContext.get().getSessionVariable().getGroupCommit());
         PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
