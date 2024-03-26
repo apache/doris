@@ -421,4 +421,25 @@ suite("test_create_table_properties") {
         assertTrue(ex.getMessage().contains("Invalid replication parameter: replication_num and replication_allocation can not be used together"))
     } finally {
     }
+
+
+    try {
+        sql "drop table if exists ${tblName1}"
+        sql """
+        CREATE TABLE ${tblName1} (
+            id int,
+            k decimal(12,2)
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 3",
+            "replication_num" = "1"
+        );
+        """
+        assertTrue(false, "should not be able to execute")
+    }
+    catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Invalid replication parameter: replication_num and replication_allocation can not be used together"))
+    } finally {
+    }
 }
