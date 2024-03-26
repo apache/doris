@@ -175,8 +175,11 @@ public class LoadLoadingTask extends LoadTask {
         }
 
         try {
-            QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator);
+            QeProcessorImpl.INSTANCE.registerQuery(loadId, new QeProcessorImpl.QueryInfo(curCoordinator));
             actualExecute(curCoordinator, timeoutS);
+            if (this.jobProfile != null) {
+                curCoordinator.getExecutionProfile().update(beginTime, true);
+            }
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
         }
@@ -201,8 +204,6 @@ public class LoadLoadingTask extends LoadTask {
                         ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()
                                 .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())));
                 curCoordinator.getErrorTabletInfos().clear();
-                // Create profile of this task and add to the job profile.
-                createProfile(curCoordinator);
             } else {
                 throw new LoadException(status.getErrorMsg());
             }
@@ -213,15 +214,6 @@ public class LoadLoadingTask extends LoadTask {
 
     public long getLeftTimeMs() {
         return jobDeadlineMs - System.currentTimeMillis();
-    }
-
-    private void createProfile(Coordinator coord) {
-        if (jobProfile == null) {
-            // No need to gather profile
-            return;
-        }
-        // Summary profile
-        coord.getExecutionProfile().update(beginTime, true);
     }
 
     @Override
