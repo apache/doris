@@ -315,12 +315,12 @@ public class ExportCommand extends Command implements ForwardWithSync {
         // set data consistency
         String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
         if (dataConsistencyStr != null) {
-            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_PARTITION)) {
-                throw new AnalysisException("The value of data_consistency is invalid, only partition is allowed!");
+            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_NONE)) {
+                throw new AnalysisException("The value of data_consistency is invalid, only `none` is allowed!");
             }
-            exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
-        } else {
             exportJob.setDataConsistency(ExportJob.CONSISTENT_NONE);
+        } else {
+            exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
         }
 
         // Must copy session variable, because session variable may be changed during export job running.

@@ -367,12 +367,12 @@ public class ExportStmt extends StatementBase {
         // data consistency
         String dataConsistencyStr = properties.get(DATA_CONSISTENCY);
         if (dataConsistencyStr != null) {
-            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_PARTITION)) {
-                throw new UserException("The value of data_consistency is invalid, only `partition` is allowed");
+            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_NONE)) {
+                throw new UserException("The value of data_consistency is invalid, only `none` is allowed");
             }
-            this.dataConsistency = ExportJob.CONSISTENT_PARTITION;
-        } else {
             this.dataConsistency = ExportJob.CONSISTENT_NONE;
+        } else {
+            this.dataConsistency = ExportJob.CONSISTENT_PARTITION;
         }
     }
 
