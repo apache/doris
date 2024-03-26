@@ -33,10 +33,10 @@ suite("test_grant_priv") {
     sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
 
     // test only have select_priv, can not grant to other user
-    sql """grant select_priv on zd.* to ${user1}"""
+    sql """grant select_priv on ${dbName}.* to ${user1}"""
     connect(user=user1, password="${pwd}", url=url) {
         try {
-            sql """grant select_priv on zd.* to ${user2}"""
+            sql """grant select_priv on ${dbName}.* to ${user2}"""
             Assert.fail("can not grant to other user");
         } catch (Exception e) {
             log.info(e.getMessage())
@@ -44,10 +44,10 @@ suite("test_grant_priv") {
     }
 
     // test both have select_priv and grant_priv , can grant to other user
-    sql """grant grant_priv on zd.* to ${user1}"""
+    sql """grant grant_priv on ${dbName}.* to ${user1}"""
     connect(user=user1, password="${pwd}", url=url) {
         try {
-            sql """grant select_priv on zd.* to ${user2}"""
+            sql """grant select_priv on ${dbName}.* to ${user2}"""
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
