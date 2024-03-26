@@ -17,13 +17,10 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NativeInsertStmt;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -64,7 +61,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 // Used to generate a plan fragment for a group commit
@@ -169,39 +165,6 @@ public class GroupCommitPlanner {
         }
 
         throw new DdlException("No suitable backend");
-    }
-
-    // only for nereids use
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols, int filterSize) throws UserException {
-        if (cols.isEmpty()) {
-            return null;
-        }
-        InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
-        List<Expr> exprs = cols.subList(0, cols.size() - filterSize);
-        for (Expr expr : exprs) {
-            if (!expr.isLiteralOrCastExpr() && !(expr instanceof CastExpr)) {
-                if (expr.getChildren().get(0) instanceof NullLiteral) {
-                    row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
-                    continue;
-                }
-                throw new UserException(
-                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
-            }
-            processExprVal(expr, row);
-        }
-        return row.build();
-    }
-
-    private static void processExprVal(Expr expr, InternalService.PDataRow.Builder row) {
-        if (expr instanceof NullLiteral) {
-            row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
-        } else if (expr.getType() instanceof ArrayType) {
-            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
-        } else if (!expr.getChildren().isEmpty()) {
-            expr.getChildren().forEach(child -> processExprVal(child, row));
-        } else {
-            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValue()));
-        }
     }
 
     public Backend getBackend() {

@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -27,18 +25,18 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.qe.ConnectContext;
@@ -107,23 +105,18 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
     }
 
     private static void handleGroupCommit(ConnectContext ctx, DataSink sink,
-            PhysicalOlapTableSink<?> physicalOlapTableSink)
+            PhysicalOlapTableSink<?> physicalOlapTableSink, NereidsPlanner planner)
                 throws UserException, TException, RpcException, ExecutionException, InterruptedException {
         // TODO we should refactor this to remove rely on UnionNode
         List<InternalService.PDataRow> rows = new ArrayList<>();
-        List<List<Expr>> materializedConstExprLists = ((UnionNode) sink.getFragment()
-                .getPlanRoot()).getMaterializedConstExprLists();
-        int filterSize = 0;
-        for (Slot slot : physicalOlapTableSink.getOutput()) {
-            if (slot.getName().contains(Column.DELETE_SIGN)
-                    || slot.getName().contains(Column.VERSION_COL)) {
-                filterSize += 1;
-            }
-        }
-        List<String> columnNames = physicalOlapTableSink.getCols()
-                    .stream().map(c -> c.getName()).collect(Collectors.toList());
-        for (List<Expr> list : materializedConstExprLists) {
-            rows.add(GroupCommitPlanner.getRowStringValue(list, filterSize));
+        Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
+                .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+        ImmutableList<List<NamedExpression>> constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
+        List<String> columnNames = physicalOlapTableSink.getTargetTable().getFullSchema().stream()
+                    .map(c -> c.getName())
+                    .collect(Collectors.toList());
+        for (List<NamedExpression> row : constantExprsList) {
+            rows.add(InsertUtils.getRowStringValue(row));
         }
         GroupCommitPlanner groupCommitPlanner = EnvFactory.getInstance().createGroupCommitPlanner(
                 physicalOlapTableSink.getDatabase(),
@@ -178,7 +171,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         PhysicalOlapTableSink<?> olapSink = plan.get();
         DataSink sink = planner.getFragments().get(0).getSink();
         try {
-            handleGroupCommit(ctx, sink, olapSink);
+            handleGroupCommit(ctx, sink, olapSink, planner);
         } catch (TException | RpcException | ExecutionException | InterruptedException e) {
             LOG.warn("errors when group commit insert. {}", e);
         }
