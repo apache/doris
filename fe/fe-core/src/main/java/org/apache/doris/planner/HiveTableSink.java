@@ -87,7 +87,6 @@ public class HiveTableSink extends DataSink {
 
     /**
      * check sink params and generate thrift data sink to BE
-     * @param insertCols target table columns
      * @param insertCtx insert info context
      * @throws AnalysisException if source file format cannot be read
      */
@@ -97,22 +96,19 @@ public class HiveTableSink extends DataSink {
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
         Set<String> partNames = new HashSet<>(targetTable.getPartitionColumnNames());
-        Set<String> colNames = targetTable.getColumns()
-                .stream().map(Column::getName)
-                .collect(Collectors.toSet());
+        List<Column> allColumns = targetTable.getColumns();
+        Set<String> colNames = allColumns.stream().map(Column::getName).collect(Collectors.toSet());
         colNames.removeAll(partNames);
         List<THiveColumn> targetColumns = new ArrayList<>();
-        for (Column col : insertCols) {
+        for (Column col : allColumns) {
             if (partNames.contains(col.getName())) {
                 THiveColumn tHiveColumn = new THiveColumn();
                 tHiveColumn.setName(col.getName());
-                tHiveColumn.setDataType(col.getType().toThrift());
                 tHiveColumn.setColumnType(THiveColumnType.PARTITION_KEY);
                 targetColumns.add(tHiveColumn);
             } else if (colNames.contains(col.getName())) {
                 THiveColumn tHiveColumn = new THiveColumn();
                 tHiveColumn.setName(col.getName());
-                tHiveColumn.setDataType(col.getType().toThrift());
                 tHiveColumn.setColumnType(THiveColumnType.REGULAR);
                 targetColumns.add(tHiveColumn);
             }

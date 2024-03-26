@@ -95,6 +95,7 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         } else {
             // TODO use transaction
             List<THivePartitionUpdate> ups = coordinator.getHivePartitionUpdates();
+            loadedRows = ups.stream().mapToLong(THivePartitionUpdate::getRowCount).sum();
             ExternalCatalog catalog = ((HMSExternalTable) table).getCatalog();
             ExternalMetadataOps metadataOps = catalog.getMetadataOps();
             ((HiveMetadataOps) metadataOps).commit(((HMSExternalTable) table).getDbName(), table.getName(), ups);
@@ -116,10 +117,26 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
             }
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
         }
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
     }
 
     @Override
     protected void afterExec(StmtExecutor executor) {
-        // TODO: set THivePartitionUpdate
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        sb.append("'status':'")
+                .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
+        // sb.append("', 'txnId':'").append(txnId).append("'");
+        if (!Strings.isNullOrEmpty(errMsg)) {
+            sb.append(", 'err':'").append(errMsg).append("'");
+        }
+        sb.append("}");
+        ctx.getState().setOk(loadedRows, 0, sb.toString());
+        // set insert result in connection context,
+        // so that user can use `show insert result` to get info of the last insert operation.
+        ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
+                txnStatus, loadedRows, 0);
+        // update it, so that user can get loaded rows in fe.audit.log
+        ctx.updateReturnRows((int) loadedRows);
     }
 }
