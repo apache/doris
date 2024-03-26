@@ -54,17 +54,27 @@ public class CloudEnv extends Env {
 
     private static final Logger LOG = LogManager.getLogger(CloudEnv.class);
 
+    private CloudInstanceStatusChecker cloudInstanceStatusChecker;
     private CloudClusterChecker cloudClusterCheck;
 
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
+        this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
     }
 
+    @Override
     protected void startMasterOnlyDaemonThreads() {
         LOG.info("start cloud Master only daemon threads");
         super.startMasterOnlyDaemonThreads();
         cloudClusterCheck.start();
+    }
+
+    @Override
+    protected void startNonMasterDaemonThreads() {
+        LOG.info("start cloud Non Master only daemon threads");
+        super.startNonMasterDaemonThreads();
+        cloudInstanceStatusChecker.start();
     }
 
     public static String genFeNodeNameFromMeta(String host, int port, long timeMs) {
@@ -382,7 +392,6 @@ public class CloudEnv extends Env {
 
     public void changeCloudCluster(String clusterName, ConnectContext ctx) throws DdlException {
         checkCloudClusterPriv(clusterName);
-        // TODO(merge-cloud): pick cloud auto start
         CloudSystemInfoService.waitForAutoStart(clusterName);
         try {
             ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster(clusterName, "");

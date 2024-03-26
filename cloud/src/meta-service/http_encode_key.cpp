@@ -163,7 +163,7 @@ static std::unordered_map<std::string_view,
     {"MetaServiceRegistryKey",     {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_registry_key(); }                                                         , parse<ServiceRegistryPB>}}       ,
     {"MetaServiceArnInfoKey",      {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_arn_info_key(); }                                                         , parse<RamUserPB>}}               ,
     {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key(); }                                              , parse<EncryptionKeyInfoPB>}}     ,
-};
+    {"StorageVaultKey",           {{"instance_id", "vault_id"},                              [](param_type& p) { return storage_vault_key(KeyInfoSetter<StorageVaultKeyInfo>{p}.get()); }                    , parse<StorageVaultPB>}}   ,};
 // clang-format on
 
 static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& key) {

@@ -154,6 +154,8 @@ struct THdfsParams {
     3: optional string hdfs_kerberos_principal
     4: optional string hdfs_kerberos_keytab
     5: optional list<THdfsConf> hdfs_conf
+    // Used for Cold Heat Separation to specify the root path
+    6: optional string root_path
 }
 
 // One broker range information.

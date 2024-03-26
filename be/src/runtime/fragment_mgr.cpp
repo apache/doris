@@ -99,6 +99,19 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 bvar::Adder<int64_t> g_pipeline_fragment_instances_count("doris_pipeline_fragment_instances_count");
 
+bvar::Adder<uint64_t> g_fragment_executing_count("fragment_executing_count");
+bvar::Status<uint64_t> g_fragment_last_active_time(
+        "fragment_last_active_time", duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count());
+
+uint64_t get_fragment_executing_count() {
+    return g_fragment_executing_count.get_value();
+}
+uint64_t get_fragment_last_active_time() {
+    return g_fragment_last_active_time.get_value();
+}
+
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
         return "";
@@ -470,8 +483,14 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
 
     // remove exec state after this fragment finished
     {
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
+
+        g_fragment_executing_count << -1;
+        g_fragment_last_active_time.set_value(now);
 
         LOG_INFO("Instance {} finished", print_id(fragment_executor->fragment_instance_id()));
 
@@ -584,6 +603,11 @@ void FragmentMgr::remove_pipeline_context(
         std::vector<TUniqueId> ins_ids;
         f_context->instance_ids(ins_ids);
         bool all_done = q_context->countdown(ins_ids.size());
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+        g_fragment_executing_count << -1;
+        g_fragment_last_active_time.set_value(now);
         for (const auto& ins_id : ins_ids) {
             LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
                      print_id(ins_id), all_done);
@@ -733,7 +757,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     static_cast<void>(_runtimefilter_controller.add_entity(
             params.params, params.params.query_id, params.query_options, &handler,
             RuntimeFilterParamsContext::create(fragment_executor->runtime_state())));
+    int64 now = duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
     {
+        g_fragment_executing_count << 1;
+        g_fragment_last_active_time.set_value(now);
         std::lock_guard<std::mutex> lock(_lock);
         if (handler) {
             query_ctx->set_merge_controller_handler(handler);
@@ -753,6 +782,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             // Remove the exec state added
             std::lock_guard<std::mutex> lock(_lock);
             _fragment_instance_map.erase(params.params.fragment_instance_id);
+            g_fragment_executing_count << -1;
+            g_fragment_last_active_time.set_value(now);
         }
         fragment_executor->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                   "push plan fragment to thread pool failed");
@@ -844,7 +875,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 query_ctx->set_ready_to_execute_only();
             }
         }
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
         {
+            g_fragment_executing_count << 1;
+            g_fragment_last_active_time.set_value(now);
             std::lock_guard<std::mutex> lock(_lock);
             std::vector<TUniqueId> ins_ids;
             reinterpret_cast<pipeline::PipelineXFragmentContext*>(context.get())
@@ -905,7 +941,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             if (i == 0 && handler) {
                 query_ctx->set_merge_controller_handler(handler);
             }
+            int64 now = duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
             {
+                g_fragment_executing_count << 1;
+                g_fragment_last_active_time.set_value(now);
                 std::lock_guard<std::mutex> lock(_lock);
                 _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
             }

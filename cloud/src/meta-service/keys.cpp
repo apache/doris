@@ -68,6 +68,7 @@ namespace doris::cloud {
 [[maybe_unused]] static const char* COPY_FILE_KEY_INFIX       = "loading_file";
 [[maybe_unused]] static const char* STAGE_KEY_INFIX           = "stage";
 [[maybe_unused]] static const char* VAULT_KEY_PREFIX          = "storage_vault";
+[[maybe_unused]] static const char* VAULT_KEY_INFIX           = "vault";
 
 // clang-format on
 
@@ -117,7 +118,7 @@ static void encode_prefix(const T& t, std::string* key) {
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
-        CopyJobKeyInfo, CopyFileKeyInfo, MetaRowsetSchemaKeyInfo>);
+        CopyJobKeyInfo, CopyFileKeyInfo, MetaRowsetSchemaKeyInfo, StorageVaultKeyInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -155,6 +156,8 @@ static void encode_prefix(const T& t, std::string* key) {
     } else if constexpr (std::is_same_v<T, CopyJobKeyInfo>
                       || std::is_same_v<T, CopyFileKeyInfo>) {
         encode_bytes(COPY_KEY_PREFIX, key);
+    } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
+        encode_bytes(VAULT_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
         // prevent missing branch match.
@@ -428,6 +431,20 @@ void copy_file_key(const CopyFileKeyInfo& in, std::string* out) {
     encode_bytes(std::get<4>(in), out);     // obj_etag
 }
 
+//==============================================================================
+// Storage Vault keys
+//==============================================================================
+
+void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);
+    encode_bytes(VAULT_KEY_INFIX, out);
+    encode_bytes(std::get<1>(in), out);
+}
+
+//==============================================================================
+// System keys
+//==============================================================================
+
 // 0x02 0:"system"  1:"meta-service"  2:"registry"
 std::string system_meta_service_registry_key() {
     std::string ret;
@@ -456,16 +473,6 @@ std::string system_meta_service_encryption_key_info_key() {
     encode_bytes("meta-service", &ret);
     encode_bytes("encryption_key_info", &ret);
     return ret;
-}
-
-//==============================================================================
-// Storage Vault keys
-//==============================================================================
-
-void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
-    encode_bytes(VAULT_KEY_PREFIX, out);
-    encode_bytes(std::get<0>(in), out);
-    encode_bytes(std::get<1>(in), out);
 }
 
 //==============================================================================

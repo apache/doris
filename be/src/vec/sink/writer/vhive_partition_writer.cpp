@@ -248,7 +248,7 @@ Status VHivePartitionWriter::_projection_and_filter_block(doris::vectorized::Blo
         return status;
     }
     RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, input_block, output_block));
+            _vec_output_expr_ctxs, input_block, output_block, true));
     materialize_block_inplace(*output_block);
 
     if (filter == nullptr) {

@@ -17,6 +17,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -1403,22 +1404,25 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(
-                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.insert(t->tablet_id());
-                        }
-                        auto st = t->cooldown();
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
-                        }
-                        if (!st.ok()) {
-                            LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                         << " err=" << st;
-                        }
-                    }));
+            static_cast<void>(_cold_data_compaction_thread_pool->submit_func([&,
+                                                                              t = std::move(
+                                                                                      tablet)]() {
+                {
+                    std::lock_guard lock(tablet_submitted_mtx);
+                    tablet_submitted.insert(t->tablet_id());
+                }
+                auto st = t->cooldown();
+                {
+                    std::lock_guard lock(tablet_submitted_mtx);
+                    tablet_submitted.erase(t->tablet_id());
+                }
+                if (!st.ok()) {
+                    // The cooldown of the replica may be relatively slow
+                    // resulting in a short period of time where following cannot be successful
+                    LOG_EVERY_N(WARNING, 5)
+                            << "failed to cooldown. tablet_id=" << t->tablet_id() << " err=" << st;
+                }
+            }));
         }
     }
 }

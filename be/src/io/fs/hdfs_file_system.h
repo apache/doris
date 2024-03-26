@@ -48,11 +48,12 @@ class HdfsFileSystem final : public RemoteFileSystem {
 public:
     static Result<std::shared_ptr<HdfsFileSystem>> create(const THdfsParams& hdfs_params,
                                                           std::string fs_name, std::string id,
-                                                          RuntimeProfile* profile);
+                                                          RuntimeProfile* profile,
+                                                          std::string root_path = "");
 
     static Result<std::shared_ptr<HdfsFileSystem>> create(
             const std::map<std::string, std::string>& properties, std::string fs_name,
-            std::string id, RuntimeProfile* profile);
+            std::string id, RuntimeProfile* profile, std::string root_path = "");
 
     ~HdfsFileSystem() override;
 
@@ -84,7 +85,7 @@ private:
 private:
     friend class HdfsFileWriter;
     HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_name, std::string id,
-                   RuntimeProfile* profile);
+                   RuntimeProfile* profile, std::string root_path);
     const THdfsParams& _hdfs_params; // Only used in init, so we can use reference here
     std::string _fs_name;
     // do not use std::shared_ptr or std::unique_ptr

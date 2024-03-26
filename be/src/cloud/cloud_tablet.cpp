@@ -95,11 +95,6 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 
-Status CloudTablet::sync_meta() {
-    // TODO(lightman): FileCache
-    return Status::NotSupported("CloudTablet::sync_meta is not implemented");
-}
-
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
 Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) {
@@ -615,6 +610,84 @@ Status CloudTablet::calc_delete_bitmap_for_compaciton(
     // 3. store delete bitmap
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
                                                             output_rowset_delete_bitmap.get()));
+    return Status::OK();
+}
+
+Status CloudTablet::sync_meta() {
+    if (!config::enable_file_cache) {
+        return Status::OK();
+    }
+
+    TabletMetaSharedPtr tablet_meta;
+    auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
+    if (!st.ok()) {
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            // TODO(Lchangliang): recycle_resources_by_self();
+        }
+        return st;
+    }
+    if (tablet_meta->tablet_state() != TABLET_RUNNING) { // impossible
+        return Status::InternalError("invalid tablet state. tablet_id={}", tablet_id());
+    }
+
+    auto new_ttl_seconds = tablet_meta->ttl_seconds();
+    if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
+        _tablet_meta->set_ttl_seconds(new_ttl_seconds);
+        int64_t cur_time = UnixSeconds();
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [_, rs] : _rs_version_map) {
+            for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
+                int64_t new_expiration_time =
+                        new_ttl_seconds + rs->rowset_meta()->newest_write_timestamp();
+                new_expiration_time = new_expiration_time > cur_time ? new_expiration_time : 0;
+                auto file_key = io::BlockFileCache::hash(
+                        io::Path(rs->segment_file_path(seg_id)).filename().native());
+                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+                file_cache->modify_expiration_time(file_key, new_expiration_time);
+            }
+        }
+    }
+
+    auto new_compaction_policy = tablet_meta->compaction_policy();
+    if (_tablet_meta->compaction_policy() != new_compaction_policy) {
+        _tablet_meta->set_compaction_policy(new_compaction_policy);
+    }
+    auto new_time_series_compaction_goal_size_mbytes =
+            tablet_meta->time_series_compaction_goal_size_mbytes();
+    if (_tablet_meta->time_series_compaction_goal_size_mbytes() !=
+        new_time_series_compaction_goal_size_mbytes) {
+        _tablet_meta->set_time_series_compaction_goal_size_mbytes(
+                new_time_series_compaction_goal_size_mbytes);
+    }
+    auto new_time_series_compaction_file_count_threshold =
+            tablet_meta->time_series_compaction_file_count_threshold();
+    if (_tablet_meta->time_series_compaction_file_count_threshold() !=
+        new_time_series_compaction_file_count_threshold) {
+        _tablet_meta->set_time_series_compaction_file_count_threshold(
+                new_time_series_compaction_file_count_threshold);
+    }
+    auto new_time_series_compaction_time_threshold_seconds =
+            tablet_meta->time_series_compaction_time_threshold_seconds();
+    if (_tablet_meta->time_series_compaction_time_threshold_seconds() !=
+        new_time_series_compaction_time_threshold_seconds) {
+        _tablet_meta->set_time_series_compaction_time_threshold_seconds(
+                new_time_series_compaction_time_threshold_seconds);
+    }
+    auto new_time_series_compaction_empty_rowsets_threshold =
+            tablet_meta->time_series_compaction_empty_rowsets_threshold();
+    if (_tablet_meta->time_series_compaction_empty_rowsets_threshold() !=
+        new_time_series_compaction_empty_rowsets_threshold) {
+        _tablet_meta->set_time_series_compaction_empty_rowsets_threshold(
+                new_time_series_compaction_empty_rowsets_threshold);
+    }
+    auto new_time_series_compaction_level_threshold =
+            tablet_meta->time_series_compaction_level_threshold();
+    if (_tablet_meta->time_series_compaction_level_threshold() !=
+        new_time_series_compaction_level_threshold) {
+        _tablet_meta->set_time_series_compaction_level_threshold(
+                new_time_series_compaction_level_threshold);
+    }
+
     return Status::OK();
 }
 

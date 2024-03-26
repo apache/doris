@@ -529,6 +529,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _creation_time = tablet_meta_pb.creation_time();
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
+    _ttl_seconds = tablet_meta_pb.ttl_seconds();
     if (tablet_meta_pb.has_tablet_type()) {
         _tablet_type = tablet_meta_pb.tablet_type();
     } else {
@@ -647,6 +648,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
     *(tablet_meta_pb->mutable_tablet_uid()) = tablet_uid().to_proto();
     tablet_meta_pb->set_tablet_type(_tablet_type);
+    tablet_meta_pb->set_ttl_seconds(_ttl_seconds);
     switch (tablet_state()) {
     case TABLET_NOTREADY:
         tablet_meta_pb->set_tablet_state(PB_NOTREADY);

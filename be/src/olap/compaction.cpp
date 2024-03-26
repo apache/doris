@@ -617,7 +617,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
 
     // we choose the first destination segment name as the temporary index writer path
     // Used to distinguish between different index compaction
-    auto index_tmp_path = tablet_path + "/" + dest_rowset_id.to_string() + "_" + "tmp";
+    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
+    auto index_tmp_path = tmp_file_dir / dest_rowset_id.to_string();
     LOG(INFO) << "start index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", source index size=" << src_segment_num
               << ", destination index size=" << dest_segment_num << ".";
