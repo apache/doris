@@ -28,6 +28,7 @@ suite("order_by_bind_priority") {
     qt_test_bind_order_by_with_aggfun1 "select 2*abs(sum(c1)) as c1, c1,sum(c1)+c1 from t_order_by_bind_priority group by c1 order by sum(c1)+c1 asc;"
     qt_test_bind_order_by_with_aggfun2 "select 2*abs(sum(c1)) as c2, c1,sum(c1)+c2 from t_order_by_bind_priority group by c1,c2 order by sum(c1)+c2 asc;"
     qt_test_bind_order_by_with_aggfun3 "select abs(sum(c1)) as c1, c1,sum(c2) as c2 from t_order_by_bind_priority group by c1 order by sum(c1) asc;"
+    qt_test_bind_order_by_in_no_agg_func_output "select abs(c1) xx, sum(c2) from t_order_by_bind_priority group by xx order by min(xx)"
     test {
         sql "select abs(sum(c1)) as c1, c1,sum(c2) as c2 from t_order_by_bind_priority group by c1 order by sum(c1)+c2 asc;"
         exception "c2 should be grouped by."

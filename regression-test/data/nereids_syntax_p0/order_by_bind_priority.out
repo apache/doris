@@ -17,3 +17,9 @@
 2	1	4
 3	3	3
 
+-- !test_bind_order_by_in_no_agg_func_output --
+1	4
+2	-2
+3	3
+5	5
+

@@ -765,8 +765,25 @@ public class BindExpression implements AnalysisRuleFactory {
 
         SimpleExprAnalyzer bindInInputChildScope = buildCustomSlotBinderAnalyzer(
                 sort, cascadesContext, inputScope, true, false,
-                (self, unboundSlot) -> {
-                    return self.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
+                (analyzer, unboundSlot) -> {
+                    if (finalInput instanceof LogicalAggregate) {
+                        LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) finalInput;
+                        List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+                        ImmutableList.Builder<Slot> outputSlots = ImmutableList.builderWithExpectedSize(
+                                outputExpressions.size());
+                        for (NamedExpression outputExpr : outputExpressions) {
+                            if (!outputExpr.anyMatch(expr -> expr instanceof AggregateFunction)) {
+                                outputSlots.add(outputExpr.toSlot());
+                            }
+                        }
+                        Scope outputWithoutAggFunc = toScope(cascadesContext, outputSlots.build());
+                        List<Slot> boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(unboundSlot,
+                                outputWithoutAggFunc);
+                        if (!boundInOutputWithoutAggFunc.isEmpty()) {
+                            return ImmutableList.of(boundInOutputWithoutAggFunc.get(0));
+                        }
+                    }
+                    return analyzer.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
                 });
 
         Builder<OrderKey> boundOrderKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
