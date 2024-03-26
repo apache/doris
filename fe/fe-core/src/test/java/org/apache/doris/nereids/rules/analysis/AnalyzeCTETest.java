@@ -140,7 +140,7 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                         logicalFilter(
                                 logicalProject(
                                         logicalJoin(
-                                                logicalProject(logicalAggregate()),
+                                                logicalAggregate(),
                                                 logicalProject()
                                         )
                                 )
