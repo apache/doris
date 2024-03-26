@@ -895,19 +895,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         return;
     }
 
-    InstanceKeyInfo key_info {request->instance_id()};
-    std::string key;
-    std::string val = instance.SerializeAsString();
-    instance_key(key_info, &key);
-    if (val.empty()) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "failed to serialize";
-        LOG(ERROR) << msg;
-        return;
-    }
-
-    LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
-
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -924,6 +911,19 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
             return;
         }
     }
+
+    InstanceKeyInfo key_info {request->instance_id()};
+    std::string key;
+    std::string val = instance.SerializeAsString();
+    instance_key(key_info, &key);
+    if (val.empty()) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize";
+        LOG(ERROR) << msg;
+        return;
+    }
+
+    LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
 
     // Check existence before proceeding
     err = txn->get(key, &val);
