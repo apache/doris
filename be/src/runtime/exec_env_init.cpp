@@ -91,6 +91,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
+#include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -243,6 +244,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
+    _dns_cache = new DNSCache();
     _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -578,6 +580,7 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_stub_pool.reset();
     _file_cache_open_fd_cache.reset();
+    SAFE_DELETE(_dns_cache);
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
     // shouldn't use SAFE_STOP. otherwise will lead to twice stop.

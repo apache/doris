@@ -107,6 +107,7 @@ class RowCache;
 class DummyLRUCache;
 class CacheManager;
 class WalManager;
+class DNSCache;
 
 inline bool k_doris_exit = false;
 
@@ -213,6 +214,8 @@ public:
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
     WalManager* wal_mgr() { return _wal_manager.get(); }
+    DNSCache* dns_cache() { return _dns_cache; }
+
 #ifdef BE_TEST
     void set_ready() { this->_s_ready = true; }
     void set_not_ready() { this->_s_ready = false; }
@@ -364,6 +367,7 @@ private:
     std::unique_ptr<LoadStreamStubPool> _load_stream_stub_pool;
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
     std::shared_ptr<WalManager> _wal_manager;
+    DNSCache* _dns_cache = nullptr;
 
     std::mutex _frontends_lock;
     // ip:brpc_port -> frontend_indo
