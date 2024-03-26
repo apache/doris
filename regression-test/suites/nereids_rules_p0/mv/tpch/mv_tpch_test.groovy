@@ -336,7 +336,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query4_before "${query4}"
-    check_mv_rewrite_fail(db, mv4, query4, "mv4")
+    check_mv_rewrite_success(db, mv4, query4, "mv4")
     order_qt_query4_after "${query4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4"""
 
@@ -1070,7 +1070,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query16_before "${query16}"
-    check_mv_rewrite_fail(db, mv16, query16, "mv16")
+    check_mv_rewrite_success(db, mv16, query16, "mv16")
     order_qt_query16_after "${query16}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv16"""
 

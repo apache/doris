@@ -334,7 +334,7 @@ suite("partition_mv_rewrite_dimension_2_1") {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 // 5, 11 should be success but not now, should support in the future by equivalence class
-                if (j in [4, 6, 8, 10]) {
+                if (j in [4, 5, 6, 8, 10, 11]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
