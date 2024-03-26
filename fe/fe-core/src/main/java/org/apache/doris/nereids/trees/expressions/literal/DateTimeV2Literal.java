@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -74,6 +75,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             this.minute = localDateTime.getMinute();
             this.second = localDateTime.getSecond();
             this.microSecond -= 1000000;
+        }
+        if (checkRange() || checkDate()) {
+            // may fallback to legacy planner. make sure the behaviour of rounding is same.
+            throw new AnalysisException("datetime literal [" + toString() + "] is out of range");
         }
     }
 

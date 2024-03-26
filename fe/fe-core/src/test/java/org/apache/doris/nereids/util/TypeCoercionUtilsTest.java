@@ -284,7 +284,7 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(LargeIntType.INSTANCE, LargeIntType.INSTANCE, BigIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(LargeIntType.INSTANCE, LargeIntType.INSTANCE, LargeIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, LargeIntType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, LargeIntType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT);
+        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.createDecimalV3Type(38), LargeIntType.INSTANCE, DecimalV3Type.createDecimalV3Type(38));
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, LargeIntType.INSTANCE, FloatType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, LargeIntType.INSTANCE, DoubleType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, LargeIntType.INSTANCE, CharType.SYSTEM_DEFAULT);
@@ -308,7 +308,7 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, LargeIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT,
                 DecimalV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
+        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT,
                 DecimalV3Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, FloatType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DoubleType.INSTANCE);
@@ -331,10 +331,10 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, SmallIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, IntegerType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, BigIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, LargeIntType.INSTANCE);
+        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.createDecimalV3Type(38), DecimalV3Type.createDecimalV3Type(38), LargeIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
                 DecimalV2Type.createDecimalV2Type(27, 0));
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT,
+        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
                 DecimalV2Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
                 DecimalV3Type.SYSTEM_DEFAULT);

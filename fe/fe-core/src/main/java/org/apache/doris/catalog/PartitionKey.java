@@ -95,7 +95,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (i = 0; i < keys.size(); ++i) {
             Type keyType = columns.get(i).getType();
             // If column type is datatime and key type is date, we should convert date to datetime.
-            if (keyType.isDatetime() || keyType.isDatetimeV2()) {
+            // if it's max value, no need to parse.
+            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2())) {
                 Literal dateTimeLiteral = getDateTimeLiteral(keys.get(i).getStringValue(), keyType);
                 partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
@@ -234,6 +235,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     public List<String> getPartitionValuesAsStringList() {
+        if (originHiveKeys.size() == keys.size()) {
+            // for hive, we need ues originHiveKeys
+            // because when a double 1.234 as partition column, it will save as '1.123000' for PartitionValue
+            return getPartitionValuesAsStringListForHive();
+        }
         return keys.stream().map(k -> k.getStringValue()).collect(Collectors.toList());
     }
 
@@ -571,5 +577,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
             return result;
         }
+    }
+
+    // for test
+    public List<String> getOriginHiveKeys() {
+        return originHiveKeys;
     }
 }

@@ -184,7 +184,11 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
         // In previous versions, the join node had a separate set of project structures,
         // and you could see a 'todo' in the Thrift definition.
         //  Here, we have refactored it, but considering upgrade compatibility, we still need to retain the old code.
-        *output_block = *origin_block;
+        if (!output_block->mem_reuse()) {
+            MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc()));
+            output_block->swap(tmp.to_block());
+        }
+        output_block->swap(*origin_block);
         return Status::OK();
     }
     auto is_mem_reuse = output_block->mem_reuse();

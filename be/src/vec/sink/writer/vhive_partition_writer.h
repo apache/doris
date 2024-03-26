@@ -62,7 +62,7 @@ public:
 
     Status close(const Status& status);
 
-    inline size_t written_len() { return _vfile_writer->written_len(); }
+    inline size_t written_len() { return _file_format_transformer->written_len(); }
 
 private:
     std::unique_ptr<orc::Type> _build_orc_type(const TypeDescriptor& type_descriptor);
@@ -91,13 +91,13 @@ private:
     TFileCompressType::type _hive_compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;
 
-    std::shared_ptr<io::FileSystem> _fs;
+    std::shared_ptr<io::FileSystem> _fs = nullptr;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    std::unique_ptr<io::FileWriter> _file_writer_impl = nullptr;
+    std::unique_ptr<doris::io::FileWriter> _file_writer = nullptr;
     // convert block to parquet/orc/csv format
-    std::unique_ptr<VFileFormatTransformer> _vfile_writer = nullptr;
+    std::unique_ptr<VFileFormatTransformer> _file_format_transformer = nullptr;
 
     RuntimeState* _state;
 };

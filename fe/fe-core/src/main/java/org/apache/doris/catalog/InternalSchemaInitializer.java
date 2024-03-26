@@ -57,6 +57,10 @@ public class InternalSchemaInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
+    public InternalSchemaInitializer() {
+        super("InternalSchemaInitializer");
+    }
+
     public void run() {
         if (!FeConstants.enableInternalSchemaDb) {
             return;

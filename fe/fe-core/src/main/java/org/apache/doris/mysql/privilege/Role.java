@@ -80,6 +80,9 @@ public class Role implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "roleName")
     private String roleName;
+
+    @SerializedName(value = "comment")
+    private String comment;
     // Will be persisted
     @SerializedName(value = "tblPatternToPrivs")
     private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
@@ -116,7 +119,12 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public Role(String roleName) {
+        this(roleName, "");
+    }
+
+    public Role(String roleName, String comment) {
         this.roleName = roleName;
+        this.comment = comment;
     }
 
     public Role(String roleName, TablePattern tablePattern, PrivBitSet privs) throws DdlException {
@@ -395,7 +403,7 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public boolean checkCloudPriv(String cloudName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
+            PrivPredicate wanted, ResourceTypeEnum type) {
         ResourcePrivTable cloudPrivTable = getCloudPrivTable(type);
         if (cloudPrivTable == null) {
             LOG.warn("cloud resource type err: {}", type);
@@ -451,7 +459,7 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     private boolean checkCloudInternal(String cloudName, PrivPredicate wanted,
-                                       PrivBitSet savedPrivs, ResourcePrivTable table, ResourceTypeEnum type) {
+            PrivBitSet savedPrivs, ResourcePrivTable table, ResourceTypeEnum type) {
         table.getPrivs(cloudName, savedPrivs);
         return Privilege.satisfy(savedPrivs, wanted);
     }
@@ -535,6 +543,14 @@ public class Role implements Writable, GsonPostProcessable {
 
     public WorkloadGroupPrivTable getWorkloadGroupPrivTable() {
         return workloadGroupPrivTable;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
     }
 
     public boolean checkCanEnterCluster(String clusterName) {
@@ -644,7 +660,7 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     private void grantCloudClusterPrivs(String cloudClusterName, boolean errOnExist,
-                                        boolean errOnNonExist, PrivBitSet privs) throws DdlException {
+            boolean errOnNonExist, PrivBitSet privs) throws DdlException {
         ResourcePrivEntry entry;
         try {
             entry = ResourcePrivEntry.create(cloudClusterName, privs);

@@ -48,6 +48,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * just overlay all metadata operations here.
+ * @see HiveDDLAndDMLPlanTest Use it if you need to verify correctness.
+ */
 public class HiveMetadataOpsTest {
 
     private HiveMetadataOps metadataOps;
@@ -157,6 +161,5 @@ public class HiveMetadataOpsTest {
         createTable(tableName, cols, parts, bucks, tblProps);
         dropTable(tableName, true);
         dropDb("mockedDb", true);
-        // TODO: use TestWithFeService to double check plan
     }
 }

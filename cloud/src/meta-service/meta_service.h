@@ -251,6 +251,11 @@ public:
                             GetClusterStatusResponse* response,
                             ::google::protobuf::Closure* done) override;
 
+    void get_rl_task_commit_attach(::google::protobuf::RpcController* controller,
+                                   const GetRLTaskCommitAttachRequest* request,
+                                   GetRLTaskCommitAttachResponse* response,
+                                   ::google::protobuf::Closure* done) override;
+
     // ATTN: If you add a new method, please also add the corresponding implementation in `MetaServiceProxy`.
 
     std::pair<MetaServiceCode, std::string> get_instance_info(const std::string& instance_id,
@@ -574,6 +579,13 @@ public:
         call_impl(&cloud::MetaService::get_cluster_status, controller, request, response, done);
     }
 
+    void get_rl_task_commit_attach(::google::protobuf::RpcController* controller,
+                                   const GetRLTaskCommitAttachRequest* request,
+                                   GetRLTaskCommitAttachResponse* response,
+                                   ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_rl_task_commit_attach, controller, request, response, done);
+    }
+
 private:
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
@@ -622,11 +634,14 @@ private:
 
             TEST_SYNC_POINT("MetaServiceProxy::call_impl:2");
             if (--retry_times < 0) {
+                // For KV_TXN_CONFLICT, we should return KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES,
+                // because BE will retries the KV_TXN_CONFLICT error.
                 resp->mutable_status()->set_code(
-                        code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
-                        : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
-                        : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
-                                                                                 : code);
+                        code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE ? KV_TXN_COMMIT_ERR
+                        : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE  ? KV_TXN_GET_ERR
+                        : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE
+                                ? KV_TXN_CREATE_ERR
+                                : KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES);
                 return;
             }
 
