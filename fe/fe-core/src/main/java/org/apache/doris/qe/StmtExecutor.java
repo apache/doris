@@ -820,7 +820,8 @@ public class StmtExecutor {
                                         deadCloudClusterStatus);
                                 if (Strings.isNullOrEmpty(deadCloudClusterStatus)
                                         || ClusterStatus.valueOf(deadCloudClusterStatus) != ClusterStatus.NORMAL) {
-                                    CloudSystemInfoService.waitForAutoStart(deadCloudClusterClusterName);
+                                    ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                            .waitForAutoStart(deadCloudClusterClusterName);
                                 }
                             }
                         }
