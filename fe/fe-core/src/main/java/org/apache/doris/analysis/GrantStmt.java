@@ -173,12 +173,12 @@ public class GrantStmt extends DdlStmt {
         }
 
         if (tblPattern != null) {
-            checkTablePrivileges(privileges, role, tblPattern, colPrivileges);
+            checkTablePrivileges(privileges, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
             privileges = PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
-            checkResourcePrivileges(privileges, role, resourcePattern);
+            checkResourcePrivileges(privileges, resourcePattern);
         } else if (workloadGroupPattern != null) {
-            checkWorkloadGroupPrivileges(privileges, role, workloadGroupPattern);
+            checkWorkloadGroupPrivileges(privileges, workloadGroupPattern);
         } else if (roles != null) {
             checkRolePrivileges();
         }
@@ -197,64 +197,66 @@ public class GrantStmt extends DdlStmt {
 
     /**
      * Rules:
-     * 1. ADMIN_PRIV and NODE_PRIV can only be granted/revoked on GLOBAL level
-     * 2. Only the user with NODE_PRIV can grant NODE_PRIV to other user
-     * 3. Privileges can not be granted/revoked to/from ADMIN and OPERATOR role
-     * 4. Only user with GLOBAL level's GRANT_PRIV can grant/revoke privileges to/from roles.
-     * 5.1 User should has GLOBAL level GRANT_PRIV
-     * 5.2 or user has DATABASE/TABLE level GRANT_PRIV if grant/revoke to/from certain database or table.
-     * 5.3 or user should has 'resource' GRANT_PRIV if grant/revoke to/from certain 'resource'
-     * 5.4 or user should has 'workload group' GRANT_PRIV if grant/revoke to/from certain 'workload group'
-     * 6. Can not grant USAGE_PRIV to database or table
+     * 1. some privs in Privilege.notBelongToTablePrivileges can not granted/revoked on table
+     * 2. ADMIN_PRIV and NODE_PRIV can only be granted/revoked on GLOBAL level
+     * 3. Only the user with NODE_PRIV can grant NODE_PRIV to other user
+     * 4. Check that the current user has both grant_priv and the permissions to be assigned to others
+     * 5. col priv must assign to specific table
      *
      * @param privileges
-     * @param role
      * @param tblPattern
      * @throws AnalysisException
      */
-    public static void checkTablePrivileges(Collection<Privilege> privileges, String role, TablePattern tblPattern,
+    public static void checkTablePrivileges(Collection<Privilege> privileges, TablePattern tblPattern,
             Map<ColPrivilegeKey, Set<String>> colPrivileges)
             throws AnalysisException {
         // Rule 1
+        checkIncorrectPrivilege(Privilege.notBelongToTablePrivileges, privileges);
+        // Rule 2
         if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(Privilege.ADMIN_PRIV)
                 || privileges.contains(Privilege.NODE_PRIV))) {
             throw new AnalysisException("ADMIN_PRIV and NODE_PRIV can only be granted/revoke on/from *.*.*");
         }
 
-        // Rule 2
+        // Rule 3
         if (privileges.contains(Privilege.NODE_PRIV) && !Env.getCurrentEnv().getAccessManager()
                 .checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             throw new AnalysisException("Only user with NODE_PRIV can grant/revoke NODE_PRIV to other user");
         }
 
-        if (role != null) {
-            // Rule 3 and 4
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-            }
-        } else {
-            ArrayList<Privilege> privs = Lists.newArrayList(privileges);
-            privs.add(Privilege.GRANT_PRIV);
-            PrivPredicate predicate = PrivPredicate.of(PrivBitSet.of(privs), Operator.AND);
-            // Rule 5.1 and 5.2
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
-                    && !checkPriv(ConnectContext.get(), predicate, tblPattern)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR, privs);
-            }
+        // Rule 4
+        PrivPredicate predicate = getPrivPredicate(privileges);
+        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+        if (!accessManager.checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !checkTablePriv(ConnectContext.get(), predicate, tblPattern)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR,
+                    predicate.getPrivs().toPrivilegeList());
         }
 
-        // Rule 6
-        if (privileges.contains(Privilege.USAGE_PRIV) || privileges.contains(Privilege.CLUSTER_USAGE_PRIV)) {
-            throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from database or table");
-        }
-
-        // Rule 7
+        // Rule 5
         if (!MapUtils.isEmpty(colPrivileges) && "*".equals(tblPattern.getTbl())) {
             throw new AnalysisException("Col auth must specify specific table");
         }
     }
 
-    private static boolean checkPriv(ConnectContext ctx, PrivPredicate wanted,
+    private static void checkIncorrectPrivilege(Privilege[] incorrectPrivileges,
+            Collection<Privilege> privileges) throws AnalysisException {
+        for (int i = 0; i < incorrectPrivileges.length; i++) {
+            if (privileges.contains(incorrectPrivileges[i])) {
+                throw new AnalysisException(
+                        String.format("Can not grant/revoke %s on pattern to/from any other users or roles",
+                                incorrectPrivileges[i]));
+            }
+        }
+    }
+
+    private static PrivPredicate getPrivPredicate(Collection<Privilege> privileges) {
+        ArrayList<Privilege> privs = Lists.newArrayList(privileges);
+        privs.add(Privilege.GRANT_PRIV);
+        return PrivPredicate.of(PrivBitSet.of(privs), Operator.AND);
+    }
+
+    private static boolean checkTablePriv(ConnectContext ctx, PrivPredicate wanted,
             TablePattern tblPattern) {
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
         switch (tblPattern.getPrivLevel()) {
@@ -273,63 +275,48 @@ public class GrantStmt extends DdlStmt {
         }
     }
 
-    public static void checkResourcePrivileges(Collection<Privilege> privileges, String role,
+    public static void checkResourcePrivileges(Collection<Privilege> privileges,
             ResourcePattern resourcePattern) throws AnalysisException {
-        for (int i = 0; i < Privilege.notBelongToResourcePrivileges.length; i++) {
-            if (privileges.contains(Privilege.notBelongToResourcePrivileges[i])) {
-                throw new AnalysisException(
-                        String.format("Can not grant/revoke %s on resource to/from any other users or roles",
-                                Privilege.notBelongToResourcePrivileges[i]));
-            }
+        checkIncorrectPrivilege(Privilege.notBelongToResourcePrivileges, privileges);
+
+        PrivPredicate predicate = getPrivPredicate(privileges);
+        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+        if (!accessManager.checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !checkResourcePriv(ConnectContext.get(), resourcePattern, predicate)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR,
+                    predicate.getPrivs().toPrivilegeList());
         }
 
-        if (role != null) {
-            // Rule 3 and 4
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-            }
-        } else {
-            // Rule 5.1 and 5.3
-            if (resourcePattern.getPrivLevel() == PrivLevel.GLOBAL) {
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-                }
-            } else {
-                if (resourcePattern.isGeneralResource()) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
-                            resourcePattern.getResourceName(), PrivPredicate.GRANT)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-                    }
-                } else if (resourcePattern.isClusterResource()) {
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkCloudPriv(ConnectContext.get(),
-                                    resourcePattern.getResourceName(), PrivPredicate.GRANT, ResourceTypeEnum.CLUSTER)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-                    }
-                }
-            }
-        }
     }
 
-    public static void checkWorkloadGroupPrivileges(Collection<Privilege> privileges, String role,
-            WorkloadGroupPattern workloadGroupPattern) throws AnalysisException {
-        for (int i = 0; i < Privilege.notBelongToWorkloadGroupPrivileges.length; i++) {
-            if (privileges.contains(Privilege.notBelongToWorkloadGroupPrivileges[i])) {
-                throw new AnalysisException(
-                        String.format("Can not grant/revoke %s on workload group to/from any other users or roles",
-                                Privilege.notBelongToWorkloadGroupPrivileges[i]));
+    private static boolean checkResourcePriv(ConnectContext ctx, ResourcePattern resourcePattern,
+            PrivPredicate privPredicate) {
+        if (resourcePattern.getPrivLevel() == PrivLevel.GLOBAL) {
+            return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, privPredicate);
+        } else {
+            if (resourcePattern.isGeneralResource()) {
+                return Env.getCurrentEnv().getAccessManager()
+                        .checkResourcePriv(ctx, resourcePattern.getResourceName(), privPredicate);
+            } else if (resourcePattern.isClusterResource()) {
+                return Env.getCurrentEnv().getAccessManager()
+                        .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
+                                ResourceTypeEnum.CLUSTER);
             }
         }
+        return true;
+    }
 
-        if (role != null) {
-            // Rule 4
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
-            }
-        } else if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(ConnectContext.get(),
-                workloadGroupPattern.getworkloadGroupName(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
+    public static void checkWorkloadGroupPrivileges(Collection<Privilege> privileges,
+            WorkloadGroupPattern workloadGroupPattern) throws AnalysisException {
+        checkIncorrectPrivilege(Privilege.notBelongToWorkloadGroupPrivileges, privileges);
+
+        PrivPredicate predicate = getPrivPredicate(privileges);
+        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+        if (!accessManager.checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !accessManager.checkWorkloadGroupPriv(ConnectContext.get(),
+                workloadGroupPattern.getworkloadGroupName(), predicate)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR,
+                    predicate.getPrivs().toPrivilegeList());
         }
     }
 
