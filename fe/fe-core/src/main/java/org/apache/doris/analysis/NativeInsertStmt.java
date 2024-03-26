@@ -1024,7 +1024,7 @@ public class NativeInsertStmt extends InsertStmt {
         if (targetTable instanceof OlapTable) {
             OlapTableSink sink;
             final boolean enableSingleReplicaLoad =
-                    analyzer.getContext().getSessionVariable().enableMemTableOnSinkNode
+                    analyzer.getContext().getSessionVariable().isEnableMemTableOnSinkNode()
                     ? false : analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert();
             if (isGroupCommitStreamLoadSql) {
                 sink = new GroupCommitBlockSink((OlapTable) targetTable, olapTuple,
