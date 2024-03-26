@@ -1023,13 +1023,16 @@ public class NativeInsertStmt extends InsertStmt {
         }
         if (targetTable instanceof OlapTable) {
             OlapTableSink sink;
+            final boolean enableSingleReplicaLoad =
+                    analyzer.getContext().getSessionVariable().enableMemTableOnSinkNode
+                    ? false : analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert();
             if (isGroupCommitStreamLoadSql) {
                 sink = new GroupCommitBlockSink((OlapTable) targetTable, olapTuple,
-                        targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert(),
+                        targetPartitionIds, enableSingleReplicaLoad,
                         ConnectContext.get().getSessionVariable().getGroupCommit(), 0);
             } else {
                 sink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
-                        analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
+                        enableSingleReplicaLoad);
             }
             dataSink = sink;
             sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);

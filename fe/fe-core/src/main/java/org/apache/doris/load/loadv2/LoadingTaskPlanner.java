@@ -72,6 +72,7 @@ public class LoadingTaskPlanner {
     private final int sendBatchParallelism;
     private final boolean useNewLoadScanNode;
     private final boolean singleTabletLoadPerSink;
+    private final boolean enableMemtableOnSinkNode;
     private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
@@ -88,7 +89,7 @@ public class LoadingTaskPlanner {
             BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
             boolean strictMode, boolean isPartialUpdate, String timezone, long timeoutS, int loadParallelism,
             int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo,
-            boolean singleTabletLoadPerSink) {
+            boolean singleTabletLoadPerSink, boolean enableMemTableOnSinkNode) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -102,8 +103,9 @@ public class LoadingTaskPlanner {
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
         this.useNewLoadScanNode = useNewLoadScanNode;
-        this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.userInfo = userInfo;
+        this.singleTabletLoadPerSink = singleTabletLoadPerSink;
+        this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
         if (Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
                         PrivPredicate.SELECT)) {
