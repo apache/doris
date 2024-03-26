@@ -57,6 +57,7 @@ import com.google.gson.GsonBuilder;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.BooleanUtils;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -97,6 +98,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
     private Map<String, String> customProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
+    private Map<String, Map<String, String>> convertedRackCustomProperties = Maps.newHashMap();
 
     // The latest offset of each partition fetched from kafka server.
     // Will be updated periodically by calling hasMoreDataToConsume()
@@ -138,8 +140,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return brokerList;
     }
 
-    public Map<String, String> getConvertedCustomProperties() {
-        return convertedCustomProperties;
+    public Map<String, String> getConvertedCustomProperties(String rack) {
+        if (rack == null) {
+            return convertedCustomProperties;
+        }
+        if (!convertedRackCustomProperties.containsKey(rack)) {
+            Map<String, String> result = new HashMap<>(convertedCustomProperties);
+            result.put(ConsumerConfig.CLIENT_RACK_CONFIG, rack);
+            convertedRackCustomProperties.put(rack, result);
+        }
+        return convertedRackCustomProperties.get(rack);
     }
 
     private boolean isOffsetForTimes() {
@@ -187,6 +197,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         if (rebuild) {
             convertedCustomProperties.clear();
+            convertedRackCustomProperties.clear();
         }
 
         SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
@@ -774,7 +785,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // all offsets to be consumed are newer than offsets in cachedPartitionWithLatestOffsets,
             // maybe the cached offset is out-of-date, fetch from kafka server again
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, getBrokerList(),
-                    getTopic(), getConvertedCustomProperties(), Lists.newArrayList(partitionIdToOffset.keySet()));
+                    getTopic(), getConvertedCustomProperties(null),
+                    Lists.newArrayList(partitionIdToOffset.keySet()));
             for (Pair<Integer, Long> pair : tmp) {
                 cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
             }
