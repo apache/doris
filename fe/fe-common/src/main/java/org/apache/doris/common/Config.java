@@ -1143,8 +1143,8 @@ public class Config extends ConfigBase {
     /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'routine_load_thread_pool_size'(default 10),
-     * which is the routine load task thread pool size on BE.
+     * than BE config 'max_routine_load_thread_pool_size'(default 1024),
+     * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_num_per_be = 5;
@@ -2279,11 +2279,6 @@ public class Config extends ConfigBase {
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
 
-    @ConfField(description = {
-            "是否开启列权限",
-            "Whether to enable col auth"})
-    public static boolean enable_col_auth = false;
-
     @ConfField
     public static boolean forbid_running_alter_job = false;
 
@@ -2535,10 +2530,21 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_proxy_protocol = false;
 
+    // Used to check compatibility when upgrading.
+    @ConfField
+    public static boolean enable_check_compatibility_mode = false;
+
+    // Do checkpoint after replaying edit logs.
+    @ConfField
+    public static boolean checkpoint_after_check_compatibility = false;
 
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
+
+    @ConfField public static int info_sys_accumulated_file_size = 4;
+    @ConfField public static int warn_sys_accumulated_file_size = 2;
+    @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
     public static String cloud_unique_id = "";
@@ -2553,6 +2559,9 @@ public class Config extends ConfigBase {
 
     /**
      * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     *
+     * If you want to access a group of meta services, separated the endpoints by comma,
+     * like "host-1:port,host-2:port".
      */
     @ConfField
     public static String meta_service_endpoint = "";
@@ -2568,6 +2577,8 @@ public class Config extends ConfigBase {
 
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
+    //
+    // It only works if the meta_service_endpoint is not point to a group of meta services.
     @ConfField(mutable = true)
     public static int meta_service_connection_age_base_minutes = 5;
 

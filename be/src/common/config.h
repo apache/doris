@@ -359,7 +359,6 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
 DECLARE_mBool(disable_segment_cache);
-DECLARE_Int64(index_stream_cache_capacity);
 DECLARE_String(row_cache_mem_limit);
 
 // Cache for storage page size
@@ -515,8 +514,6 @@ DECLARE_String(ssl_private_key_path);
 DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
-// Period to update rate counters and sampling counters in ms.
-DECLARE_mInt32(periodic_counter_update_period_ms);
 
 DECLARE_Bool(enable_single_replica_load);
 // Number of download workers for single replica load
@@ -591,10 +588,6 @@ DECLARE_Int32(num_threads_per_disk);
 DECLARE_Int32(read_size);       // 8 * 1024 * 1024, Read Size (in bytes)
 DECLARE_Int32(min_buffer_size); // 1024, The minimum read buffer size (in bytes)
 
-// For each io buffer size, the maximum number of buffers the IoMgr will hold onto
-// With 1024B through 8MB buffers, this is up to ~2GB of buffers.
-DECLARE_Int32(max_free_io_buffers);
-
 // for pprof
 DECLARE_String(pprof_profile_dir);
 // for jeprofile in jemalloc
@@ -616,12 +609,6 @@ DECLARE_Int32(num_cores);
 // Otherwise, we will ignore the broken disk,
 DECLARE_Bool(ignore_broken_disk);
 
-// linux transparent huge page
-DECLARE_Bool(madvise_huge_pages);
-
-// whether use mmap to allocate memory
-DECLARE_Bool(mmap_buffers);
-
 // Sleep time in milliseconds between memory maintenance iterations
 DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 
@@ -637,9 +624,6 @@ DECLARE_mInt32(memtable_hard_limit_active_percent);
 
 // percent of (active memtables size / all memtables size) when reach soft limit
 DECLARE_mInt32(memtable_soft_limit_active_percent);
-
-// Alignment
-DECLARE_Int32(memory_max_alignment);
 
 // memtable insert memory tracker will multiply input block size with this ratio
 DECLARE_mDouble(memtable_insert_memory_ratio);
@@ -684,9 +668,9 @@ DECLARE_Bool(enable_metric_calculator);
 // max consumer num in one data consumer group, for routine load
 DECLARE_mInt32(max_consumer_num_per_group);
 
-// the size of thread pool for routine load task.
+// the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-DECLARE_Int32(routine_load_thread_pool_size);
+DECLARE_Int32(max_routine_load_thread_pool_size);
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -872,9 +856,6 @@ DECLARE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec);
 // A common object cache depends on an Sharded LRU Cache.
 DECLARE_mInt32(common_obj_lru_cache_stale_sweep_time_sec);
 
-// s3 config
-DECLARE_mInt32(max_remote_storage_count);
-
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
 // If the dependent kafka broker version older than 0.10.0.0,
 // the value of kafka_api_version_request should be false, and the
@@ -957,11 +938,6 @@ DECLARE_mInt32(remove_unused_remote_files_interval_sec); // 6h
 DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
-DECLARE_Int32(concurrency_per_dir);
-// file_cache_type is used to set the type of file cache for remote files.
-// "": no cache, "sub_file_cache": split sub files from remote file.
-// "whole_file_cache": the whole file.
-DECLARE_mString(file_cache_type);
 
 DECLARE_Int32(s3_transfer_executor_pool_size);
 

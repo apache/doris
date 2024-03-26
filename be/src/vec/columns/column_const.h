@@ -21,11 +21,10 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 #include <sys/types.h>
 
-#include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <ostream>
@@ -48,14 +47,43 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+
 class Arena;
 class Block;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
+/*
+ * @return first : pointer to column itself if it's not ColumnConst, else to column's data column.
+ *         second : zero if column is ColumnConst, else itself.
+*/
+std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
+                                                                size_t row_num) noexcept;
+
+/*
+ * @warning use this function sometimes cause performance problem in GCC.
+*/
+template <typename T>
+    requires std::is_integral_v<T>
+T index_check_const(T arg, bool constancy) noexcept {
+    return constancy ? 0 : arg;
+}
+
+/*
+ * @return first : data_column_ptr for ColumnConst, itself otherwise.
+ *         second : whether it's ColumnConst.
+*/
+std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr&) noexcept;
+
+/*
+ * For the functions that some columns of arguments are almost but not completely always const, we use this function to preprocessing its parameter columns
+ * (which are not data columns). When we have two or more columns which only provide parameter, use this to deal with corner case. So you can specialize you
+ * implementations for all const or all parameters const, without considering some of parameters are const.
+ 
+ * Do the transformation only for the columns whose arg_indexes in parameters.
+*/
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::initializer_list<size_t>& parameters,
+                                          Block& block, const ColumnNumbers& arg_indexes) noexcept;
 
 /** ColumnConst contains another column with single element,
   *  but looks like a column with arbitrary amount of same elements.
@@ -140,7 +168,7 @@ public:
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        auto res = data->deserialize_and_insert_from_arena(pos);
+        const auto* res = data->deserialize_and_insert_from_arena(pos);
         data->pop_back(1);
         ++s;
         return res;
@@ -202,8 +230,9 @@ public:
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
         auto rhs_const_column = assert_cast<const ColumnConst&>(rhs);
 
-        auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
-        auto* rhs_nullable = check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
+        const auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
+        const auto* rhs_nullable =
+                check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
         if (this_nullable && rhs_nullable) {
             return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
         } else if (this_nullable) {
@@ -228,8 +257,9 @@ public:
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (auto rhs_concrete = typeid_cast<const ColumnConst*>(&rhs))
+        if (const auto* rhs_concrete = typeid_cast<const ColumnConst*>(&rhs)) {
             return data->structure_equals(*rhs_concrete->data);
+        }
         return false;
     }
 
@@ -264,37 +294,4 @@ public:
         LOG(FATAL) << "should not call the method in column const";
     }
 };
-
-/*
- * @return first : pointer to column itself if it's not ColumnConst, else to column's data column.
- *         second : zero if column is ColumnConst, else itself.
-*/
-std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
-                                                                const size_t row_num) noexcept;
-
-/*
- * @warning use this function sometimes cause performance problem in GCC.
-*/
-template <typename T>
-    requires std::is_integral_v<T>
-T index_check_const(T arg, bool constancy) noexcept {
-    return constancy ? 0 : arg;
-}
-
-/*
- * @return first : data_column_ptr for ColumnConst, itself otherwise.
- *         second : whether it's ColumnConst.
-*/
-std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr&) noexcept;
-
-/*
- * For the functions that some columns of arguments are almost but not completely always const, we use this function to preprocessing its parameter columns
- * (which are not data columns). When we have two or more columns which only provide parameter, use this to deal with corner case. So you can specialize you
- * implementations for all const or all parameters const, without considering some of parameters are const.
- 
- * Do the transformation only for the columns whose arg_indexes in parameters.
-*/
-void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
-                                          const std::initializer_list<size_t>& parameters,
-                                          Block& block, const ColumnNumbers& arg_indexes) noexcept;
 } // namespace doris::vectorized

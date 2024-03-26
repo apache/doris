@@ -79,17 +79,19 @@ public abstract class RoutineLoadTaskInfo {
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs, boolean isMultiTable) {
+    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs,
+                        int timeoutBackOffCount, boolean isMultiTable) {
         this.id = id;
         this.jobId = jobId;
         this.createTimeMs = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
+        this.timeoutBackOffCount = timeoutBackOffCount;
         this.isMultiTable = isMultiTable;
     }
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs, long previousBeId,
-                               boolean isMultiTable) {
-        this(id, jobId, timeoutMs, isMultiTable);
+    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs, int timeoutBackOffCount,
+                        long previousBeId, boolean isMultiTable) {
+        this(id, jobId, timeoutMs, timeoutBackOffCount, isMultiTable);
         this.previousBeId = previousBeId;
     }
 
@@ -164,8 +166,8 @@ public abstract class RoutineLoadTaskInfo {
         }
 
         if (isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs) {
-            LOG.info("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
-                    executeStartTimeMs, timeoutMs);
+            LOG.info("task {} is timeout. start: {}, timeout: {}, timeoutBackOffCount: {}", DebugUtil.printId(id),
+                    executeStartTimeMs, timeoutMs, timeoutBackOffCount);
             return true;
         }
         return false;

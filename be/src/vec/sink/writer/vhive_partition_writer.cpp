@@ -18,7 +18,6 @@
 #include "vhive_partition_writer.h"
 
 #include "io/file_factory.h"
-#include "io/fs/file_system.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/materialize_block.h"
 #include "vec/runtime/vorc_transformer.h"
@@ -27,12 +26,14 @@
 namespace doris {
 namespace vectorized {
 
-VHivePartitionWriter::VHivePartitionWriter(
-        const TDataSink& t_sink, const std::string partition_name, TUpdateMode::type update_mode,
-        const VExprContextSPtrs& output_expr_ctxs, const std::vector<THiveColumn>& columns,
-        WriteInfo write_info, const std::string file_name, TFileFormatType::type file_format_type,
-        TFileCompressType::type hive_compress_type,
-        const std::map<std::string, std::string>& hadoop_conf)
+VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
+                                           TUpdateMode::type update_mode,
+                                           const VExprContextSPtrs& output_expr_ctxs,
+                                           const std::vector<THiveColumn>& columns,
+                                           WriteInfo write_info, std::string file_name,
+                                           TFileFormatType::type file_format_type,
+                                           TFileCompressType::type hive_compress_type,
+                                           const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
           _vec_output_expr_ctxs(output_expr_ctxs),
@@ -41,17 +42,17 @@ VHivePartitionWriter::VHivePartitionWriter(
           _file_name(std::move(file_name)),
           _file_format_type(file_format_type),
           _hive_compress_type(hive_compress_type),
-          _hadoop_conf(hadoop_conf)
-
-{}
+          _hadoop_conf(hadoop_conf) {}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
-    std::vector<TNetworkAddress> broker_addresses;
-    RETURN_IF_ERROR(FileFactory::create_file_writer(
-            _write_info.file_type, state->exec_env(), broker_addresses, _hadoop_conf,
-            fmt::format("{}/{}", _write_info.write_path, _file_name), 0, _file_writer_impl));
+    io::FSPropertiesRef fs_properties(_write_info.file_type);
+    fs_properties.properties = &_hadoop_conf;
+    io::FileDescription file_description = {
+            .path = fmt::format("{}/{}", _write_info.write_path, _file_name)};
+    _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
+    RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer));
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
@@ -76,17 +77,18 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
         }
         }
         std::vector<TParquetSchema> parquet_schemas;
+        parquet_schemas.reserve(_columns.size());
         for (int i = 0; i < _columns.size(); i++) {
             VExprSPtr column_expr = _vec_output_expr_ctxs[i]->root();
             TParquetSchema parquet_schema;
             parquet_schema.schema_column_name = _columns[i].name;
             parquet_schemas.emplace_back(std::move(parquet_schema));
         }
-        _vfile_writer.reset(new VParquetTransformer(
-                state, _file_writer_impl.get(), _vec_output_expr_ctxs, parquet_schemas,
+        _file_format_transformer.reset(new VParquetTransformer(
+                state, _file_writer.get(), _vec_output_expr_ctxs, parquet_schemas,
                 parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
                 false));
-        return _vfile_writer->open();
+        return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
         orc::CompressionKind orc_compression_type;
@@ -123,10 +125,10 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
             }
         }
 
-        _vfile_writer.reset(new VOrcTransformer(state, _file_writer_impl.get(),
-                                                _vec_output_expr_ctxs, std::move(root_schema),
-                                                false, orc_compression_type));
-        return _vfile_writer->open();
+        _file_format_transformer.reset(
+                new VOrcTransformer(state, _file_writer.get(), _vec_output_expr_ctxs,
+                                    std::move(root_schema), false, orc_compression_type));
+        return _file_format_transformer->open();
     }
     default: {
         return Status::InternalError("Unsupported file format type {}",
@@ -135,17 +137,18 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     }
 }
 
-Status VHivePartitionWriter::close(Status status) {
-    if (_vfile_writer != nullptr) {
-        Status st = _vfile_writer->close();
-        if (st != Status::OK()) {
-            LOG(WARNING) << fmt::format("_vfile_writer close failed, reason: {}", st.to_string());
+Status VHivePartitionWriter::close(const Status& status) {
+    if (_file_format_transformer != nullptr) {
+        Status st = _file_format_transformer->close();
+        if (!st.ok()) {
+            LOG(WARNING) << fmt::format("_file_format_transformer close failed, reason: {}",
+                                        st.to_string());
         }
     }
-    if (status != Status::OK()) {
+    if (!status.ok() && _fs != nullptr) {
         auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
-        Status st = _file_writer_impl->fs()->delete_file(path);
-        if (st != Status::OK()) {
+        Status st = _fs->delete_file(path);
+        if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
     }
@@ -156,7 +159,7 @@ Status VHivePartitionWriter::close(Status status) {
 Status VHivePartitionWriter::write(vectorized::Block& block, vectorized::IColumn::Filter* filter) {
     Block output_block;
     RETURN_IF_ERROR(_projection_and_filter_block(block, filter, &output_block));
-    RETURN_IF_ERROR(_vfile_writer->write(output_block));
+    RETURN_IF_ERROR(_file_format_transformer->write(output_block));
     _row_count += output_block.rows();
     _input_size_in_bytes += output_block.bytes();
     return Status::OK();
@@ -245,7 +248,7 @@ Status VHivePartitionWriter::_projection_and_filter_block(doris::vectorized::Blo
         return status;
     }
     RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, input_block, output_block));
+            _vec_output_expr_ctxs, input_block, output_block, true));
     materialize_block_inplace(*output_block);
 
     if (filter == nullptr) {
