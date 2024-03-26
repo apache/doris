@@ -394,7 +394,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                 ResultSet rs = stmt.executeQuery()) {
             ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
             while (rs.next()) {
-                builder.put(rs.getString("PARAM_KEY"), rs.getString("PARAM_VALUE"));
+                builder.put(rs.getString("PARAM_KEY"), getStringResult(rs, "PARAM_VALUE"));
             }
             return builder.build();
         } catch (Exception e) {
@@ -468,6 +468,15 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
             throw new HMSClientException("Can not get schema of SD_ID = " + sdId);
         }
         return colsExcludePartitionKeys.build();
+    }
+
+    private String getStringResult(ResultSet rs, String columnLabel) throws Exception {
+        String s = rs.getString(columnLabel);
+        if (rs.wasNull()) {
+            LOG.warn("get `NULL` value of field `" + columnLabel + "`.");
+            return "";
+        }
+        return s;
     }
 
     @Override
