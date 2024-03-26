@@ -734,4 +734,17 @@ suite("test_date_function") {
            (
             SELECT FROM_UNIXTIME(UNIX_TIMESTAMP('20230918', '%Y%m%d'), 'yyyy-MM-dd HH:mm:ss') AS `a`
            )t """
+
+    sql """
+        create table date_varchar(
+            dt varchar null,
+            fmt varchar null
+        )
+        DISTRIBUTED BY HASH(`dt`) BUCKETS 1
+        properties("replication_num" = "1");
+    """
+    sql """ insert into date_varchar values ("2020-12-12", "%Y-%m-%d"), ("20201111", "%Y%m%d"), ("202012-13", "%Y%m-%d"); """
+    qt_sql_varchar1 """ select unix_timestamp(dt, fmt) as k1 from date_varchar order by k1; """
+    qt_sql_varchar1 """ select unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1; """
+    qt_sql_varchar1 """ select unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1; """
 }

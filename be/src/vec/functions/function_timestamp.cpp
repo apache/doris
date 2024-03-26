@@ -835,8 +835,8 @@ struct UnixTimeStampStrImpl {
         const auto* col_source = assert_cast<const ColumnString*>(col_left.get());
         const auto* col_format = assert_cast<const ColumnString*>(col_right.get());
         for (int i = 0; i < input_rows_count; i++) {
-            StringRef source = col_source->get_data_at(i);
-            StringRef fmt = col_format->get_data_at(i);
+            StringRef source = col_source->get_data_at(index_check_const(i, source_const));
+            StringRef fmt = col_format->get_data_at(index_check_const(i, format_const));
 
             DateV2Value<DateTimeV2ValueType> ts_value;
             if (!ts_value.from_date_format_str(fmt.data, fmt.size, source.data, source.size)) {
