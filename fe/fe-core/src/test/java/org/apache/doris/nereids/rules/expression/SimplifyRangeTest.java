@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -62,6 +63,16 @@ public class SimplifyRangeTest extends ExpressionRewrite {
             bottomUp(SimplifyRange.INSTANCE)
         ));
         assertRewrite("TA", "TA");
+        assertRewrite("TA > 3 or TA > null", "TA > 3");
+        assertRewrite("TA > 3 or TA < null", "TA > 3");
+        assertRewrite("TA > 3 or TA = null", "TA > 3");
+        assertRewrite("TA > 3 or TA <> null", "TA > 3 or TA <> null");
+        assertRewrite("TA > 3 or TA <=> null", "TA > 3 or TA <=> null");
+        assertRewrite("TA > 3 and TA > null", "false");
+        assertRewrite("TA > 3 and TA < null", "false");
+        assertRewrite("TA > 3 and TA = null", "false");
+        assertRewrite("TA > 3 and TA <> null", "TA > 3 and TA <> null");
+        assertRewrite("TA > 3 and TA <=> null", "TA > 3 and TA <=> null");
         assertRewrite("(TA >= 1 and TA <=3 ) or (TA > 5 and TA < 7)", "(TA >= 1 and TA <=3 ) or (TA > 5 and TA < 7)");
         assertRewrite("(TA > 3 and TA < 1) or (TA > 7 and TA < 5)", "FALSE");
         assertRewrite("TA > 3 and TA < 1", "FALSE");
@@ -301,7 +312,9 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        needRewriteExpression = typeCoercion(needRewriteExpression);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
+        expectedExpression = typeCoercion(expectedExpression);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
@@ -309,7 +322,9 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     private void assertRewriteNotNull(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceNotNullUnboundSlot(PARSER.parseExpression(expression), mem);
+        needRewriteExpression = typeCoercion(needRewriteExpression);
         Expression expectedExpression = replaceNotNullUnboundSlot(PARSER.parseExpression(expected), mem);
+        expectedExpression = typeCoercion(expectedExpression);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
@@ -348,6 +363,10 @@ public class SimplifyRangeTest extends ExpressionRewrite {
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
+    }
+
+    protected Expression typeCoercion(Expression expression) {
+        return FunctionBinder.INSTANCE.rewrite(expression, null);
     }
 
     private DataType getType(char t) {
