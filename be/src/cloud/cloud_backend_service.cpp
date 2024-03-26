@@ -17,7 +17,14 @@
 
 #include "cloud/cloud_backend_service.h"
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_hotspot.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "common/config.h"
+#include "common/logging.h"
+#include "common/status.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "util/thrift_server.h"
 
 namespace doris {
@@ -43,6 +50,30 @@ Status CloudBackendService::create_service(CloudStorageEngine& engine, ExecEnv* 
     LOG(INFO) << "Doris CloudBackendService listening on " << port;
 
     return Status::OK();
+}
+
+void CloudBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse&,
+                                                const TSyncLoadForTabletsRequest& request) {
+    auto f = [this, tablet_ids = request.tablet_ids]() {
+        std::for_each(tablet_ids.cbegin(), tablet_ids.cend(), [this](int64_t tablet_id) {
+            CloudTabletSPtr tablet;
+            auto result = _engine.tablet_mgr().get_tablet(tablet_id, true);
+            if (!result.has_value()) {
+                return;
+            }
+            Status st = result.value()->sync_rowsets(-1, true);
+            if (!st.ok()) {
+                LOG_WARNING("failed to sync load for tablet").error(st);
+            }
+        });
+    };
+}
+
+void CloudBackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
+                                                   const TGetTopNHotPartitionsRequest& request) {
+    TabletHotspot::instance()->get_top_n_hot_partition(&response.hot_tables);
+    response.file_cache_size = io::FileCacheFactory::instance()->get_capacity();
+    response.__isset.hot_tables = !response.hot_tables.empty();
 }
 
 } // namespace doris
