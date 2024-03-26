@@ -42,8 +42,10 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
@@ -66,6 +69,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
@@ -237,7 +241,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
-                                               List<String> tableQualifier, CascadesContext cascadesContext) {
+            List<String> tableQualifier, CascadesContext cascadesContext) {
         switch (table.getType()) {
             case OLAP:
             case MATERIALIZED_VIEW:
@@ -247,7 +251,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 String inlineViewDef = view.getInlineViewDef();
                 Plan viewBody = parseAndAnalyzeView(inlineViewDef, cascadesContext);
                 LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
-                return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
+                return new LogicalSubQueryAlias<>(tableQualifier, addProjectForView(view, logicalView));
             case HMS_EXTERNAL_TABLE:
                 HMSExternalTable hmsTable = (HMSExternalTable) table;
                 if (Config.enable_query_hive_views && hmsTable.isView()) {
@@ -326,6 +330,30 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             return part.getId();
         }).collect(ImmutableList.toImmutableList());
+    }
+
+    private LogicalPlan addProjectForView(View view, LogicalView<Plan> logicalView) {
+        List<Slot> viewOutput = logicalView.getOutput();
+        List<Column> fullSchema = view.getFullSchema();
+        boolean needProject = false;
+        for (int i = 0; i < viewOutput.size(); i++) {
+            if (!viewOutput.get(i).getName().equals(fullSchema.get(i).getName())) {
+                needProject = true;
+                break;
+            }
+        }
+        if (!needProject) {
+            return logicalView;
+        }
+        List<NamedExpression> projectList = Lists.newArrayList();
+        for (int i = 0; i < viewOutput.size(); i++) {
+            if (viewOutput.get(i).getName().equals(fullSchema.get(i).getName())) {
+                projectList.add(viewOutput.get(i));
+            } else {
+                projectList.add(new Alias(viewOutput.get(i), fullSchema.get(i).getName()));
+            }
+        }
+        return new LogicalProject<Plan>(projectList, logicalView);
     }
 
     /** CustomTableResolver */

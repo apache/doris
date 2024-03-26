@@ -25,7 +25,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ToSqlContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -50,7 +49,7 @@ public class BaseViewStmt extends DdlStmt {
     protected QueryStmt cloneStmt;
 
     public BaseViewStmt(TableName tableName, List<ColWithComment> cols, QueryStmt queryStmt) {
-        Preconditions.checkNotNull(queryStmt);
+        // Preconditions.checkNotNull(queryStmt);
         this.tableName = tableName;
         this.cols = cols;
         this.viewDefStmt = queryStmt;

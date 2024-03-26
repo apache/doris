@@ -120,7 +120,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 topDown(new EliminateLogicalSelectHint()),
                 bottomUp(
                         new BindRelation(customTableResolver),
-                        new CheckPolicy()
+                        new CheckPolicy(),
+                        new BindExpression(),
+                        new MergeProjects()
                 )
         );
     }

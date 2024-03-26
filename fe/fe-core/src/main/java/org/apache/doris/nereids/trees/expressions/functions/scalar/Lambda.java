@@ -132,7 +132,7 @@ public class Lambda extends Expression {
         if (argumentNames.size() > 1) {
             argStr = argumentNames.stream().collect(Collectors.joining(", ", "(", ")"));
         }
-        builder.append(String.format("%s -> %s", argStr, getLambdaFunction().toString()));
+        builder.append(String.format("%s -> %s", argStr, getLambdaFunction().toSql()));
         for (int i = 1; i < getArguments().size(); i++) {
             builder.append(", ").append(getArgument(i).toSql());
         }

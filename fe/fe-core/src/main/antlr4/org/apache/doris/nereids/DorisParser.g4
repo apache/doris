@@ -60,6 +60,9 @@ statementBase
         properties=propertyClause?
         (BROKER extProperties=propertyClause)?
         (AS query)?                                                    #createTable
+    | CREATE VIEW (IF NOT EXISTS)? name=multipartIdentifier
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
+        (COMMENT STRING_LITERAL)? AS query                                #createView
     | explain? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
