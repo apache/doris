@@ -309,8 +309,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                     testFeToJdbcConnection();
                     testBeToJdbcConnection();
                 } finally {
-                    jdbcClient.closeClient();
-                    jdbcClient = null;
+                    if (jdbcClient != null) {
+                        jdbcClient.closeClient();
+                        jdbcClient = null;
+                    }
                 }
             }
         }

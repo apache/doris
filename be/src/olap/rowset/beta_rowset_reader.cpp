@@ -238,6 +238,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_context->runtime_state->query_options().disable_file_cache;
     }
 
+    _read_options.io_ctx.expiration_time =
+            read_context->ttl_seconds == 0
+                    ? 0
+                    : _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds;
+    if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
+        _read_options.io_ctx.expiration_time = 0;
+    }
+
     // load segments
     bool should_use_cache = use_cache || _read_context->reader_type == ReaderType::READER_QUERY;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
