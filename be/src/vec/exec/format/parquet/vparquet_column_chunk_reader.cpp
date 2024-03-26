@@ -47,16 +47,16 @@ namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
-                                     cctz::time_zone* ctz, io::IOContext* io_ctx,
-                                     const tparquet::OffsetIndex* offset_index)
+                                     const tparquet::OffsetIndex* offset_index,
+                                     cctz::time_zone* ctz, io::IOContext* io_ctx)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
           _metadata(column_chunk->meta_data),
+          _offset_index(offset_index),
           //          _ctz(ctz),
-          _io_ctx(io_ctx),
-          _offset_index(offset_index) {}
+          _io_ctx(io_ctx) {}
 
 Status ColumnChunkReader::init() {
     size_t start_offset = _metadata.__isset.dictionary_page_offset

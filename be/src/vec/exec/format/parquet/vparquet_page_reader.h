@@ -72,7 +72,7 @@ public:
 
     void seek_to_page(int64_t page_header_offset) {
         _offset = page_header_offset;
-        // TODO: page_index
+        // TODO: make sure the page_index must be 0
         // _page_index = page_index;
         _state = INITIALIZED;
     }

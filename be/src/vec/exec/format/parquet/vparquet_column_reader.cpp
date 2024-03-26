@@ -203,7 +203,7 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
     _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
                                                                     prefetch_buffer_size);
     _chunk_reader = std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field,
-                                                        _ctz, _io_ctx, _offset_index);
+                                                        _offset_index, _ctz, _io_ctx);
     RETURN_IF_ERROR(_chunk_reader->init());
     return Status::OK();
 }
