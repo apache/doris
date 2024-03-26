@@ -1070,6 +1070,85 @@ public class ConnectContext {
         return getCloudCluster(true);
     }
 
+    public static class CloudClusterResult {
+        public enum Comment {
+            FOUND_BY_DEFAULT_CLUSTER,
+            DEFAULT_CLUSTER_SET_BUT_NOT_EXIST,
+            FOUND_BY_FIRST_CLUSTER_WITH_ALIVE_BE,
+            FOUND_BY_FRIST_CLUSTER_HAS_AUTH,
+        }
+
+        public String clusterName;
+        public Comment comment;
+
+        public CloudClusterResult(final String name, Comment c) {
+            this.clusterName = name;
+            this.comment = c;
+        }
+
+        @Override
+        public String toString() {
+            return "CloudClusterResult{"
+                + "clusterName='" + clusterName + '\''
+                + ", comment=" + comment
+                + '}';
+        }
+    }
+
+
+    // can't get cluster from context, use the following strategy to obtain the cluster name
+    // 当用户有多个集群的权限时，会按照如下策略进行拉取：
+    // 如果当前mysql用户没有指定cluster(没有default 或者 use), 选择有权限的cluster。
+    // 如果有多个cluster满足权限条件,优先选活的，按字母序选
+    // 如果没有活的，则拉起一个，按字母序选
+    public CloudClusterResult getCloudClusterByPolicy() {
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        // try set default cluster
+        String defaultCloudCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
+        if (!Strings.isNullOrEmpty(defaultCloudCluster)) {
+            // check cluster validity
+            CloudClusterResult r;
+            if (cloudClusterNames.contains(defaultCloudCluster)) {
+                // valid
+                r = new CloudClusterResult(defaultCloudCluster,
+                    CloudClusterResult.Comment.FOUND_BY_DEFAULT_CLUSTER);
+                LOG.info("use default cluster {}", defaultCloudCluster);
+            } else {
+                // invalid
+                r = new CloudClusterResult(defaultCloudCluster,
+                    CloudClusterResult.Comment.DEFAULT_CLUSTER_SET_BUT_NOT_EXIST);
+                LOG.warn("default cluster {} current invalid, please change it", r);
+            }
+            return r;
+        }
+
+        List<String> hasAuthCluster = new ArrayList<>();
+        // get all available cluster of the user
+        for (String cloudClusterName : cloudClusterNames) {
+            if (Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
+                    cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                hasAuthCluster.add(cloudClusterName);
+                // find a cluster has more than one alive be
+                List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getBackendsByClusterName(cloudClusterName);
+                AtomicBoolean hasAliveBe = new AtomicBoolean(false);
+                bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
+                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudCluster, backend);
+                    hasAliveBe.set(true);
+                });
+                if (hasAliveBe.get()) {
+                    // set a cluster to context cloudCluster
+                    CloudClusterResult r = new CloudClusterResult(cloudClusterName,
+                            CloudClusterResult.Comment.FOUND_BY_FIRST_CLUSTER_WITH_ALIVE_BE);
+                    LOG.debug("set context {}", r);
+                    return r;
+                }
+            }
+        }
+        return hasAuthCluster.isEmpty() ? null
+            : new CloudClusterResult(hasAuthCluster.get(0), CloudClusterResult.Comment.FOUND_BY_FRIST_CLUSTER_HAS_AUTH);
+    }
+
     /**
      * @param updateErr whether set this connect state to error when the returned cluster is null or empty.
      *
@@ -1085,18 +1164,25 @@ public class ConnectContext {
         }
 
         String cluster = null;
+        String choseWay = null;
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
+            choseWay = "use @cluster";
+            LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
+                    cloudCluster, getCurrentUserIdentity(), choseWay);
+            return cluster;
         }
 
         String defaultCluster = getDefaultCloudCluster();
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
-        }
-
-        String authorizedCluster = getAuthorizedCloudCluster();
-        if (!Strings.isNullOrEmpty(authorizedCluster)) {
-            cluster = authorizedCluster;
+            choseWay = "default cluster";
+        } else {
+            String authorizedCluster = getAuthorizedCloudCluster();
+            if (!Strings.isNullOrEmpty(authorizedCluster)) {
+                cluster = authorizedCluster;
+                choseWay = "authorized cluster";
+            }
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
@@ -1107,7 +1193,8 @@ public class ConnectContext {
             }
         } else {
             this.cloudCluster = cluster;
-            LOG.info("finally set context cluster name {} for user {}", cloudCluster, getCurrentUserIdentity());
+            LOG.info("finally set context cluster name {} for user {} with chose way '{}'",
+                    cloudCluster, getCurrentUserIdentity(), choseWay);
         }
 
         return cluster;
