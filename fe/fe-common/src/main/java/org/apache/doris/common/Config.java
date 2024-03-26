@@ -1143,8 +1143,8 @@ public class Config extends ConfigBase {
     /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'routine_load_thread_pool_size'(default 10),
-     * which is the routine load task thread pool size on BE.
+     * than BE config 'max_routine_load_thread_pool_size'(default 1024),
+     * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_num_per_be = 5;
@@ -2530,10 +2530,21 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_proxy_protocol = false;
 
+    // Used to check compatibility when upgrading.
+    @ConfField
+    public static boolean enable_check_compatibility_mode = false;
+
+    // Do checkpoint after replaying edit logs.
+    @ConfField
+    public static boolean checkpoint_after_check_compatibility = false;
 
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
+
+    @ConfField public static int info_sys_accumulated_file_size = 4;
+    @ConfField public static int warn_sys_accumulated_file_size = 2;
+    @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
     public static String cloud_unique_id = "";

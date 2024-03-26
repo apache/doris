@@ -52,9 +52,22 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // this suites will not be executed
-excludeSuites = "test_big_pad,test_profile,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter"
+excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "test_analyze_stats_p1," +
+    "test_big_pad," +
+    "test_bitmap_filter," +
+    "test_broker_load," +
+    "test_profile," +
+    "test_refresh_mtmv," +
+    "test_spark_load," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+
 // this dir will not be executed
-excludeDirectories = "workload_manager_p1,fault_injection_p0"
+excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "fault_injection_p0," +
+    "workload_manager_p1," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+
 cacheDataPath="/data/regression/"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"

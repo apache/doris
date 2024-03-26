@@ -667,9 +667,9 @@ DECLARE_Bool(enable_metric_calculator);
 // max consumer num in one data consumer group, for routine load
 DECLARE_mInt32(max_consumer_num_per_group);
 
-// the size of thread pool for routine load task.
+// the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-DECLARE_Int32(routine_load_thread_pool_size);
+DECLARE_Int32(max_routine_load_thread_pool_size);
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -1027,6 +1027,7 @@ DECLARE_String(inverted_index_searcher_cache_limit);
 DECLARE_Bool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
+DECLARE_Int32(inverted_index_query_cache_shards);
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);

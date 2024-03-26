@@ -153,6 +153,7 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
                     columnIdx.add(i);
                 }
             }
+            // mapping partition id
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
