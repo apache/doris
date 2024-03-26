@@ -18,6 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -73,10 +74,15 @@ public class RoutineLoadScheduler extends MasterDaemon {
         if (!routineLoadJobList.isEmpty()) {
             LOG.info("there are {} job need schedule", routineLoadJobList.size());
         }
+
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
             RoutineLoadJob.JobState errorJobState = null;
             UserException userException = null;
             try {
+                if (Config.isCloudMode()) {
+                    routineLoadJob.updateCloudProgress();
+                }
+
                 routineLoadJob.prepare();
                 // judge nums of tasks more than max concurrent tasks of cluster
                 int desiredConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();

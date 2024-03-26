@@ -134,7 +134,7 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_REPLICATION_NUM:
                 buildReplicaAllocation();
                 break;
-            case OperationType.OP_MODIFY_IN_MEMORY:
+            case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                 buildInMemory();
                 buildMinLoadReplicaNum();
                 buildStorageMedium();
@@ -149,6 +149,7 @@ public class TableProperty implements Writable {
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
+                buildTTLSeconds();
                 break;
             default:
                 break;
