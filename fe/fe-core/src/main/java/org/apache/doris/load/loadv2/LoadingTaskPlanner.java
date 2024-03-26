@@ -206,8 +206,10 @@ public class LoadingTaskPlanner {
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
+        final boolean enableSingleReplicaLoad = this.enableMemTableOnSinkNode
+                ? false : Config.enable_single_replica_load;
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds,
-                Config.enable_single_replica_load);
+                enableSingleReplicaLoad);
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeout() : timeoutS;
         olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, singleTabletLoadPerSink, strictMode,
                 txnTimeout);
