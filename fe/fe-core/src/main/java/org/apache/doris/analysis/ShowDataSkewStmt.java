@@ -18,11 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -32,9 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
-
-import java.util.ArrayList;
-import java.util.Optional;
 
 // show data skew from tbl [partition(p1, p2, ...)]
 public class ShowDataSkewStmt extends ShowStmt {
@@ -62,24 +56,6 @@ public class ShowDataSkewStmt extends ShowStmt {
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     tblRef.getName().getDb() + "." + tblRef.getName().getTbl());
-        }
-
-        Optional<DatabaseIf> db = Env.getCurrentEnv().getCurrentCatalog().getDb(tblRef.getName().getDb());
-        if (!db.isPresent()) {
-            throw new AnalysisException("Can not find db: " + tblRef.getName().getDb());
-        }
-        Optional<TableIf> tbl = db.get().getTable(tblRef.getName().getTbl());
-        if (!tbl.isPresent()) {
-            throw new AnalysisException("Can not find table: " + tblRef.getName().getDb() + "."
-                    + tblRef.getName().getTbl());
-        }
-
-        PartitionNames partitionNames = tblRef.getPartitionNames();
-        if (partitionNames == null) {
-            if (tbl.get().getPartitionNames().isEmpty()) {
-                throw new AnalysisException("Can not find any partition");
-            }
-            tblRef.setPartitionNames(new PartitionNames(false, new ArrayList<>(tbl.get().getPartitionNames())));
         }
     }
 

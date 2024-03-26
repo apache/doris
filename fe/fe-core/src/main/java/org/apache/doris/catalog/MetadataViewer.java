@@ -34,6 +34,7 @@ import com.google.common.collect.Maps;
 
 import java.text.DecimalFormat;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -267,19 +268,34 @@ public class MetadataViewer {
         List<List<String>> result = Lists.newArrayList();
         Env env = Env.getCurrentEnv();
 
-        if (partitionNames == null) {
-            throw new DdlException("Can not find any partition");
-        }
-
         Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+
+        if (olapTable.getPartitionNames().isEmpty()) {
+            throw new DdlException("Can not find any partition from " + dbName + "." + tblName);
+        }
+
+        // patition -> isTmep
+        Map<String, Boolean> allPartionNames = new HashMap<>();
+        if (partitionNames == null) {
+            for (Partition p : olapTable.getPartitions()) {
+                allPartionNames.put(p.getName(), false);
+            }
+            for (Partition p : olapTable.getTempPartitions()) {
+                allPartionNames.put(p.getName(), true);
+            }
+        } else {
+            for (String name : partitionNames.getPartitionNames()) {
+                allPartionNames.put(name, partitionNames.isTemp());
+            }
+        }
 
         olapTable.readLock();
         try {
             Partition partition = null;
             // check partition
-            for (String partName : partitionNames.getPartitionNames()) {
-                partition = olapTable.getPartition(partName, partitionNames.isTemp());
+            for (Map.Entry<String, Boolean> partName : allPartionNames.entrySet()) {
+                partition = olapTable.getPartition(partName.getKey(), partName.getValue());
                 if (partition == null) {
                     throw new DdlException("Partition does not exist: " + partName);
                 }
@@ -307,7 +323,7 @@ public class MetadataViewer {
                 // graph
                 for (int i = 0; i < distributionInfo.getBucketNum(); i++) {
                     List<String> row = Lists.newArrayList();
-                    row.add(partName);
+                    row.add(partName.getKey());
                     row.add(String.valueOf(i));
                     row.add(rowCountTabletInfos.get(i).toString());
                     row.add(dataSizeTabletInfos.get(i).toString());
