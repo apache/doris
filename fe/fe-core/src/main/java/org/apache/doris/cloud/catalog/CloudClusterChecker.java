@@ -351,8 +351,8 @@ public class CloudClusterChecker extends MasterDaemon {
     }
 
     private void getCloudObserverFes() {
-        Cloud.GetClusterResponse response = CloudSystemInfoService
-                .getCloudCluster(Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
+        Cloud.GetClusterResponse response = cloudSystemInfoService.getCloudCluster(
+                Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
                 || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             LOG.warn("failed to get cloud cluster due to incomplete response, "
