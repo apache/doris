@@ -893,6 +893,66 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
+    // erase database in catalog recycle bin timely
+    public synchronized void eraseDatabaseTimely(long dbId) throws DdlException {
+        // 1. find dbInfo to erase
+        RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
+        if (dbInfo == null) {
+            throw new DdlException("Unknown database id '" + dbId + "'");
+        }
+
+        // 2. erase db
+        Env.getCurrentEnv().eraseDatabase(dbId, true);
+        String dbName = dbInfo.getDb().getName();
+        LOG.info("erase db[{}]: {}", dbId, dbName);
+
+        // 3. erase db from idToDatabase and idToRecycleTime
+        idToDatabase.remove(dbId);
+        idToRecycleTime.remove(dbId);
+    }
+
+    // erase table in catalog recycle bin timely
+    public synchronized void eraseTableTimely(long tableId) throws DdlException {
+        // 1. find tableInfo to erase
+        RecycleTableInfo tableInfo = idToTable.get(tableId);
+        if (tableInfo == null) {
+            throw new DdlException("Unknown table id '" + tableId + "'");
+        }
+
+        // 2. erase table
+        long dbId = tableInfo.getDbId();
+        Table table = tableInfo.getTable();
+        String tableName = table.getName();
+        if (table.getType() == TableType.OLAP) {
+            Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+            LOG.info("erase db[{}]'s table[{}]: {}", dbId, tableId, tableName);
+        }
+
+        // 3. erase table from idToTable and idToRecycleTime
+        idToTable.remove(tableId);
+        idToRecycleTime.remove(tableId);
+    }
+
+    // erase partition in catalog recycle bin timely
+    public synchronized void erasePartitionTimely(long partitionId) throws DdlException {
+        // 1. find partitionInfo to erase
+        RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
+        if (partitionInfo == null) {
+            throw new DdlException("No partition id '" + partitionId + "'");
+        }
+
+        // 2. erase partition
+        long tableId = partitionInfo.getTableId();
+        Partition partition = partitionInfo.getPartition();
+        String partitionName = partition.getName();
+        Env.getCurrentEnv().onErasePartition(partition);
+        LOG.info("erase table[{}]'s partition[{}]: {}", tableId, partitionId, partitionName);
+
+        // 3. erase partition in idToPartition and idToRecycleTime
+        idToPartition.remove(partitionId);
+        idToRecycleTime.remove(partitionId);
+    }
+
     // no need to use synchronized.
     // only called when loading image
     public void addTabletToInvertedIndex() {
