@@ -120,7 +120,8 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
                 filterSize += 1;
             }
         }
-        List<String> columnNames = physicalOlapTableSink.getCols().stream().map(c -> c.getName()).collect(Collectors.toList());
+        List<String> columnNames = physicalOlapTableSink.getCols()
+                    .stream().map(c -> c.getName()).collect(Collectors.toList());
         for (List<Expr> list : materializedConstExprLists) {
             rows.add(GroupCommitPlanner.getRowStringValue(list, filterSize));
         }
