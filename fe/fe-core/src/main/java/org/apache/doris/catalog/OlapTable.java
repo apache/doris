@@ -2679,36 +2679,35 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public long getVisibleVersion() {
-        if (Config.isCloudMode()) {
+        if (Config.isNotCloudMode()) {
             return tableAttributes.getVisibleVersion();
-        } else {
-            // get version rpc
-            Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
-                    .setDbId(this.getDatabase().getId())
-                    .setTableId(this.id)
-                    .setBatchMode(false)
-                    .setIsTableVersion(true)
-                    .build();
+        }
+        // get version rpc
+        Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setDbId(this.getDatabase().getId())
+                .setTableId(this.id)
+                .setBatchMode(false)
+                .setIsTableVersion(true)
+                .build();
 
-            try {
-                Cloud.GetVersionResponse resp = getVersionFromMeta(request);
-                long version = -1;
-                if (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
-                    version = resp.getVersion();
-                } else {
-                    assert resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND;
-                    version = 0;
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get version from meta service, version: {}, table: {}", version, getId());
-                }
-                if (version == 0) {
-                    version = 1;
-                }
-                return version;
-            } catch (RpcException e) {
-                throw new RuntimeException("get version from meta service failed");
+        try {
+            Cloud.GetVersionResponse resp = getVersionFromMeta(request);
+            long version = -1;
+            if (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                version = resp.getVersion();
+            } else {
+                assert resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND;
+                version = 0;
             }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get version from meta service, version: {}, table: {}", version, getId());
+            }
+            if (version == 0) {
+                version = 1;
+            }
+            return version;
+        } catch (RpcException e) {
+            throw new RuntimeException("get version from meta service failed");
         }
     }
 
