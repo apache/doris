@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -128,7 +129,7 @@ public class TableSchemaAction extends RestBaseController {
      * }
      */
     @RequestMapping(path = "/api/enable_light_schema_change/{" + DB_KEY
-                    + "}/{" + TABLE_KEY + "}", method = { RequestMethod.GET })
+            + "}/{" + TABLE_KEY + "}", method = {RequestMethod.GET})
     public Object columnChangeCanSync(
             @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tableName,
@@ -145,27 +146,60 @@ public class TableSchemaAction extends RestBaseController {
         if (!table.getEnableLightSchemaChange()) {
             return ResponseEntityBuilder.okWithCommonError("table " + tableName + " disable light schema change");
         }
-        java.lang.reflect.Type type = new TypeToken<DDLRequestBody>() {}.getType();
+
+        java.lang.reflect.Type type = new TypeToken<DDLRequestBody>() {
+        }.getType();
         DDLRequestBody ddlRequestBody = new Gson().fromJson(body, type);
         if (ddlRequestBody.isDropColumn) {
-            boolean enableLightSchemaChange = true;
-            // column should be dropped from both base and rollup indexes.
-            for (Map.Entry<Long, List<Column>> entry : table.getIndexIdToSchema().entrySet()) {
-                List<Column> baseSchema = entry.getValue();
-                Iterator<Column> baseIter = baseSchema.iterator();
-                while (baseIter.hasNext()) {
-                    Column column = baseIter.next();
-                    if (column.getName().equalsIgnoreCase(ddlRequestBody.columnName)) {
-                        if (column.isKey()) {
-                            enableLightSchemaChange = false;
-                        }
-                        break;
+            String dropColName = ddlRequestBody.columnName;
+            long baseIndexId = table.getBaseIndexId();
+            Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
+            List<Long> indexIds = new ArrayList<Long>();
+            indexIds.add(baseIndexId);
+            indexIds.addAll(table.getIndexIdListExceptBaseIndex());
+
+            // find column in base index
+            List<Column> baseSchema = indexIdToSchema.get(baseIndexId);
+            boolean found = false;
+            Iterator<Column> baseIter = baseSchema.iterator();
+            while (baseIter.hasNext()) {
+                Column column = baseIter.next();
+                if (column.getName().equalsIgnoreCase(dropColName)) {
+                    if (column.isKey()) {
+                        return ResponseEntityBuilder.okWithCommonError("Column " + dropColName
+                                + " is primary key that can't do the light schema change");
                     }
+                    found = true;
+                    break;
                 }
             }
-            if (!enableLightSchemaChange) {
-                return ResponseEntityBuilder.okWithCommonError("Column " + ddlRequestBody.columnName
-                                + " is primary key in materializedIndex that can't do the light schema change");
+            if (!found) {
+                return ResponseEntityBuilder.okWithCommonError("Column does not exists: " + dropColName);
+            }
+
+            // find column in except base indexes.
+            for (int i = 1; i < indexIds.size(); i++) {
+                List<Column> rollupSchema = indexIdToSchema.get(indexIds.get(i));
+                Iterator<Column> iter = rollupSchema.iterator();
+                while (iter.hasNext()) {
+                    Column column = iter.next();
+                    boolean containedByMV = column.getName().equalsIgnoreCase(dropColName);
+                    if (!containedByMV && column.getDefineExpr() != null) {
+                        List<SlotRef> slots = new ArrayList<>();
+                        column.getDefineExpr().collect(SlotRef.class, slots);
+                        for (SlotRef slot : slots) {
+                            if (slot.getColumnName().equalsIgnoreCase(dropColName)) {
+                                containedByMV = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (containedByMV) {
+                        return ResponseEntityBuilder.okWithCommonError("Column " + dropColName
+                                + " contain mv that can't do the light schema change. "
+                                + "mv = " + table.getIndexNameById(indexIds.get(i)));
+                    }
+                }
             }
         }
         return ResponseEntityBuilder.ok();
