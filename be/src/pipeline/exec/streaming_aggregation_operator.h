@@ -39,11 +39,7 @@ public:
     using Base = PipelineXLocalState<FakeSharedState>;
     ENABLE_FACTORY_CREATOR(StreamingAggLocalState);
     StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~StreamingAggLocalState() override {
-        if (_init) {
-            _close_with_serialized_key();
-        }
-    }
+    ~StreamingAggLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;

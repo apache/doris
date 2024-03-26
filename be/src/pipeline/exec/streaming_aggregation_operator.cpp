@@ -1268,6 +1268,7 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
                 },
                 _agg_data->method_variant);
     }
+    _close_with_serialized_key();
     return Base::close(state);
 }
 
