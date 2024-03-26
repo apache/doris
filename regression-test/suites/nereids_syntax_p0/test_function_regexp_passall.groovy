@@ -16,9 +16,8 @@
 // under the License.
 
 suite("test_function_regexp_passall") {
-    def tableName = "test_function_regexp_passall"
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE test_function_regexp_passall (
             id int,
             value_col string,
             pattern_col string
@@ -30,7 +29,7 @@ suite("test_function_regexp_passall") {
         );
     """
 
-    sql """INSERT INTO ${tableName} VALUES
+    sql """INSERT INTO test_function_regexp_passall VALUES
             (0, 'prefix0_infix0_suffix0', 'prefix0'),
             (1, '%prefix1_infix1_suffix1', 'prefix1'),
             (2, 'prefix2_\$infix2\$suffix2', 'infix2'),
@@ -43,11 +42,11 @@ suite("test_function_regexp_passall") {
             (9, 'prefix9\$\$%%%^^infix9&&%%\$\$suffix9', NULL);
     """
 
-    qt_sql "SELECT * FROM ${tableName} WHERE value_col REGEXP '.*' ORDER BY id;"
+    qt_sql "SELECT * FROM test_function_regexp_passall WHERE value_col REGEXP '.*' ORDER BY id;"
 
-    qt_sql "SELECT * FROM ${tableName} WHERE value_col REGEXP '.' ORDER BY id;"
+    qt_sql "SELECT * FROM test_function_regexp_passall WHERE value_col REGEXP '.' ORDER BY id;"
 
-    qt_sql "SELECT * FROM ${tableName} WHERE value_col REGEXP '.*.*' ORDER BY id;"
+    qt_sql "SELECT * FROM test_function_regexp_passall WHERE value_col REGEXP '.*.*' ORDER BY id;"
 
-    sql """DROP TABLE IF EXISTS ${tableName} FORCE; """
+    sql """DROP TABLE IF EXISTS test_function_regexp_passall FORCE; """
 }
