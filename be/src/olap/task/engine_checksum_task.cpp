@@ -50,7 +50,6 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
 }
 
 Status EngineChecksumTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     return _compute_checksum();
 } // execute
 
