@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
@@ -112,8 +113,14 @@ public class ComparisonResult {
             return this;
         }
 
-        public Builder addViewNoNullableSlot(Set<Set<Slot>> viewNoNullableSlot) {
-            viewNoNullableSlotBuilder.addAll(ImmutableSet.copyOf(viewNoNullableSlot));
+        /**Add slots which should reject null slots in view*/
+        public Builder addViewNoNullableSlot(Pair<Set<Slot>, Set<Slot>> viewNoNullableSlotsPair) {
+            if (!viewNoNullableSlotsPair.first.isEmpty()) {
+                viewNoNullableSlotBuilder.add(viewNoNullableSlotsPair.first);
+            }
+            if (!viewNoNullableSlotsPair.second.isEmpty()) {
+                viewNoNullableSlotBuilder.add(viewNoNullableSlotsPair.second);
+            }
             return this;
         }
 
