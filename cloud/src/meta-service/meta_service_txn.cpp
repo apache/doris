@@ -478,6 +478,163 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
     }
 }
 
+void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
+                               const std::string& instance_id,
+                               const CommitTxnRequest* request,
+                               Transaction* txn, int64_t db_id) {
+    std::stringstream ss;
+    int64_t txn_id = request->txn_id();
+    if (!request->has_commit_attachment()) {
+        ss << "failed to get commit attachment from req, db_id=" << db_id
+           << " txn_id=" << txn_id;
+        msg = ss.str();
+        return;
+    }
+
+    TxnCommitAttachmentPB txn_commit_attachment = request->commit_attachment();
+    RLTaskTxnCommitAttachmentPB commit_attachment =
+            txn_commit_attachment.rl_task_txn_commit_attachment();
+    int64_t job_id = commit_attachment.job_id();
+
+    std::string rl_progress_key;
+    std::string rl_progress_val;
+    bool prev_progress_existed = true;
+    RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};
+    rl_job_progress_key_info(rl_progress_key_info, &rl_progress_key);
+    TxnErrorCode err = txn->get(rl_progress_key, &rl_progress_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            prev_progress_existed = false;
+        } else {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to get routine load progress, db_id=" << db_id << " txn_id=" << txn_id
+               << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+    }
+
+    RoutineLoadProgressPB prev_progress_info;
+    if (prev_progress_existed) {
+        if (!prev_progress_info.ParseFromString(rl_progress_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            ss << "failed to parse routine load progress, db_id=" << db_id
+               << " txn_id=" << txn_id;
+            msg = ss.str();
+            return;
+        }
+    }
+
+    std::string new_progress_val;
+    RoutineLoadProgressPB new_progress_info;
+    new_progress_info.CopyFrom(commit_attachment.progress());
+    for (auto const& elem : prev_progress_info.partition_to_offset()) {
+        auto it = new_progress_info.partition_to_offset().find(elem.first);
+        if (it == new_progress_info.partition_to_offset().end()) {
+            new_progress_info.mutable_partition_to_offset()->insert(elem);
+        }
+    }
+
+    std::string new_statistic_val;
+    RoutineLoadJobStatisticPB* new_statistic_info = new_progress_info.mutable_stat();
+    if (prev_progress_info.has_stat()) {
+        const RoutineLoadJobStatisticPB& prev_statistic_info = prev_progress_info.stat();
+
+        new_statistic_info->set_filtered_rows(prev_statistic_info.filtered_rows() + commit_attachment.filtered_rows());
+        new_statistic_info->set_loaded_rows(prev_statistic_info.loaded_rows() + commit_attachment.loaded_rows());
+        new_statistic_info->set_unselected_rows(prev_statistic_info.unselected_rows() + commit_attachment.unselected_rows());
+        new_statistic_info->set_received_bytes(prev_statistic_info.received_bytes() + commit_attachment.received_bytes());
+        new_statistic_info->set_task_execution_time_ms(prev_statistic_info.task_execution_time_ms() + commit_attachment.task_execution_time_ms());
+    } else {
+        new_statistic_info->set_filtered_rows(commit_attachment.filtered_rows());
+        new_statistic_info->set_loaded_rows(commit_attachment.loaded_rows());
+        new_statistic_info->set_unselected_rows(commit_attachment.unselected_rows());
+        new_statistic_info->set_received_bytes(commit_attachment.received_bytes());
+        new_statistic_info->set_task_execution_time_ms(commit_attachment.task_execution_time_ms());
+    }
+
+    LOG(INFO) << "routine load new progress: " << new_progress_info.ShortDebugString();
+
+    if (!new_progress_info.SerializeToString(&new_progress_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        ss << "failed to serialize new progress val, txn_id=" << txn_id;
+        msg = ss.str();
+        return;
+    }
+
+    txn->put(rl_progress_key, new_progress_val);
+}
+
+void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcController* controller,
+                                                const GetRLTaskCommitAttachRequest* request,
+                                                GetRLTaskCommitAttachResponse* response,
+                                                ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_rl_task_commit_attach);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(get_rl_task_commit_attach)
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "filed to create txn, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    if (!request->has_db_id() || !request->has_job_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty db_id or job_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    int64_t db_id = request->db_id();
+    int64_t job_id = request->job_id();
+    std::string rl_progress_key;
+    std::string rl_progress_val;
+    RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};
+    rl_job_progress_key_info(rl_progress_key_info, &rl_progress_key);
+    err = txn->get(rl_progress_key, &rl_progress_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND;
+        ss << "pregress info not found, db_id=" << db_id
+           << " job_id=" << job_id << " err=" << err;
+        msg = ss.str();
+        return;
+    } else if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to get pregress info, db_id=" << db_id
+           << " job_id=" << job_id << " err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    RLTaskTxnCommitAttachmentPB* commit_attach = response->mutable_commit_attach();
+    RoutineLoadProgressPB* progress_info = commit_attach->mutable_progress();
+    if (!progress_info->ParseFromString(rl_progress_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        ss << "failed to parse progress info, db_id=" << db_id << " job_id=" << job_id;
+        msg = ss.str();
+        return;
+    }
+
+    if (progress_info->has_stat()) {
+        const RoutineLoadJobStatisticPB& statistic_info = progress_info->stat();
+        commit_attach->set_filtered_rows(statistic_info.filtered_rows());
+        commit_attach->set_loaded_rows(statistic_info.loaded_rows());
+        commit_attach->set_unselected_rows(statistic_info.unselected_rows());
+        commit_attach->set_received_bytes(statistic_info.received_bytes());
+        commit_attach->set_task_execution_time_ms(statistic_info.task_execution_time_ms());
+    }
+}
+
 /**
  * 0. Extract txn_id from request
  * 1. Get db id from TxnKv with txn_id
@@ -977,86 +1134,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
 
     if (txn_info.load_job_source_type() ==
         LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK) {
-        if (!request->has_commit_attachment()) {
-            ss << "failed to get commit attachment from req, db_id=" << db_id
-               << " txn_id=" << txn_id;
-            msg = ss.str();
-            return;
-        }
-
-        TxnCommitAttachmentPB txn_commit_attachment = request->commit_attachment();
-        RLTaskTxnCommitAttachmentPB commit_attachment =
-                txn_commit_attachment.rl_task_txn_commit_attachment();
-        int64_t job_id = commit_attachment.job_id();
-
-        std::string rl_progress_key;
-        std::string rl_progress_val;
-        bool prev_progress_existed = true;
-        RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};
-        rl_job_progress_key_info(rl_progress_key_info, &rl_progress_key);
-        TxnErrorCode err = txn->get(rl_progress_key, &rl_progress_val);
-        if (err != TxnErrorCode::TXN_OK) {
-            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                prev_progress_existed = false;
-            } else {
-                code = cast_as<ErrCategory::READ>(err);
-                ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id
-                   << " err=" << err;
-                msg = ss.str();
-                return;
-            }
-        }
-
-        RoutineLoadProgressPB prev_progress_info;
-        if (prev_progress_existed) {
-            if (!prev_progress_info.ParseFromString(rl_progress_val)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-
-            int cal_row_num = 0;
-            for (auto const& elem : commit_attachment.progress().partition_to_offset()) {
-                if (elem.second >= 0) {
-                    auto it = prev_progress_info.partition_to_offset().find(elem.first);
-                    if (it != prev_progress_info.partition_to_offset().end() && it->second >= 0) {
-                        cal_row_num += elem.second - it->second;
-                    } else {
-                        cal_row_num += elem.second + 1;
-                    }
-                }
-            }
-
-            LOG(INFO) << " calculated row num " << cal_row_num << " actual row num "
-                      << commit_attachment.loaded_rows() << " prev progress "
-                      << prev_progress_info.DebugString();
-
-            if (cal_row_num == 0) {
-                LOG(WARNING) << " repeated to load task in routine load, db_id=" << db_id
-                             << " txn_id=" << txn_id << " calculated row num " << cal_row_num
-                             << " actual row num " << commit_attachment.loaded_rows();
-                return;
-            }
-        }
-
-        std::string new_progress_val;
-        RoutineLoadProgressPB new_progress_info;
-        new_progress_info.CopyFrom(commit_attachment.progress());
-        for (auto const& elem : prev_progress_info.partition_to_offset()) {
-            auto it = new_progress_info.partition_to_offset().find(elem.first);
-            if (it == new_progress_info.partition_to_offset().end()) {
-                new_progress_info.mutable_partition_to_offset()->insert(elem);
-            }
-        }
-
-        if (!new_progress_info.SerializeToString(&new_progress_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            ss << "failed to serialize new progress val, txn_id=" << txn_info.txn_id();
-            msg = ss.str();
-            return;
-        }
-        txn->put(rl_progress_key, new_progress_val);
+        put_routine_load_progress(code, msg, instance_id, request, txn.get(), db_id);
     }
 
     LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key) << " txn_id=" << txn_id;
