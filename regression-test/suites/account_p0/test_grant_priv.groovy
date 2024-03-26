@@ -20,6 +20,7 @@ import org.junit.Assert;
 suite("test_grant_priv") {
     def user1 = 'test_grant_priv_user1'
     def user2 = 'test_grant_priv_user2'
+    def role1 = 'test_grant_priv_role1'
     def pwd = '123456'
     def dbName = 'test_grant_priv_db'
     def tokens = context.config.jdbcUrl.split('/')
@@ -51,6 +52,28 @@ suite("test_grant_priv") {
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
+        // test have grant_priv,but not have load_priv, can not grant load_priv to other user
+        try {
+            sql """grant load_priv on ${dbName}.* to ${user2}"""
+            Assert.fail("can not grant to other user");
+        } catch (Exception e) {
+            log.info(e.getMessage())
+        }
+        // test have grant_priv, can not grant role to other user
+        try {
+            sql """grant ${role1} to ${user2}"""
+            Assert.fail("can not grant to other user");
+        } catch (Exception e) {
+            log.info(e.getMessage())
+        }
+    }
+
+    // test have global grant_priv, can grant role to other user
+    sql """grant grant_priv on *.* to ${user1}"""
+    try {
+        sql """grant ${role1} to ${user2}"""
+    } catch (Exception e) {
+        Assert.fail(e.getMessage());
     }
 
     sql """drop user if exists ${user1}"""
