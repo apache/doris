@@ -39,7 +39,11 @@ public:
     using Base = PipelineXLocalState<FakeSharedState>;
     ENABLE_FACTORY_CREATOR(StreamingAggLocalState);
     StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~StreamingAggLocalState() override = default;
+    ~StreamingAggLocalState() override {
+        if (_init) {
+            _close_with_serialized_key();
+        }
+    }
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
@@ -182,6 +186,27 @@ private:
     bool _child_eos = false;
     std::unique_ptr<vectorized::Block> _pre_aggregated_block = nullptr;
     std::vector<vectorized::AggregateDataPtr> _values;
+    bool _init = false;
+
+    void _destroy_agg_status(vectorized::AggregateDataPtr data);
+
+    void _close_with_serialized_key() {
+        std::visit(
+                [&](auto&& agg_method) -> void {
+                    auto& data = *agg_method.hash_table;
+                    data.for_each_mapped([&](auto& mapped) {
+                        if (mapped) {
+                            _destroy_agg_status(mapped);
+                            mapped = nullptr;
+                        }
+                    });
+                    if (data.has_null_key_data()) {
+                        _destroy_agg_status(
+                                data.template get_null_key_data<vectorized::AggregateDataPtr>());
+                    }
+                },
+                _agg_data->method_variant);
+    }
 };
 
 class StreamingAggOperatorX final : public StatefulOperatorX<StreamingAggLocalState> {

@@ -176,6 +176,7 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                (!p._have_conjuncts) && // no having conjunct
                                p._needs_finalize;      // agg's finalize step
     }
+    _init = true;
     return Status::OK();
 }
 
@@ -1074,6 +1075,13 @@ Status StreamingAggLocalState::_get_without_key_result(RuntimeState* state,
     block->set_columns(std::move(columns));
     *eos = true;
     return Status::OK();
+}
+
+void StreamingAggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
+    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+        _aggregate_evaluators[i]->function()->destroy(
+                data + _parent->cast<StreamingAggOperatorX>()._offsets_of_aggregate_states[i]);
+    }
 }
 
 void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
