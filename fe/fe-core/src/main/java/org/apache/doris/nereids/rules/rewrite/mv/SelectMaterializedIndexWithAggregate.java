@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.mv;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -768,7 +769,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         public PreAggStatus visitCount(Count count, CheckContext context) {
             if (count.isDistinct() && count.arity() == 1) {
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
-                if (slotOpt.isPresent() && context.keyNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
+                if (slotOpt.isPresent() && (context.isDupKeysOrMergeOnWrite
+                        || context.keyNameToColumn.containsKey(normalizeName(slotOpt.get().toSql())))) {
                     return PreAggStatus.on();
                 }
                 if (count.child(0).arity() != 0) {
@@ -1004,7 +1006,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 this.valueNameToColumn.putIfAbsent(key, baseNameToColumnGroupingByIsKey.get(false).get(key));
             }
             this.index = indexId;
-            this.isDupKeysOrMergeOnWrite = getMeta().isDupKeysOrMergeOnWrite();
+            this.isDupKeysOrMergeOnWrite = getMeta().getKeysType() == KeysType.DUP_KEYS
+                    || scan.getTable().getEnableUniqueKeyMergeOnWrite()
+                            && getMeta().getKeysType() == KeysType.UNIQUE_KEYS;
         }
 
         public boolean isBaseIndex() {

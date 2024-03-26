@@ -126,12 +126,6 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return keysType;
     }
 
-    public boolean isDupKeysOrMergeOnWrite() {
-        // temporarily assume mv index is not mow because mow table not support create mv now
-        return getKeysType() == KeysType.DUP_KEYS;
-    }
-
-
     public void setKeysType(KeysType keysType) {
         this.keysType = keysType;
     }

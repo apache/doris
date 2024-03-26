@@ -217,7 +217,7 @@ private:
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                 bool set_block_rowid);
     void _replace_version_col(size_t num_rows);
-    void _init_current_block(vectorized::Block* block,
+    Status _init_current_block(vectorized::Block* block,
                              std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
