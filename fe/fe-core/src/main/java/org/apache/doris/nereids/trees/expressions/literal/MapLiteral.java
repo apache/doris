@@ -28,6 +28,7 @@ import org.apache.doris.nereids.types.NullType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -56,6 +57,36 @@ public class MapLiteral extends Literal {
                 "dataType should be MapType, but we meet %s", dataType);
         Preconditions.checkArgument(keys.size() == values.size(),
                 "key size %s is not equal to value size %s", keys.size(), values.size());
+    }
+
+    /**
+     * eg: {"k11":1000, "k22":2000} string: int
+     */
+    public MapLiteral(String str, DataType dataType) {
+        super(dataType);
+        Preconditions.checkArgument(dataType instanceof MapType,
+                "dataType should be MapType, but we meet %s", dataType);
+        DataType nestedKeyType = ((MapType) dataType).getKeyType();
+        DataType nestedValueType = ((MapType) dataType).getValueType();
+        this.keys = new ArrayList<>();
+        this.values = new ArrayList<>();
+        String[] elements = str.substring(1, str.length() - 1).split(", ");
+        for (String element : elements) {
+            String[] keyValue = element.split(":");
+            Preconditions.checkArgument(keyValue.length == 2, "error key value map is %s", keyValue.toString());
+            String key = keyValue[0];
+            String value = keyValue[1];
+            if (nestedKeyType.isStringLikeType()) {
+                key = key.substring(1, key.length() - 1); // "k11"----> k11
+            }
+            if (nestedValueType.isStringLikeType()) {
+                value = value.substring(1, value.length() - 1);
+            }
+            StringLiteral keyLiteral = new StringLiteral(key);
+            StringLiteral valueLiteral = new StringLiteral(value);
+            this.keys.add((Literal) keyLiteral.uncheckedCastTo(nestedKeyType));
+            this.values.add((Literal) valueLiteral.uncheckedCastTo(nestedValueType));
+        }
     }
 
     @Override

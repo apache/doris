@@ -121,7 +121,10 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                                             ctx->root()->type(), column_ptr, column_type, result));
             }
 
+            PTypeDesc* p_type = expr_result.mutable_p_type();
+            res_type.to_protobuf(p_type);
             expr_result.set_content(std::move(result));
+            //maybe could remove this field, all of version use type_desc field
             expr_result.mutable_type()->set_type(t_type);
             expr_result.mutable_type()->set_scale(res_type.scale);
             expr_result.mutable_type()->set_precision(res_type.precision);

@@ -580,6 +580,7 @@ message PExprResult {
     required PScalarType type = 1;
     required string content = 2;
     required bool success = 3;
+    optional PTypeDesc p_type = 4; // want convert complex types: array map struct
 };
 
 message PExprResultMap {
