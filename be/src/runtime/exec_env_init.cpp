@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_stream_load_executor.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -232,7 +233,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-    _stream_load_executor = StreamLoadExecutor::create_shared(this);
+    if (config::is_cloud_mode()) {
+        _stream_load_executor = std::make_shared<CloudStreamLoadExecutor>(this);
+    } else {
+        _stream_load_executor = StreamLoadExecutor::create_shared(this);
+    }
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(store_paths);
