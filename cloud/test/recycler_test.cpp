@@ -311,9 +311,8 @@ static int create_partition_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t 
 
 static int create_table_version_kv(TxnKv* txn_kv, int64_t table_id) {
     auto key = table_version_key({instance_id, db_id, table_id});
-    VersionPB version;
-    version.set_version(1);
-    auto val = version.SerializeAsString();
+    std::string val;
+    *reinterpret_cast<int64_t*>(val.data()) = 1;
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;

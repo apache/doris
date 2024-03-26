@@ -883,17 +883,26 @@ int InstanceRecycler::recycle_versions() {
                 .tag("num_recycled", num_recycled);
     });
 
-    auto version_key_begin = table_version_key({instance_id_, 0, 0});
-    auto version_key_end = table_version_key({instance_id_, INT64_MAX, 0});
-    auto recycle_func = [&num_scanned, &num_recycled, this](std::string_view k, std::string_view) {
+    auto version_key_begin = partition_version_key({instance_id_, 0, 0, 0});
+    auto version_key_end = partition_version_key({instance_id_, INT64_MAX, 0, 0});
+    int64_t last_scanned_table_id = 0;
+    bool is_recycled = false; // Is last scanned kv recycled
+    auto recycle_func = [&num_scanned, &num_recycled, &last_scanned_table_id, &is_recycled, this](
+            std::string_view k, std::string_view) {
         ++num_scanned;
         auto k1 = k;
         k1.remove_prefix(1);
-        // 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}
+        // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}
         std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
         decode_key(&k1, &out);
-        DCHECK_EQ(out.size(), 5) << k;
+        DCHECK_EQ(out.size(), 6) << k;
         auto table_id = std::get<int64_t>(std::get<0>(out[4]));
+        if (table_id == last_scanned_table_id) { // Already handle kvs of this table
+            num_recycled += is_recycled;         // Version kv of this table has been recycled
+            return 0;
+        }
+        last_scanned_table_id = table_id;
+        is_recycled = false;
         auto tablet_key_begin = stats_tablet_key({instance_id_, table_id, 0, 0, 0});
         auto tablet_key_end = stats_tablet_key({instance_id_, table_id, INT64_MAX, 0, 0});
         std::unique_ptr<Transaction> txn;
@@ -925,6 +934,7 @@ int InstanceRecycler::recycle_versions() {
             return -1;
         }
         ++num_recycled;
+        is_recycled = true;
         return 0;
     };
 

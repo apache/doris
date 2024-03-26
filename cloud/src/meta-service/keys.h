@@ -34,7 +34,7 @@
 // 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${txn_id}                                -> TxnRunningPB
 //
 // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}              -> VersionPB
-// 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}                                  -> VersionPB
+// 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}                                  -> int64
 //
 // 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}                               -> RowsetMetaCloudPB
 // 0x01 "meta" ${instance_id} "rowset_tmp" ${txn_id} ${tablet_id}                            -> RowsetMetaCloudPB

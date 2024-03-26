@@ -166,9 +166,9 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     }
     RPC_RATE_LIMIT(commit_index)
 
-    if (request->index_ids().empty() || !request->has_db_id() || !request->has_table_id()) {
+    if (request->index_ids().empty() || !request->has_table_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty index_ids or db_id or table_id";
+        msg = "empty index_ids or table_id";
         return;
     }
 
@@ -223,27 +223,11 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         txn->remove(key);
     }
 
-    // init table version
-    std::string val;
-    std::string key = table_version_key({instance_id, request->db_id(), request->table_id()});
-    err = txn->get(key, &val);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        // Table not exists, create it
-        std::string version_str;
-        {
-            // Table version start from 1
-            int64_t version = 1;
-            VersionPB version_pb;
-            version_pb.set_version(version);
-            version_pb.SerializeToString(&version_str);
-        }
+    if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
+        // init table version
+        std::string key = table_version_key({instance_id, request->db_id(), request->table_id()});
+        txn->atomic_add(key, 1);
         LOG_INFO("put table version").tag("key", hex(key));
-        txn->put(key, version_str);
-    } else if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get table version kv, err={}", err);
-        LOG_WARNING(msg);
-        return;
     }
 
     err = txn->commit();
@@ -458,9 +442,9 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     }
     RPC_RATE_LIMIT(commit_partition)
 
-    if (request->partition_ids().empty() || !request->has_db_id() || !request->has_table_id()) {
+    if (request->partition_ids().empty() || !request->has_table_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty partition_ids or index_ids or db_id or table_id";
+        msg = "empty partition_ids or index_ids or table_id";
         return;
     }
 
@@ -519,24 +503,11 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     }
 
     // update table versions
-    // Todo: use int64_t instead of protobuf as a value so that we can use atomic_add
-    std::string ver_key = table_version_key({instance_id, request->db_id(), request->table_id()});
-    std::string ver_val_str;
-    err = txn->get(ver_key, &ver_val_str);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format( "failed to get table version, table_id {}, key {}", request->table_id(), hex(ver_key));
-        return;
+    if (request->has_db_id()) {
+        std::string ver_key = table_version_key({instance_id, request->db_id(), request->table_id()});
+        txn->atomic_add(ver_key, 1);
+        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
     }
-    VersionPB version_pb;
-    {
-        version_pb.ParseFromString(ver_val_str);
-        int version = version_pb.version();
-        version_pb.set_version(version + 1);
-        version_pb.SerializeToString(&ver_val_str);
-    }
-    txn->put(ver_key, ver_val_str);
-    LOG_INFO("update table version").tag("ver_key", hex(ver_key));
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -558,10 +529,9 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     }
     RPC_RATE_LIMIT(drop_partition)
 
-    if (request->partition_ids().empty() || request->index_ids().empty() ||
-        !request->has_db_id() || !request->has_table_id()) {
+    if (request->partition_ids().empty() || request->index_ids().empty() || !request->has_table_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty partition_ids or index_ids or db_id or table_id";
+        msg = "empty partition_ids or index_ids or table_id";
         return;
     }
 
@@ -626,24 +596,11 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     if (!need_commit) return;
 
     // update table versions
-    // Todo: use int64_t instead of protobuf as a value so that we can use atomic_add
-    std::string ver_key = table_version_key({instance_id, request->db_id(), request->table_id()});
-    std::string ver_val_str;
-    err = txn->get(ver_key, &ver_val_str);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format( "failed to get table version, table_id {}, key {}", request->table_id(), hex(ver_key));
-        return;
+    if (request->has_db_id()) {
+        std::string ver_key = table_version_key({instance_id, request->db_id(), request->table_id()});
+        txn->atomic_add(ver_key, 1);
+        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
     }
-    VersionPB version_pb;
-    {
-        version_pb.ParseFromString(ver_val_str);
-        int version = version_pb.version();
-        version_pb.set_version(version + 1);
-        version_pb.SerializeToString(&ver_val_str);
-    }
-    txn->put(ver_key, ver_val_str);
-    LOG_INFO("update table version").tag("ver_key", hex(ver_key));
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {

@@ -36,7 +36,7 @@ public class SnapshotProxy {
     public static Cloud.GetVersionResponse getVisibleVersion(Cloud.GetVersionRequest request) throws RpcException {
         int tryTimes = 0;
         while (tryTimes++ < Config.meta_service_rpc_retry_times) {
-            Cloud.GetVersionResponse resp = getVisibleVersionAsync(request,
+            Cloud.GetVersionResponse resp = getVisibleVersionInternal(request,
                     Config.default_get_version_from_ms_timeout_second * 1000);
             if (resp.hasStatus() && (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK
                     || resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND)) {
@@ -61,7 +61,7 @@ public class SnapshotProxy {
         throw new RpcException("get version from meta service", "failed after retry n times");
     }
 
-    public static Cloud.GetVersionResponse getVisibleVersionAsync(Cloud.GetVersionRequest request, int timeoutMs) {
+    public static Cloud.GetVersionResponse getVisibleVersionInternal(Cloud.GetVersionRequest request, int timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         Cloud.GetVersionResponse resp = null;
         try {

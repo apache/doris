@@ -857,6 +857,7 @@ message IndexRequest {
     optional int64 table_id = 3;
     optional int64 expiration = 4;
     optional int64 db_id = 5;
+    optional bool is_new_table = 6;
 }
 
 message IndexResponse {

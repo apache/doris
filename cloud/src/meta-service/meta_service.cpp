@@ -246,17 +246,22 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
     }
 
     std::string ver_val;
-    VersionPB version_pb;
     // 0 for success get a key, 1 for key not found, negative for error
     err = txn->get(ver_key, &ver_val);
     VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
     if (err == TxnErrorCode::TXN_OK) {
-        if (!version_pb.ParseFromString(ver_val)) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = "malformed version value";
-            return;
+        if (is_table_version) {
+            int64_t version = *reinterpret_cast<const int64_t*>(ver_val.data());
+            response->set_version(version);
+        } else {
+            VersionPB version_pb;
+            if (!version_pb.ParseFromString(ver_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "malformed version value";
+                return;
+            }
+            response->set_version(version_pb.version());
         }
-        response->set_version(version_pb.version());
         { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -336,13 +341,18 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             TEST_SYNC_POINT_CALLBACK("batch_get_version_err", &err);
             VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
             if (err == TxnErrorCode::TXN_OK) {
-                VersionPB version_pb;
-                if (!version_pb.ParseFromString(ver_val)) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = "malformed version value";
-                    break;
+                if (is_table_version) {
+                    int64_t version = *reinterpret_cast<const int64_t*>(ver_val.data());
+                    response->add_versions(version);
+                } else {
+                    VersionPB version_pb;
+                    if (!version_pb.ParseFromString(ver_val)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        msg = "malformed version value";
+                        break;
+                    }
+                    response->add_versions(version_pb.version());
                 }
-                response->add_versions(version_pb.version());
             } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
                 // return -1 if the target version is not exists.
                 response->add_versions(-1);
