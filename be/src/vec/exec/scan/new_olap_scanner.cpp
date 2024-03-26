@@ -220,6 +220,9 @@ Status NewOlapScanner::init() {
 
 Status NewOlapScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
+    auto* timer = _parent ? ((NewOlapScanNode*)_parent)->_reader_init_timer
+                          : ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
+    SCOPED_TIMER(timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
@@ -586,6 +589,8 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_block_conditions_filtered_timer, stats.block_conditions_filtered_ns); \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_bf_timer,                                   \
                    stats.block_conditions_filtered_bf_ns);                                        \
+    COUNTER_UPDATE(Parent->_collect_iterator_merge_next_timer,                                    \
+                   stats.collect_iterator_merge_next_timer);                                      \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_timer,                              \
                    stats.block_conditions_filtered_zonemap_ns);                                   \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_rp_timer,                           \
