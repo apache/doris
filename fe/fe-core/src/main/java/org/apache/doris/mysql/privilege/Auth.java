@@ -38,6 +38,8 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -535,6 +537,8 @@ public class Auth implements Writable {
     private void dropUserInternal(UserIdentity userIdent, boolean ignoreIfNonExists, boolean isReplay)
             throws DdlException {
         writeLock();
+        String mysqlUserName = ClusterNamespace.getNameFromFullName(userIdent.getUser());
+        String toDropMysqlUserId;
         try {
             // check if user exists
             if (!doesUserExist(userIdent)) {
@@ -546,6 +550,8 @@ public class Auth implements Writable {
                 throw new DdlException(String.format("User `%s`@`%s` does not exist.",
                         userIdent.getQualifiedUser(), userIdent.getHost()));
             }
+            // must get user id before drop user
+            toDropMysqlUserId = Env.getCurrentEnv().getAuth().getUserId(mysqlUserName);
 
             // drop default role
             roleManager.removeDefaultRole(userIdent);
@@ -563,6 +569,38 @@ public class Auth implements Writable {
             LOG.info("finished to drop user: {}, is replay: {}", userIdent.getQualifiedUser(), isReplay);
         } finally {
             writeUnlock();
+        }
+
+        if (Config.isNotCloudMode()) {
+            LOG.info("run in non-cloud mode, does not need notify Ms");
+            return;
+        }
+
+        String reason = String.format("drop user notify to meta service, userName [%s], userId [%s]",
+                mysqlUserName, toDropMysqlUserId);
+        LOG.info(reason);
+        int retryTime = 0;
+        // if notify ms failed, at least wait 5 mins, default 1 day
+        int maxRetryTimes = Config.drop_user_notify_ms_max_times > 300 ? Config.drop_user_notify_ms_max_times : 300;
+        while (retryTime < maxRetryTimes) {
+            try {
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).dropStage(Cloud.StagePB.StageType.INTERNAL,
+                        mysqlUserName, toDropMysqlUserId, null, reason, true);
+                break;
+            } catch (DdlException e) {
+                LOG.warn("drop user failed, try again, user: [{}-{}], retryTimes: {}",
+                        mysqlUserName, toDropMysqlUserId, retryTime);
+            }
+            try {
+                Thread.sleep(1000);
+                ++retryTime;
+            } catch (InterruptedException e) {
+                LOG.info("InterruptedException: ", e);
+            }
+        }
+        if (retryTime >= Config.drop_user_notify_ms_max_times) {
+            LOG.warn("drop user failed, tried {} times, but still failed, plz check",
+                    Config.drop_user_notify_ms_max_times);
         }
     }
 
