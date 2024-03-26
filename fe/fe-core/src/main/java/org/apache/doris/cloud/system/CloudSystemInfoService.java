@@ -205,7 +205,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 if (be == null) {
                     be = new ArrayList<>();
                     clusterIdToBackend.put(clusterId, be);
-                    MetricRepo.registerClusterMetrics(clusterName, clusterId);
+                    MetricRepo.registerCloudMetrics(clusterId, clusterName);
                 }
                 Set<String> existed = be.stream().map(i -> i.getHost() + ":" + i.getHeartbeatPort())
                         .collect(Collectors.toSet());
