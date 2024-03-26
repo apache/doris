@@ -763,20 +763,21 @@ public class BindExpression implements AnalysisRuleFactory {
                     return self.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
                 });
 
+        ImmutableList.Builder<Slot> outputSlots = ImmutableList.builder();
+        if (finalInput instanceof LogicalAggregate) {
+            LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) finalInput;
+            List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+            for (NamedExpression outputExpr : outputExpressions) {
+                if (!outputExpr.anyMatch(expr -> expr instanceof AggregateFunction)) {
+                    outputSlots.add(outputExpr.toSlot());
+                }
+            }
+        }
+        Scope outputWithoutAggFunc = toScope(cascadesContext, outputSlots.build());
         SimpleExprAnalyzer bindInInputChildScope = buildCustomSlotBinderAnalyzer(
                 sort, cascadesContext, inputScope, true, false,
                 (analyzer, unboundSlot) -> {
                     if (finalInput instanceof LogicalAggregate) {
-                        LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) finalInput;
-                        List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
-                        ImmutableList.Builder<Slot> outputSlots = ImmutableList.builderWithExpectedSize(
-                                outputExpressions.size());
-                        for (NamedExpression outputExpr : outputExpressions) {
-                            if (!outputExpr.anyMatch(expr -> expr instanceof AggregateFunction)) {
-                                outputSlots.add(outputExpr.toSlot());
-                            }
-                        }
-                        Scope outputWithoutAggFunc = toScope(cascadesContext, outputSlots.build());
                         List<Slot> boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(unboundSlot,
                                 outputWithoutAggFunc);
                         if (!boundInOutputWithoutAggFunc.isEmpty()) {
