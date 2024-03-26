@@ -76,6 +76,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -446,7 +447,6 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(PUBLISH_VERSION)
     ADD_TASK_COUNT(CLEAR_TRANSACTION_TASK)
     ADD_TASK_COUNT(UPDATE_TABLET_META_INFO)
-    ADD_TASK_COUNT(ALTER)
     ADD_TASK_COUNT(CLONE)
     ADD_TASK_COUNT(STORAGE_MEDIUM_MIGRATE)
     ADD_TASK_COUNT(GC_BINLOG)
@@ -459,6 +459,17 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
             DELETE_count << n;
         }
         return;
+    case TTaskType::ALTER:
+    {
+        ALTER_count << n;
+        // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
+        doris::g_fragment_executing_count << 1;
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+        g_fragment_last_active_time.set_value(now);
+        return;
+    }
     default:
         return;
     }
@@ -1387,12 +1398,14 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
 void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPtr existed_fs) {
     Status st;
     io::RemoteFileSystemSPtr fs;
+    std::string root_path =
+            param.hdfs_storage_param.__isset.root_path ? param.hdfs_storage_param.root_path : "";
 
     if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::HdfsFileSystem::create(param.hdfs_storage_param,
-                                              param.hdfs_storage_param.fs_name,
-                                              std::to_string(param.id), nullptr);
+        auto res = io::HdfsFileSystem::create(
+                param.hdfs_storage_param, param.hdfs_storage_param.fs_name,
+                std::to_string(param.id), nullptr, std::move(root_path));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -1410,7 +1423,8 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
     } else {
         LOG_INFO("successfully update hdfs resource")
                 .tag("resource_id", param.id)
-                .tag("resource_name", param.name);
+                .tag("resource_name", param.name)
+                .tag("root_path", fs->root_path().string());
         put_storage_resource(param.id, {std::move(fs), param.version});
     }
 }
@@ -1851,6 +1865,11 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
         alter_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
+    doris::g_fragment_executing_count << -1;
+    int64 now = duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
 
@@ -1872,6 +1891,11 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
         alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
+    doris::g_fragment_executing_count << -1;
+    int64 now = duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
 
