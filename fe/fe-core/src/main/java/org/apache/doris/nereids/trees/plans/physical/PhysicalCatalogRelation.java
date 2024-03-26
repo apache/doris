@@ -88,8 +88,9 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
         try {
             int len = qualifier.size();
             if (2 == len) {
-                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(qualifier.get(0),
-                        s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."));
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrException(qualifier.get(0),
+                                s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."));
                 return catalog.getDbOrException(qualifier.get(1),
                         s -> new Exception("Database [" + qualifier.get(1) + "] does not exist in catalog ["
                                 + catalog.getName() + "]."));
