@@ -44,13 +44,16 @@ public class Utils {
     public static List<Long> getChildProcessIds(long pid) {
         try {
             Process pgrep = (new ProcessBuilder("pgrep", "-P", String.valueOf(pid))).start();
+            System.out.println("--ftw: pgrep = " + pgrep);
             BufferedReader reader = new BufferedReader(new InputStreamReader(pgrep.getInputStream()));
             List<Long> result = new LinkedList<>();
             String line;
             while ((line = reader.readLine()) != null) {
                 result.add(Long.valueOf(line.trim()));
             }
+            System.out.println("--ftw: pgrep.waitFor();");
             pgrep.waitFor();
+            System.out.println("--ftw: get all result");
             return result;
         } catch (Exception e) {
             throw new RuntimeException("Couldn't get child processes of PID " + pid, e);
