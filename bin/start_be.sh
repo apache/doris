@@ -83,6 +83,11 @@ if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
     exit 1
 fi
 
+if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+    echo "Please disable swap memory before installation, eg: 'swapoff -a'."
+    exit 1
+fi
+
 # add java libs
 # Must add hadoop libs, because we should load specified jars
 # instead of jars in hadoop libs, such as avro
