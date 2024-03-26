@@ -43,7 +43,7 @@ suite("test_grant_priv_workload") {
     }
 
     // test both have USAGE_PRIV and grant_priv , can grant to other user
-    sql """grant grant_priv on WORKLOAD GROUP "%" to ${user1}"""
+    sql """grant grant_priv on WORKLOAD GROUP ${workload1} to ${user1}"""
     connect(user=user1, password="${pwd}", url=url) {
         try {
            sql """grant USAGE_PRIV on WORKLOAD GROUP ${workload1} to ${user2}"""
