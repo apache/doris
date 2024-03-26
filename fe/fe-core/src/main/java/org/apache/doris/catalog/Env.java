@@ -313,6 +313,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+
 /**
  * A singleton class can also be seen as an entry point of Doris.
  * All manager classes can be obtained through this class.
@@ -1000,7 +1001,13 @@ public class Env {
         auditEventProcessor.start();
 
         // 2. get cluster id and role (Observer or Follower)
-        getClusterIdAndRole();
+        if (!Config.enable_check_compatibility_mode) {
+            getClusterIdAndRole();
+        } else {
+            role = FrontendNodeType.FOLLOWER;
+            nodeName = genFeNodeName(selfNode.getHost(),
+                    selfNode.getPort(), false /* new style */);
+        }
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
@@ -1008,6 +1015,10 @@ public class Env {
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
+
+        if (Config.enable_check_compatibility_mode) {
+            replayJournalsAndExit();
+        }
 
         // 4. create load and export job label cleaner thread
         createLabelCleaner();
@@ -1467,6 +1478,13 @@ public class Env {
         long replayEndTime = System.currentTimeMillis();
         LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
 
+        if (Config.enable_check_compatibility_mode) {
+            String msg = "check metadata compatibility successfully";
+            LOG.info(msg);
+            System.out.println(msg);
+            System.exit(0);
+        }
+
         checkCurrentNodeExist();
 
         checkBeExecVersion();
@@ -1675,7 +1693,7 @@ public class Env {
     }
 
     // start threads that should running on all FE
-    private void startNonMasterDaemonThreads() {
+    protected void startNonMasterDaemonThreads() {
         // start load manager thread
         loadManager.start();
         tabletStatMgr.start();
@@ -4907,7 +4925,8 @@ public class Env {
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
-                .buildTimeSeriesCompactionLevelThreshold();
+                .buildTimeSeriesCompactionLevelThreshold()
+                .buildTTLSeconds();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -4918,7 +4937,7 @@ public class Env {
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         properties);
-        editLog.logModifyInMemory(info);
+        editLog.logModifyTableProperties(info);
     }
 
     public void updateBinlogConfig(Database db, OlapTable table, BinlogConfig newBinlogConfig) {
@@ -4953,7 +4972,7 @@ public class Env {
 
             // need to replay partition info meta
             switch (opCode) {
-                case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                     for (Partition partition : olapTable.getPartitions()) {
                         olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                         // storage policy re-use modify in memory
@@ -5250,6 +5269,9 @@ public class Env {
             LOG.info("acquired all jobs' read lock.");
             long journalId = getMaxJournalId();
             File dumpFile = new File(Config.meta_dir, "image." + journalId);
+            if (Config.enable_check_compatibility_mode) {
+                dumpFile = new File(imageDir, "image." + journalId);
+            }
             dumpFilePath = dumpFile.getAbsolutePath();
             try {
                 LOG.info("begin to dump {}", dumpFilePath);
@@ -6106,5 +6128,20 @@ public class Env {
         } catch (Exception e) {
             throw new TException(e);
         }
+    }
+
+    private void replayJournalsAndExit() {
+        replayJournal(-1);
+        LOG.info("check metadata compatibility successfully");
+        System.out.println("check metadata compatibility successfully");
+
+        if (Config.checkpoint_after_check_compatibility) {
+            String imagePath = dumpImage();
+            String msg = "the new image file path is: " + imagePath;
+            LOG.info(msg);
+            System.out.println(msg);
+        }
+
+        System.exit(0);
     }
 }

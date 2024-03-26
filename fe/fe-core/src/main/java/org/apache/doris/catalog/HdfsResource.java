@@ -45,6 +45,7 @@ import java.util.Map;
 public class HdfsResource extends Resource {
     public static final String HADOOP_FS_PREFIX = "dfs.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
+    public static String HADOOP_FS_ROOT_PATH = "root_path";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
     public static String DSF_NAMESERVICES = "dfs.nameservices";
@@ -106,6 +107,8 @@ public class HdfsResource extends Resource {
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
                 tHdfsParams.setFsName(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(HADOOP_FS_ROOT_PATH)) {
+                tHdfsParams.setRootPath(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_USER_NAME)) {
                 tHdfsParams.setUser(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL)) {
