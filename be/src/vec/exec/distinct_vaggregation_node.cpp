@@ -76,8 +76,8 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
         }
         for (int i = 0; i < key_size; ++i) {
             auto output_column = out_block->get_by_position(i).column;
-            if (_distinct_row.empty()) {
-                DCHECK(_stop_emplace_flag); //means it's streaming
+            if (_stop_emplace_flag && _distinct_row.empty()) {
+                // means it's streaming and out_block have no data.
                 // swap the column directly, so not insert data again. and solve Check failed: d.column->use_count() == 1 (2 vs. 1)
                 out_block->replace_by_position(i, key_columns[i]->assume_mutable());
                 in_block->replace_by_position(result_idxs[i], output_column);
