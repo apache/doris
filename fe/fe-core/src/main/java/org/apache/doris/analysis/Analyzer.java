@@ -2246,6 +2246,9 @@ public class Analyzer {
                         lastCompatibleExpr, exprLists.get(j).get(i));
                 lastCompatibleExpr = exprLists.get(j).get(i);
             }
+            if (compatibleType.isDecimalV3()) {
+                compatibleType = adjustDecimalV3PrecisionAndScale((ScalarType) compatibleType);
+            }
             // Now that we've found a compatible type, add implicit casts if necessary.
             for (int j = 0; j < exprLists.size(); ++j) {
                 if (!exprLists.get(j).get(i).getType().equals(compatibleType)) {
@@ -2254,6 +2257,19 @@ public class Analyzer {
                 }
             }
         }
+    }
+
+    private ScalarType adjustDecimalV3PrecisionAndScale(ScalarType decimalV3Type) {
+        ScalarType resultType = decimalV3Type;
+        int oldPrecision = decimalV3Type.getPrecision();
+        int oldScale = decimalV3Type.getDecimalDigits();
+        int integerPart = oldPrecision - oldScale;
+        int maxPrecision = ScalarType.MAX_DECIMAL128_PRECISION;
+        if (oldPrecision > maxPrecision) {
+            int newScale = maxPrecision - integerPart;
+            resultType = ScalarType.createDecimalType(maxPrecision, newScale < 0 ? 0 : newScale);
+        }
+        return resultType;
     }
 
     public long getConnectId() {
