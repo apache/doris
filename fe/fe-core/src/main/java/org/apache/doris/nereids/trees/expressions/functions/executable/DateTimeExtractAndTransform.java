@@ -626,7 +626,7 @@ public class DateTimeExtractAndTransform {
         LocalDateTime localDateTime = datetime.toJavaDateType();
         ZonedDateTime fromDateTime = localDateTime.atZone(ZoneId.of(fromTz.getStringValue()));
         ZonedDateTime toDateTime = fromDateTime.withZoneSameInstant(ZoneId.of(toTz.getStringValue()));
-        return DateTimeV2Literal.fromJavaDateType(toDateTime.toLocalDateTime());
+        return DateTimeV2Literal.fromJavaDateType(toDateTime.toLocalDateTime(), datetime.getDataType().getScale());
     }
 
     @ExecFunction(name = "weekday", argTypes = {"DATE"}, returnType = "TINYINT")
@@ -869,14 +869,15 @@ public class DateTimeExtractAndTransform {
     }
 
     private static Expression fromMicroSecond(long microSecond) {
-        if (microSecond < 0 || microSecond > 32536771199000000L) {
+        if (microSecond < 0 || microSecond > 253402271999999999L) {
             return new NullLiteral(DateTimeV2Type.SYSTEM_DEFAULT);
         }
-        LocalDateTime dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(microSecond / 1000),
+        LocalDateTime dateTime = LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(microSecond / 1000).plusNanos(microSecond % 1000 * 1000),
                 DateUtils.getTimeZone());
-        return new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(),
-                dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(),
-                dateTime.getSecond());
+        return new DateTimeV2Literal(DateTimeV2Type.MAX, dateTime.getYear(),
+                dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
+                dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
     }
 
     @ExecFunction(name = "microseconds_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
