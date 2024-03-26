@@ -136,9 +136,7 @@ Status CloudStorageEngine::open() {
 
         LOG(WARNING) << "failed to get vault info, retry after 5s, err=" << st;
         std::this_thread::sleep_for(5s);
-    } while (true);
-
-    CHECK(!vault_infos.empty()) << "no vault infos";
+    } while (vault_infos.empty());
 
     for (auto& [id, vault_info] : vault_infos) {
         RETURN_IF_ERROR(std::visit(VaultCreateFSVisitor {id}, vault_info));
