@@ -35,7 +35,7 @@ under the License.
         <antlr4.version>4.9.3</antlr4.version>
         <awssdk.version>2.17.257</awssdk.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
-        <tencentcos.version>3.3.5</tencentcos.version>
+        <tencentcos.version>8.2.7</tencentcos.version>
     </properties>
     <profiles>
         <profile>
@@ -418,10 +418,11 @@ under the License.
             <artifactId>hadoop-aliyun</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
+            <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
             <version>${tencentcos.version}</version>
         </dependency>
+
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
