@@ -1538,8 +1538,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         } catch (UserException e) {
             LOG.warn("failed to commit txn: {}", request.getTxnId(), e);
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
+            // DELETE_BITMAP_LOCK_ERR will be retried on be
+            if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                status.setStatusCode(TStatusCode.DELETE_BITMAP_LOCK_ERROR);
+                status.addToErrorMsgs(e.getMessage());
+            } else {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs(e.getMessage());
+            }
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
