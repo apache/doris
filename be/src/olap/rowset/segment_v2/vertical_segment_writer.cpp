@@ -708,23 +708,8 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _tablet_schema->keys_type() == AGG_KEYS) {
-        std::shared_ptr<vectorized::Block> block_ptr =
-                std::make_shared<vectorized::Block>(_tablet_schema->create_block());
-        const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
-        size_t input_id = 0;
-        for (auto i : including_cids) {
-            block_ptr->replace_by_position(i, block->get_by_position(input_id++).column);
-        }
-        std::vector<bool> use_default_or_null_flag;
-        use_default_or_null_flag.reserve(num_rows);
-        size_t segment_start_pos = 0;
-        auto mutable_full_columns = block_ptr->mutate_columns();
-        bool has_default_or_nullable = true;
-        for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
-            use_default_or_null_flag.emplace_back(true);
-        }
-        RETURN_IF_ERROR(_fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
-                                              has_default_or_nullable, segment_start_pos));
+        std::shared_ptr<vectorized::Block> block_ptr = nullptr;
+        RETURN_IF_ERROR(_make_full_block(block_ptr, block, num_rows));
         _full_blocks.emplace_back(block_ptr);
         _batched_blocks.emplace_back(nullptr, row_pos, num_rows);
     } else {
@@ -842,6 +827,24 @@ Status VerticalSegmentWriter::write_batch() {
     }
     _batched_blocks.clear();
     _full_blocks.clear();
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_make_full_block(std::shared_ptr<vectorized::Block>& block_ptr,
+                                               const vectorized::Block* block, size_t num_rows) {
+    block_ptr = std::make_shared<vectorized::Block>(_tablet_schema->create_block());
+    const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
+    size_t input_id = 0;
+    for (auto i : including_cids) {
+        block_ptr->replace_by_position(i, block->get_by_position(input_id++).column);
+    }
+    std::vector<bool> use_default_or_null_flag;
+    use_default_or_null_flag.reserve(num_rows);
+    auto mutable_full_columns = block_ptr->mutate_columns();
+    for (size_t block_pos = 0; block_pos < num_rows; block_pos++) {
+        use_default_or_null_flag.emplace_back(true);
+    }
+    RETURN_IF_ERROR(_fill_missing_columns(mutable_full_columns, use_default_or_null_flag, true, 0));
     return Status::OK();
 }
 
