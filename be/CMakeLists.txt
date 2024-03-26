@@ -430,6 +430,27 @@ if ("${DORIS_JAVA_HOME}" STREQUAL "")
     set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
 endif()
 
+execute_process(COMMAND chmod 755 ${BASE_DIR}/../tools/find_libjvm.sh)
+execute_process(COMMAND ${BASE_DIR}/../tools/find_libjvm.sh OUTPUT_VARIABLE LIBJVM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
+FILE(GLOB_RECURSE LIB_JVM ${LIBJVM_PATH})
+if("${LIB_JVM}" STREQUAL "")
+    message(STATUS "there is no libjvm found!")
+else()
+    set(DORIS_DEPENDENCIES
+        ${DORIS_DEPENDENCIES}
+        jvm
+    )
+    add_library(jvm SHARED IMPORTED)
+    set_target_properties(jvm PROPERTIES IMPORTED_LOCATION ${LIB_JVM})
+    include_directories(${DORIS_JAVA_HOME}/include)
+    if (NOT OS_MACOSX)
+        include_directories(${DORIS_JAVA_HOME}/include/linux)
+    else()
+        include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    endif()
+    add_definitions("-DLIBJVM")
+endif()
+
 include_directories(${DORIS_JAVA_HOME}/include)
 if (NOT OS_MACOSX)
     include_directories(${DORIS_JAVA_HOME}/include/linux)
@@ -569,6 +590,8 @@ if (NOT OS_MACOSX)
         -static-libgcc
         -lstdc++fs
         -lresolv
+	#-L/mnt/datadisk0/chenqi/jdk-17.0.8/lib/server/
+	#-ljvm
     )
 else()
     set(DORIS_LINK_LIBS

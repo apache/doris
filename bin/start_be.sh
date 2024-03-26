@@ -18,6 +18,8 @@
 
 set -eo pipefail
 
+#export JAVA_HOME=/data/chenqi/jdk-17.0.8/
+
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 MACHINE_OS=$(uname -s)
@@ -132,6 +134,7 @@ export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
+#export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:/data/chenqi/jdk-17.0.8/lib/server:${LD_LIBRARY_PATH}"
 export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
 
 jdk_version() {
@@ -159,6 +162,36 @@ jdk_version() {
     echo "${result}"
     return 0
 }
+
+setup_java_env() {
+    local java_version
+
+    if [[ -z "${JAVA_HOME}" ]]; then
+        return 1
+    fi
+
+    local jvm_arch='amd64'
+    if [[ "$(uname -m)" == 'aarch64' ]]; then
+        jvm_arch='aarch64'
+    fi
+    java_version="$(
+        set -e
+        jdk_version "${JAVA_HOME}/bin/java"
+    )"
+    if [[ "${java_version}" -gt 8 ]]; then
+        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
+        # JAVA_HOME is jdk
+    elif [[ -d "${JAVA_HOME}/jre" ]]; then
+        export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+        # JAVA_HOME is jre
+    else
+        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+    fi
+}
+
+# prepare jvm if needed
+setup_java_env || true
+
 
 # export env variables from be.conf
 #
@@ -339,9 +372,11 @@ else
 fi
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
+    #LD_PRELOAD=/data/chenqi/hive_write_output/libjemalloc_doris.so nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
+    #LD_PRELOAD=/data/chenqi/hive_write_output/libjemalloc_doris.so ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
 else
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null

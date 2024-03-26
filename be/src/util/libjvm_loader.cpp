@@ -27,14 +27,14 @@
 #include "jni.h"
 #include "jni_md.h"
 
-_JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_GetCreatedJavaVMs(JavaVM** vm_buf, jsize bufLen,
+/*_JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_GetCreatedJavaVMs(JavaVM** vm_buf, jsize bufLen,
                                                           jsize* numVMs) {
     return doris::LibJVMLoader::JNI_GetCreatedJavaVMs(vm_buf, bufLen, numVMs);
 }
 
 _JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_CreateJavaVM(JavaVM** pvm, void** penv, void* args) {
     return doris::LibJVMLoader::JNI_CreateJavaVM(pvm, penv, args);
-}
+}*/
 
 namespace {
 
