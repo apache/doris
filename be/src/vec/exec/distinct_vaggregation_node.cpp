@@ -17,6 +17,8 @@
 
 #include "vec/exec/distinct_vaggregation_node.h"
 
+#include <glog/logging.h>
+
 #include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function_uniq.h"
 #include "vec/columns/column.h"
@@ -65,25 +67,23 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
     SCOPED_TIMER(_insert_keys_to_column_timer);
     bool mem_reuse = _make_nullable_keys.empty() && out_block->mem_reuse();
     if (mem_reuse) {
-        auto insert_data_with_selector = [&](ColumnPtr output_column, int idx) {
-            auto dst = output_column->assume_mutable();
-            key_columns[idx]->append_data_by_selector(dst, _distinct_row);
-        };
+        if (_stop_emplace_flag && !out_block->empty()) {
+            // when out_block row >= batch_size, push it to data_queue, so when _stop_emplace_flag = true, maybe have some data in block
+            // need output those data firstly
+            for (int i = 0; i < rows; ++i) {
+                _distinct_row.push_back(i);
+            }
+        }
         for (int i = 0; i < key_size; ++i) {
             auto output_column = out_block->get_by_position(i).column;
-            if (_stop_emplace_flag && !out_block->empty()) {
-                // when out_block row >= batch_size, push it to data_queue, so when _stop_emplace_flag = true, maybe have some data in block
-                // need output those data firstly
-                for (int i = 0; i < rows; ++i) {
-                    _distinct_row.push_back(i);
-                }
-                insert_data_with_selector(output_column, i);
-            } else if (_stop_emplace_flag) {
+            if (_distinct_row.empty()) {
+                DCHECK(_stop_emplace_flag); //means it's streaming
                 // swap the column directly, so not insert data again. and solve Check failed: d.column->use_count() == 1 (2 vs. 1)
                 out_block->replace_by_position(i, key_columns[i]->assume_mutable());
                 in_block->replace_by_position(result_idxs[i], output_column);
             } else {
-                insert_data_with_selector(output_column, i);
+                auto dst = output_column->assume_mutable();
+                key_columns[i]->append_data_by_selector(dst, _distinct_row);
             }
         }
     } else {
