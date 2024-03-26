@@ -3507,6 +3507,13 @@ public class Env {
                 sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
             }
 
+            // Storage Vault
+            if (!olapTable.getTableProperty().getStorageVauldName().isEmpty()) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_STORAGE_VAULT).append("\" = \"");
+                sb.append(olapTable.getTableProperty().getStorageVauldName()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
