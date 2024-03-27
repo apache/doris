@@ -140,7 +140,7 @@ Status CloudStorageEngine::open() {
         retry_time--;
     } while (vault_infos.empty() || retry_time > 0);
     if (retry_time == 0) [[unlikely]] {
-        CHECK(true) << "Please check if the instance has set storage vault";
+        CHECK(false) << "Please check if the instance has set storage vault";
     }
 
     for (auto& [id, vault_info] : vault_infos) {
