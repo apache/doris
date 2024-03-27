@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowPrivilegesStmt extends ShowStmt {
@@ -33,10 +32,6 @@ public class ShowPrivilegesStmt extends ShowStmt {
         builder.addColumn(new Column("Comment", ScalarType.createVarchar(100)));
 
         META_DATA = builder.build();
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
     }
 
     @Override
