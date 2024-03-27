@@ -190,6 +190,7 @@ import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -225,7 +226,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
-import org.apache.doris.thrift.TStringLiteral;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableMetadataNameIds;
 import org.apache.doris.thrift.TTableQueryStats;
@@ -233,6 +233,7 @@ import org.apache.doris.thrift.TTableRef;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TTxnParams;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
@@ -286,6 +287,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private ExecuteEnv exeEnv;
     // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
     private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap =
+            new ConcurrentHashMap<>(64);
+
+    private final Map<TUniqueId, ConnectContext> proxyQueryIdToConnCtx =
             new ConcurrentHashMap<>(64);
 
     private static TNetworkAddress getMasterAddress() {
@@ -987,6 +991,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setPacket("".getBytes());
             return result;
         }
+        if (params.isSetCancelQeury() && params.isCancelQeury()) {
+            if (!params.isSetQueryId()) {
+                throw new TException("a query id is needed to cancel a query");
+            }
+            TUniqueId queryId = params.getQueryId();
+            ConnectContext ctx = proxyQueryIdToConnCtx.get(queryId);
+            if (ctx != null) {
+                ctx.cancelQuery();
+            }
+            final TMasterOpResult result = new TMasterOpResult();
+            result.setStatusCode(0);
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            // just make the protocol happy
+            result.setPacket("".getBytes());
+            return result;
+        }
 
         // add this log so that we can track this stmt
         if (LOG.isDebugEnabled()) {
@@ -1007,7 +1027,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             throw new TException("unknown ConnectType: " + context.getConnectType());
         }
-
+        Runnable clearCallback = () -> {};
+        if (params.isSetQueryId()) {
+            proxyQueryIdToConnCtx.put(params.getQueryId(), context);
+            clearCallback = () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
+        }
         TMasterOpResult result = processor.proxyExecute(params);
         if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
             context.getState().setError(result.getStatus());
@@ -1015,6 +1039,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             context.getState().setOk();
         }
         ConnectContext.remove();
+        clearCallback.run();
         return result;
     }
 
@@ -1513,8 +1538,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         } catch (UserException e) {
             LOG.warn("failed to commit txn: {}", request.getTxnId(), e);
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
+            // DELETE_BITMAP_LOCK_ERR will be retried on be
+            if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                status.setStatusCode(TStatusCode.DELETE_BITMAP_LOCK_ERROR);
+                status.addToErrorMsgs(e.getMessage());
+            } else {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs(e.getMessage());
+            }
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
@@ -3443,7 +3474,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        ArrayList<List<TStringLiteral>> partitionValues = new ArrayList<>();
+        ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
             if (partitionInfo.getType() == PartitionType.RANGE && request.partitionValues.get(i).size() != 1) {
                 errorStatus.setErrorMsgs(
@@ -3502,8 +3533,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();
-            // set partition keys
-            OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
+            try {
+                OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
+            } catch (UserException ex) {
+                errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
+                return result;
+            }
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                         index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
@@ -3661,7 +3698,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
             // set partition keys
             int partColNum = partitionInfo.getPartitionColumns().size();
-            OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
+            try {
+                OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
+            } catch (UserException ex) {
+                errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                result.setStatus(errorStatus);
+                LOG.warn("send replace partition error status: {}", result);
+                return result;
+            }
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                         index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));

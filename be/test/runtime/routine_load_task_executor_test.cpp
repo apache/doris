@@ -59,7 +59,7 @@ public:
         _env.set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
         _env.set_stream_load_executor(StreamLoadExecutor::create_unique(&_env));
 
-        config::routine_load_thread_pool_size = 5;
+        config::max_routine_load_thread_pool_size = 1024;
         config::max_consumer_num_per_group = 3;
     }
 
@@ -93,8 +93,10 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     task.__set_kafka_load_info(k_info);
 
     RoutineLoadTaskExecutor executor(&_env);
-    // submit task
     Status st;
+    st = executor.init();
+    EXPECT_TRUE(st.ok());
+    // submit task
     st = executor.submit_task(task);
     EXPECT_TRUE(st.ok());
 

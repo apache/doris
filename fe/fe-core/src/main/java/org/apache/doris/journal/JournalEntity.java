@@ -386,6 +386,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_REVOKE_PRIV:
             case OperationType.OP_SET_PASSWORD:
             case OperationType.OP_CREATE_ROLE:
+            case OperationType.OP_ALTER_ROLE:
             case OperationType.OP_DROP_ROLE: {
                 data = PrivInfo.read(in);
                 isRead = true;
@@ -646,7 +647,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DYNAMIC_PARTITION:
-            case OperationType.OP_MODIFY_IN_MEMORY:
+            case OperationType.OP_MODIFY_TABLE_PROPERTIES:
             case OperationType.OP_MODIFY_REPLICATION_NUM:
             case OperationType.OP_UPDATE_BINLOG_CONFIG: {
                 data = ModifyTablePropertyOperationLog.read(in);
@@ -944,6 +945,13 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_LOG_NEW_PARTITION_LOADED: {
                 data = NewPartitionLoadedEvent.read(in);
+                isRead = true;
+                break;
+            }
+            // FIXME: support cloud related operation types.
+            case OperationType.OP_UPDATE_CLOUD_REPLICA:
+            case OperationType.OP_MODIFY_TTL_SECONDS:
+            case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
                 isRead = true;
                 break;
             }

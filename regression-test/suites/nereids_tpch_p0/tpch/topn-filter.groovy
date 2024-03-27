@@ -116,6 +116,21 @@ suite("topn-filter") {
     }
 
     qt_groupingsets "select n_regionkey, sum(n_nationkey) from nation group by grouping sets((n_regionkey)) order by n_regionkey limit 2;"
+    
+    explain {
+        sql "select * from nation right outer join region on r_regionkey = n_regionkey order by n_regionkey nulls first limit 1; "
+        notContains "TOPN OPT:"
+    }
+
+    explain {
+        sql "select * from nation right outer join region on r_regionkey = n_regionkey order by n_regionkey nulls last limit 1; "
+        contains "TOPN OPT:"
+    }
+
+    explain {
+        sql "select * from nation right outer join region on r_regionkey = n_regionkey order by n_regionkey nulls last, n_name nulls first limit 1; "
+        contains "TOPN OPT:"
+    }
 
     sql "set enable_pipeline_engine=false;"
     sql "set enable_pipeline_x_engine=false;"

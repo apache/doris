@@ -138,6 +138,11 @@ public class GrantStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
+            throw new AnalysisException("Grant is prohibited when Ranger is enabled.");
+        }
+
         if (userIdent != null) {
             userIdent.analyze();
         } else {
@@ -184,7 +189,7 @@ public class GrantStmt extends DdlStmt {
     public static void checkAccessPrivileges(
             List<AccessPrivilegeWithCols> accessPrivileges) throws AnalysisException {
         for (AccessPrivilegeWithCols access : accessPrivileges) {
-            if ((!access.getAccessPrivilege().canHasColPriv() || !Config.enable_col_auth) && !CollectionUtils
+            if ((!access.getAccessPrivilege().canHasColPriv()) && !CollectionUtils
                     .isEmpty(access.getCols())) {
                 throw new AnalysisException(
                         String.format("%s do not support col auth.", access.getAccessPrivilege().name()));

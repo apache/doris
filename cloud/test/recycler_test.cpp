@@ -713,6 +713,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     obj_info->set_prefix("recycle_rowsets");
 
     config::instance_recycler_worker_pool_size = 10;
+    config::recycle_task_threshold_seconds = 0;
     InstanceRecycler recycler(txn_kv, instance);
     ASSERT_EQ(recycler.init(), 0);
 
@@ -723,8 +724,11 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
         *((int*)limit) = 100;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     });
-    sp->set_call_back("MockAccessor::delete_objects",
-                      [&](void* p) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+    sp->set_call_back("MockAccessor::delete_objects", [&](void* p) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        bool found = recycler.check_recycle_tasks();
+        ASSERT_EQ(found, true);
+    });
     sp->set_call_back("MockAccessor::delete_objects_by_prefix",
                       [&](void* p) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
     sp->enable_processing();
@@ -748,6 +752,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     }
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    ASSERT_EQ(recycler.check_recycle_tasks(), false);
 
     // check rowset does not exist on obj store
     std::vector<ObjectMeta> files;

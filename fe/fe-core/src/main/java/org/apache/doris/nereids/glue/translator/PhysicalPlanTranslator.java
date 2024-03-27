@@ -1183,7 +1183,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanNode planNode = inputFragment.getPlanRoot();
-        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
+        Plan child = filter.child();
+        while (child instanceof PhysicalLimit) {
+            child = ((PhysicalLimit<?>) child).child();
+        }
+        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode
+                // this means we have filter->limit->project, need a SelectNode
+                || (child instanceof PhysicalProject
+                && !((PhysicalProject<?>) child).hasPushedDownToProjectionFunctions())) {
             // the three nodes don't support conjuncts, need create a SelectNode to filter data
             SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
             selectNode.setNereidsId(filter.getId());
@@ -1329,6 +1336,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 null, null, null, hashJoin.isMarkJoin());
         hashJoinNode.setNereidsId(hashJoin.getId());
         hashJoinNode.setChildrenDistributeExprLists(distributeExprLists);
+        hashJoinNode.setUseSpecificProjections(false);
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
 
         if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
@@ -1556,8 +1564,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             TupleDescriptor outputDescriptor = context.generateTupleDesc();
             outputSlotReferences.forEach(s -> context.createSlotDesc(outputDescriptor, s));
 
-            hashJoinNode.setvOutputTupleDesc(outputDescriptor);
-            hashJoinNode.setvSrcToOutputSMap(srcToOutput);
+            hashJoinNode.setOutputTupleDesc(outputDescriptor);
+            hashJoinNode.setProjectList(srcToOutput);
         }
         if (hashJoin.getStats() != null) {
             hashJoinNode.setCardinality((long) hashJoin.getStats().getRowCount());
@@ -1591,6 +1599,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             NestedLoopJoinNode nestedLoopJoinNode = new NestedLoopJoinNode(context.nextPlanNodeId(),
                     leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds, JoinType.toJoinOperator(joinType),
                     null, null, null, nestedLoopJoin.isMarkJoin());
+            nestedLoopJoinNode.setUseSpecificProjections(false);
             nestedLoopJoinNode.setNereidsId(nestedLoopJoin.getId());
             nestedLoopJoinNode.setChildrenDistributeExprLists(distributeExprLists);
             if (nestedLoopJoin.getStats() != null) {
@@ -1737,8 +1746,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 TupleDescriptor outputDescriptor = context.generateTupleDesc();
                 outputSlotReferences.forEach(s -> context.createSlotDesc(outputDescriptor, s));
 
-                nestedLoopJoinNode.setvOutputTupleDesc(outputDescriptor);
-                nestedLoopJoinNode.setvSrcToOutputSMap(srcToOutput);
+                nestedLoopJoinNode.setOutputTupleDesc(outputDescriptor);
+                nestedLoopJoinNode.setProjectList(srcToOutput);
             }
             if (nestedLoopJoin.getStats() != null) {
                 nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
@@ -1864,8 +1873,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (inputPlanNode instanceof JoinNodeBase) {
             TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
             JoinNodeBase joinNode = (JoinNodeBase) inputPlanNode;
-            joinNode.setvOutputTupleDesc(tupleDescriptor);
-            joinNode.setvSrcToOutputSMap(projectionExprs);
+            joinNode.setOutputTupleDesc(tupleDescriptor);
+            joinNode.setProjectList(projectionExprs);
             // prune the hashOutputSlotIds
             if (joinNode instanceof HashJoinNode) {
                 ((HashJoinNode) joinNode).getHashOutputSlotIds().clear();
@@ -2192,19 +2201,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
 
-        Set<Expression> usedSlotInRepeat = ImmutableSet.<Expression>builder()
-                .addAll(flattenGroupingSetExprs)
-                .addAll(aggregateFunctionUsedSlots)
-                .build();
+        // keep flattenGroupingSetExprs comes first
+        List<Expr> preRepeatExprs = Stream.concat(flattenGroupingSetExprs.stream(), aggregateFunctionUsedSlots.stream())
+                .map(expr -> ExpressionTranslator.translate(expr, context)).collect(ImmutableList.toImmutableList());
 
-        List<Expr> preRepeatExprs = usedSlotInRepeat.stream()
-                .map(expr -> ExpressionTranslator.translate(expr, context))
-                .collect(ImmutableList.toImmutableList());
-
-        List<Slot> outputSlots = repeat.getOutputExpressions()
-                .stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+        // outputSlots's order need same with preRepeatExprs
+        List<Slot> outputSlots = Stream.concat(
+                repeat.getOutputExpressions().stream().filter(output -> flattenGroupingSetExprs.contains(output)),
+                repeat.getOutputExpressions().stream().filter(output -> !flattenGroupingSetExprs.contains(output)))
+                .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
 
         // NOTE: we should first translate preRepeatExprs, then generate output tuple,
         //       or else the preRepeatExprs can not find the bottom slotRef and throw

@@ -156,8 +156,8 @@ public:
     }
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override {
+                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               const cctz::time_zone& ctz) const override {
         const auto& string_column = assert_cast<const ColumnType&>(column);
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t string_i = start; string_i < end; ++string_i) {

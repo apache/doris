@@ -126,7 +126,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void getNodeInfo() {
+    public void visitNodeInfo() {
         long feDeadNum = Env.getCurrentEnv().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
         long beDeadNum = Env.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive())
                 .count();
@@ -135,5 +135,10 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         sb.append("doris_fe_frontend_dead_num").append(" ").append(feDeadNum).append("\n");
         sb.append("doris_fe_backend_dead_num").append(" ").append(beDeadNum).append("\n");
         sb.append("doris_fe_broker_dead_num").append(" ").append(brokerDeadNum).append("\n");
+    }
+
+    @Override
+    public void visitCloudTableStats() {
+        return;
     }
 }

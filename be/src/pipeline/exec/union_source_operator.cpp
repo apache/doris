@@ -165,8 +165,10 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     Defer set_eos {[&]() {
         //have executing const expr, queue have no data anymore, and child could be closed
         *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
-               (_child_size > 0 && local_state._shared_state->data_queue.is_all_finish() &&
-                !_has_data(state));
+               // here should check `_has_data` first, or when `is_all_finish` is false,
+               // the data queue will have no chance to change the `_flag_queue_idx`.
+               (!_has_data(state) && _child_size > 0 &&
+                local_state._shared_state->data_queue.is_all_finish());
     }};
 
     SCOPED_TIMER(local_state.exec_time_counter());

@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -121,6 +123,7 @@ public abstract class AbstractInsertExecutor {
 
     protected final void execImpl(StmtExecutor executor, long jobId) throws Exception {
         String queryId = DebugUtil.printId(ctx.queryId());
+        this.jobId = jobId;
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
@@ -178,7 +181,7 @@ public abstract class AbstractInsertExecutor {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeSingleInsert(StmtExecutor executor, long jobId) {
+    public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
         beforeExec();
         try {
             if (!checkGroupCommitMode()) {
@@ -190,8 +193,13 @@ public abstract class AbstractInsertExecutor {
             onComplete();
         } catch (Throwable t) {
             onFail(t);
+            // retry insert into from select when meet E-230 in cloud
+            if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                throw t;
+            }
             return;
         } finally {
+            coordinator.close();
             executor.updateProfile(true);
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
