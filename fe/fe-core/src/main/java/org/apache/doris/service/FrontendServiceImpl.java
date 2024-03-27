@@ -1217,7 +1217,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
-        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, clientIp);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+        long startTime = backend != null ? backend.getLastStartTime() : 0;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
         if (request.isSetToken()) {
             txnCoord.isFromInternal = true;
         }
@@ -1325,10 +1327,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // step 5: get timeout
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
 
+        Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+        long startTime = backend != null ? backend.getLastStartTime() : 0;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
         // step 6: begin transaction
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), tableIdList, request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
+                db.getId(), tableIdList, request.getLabel(), request.getRequestId(), txnCoord,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
 
         // step 7: return result
