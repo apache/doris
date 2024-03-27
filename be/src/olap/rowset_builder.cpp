@@ -167,8 +167,7 @@ Status RowsetBuilder::check_tablet_version_count() {
 
 Status RowsetBuilder::prepare_txn() {
     std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::defer_lock);
-    base_migration_lock.try_lock_for(std::chrono::milliseconds(30));
-    if (!base_migration_lock.owns_lock()) {
+    if (!base_migration_lock.try_lock_for(std::chrono::milliseconds(30))) {
         return Status::Error<TRY_LOCK_FAILED>("try migration lock failed");
     }
     std::lock_guard<std::mutex> push_lock(tablet()->get_push_lock());
