@@ -459,7 +459,11 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
                 // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
                 _runtime_state->load_channel_profile()->pretty_print(&ss);
             }
-            VLOG_FILE << ss.str();
+
+            VLOG_FILE << "Query " << print_id(this->get_query_id()) << " fragment "
+                      << this->get_fragment_id() << " instance "
+                      << print_id(this->get_fragment_instance_id()) << " profile:\n"
+                      << ss.str();
         }
         auto st = send_report(false);
         if (!st.ok()) {
@@ -917,7 +921,9 @@ void PipelineFragmentContext::_close_fragment_instance() {
         if (_runtime_state->load_channel_profile()) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
-        LOG(INFO) << ss.str();
+
+        LOG_INFO("Query {} fragment {} instance {} profile:\n {}", print_id(this->_query_id),
+                 this->_fragment_id, print_id(this->get_fragment_instance_id()), ss.str());
     }
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(
