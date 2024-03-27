@@ -41,6 +41,8 @@ public class JoinReorderContext {
 
     private boolean isLeadingJoin = false;
 
+    private boolean extractSubExpressionForChild = false;
+
     public JoinReorderContext() {
     }
 
@@ -55,6 +57,7 @@ public class JoinReorderContext {
         this.hasRightAssociate = joinReorderContext.hasRightAssociate;
         this.hasCommuteZigZag = joinReorderContext.hasCommuteZigZag;
         this.isLeadingJoin = joinReorderContext.isLeadingJoin;
+        this.extractSubExpressionForChild = joinReorderContext.extractSubExpressionForChild;
     }
 
     /**
@@ -68,6 +71,7 @@ public class JoinReorderContext {
         hasRightAssociate = false;
         hasLeftAssociate = false;
         isLeadingJoin = false;
+        extractSubExpressionForChild = false;
     }
 
     public boolean hasCommute() {
@@ -124,5 +128,13 @@ public class JoinReorderContext {
 
     public void setLeadingJoin(boolean leadingJoin) {
         isLeadingJoin = leadingJoin;
+    }
+
+    public boolean isExtractSubExpressionForChild() {
+        return extractSubExpressionForChild;
+    }
+
+    public void setExtractSubExpressionForChild(boolean extractSubExpressionForChild) {
+        this.extractSubExpressionForChild = extractSubExpressionForChild;
     }
 }
