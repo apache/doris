@@ -41,7 +41,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -149,17 +148,17 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         Builder fdBuilder = new Builder(
                 child().getLogicalProperties().getFunctionalDependencies());
         getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();

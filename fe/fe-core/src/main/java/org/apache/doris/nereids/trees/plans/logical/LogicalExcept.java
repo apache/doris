@@ -39,7 +39,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * Logical Except.
@@ -109,11 +108,11 @@ public class LogicalExcept extends LogicalSetOperation {
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies.Builder builder = new FunctionalDependencies
                 .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
         Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> output = outputSupplier.get();
+        List<Slot> output = getOutput();
         List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
                 ? child(0).getOutput()
                 : regularChildrenOutputs.get(0);
@@ -122,16 +121,16 @@ public class LogicalExcept extends LogicalSetOperation {
         }
         builder.replace(replaceMap);
         if (qualifier == Qualifier.DISTINCT) {
-            builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+            builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public ImmutableSet<FdItem> computeFdItems() {
+        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<SlotReference> exprs = output.stream()

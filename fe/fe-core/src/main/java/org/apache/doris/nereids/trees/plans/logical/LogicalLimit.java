@@ -41,7 +41,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * Logical limit plan
@@ -150,13 +149,13 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
         if (getLimit() == 1 && !phase.isLocal()) {
             Builder builder = new Builder();
-            outputSupplier.get().forEach(builder::addUniformSlot);
-            outputSupplier.get().forEach(builder::addUniqueSlot);
-            ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+            getOutput().forEach(builder::addUniformSlot);
+            getOutput().forEach(builder::addUniqueSlot);
+            ImmutableSet<FdItem> fdItems = computeFdItems();
             builder.addFdItems(fdItems);
             fd = builder.build();
         }
@@ -164,11 +163,11 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
         if (getLimit() == 1 && !phase.isLocal()) {
             ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-            List<Slot> output = outputSupplier.get();
+            List<Slot> output = getOutput();
             ImmutableSet<SlotReference> slotSet = output.stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)

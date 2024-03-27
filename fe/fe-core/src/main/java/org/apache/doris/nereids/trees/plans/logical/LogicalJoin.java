@@ -58,7 +58,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -460,7 +459,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         if (isMarkJoin()) {
             // TODO disable function dependence calculation for mark join, but need re-think this in future.
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
@@ -523,13 +522,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             }
             fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
         }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         if (isMarkJoin() || joinType.isNullAwareLeftAntiJoin()
                 || joinType.isFullOuterJoin()

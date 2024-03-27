@@ -48,7 +48,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * abstract class catalog relation for logical relation
@@ -126,9 +125,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         Builder fdBuilder = new Builder();
-        Set<Slot> output = ImmutableSet.copyOf(outputSupplier.get());
+        Set<Slot> output = getOutputSet();
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
             ImmutableSet<Slot> slotSet = output.stream()
                     .filter(SlotReference.class::isInstance)
@@ -158,14 +157,14 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                     .collect(ImmutableSet.toImmutableSet());
             fdBuilder.addUniqueSlot(slotSet);
         });
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public ImmutableSet<FdItem> computeFdItems() {
+        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         table.getPrimaryKeyConstraints().forEach(c -> {
             Set<Column> columns = c.getPrimaryKeys(this.getTable());

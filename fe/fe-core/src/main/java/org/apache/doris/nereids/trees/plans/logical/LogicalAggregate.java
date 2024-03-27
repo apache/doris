@@ -50,7 +50,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -321,9 +320,9 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies childFd = child(0).getLogicalProperties().getFunctionalDependencies();
-        Set<Slot> outputSet = new HashSet<>(outputSupplier.get());
+        Set<Slot> outputSet = new HashSet<>(getOutputSet());
         Builder fdBuilder = new Builder();
         // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty()) {
@@ -347,7 +346,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
         if (childFd.isUniformAndNotNull(groupByKeys)) {
-            outputSupplier.get().forEach(s -> {
+            getOutput().forEach(s -> {
                 fdBuilder.addUniformSlot(s);
                 fdBuilder.addUniqueSlot(s);
             });
@@ -364,14 +363,14 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         fdBuilder.addUniqueSlot(groupByKeys);
         fdBuilder.pruneSlots(outputSet);
 
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
 
         return fdBuilder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<SlotReference> groupByExprs = getGroupByExpressions().stream()
