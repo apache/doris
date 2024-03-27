@@ -30,6 +30,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 
@@ -129,6 +130,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = stmt.getProperties();
+        properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(properties, schema);
         catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
         db.setUnInitialized(true);

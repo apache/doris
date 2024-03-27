@@ -706,4 +706,62 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    public void dropStage(Cloud.StagePB.StageType stageType, String userName, String userId,
+                          String stageName, String reason, boolean ifExists)
+            throws DdlException {
+        Cloud.DropStageRequest.Builder builder = Cloud.DropStageRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setType(stageType);
+        if (userName != null) {
+            builder.setMysqlUserName(userName);
+        }
+        if (userId != null) {
+            builder.setMysqlUserId(userId);
+        }
+        if (stageName != null) {
+            builder.setStageName(stageName);
+        }
+        if (reason != null) {
+            builder.setReason(reason);
+        }
+        Cloud.DropStageResponse response = null;
+        int retryTime = 0;
+        while (retryTime++ < 3) {
+            try {
+                response = MetaServiceProxy.getInstance().dropStage(builder.build());
+                LOG.info("drop stage, stageType:{}, userName:{}, userId:{}, stageName:{}, reason:{}, "
+                        + "retry:{}, response: {}", stageType, userName, userId, stageName, reason, retryTime,
+                        response);
+                // just retry kv conflict
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("dropStage response: {} ", response);
+            }
+            // sleep random millis [20, 200] ms, avoid txn conflict
+            int randomMillis = 20 + (int) (Math.random() * (200 - 20));
+            LOG.debug("randomMillis:{}", randomMillis);
+            try {
+                Thread.sleep(randomMillis);
+            } catch (InterruptedException e) {
+                LOG.info("InterruptedException: ", e);
+            }
+        }
+
+        if (response == null || !response.hasStatus()) {
+            throw new DdlException("metaService exception");
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("dropStage response: {} ", response);
+            if (response.getStatus().getCode() == Cloud.MetaServiceCode.STAGE_NOT_FOUND) {
+                if (ifExists) {
+                    return;
+                } else {
+                    throw new DdlException("Stage does not exists: " + stageName);
+                }
+            }
+            throw new DdlException("internal error, try later");
+        }
+    }
 }
