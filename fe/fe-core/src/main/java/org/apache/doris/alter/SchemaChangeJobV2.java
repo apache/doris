@@ -456,7 +456,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
 
             }
-            
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
