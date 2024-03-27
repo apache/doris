@@ -284,6 +284,23 @@ public class ExpressionUtils {
 
     /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     */
+    public static List<NamedExpression> replaceNamedExpressions(List<NamedExpression> namedExpressions,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        Builder<NamedExpression> replaceExprs = ImmutableList.builderWithExpectedSize(namedExpressions.size());
+        for (NamedExpression namedExpression : namedExpressions) {
+            NamedExpression newExpr = replaceNameExpression(namedExpression, replaceMap);
+            if (newExpr.getExprId().equals(namedExpression.getExprId())) {
+                replaceExprs.add(newExpr);
+            } else {
+                replaceExprs.add(new Alias(namedExpression.getExprId(), newExpr, namedExpression.getName()));
+            }
+        }
+        return replaceExprs.build();
+    }
+
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
      * <pre>
      * input expression: a > 1
