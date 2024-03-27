@@ -2630,6 +2630,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
 
+    @ConfField
+    public static int drop_user_notify_ms_max_times = 86400;
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
