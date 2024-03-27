@@ -39,6 +39,7 @@ namespace io {
 class FileWriter;
 } // namespace io
 namespace segment_v2 {
+
 class PrimaryKeyIndexMetaPB;
 } // namespace segment_v2
 
@@ -98,6 +99,13 @@ class PrimaryKeyIndexReader {
 public:
     PrimaryKeyIndexReader() : _index_parsed(false), _bf_parsed(false) {}
 
+    ~PrimaryKeyIndexReader() {
+        segment_v2::g_pk_total_bloom_filter_num << -static_cast<int64_t>(_bf_num);
+        segment_v2::g_pk_total_bloom_filter_total_bytes << -static_cast<int64_t>(_bf_bytes);
+        segment_v2::g_pk_read_bloom_filter_num << -static_cast<int64_t>(_bf_num);
+        segment_v2::g_pk_read_bloom_filter_total_bytes << -static_cast<int64_t>(_bf_bytes);
+    }
+
     Status parse_index(io::FileReaderSPtr file_reader,
                        const segment_v2::PrimaryKeyIndexMetaPB& meta);
 
@@ -142,6 +150,8 @@ private:
     bool _bf_parsed;
     std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader;
     std::unique_ptr<segment_v2::BloomFilter> _bf;
+    size_t _bf_num = 0;
+    uint64 _bf_bytes = 0;
 };
 
 } // namespace doris

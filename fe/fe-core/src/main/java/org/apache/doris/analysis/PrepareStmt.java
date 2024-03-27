@@ -23,6 +23,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -47,6 +48,7 @@ public class PrepareStmt extends StatementBase {
     // outputExprs are heavy work
     private ByteString serializedDescTable;
     private ByteString serializedOutputExpr;
+    private ByteString serializedQueryOptions;
     private TDescriptorTable descTable;
 
     private UUID id;
@@ -134,12 +136,26 @@ public class PrepareStmt extends StatementBase {
         }
     }
 
+    public void cacheSerializedQueryOptions(TQueryOptions queryOptions) {
+        try {
+            serializedQueryOptions = ByteString.copyFrom(
+                    new TSerializer().serialize(queryOptions));
+        } catch (TException e) {
+            LOG.warn("failed to serilize queryOptions , {}", e.getMessage());
+            Preconditions.checkState(false, e.getMessage());
+        }
+    }
+
     public ByteString getSerializedDescTable() {
         return serializedDescTable;
     }
 
     public ByteString getSerializedOutputExprs() {
         return serializedOutputExpr;
+    }
+
+    public ByteString getSerializedQueryOptions() {
+        return serializedQueryOptions;
     }
 
     @Override

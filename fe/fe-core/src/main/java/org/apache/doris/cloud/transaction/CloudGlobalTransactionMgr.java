@@ -230,7 +230,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("beginTxn KV_TXN_CONFLICT, retryTime:{}", retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(beginTxnResponse);
@@ -433,7 +432,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commitTxn KV_TXN_CONFLICT, transactionId:{}, retryTime:{}", transactionId, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(commitTxnResponse);
@@ -764,7 +762,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("abortTxn KV_TXN_CONFLICT, transactionId:{}, retryTime:{}", transactionId, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
             Preconditions.checkNotNull(abortTxnResponse);
             Preconditions.checkNotNull(abortTxnResponse.getStatus());
@@ -817,7 +814,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("abortTxn KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
             Preconditions.checkNotNull(abortTxnResponse);
             Preconditions.checkNotNull(abortTxnResponse.getStatus());
@@ -969,7 +965,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("cleanTxnLabel KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(cleanTxnLabelResponse);

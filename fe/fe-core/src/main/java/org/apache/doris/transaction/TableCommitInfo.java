@@ -46,11 +46,9 @@ public class TableCommitInfo implements Writable {
 
     }
 
-    public TableCommitInfo(long tableId, long version, long visibleTime) {
+    public TableCommitInfo(long tableId) {
         this.tableId = tableId;
         idToPartitionCommitInfo = Maps.newHashMap();
-        this.version = version;
-        this.versionTime = visibleTime;
     }
 
     @Override

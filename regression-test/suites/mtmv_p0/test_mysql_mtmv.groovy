@@ -50,7 +50,7 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
 
         sql """
             CREATE MATERIALIZED VIEW ${mvName}
-                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                BUILD DEFERRED REFRESH COMPLETE ON MANUAL
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
@@ -58,7 +58,7 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
             """
 
         sql """
-                REFRESH MATERIALIZED VIEW ${mvName} complete
+                REFRESH MATERIALIZED VIEW ${mvName} AUTO
             """
         def jobName = getJobName(dbName, mvName);
         waitingMTMVTaskFinished(jobName)

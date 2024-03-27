@@ -225,7 +225,7 @@ public class OperationType {
     // modify table properties: inMemory, StoragePolicy, IsBeingSynced, CompactionPolicy,
     // TimeSeriesCompactionFileCountThreshold, SeriesCompactionTimeThresholdSeconds,
     // SkipWriteIndexOnLoad, EnableSingleReplicaCompaction.
-    public static final short OP_MODIFY_IN_MEMORY = 267;
+    public static final short OP_MODIFY_TABLE_PROPERTIES = 267;
 
     // set table default distribution bucket num
     public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
@@ -381,6 +381,13 @@ public class OperationType {
     public static final short OP_ADD_PLSQL_PACKAGE = 473;
 
     public static final short OP_DROP_PLSQL_PACKAGE = 474;
+
+    public static final short OP_ALTER_ROLE = 475;
+
+    // For cloud.
+    public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
+    public static final short OP_MODIFY_TTL_SECONDS = 1001;
+    public static final short OP_MODIFY_CLOUD_WARM_UP_JOB = 1002;
 
     /**
      * Get opcode name by op code.

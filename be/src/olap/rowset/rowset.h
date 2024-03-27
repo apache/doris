@@ -169,6 +169,8 @@ public:
     // TODO should we rename the method to remove_files() to be more specific?
     virtual Status remove() = 0;
 
+    virtual std::string segment_file_path(int segment_id) const = 0;
+
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on
     // NOTICE: can not call this function in multithreads

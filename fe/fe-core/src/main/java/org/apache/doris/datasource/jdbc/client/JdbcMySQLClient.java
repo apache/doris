@@ -65,21 +65,26 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SHOW DATABASES";
-    }
-
-    @Override
-    protected List<String> getSpecifiedDatabase(Connection conn) {
-        List<String> databaseNames = Lists.newArrayList();
+    public List<String> getDatabaseNameList() {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            databaseNames.add(conn.getCatalog());
+            if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+                String currentDatabase = conn.getCatalog();
+                remoteDatabaseNames.add(currentDatabase);
+            } else {
+                rs = conn.getMetaData().getCatalogs();
+                while (rs.next()) {
+                    remoteDatabaseNames.add(rs.getString("TABLE_CAT"));
+                }
+            }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get specified database name from jdbc", e);
+            throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
-            close(conn);
+            close(rs, conn);
         }
-        return databaseNames;
+        return filterDatabaseNames(remoteDatabaseNames);
     }
 
     @Override
@@ -160,6 +165,10 @@ public class JdbcMySQLClient extends JdbcClient {
             close(rs, conn);
         }
         return tableSchema;
+    }
+
+    protected String getCatalogName(Connection conn) throws SQLException {
+        return null;
     }
 
     protected Set<String> getFilterInternalDatabases() {

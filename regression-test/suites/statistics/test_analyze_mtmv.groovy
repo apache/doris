@@ -123,7 +123,7 @@ suite("test_analyze_mtmv") {
                     l_partkey,
                     l_suppkey;
     """
-    sql """REFRESH MATERIALIZED VIEW mv1"""
+    sql """REFRESH MATERIALIZED VIEW mv1 AUTO"""
     while(true) {
         Thread.sleep(1000)
         def result = sql """select * from mv_infos("database"="test_analyze_mtmv") where Name="mv1";"""

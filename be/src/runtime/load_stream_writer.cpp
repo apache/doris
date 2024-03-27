@@ -172,7 +172,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     if (file_writer == nullptr) {
         return Status::Corruption("add_segment failed, file writer {} is destoryed", segid);
     }
-    if (!file_writer->is_closed()) {
+    if (!file_writer->closed()) {
         return Status::Corruption("add_segment failed, segment {} is not closed",
                                   file_writer->path().native());
     }
@@ -204,7 +204,7 @@ Status LoadStreamWriter::close() {
     }
 
     for (const auto& writer : _segment_file_writers) {
-        if (!writer->is_closed()) {
+        if (!writer->closed()) {
             return Status::Corruption("LoadStreamWriter close failed, segment {} is not closed",
                                       writer->path().native());
         }

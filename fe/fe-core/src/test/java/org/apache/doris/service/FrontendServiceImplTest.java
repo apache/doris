@@ -37,9 +37,9 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
+import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TStatusCode;
-import org.apache.doris.thrift.TStringLiteral;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import mockit.Mocked;
@@ -109,10 +109,10 @@ public class FrontendServiceImplTest {
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range");
 
-        List<List<TStringLiteral>> partitionValues = new ArrayList<>();
-        List<TStringLiteral> values = new ArrayList<>();
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        List<TNullableStringLiteral> values = new ArrayList<>();
 
-        TStringLiteral start = new TStringLiteral();
+        TNullableStringLiteral start = new TNullableStringLiteral();
         start.setValue("2023-08-07 00:00:00");
         values.add(start);
 
@@ -148,10 +148,10 @@ public class FrontendServiceImplTest {
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list");
 
-        List<List<TStringLiteral>> partitionValues = new ArrayList<>();
-        List<TStringLiteral> values = new ArrayList<>();
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        List<TNullableStringLiteral> values = new ArrayList<>();
 
-        TStringLiteral start = new TStringLiteral();
+        TNullableStringLiteral start = new TNullableStringLiteral();
         start.setValue("BEIJING");
         values.add(start);
 

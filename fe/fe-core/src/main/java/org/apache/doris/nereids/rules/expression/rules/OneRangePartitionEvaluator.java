@@ -433,7 +433,7 @@ public class OneRangePartitionEvaluator
         boolean hasNewChildren = false;
         for (Expression child : expr.children()) {
             EvaluateRangeResult childResult = child.accept(this, context);
-            if (childResult.result != child) {
+            if (!childResult.result.equals(child)) {
                 hasNewChildren = true;
             }
             childrenResults.add(childResult);

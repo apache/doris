@@ -80,6 +80,14 @@ suite("test_primary_key_partial_update_seq_col_delete", "p0") {
                 select * from ${tableName} order by id;
             """
 
+            sql "SET show_hidden_columns=true"
+
+            sql "sync"
+            qt_partial_update_without_seq_hidden_columns """
+                select * from ${tableName} order by id;
+            """
+
+            sql "SET show_hidden_columns=false"
             // provide the sequence column this time, should update according to the
             // given sequence values
             streamLoad {

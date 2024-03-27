@@ -133,7 +133,7 @@ suite("right_join_list_str_increment_create") {
         """
     }
     def refresh_mv = {
-        sql """refresh MATERIALIZED VIEW ${mv_name}"""
+        sql """refresh MATERIALIZED VIEW ${mv_name} AUTO"""
     }
     def delete_mv = {
         sql """DROP MATERIALIZED VIEW ${mv_name};"""

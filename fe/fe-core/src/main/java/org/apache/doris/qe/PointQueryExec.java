@@ -41,6 +41,7 @@ import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TStatusCode;
@@ -74,8 +75,10 @@ public class PointQueryExec implements CoordInterface {
     // ByteString serialized for prepared statement
     private ByteString serializedDescTable;
     private ByteString serializedOutputExpr;
+    private ByteString serializedQueryOptions;
     private ArrayList<Expr> outputExprs;
     private DescriptorTable descriptorTable;
+    private TQueryOptions queryOptions;
     private long tabletID = 0;
     private long timeoutMs = Config.point_query_timeout_ms; // default 10s
 
@@ -115,6 +118,7 @@ public class PointQueryExec implements CoordInterface {
         this.equalPredicats = planRoot.getPointQueryEqualPredicates();
         this.descriptorTable = planRoot.getDescTable();
         this.outputExprs = fragment.getOutputExprs();
+        this.queryOptions = planner.getQueryOptions();
 
         PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
         if (prepareStmt != null && prepareStmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
@@ -123,6 +127,7 @@ public class PointQueryExec implements CoordInterface {
             this.serializedDescTable = prepareStmt.getSerializedDescTable();
             this.serializedOutputExpr = prepareStmt.getSerializedOutputExprs();
             this.isBinaryProtocol = prepareStmt.isBinaryProtocol();
+            this.serializedQueryOptions = prepareStmt.getSerializedQueryOptions();
         } else {
             // TODO
             // planner.getDescTable().toThrift();
@@ -275,12 +280,17 @@ public class PointQueryExec implements CoordInterface {
                 serializedOutputExpr = ByteString.copyFrom(
                         new TSerializer().serialize(exprList));
             }
+            if (serializedQueryOptions == null) {
+                serializedQueryOptions = ByteString.copyFrom(
+                        new TSerializer().serialize(queryOptions));
+            }
 
             InternalService.PTabletKeyLookupRequest.Builder requestBuilder
                         = InternalService.PTabletKeyLookupRequest.newBuilder()
                             .setTabletId(tabletID)
                             .setDescTbl(serializedDescTable)
                             .setOutputExpr(serializedOutputExpr)
+                            .setQueryOptions(serializedQueryOptions)
                             .setIsBinaryRow(isBinaryProtocol);
             if (versions != null && !versions.isEmpty()) {
                 requestBuilder.setVersion(versions.get(0));

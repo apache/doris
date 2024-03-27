@@ -325,5 +325,81 @@ suite("test_crud_wlg") {
     Thread.sleep(10000)
     sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
     sql "set workload_group=normal;"
+
+    // test workload spill property
+    // 1 create group
+    test {
+        sql "create workload group if not exists spill_group_test_failed properties (  'spill_threshold_low_watermark'='90%');"
+        exception "should bigger than spill_threshold_low_watermark"
+    }
+    sql "create workload group if not exists spill_group_test properties (  'spill_threshold_low_watermark'='10%','spill_threshold_high_watermark'='10%');"
+    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+
+    test {
+        sql "create workload group if not exists spill_group_test properties (  'spill_threshold_low_watermark'='20%','spill_threshold_high_watermark'='10%');"
+        exception "should bigger than spill_threshold_low_watermark"
+    }
+
+    // 2 alter low
+    sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='-1' );"
+    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+
+    sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='5%' );"
+    qt_show_spill_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='20%' );"
+        exception "should bigger than spill_threshold_low_watermark"
+    }
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='0%' );"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='101%' );"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_low_watermark'='0%')"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_low_watermark'='101%')"
+        exception "must be a positive integer"
+    }
+
+    // 3 alter high
+    sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='40%' );"
+    qt_show_spill_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='1%' );"
+        exception "should bigger than spill_threshold_low_watermark"
+    }
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='0%' );"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='101%' );"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_high_watermark'='0%')"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_high_watermark'='101%')"
+        exception "must be a positive integer"
+    }
+
     sql "drop workload group test_group;"
+    sql "drop workload group spill_group_test;"
 }

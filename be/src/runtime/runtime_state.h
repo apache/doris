@@ -485,6 +485,8 @@ public:
         _query_mem_tracker = tracker;
     }
 
+    void set_query_options(const TQueryOptions& query_options) { _query_options = query_options; }
+
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }

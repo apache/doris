@@ -24,6 +24,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.MappingSlot;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -351,12 +352,12 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         // bind slot by child.output first
-        Scope defaultScope = toScope(cascadesContext, childPlan.getOutput());
+        Scope childOutput = toScope(cascadesContext, childPlan.getOutput());
         // then bind slot by child.children.output
-        Supplier<Scope> backupScope = Suppliers.memoize(() ->
+        Supplier<Scope> childChildrenOutput = Suppliers.memoize(() ->
                 toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(childPlan.children()))
         );
-        return bindHavingByScopes(having, cascadesContext, defaultScope, backupScope);
+        return bindHavingByScopes(having, cascadesContext, childOutput, childChildrenOutput);
     }
 
     private LogicalHaving<Plan> bindHavingAggregate(
@@ -365,13 +366,93 @@ public class BindExpression implements AnalysisRuleFactory {
         Aggregate<Plan> aggregate = having.child();
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        // having(aggregate) should bind slot by aggregate.child.output first
-        Scope defaultScope = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(aggregate.children()));
-        // then bind slot by aggregate.output
-        Supplier<Scope> backupScope = Suppliers.memoize(() ->
-                toScope(cascadesContext, aggregate.getOutput())
-        );
-        return bindHavingByScopes(ctx.root, ctx.cascadesContext, defaultScope, backupScope);
+        // keep same behavior as mysql
+        Supplier<CustomSlotBinderAnalyzer> bindByAggChild = Suppliers.memoize(() -> {
+            Scope aggChildOutputScope
+                    = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(aggregate.children()));
+            return (analyzer, unboundSlot) -> analyzer.bindSlotByScope(unboundSlot, aggChildOutputScope);
+        });
+
+        Scope aggOutputScope = toScope(cascadesContext, aggregate.getOutput());
+        Supplier<CustomSlotBinderAnalyzer> bindByGroupByThenAggOutputThenAggChild = Suppliers.memoize(() -> {
+            List<Expression> groupByExprs = aggregate.getGroupByExpressions();
+            ImmutableList.Builder<Slot> groupBySlots
+                    = ImmutableList.builderWithExpectedSize(groupByExprs.size());
+            for (Expression groupBy : groupByExprs) {
+                if (groupBy instanceof Slot) {
+                    groupBySlots.add((Slot) groupBy);
+                }
+            }
+            Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
+
+            return (analyzer, unboundSlot) -> {
+                List<Slot> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
+                if (!boundInGroupBy.isEmpty()) {
+                    return ImmutableList.of(boundInGroupBy.get(0));
+                }
+
+                List<Slot> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
+                if (!boundInAggOutput.isEmpty()) {
+                    return ImmutableList.of(boundInAggOutput.get(0));
+                }
+
+                List<? extends Expression> expressions = bindByAggChild.get().bindSlot(analyzer, unboundSlot);
+                return expressions.isEmpty() ? expressions : ImmutableList.of(expressions.get(0));
+            };
+        });
+
+        FunctionRegistry functionRegistry = cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
+        ExpressionAnalyzer havingAnalyzer = new ExpressionAnalyzer(having, aggOutputScope, cascadesContext,
+                false, true) {
+            private boolean currentIsInAggregateFunction;
+
+            @Override
+            public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
+                    ExpressionRewriteContext context) {
+                if (!currentIsInAggregateFunction) {
+                    currentIsInAggregateFunction = true;
+                    try {
+                        return super.visitAggregateFunction(aggregateFunction, context);
+                    } finally {
+                        currentIsInAggregateFunction = false;
+                    }
+                } else {
+                    return super.visitAggregateFunction(aggregateFunction, context);
+                }
+            }
+
+            @Override
+            public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
+                if (!currentIsInAggregateFunction && isAggregateFunction(unboundFunction, functionRegistry)) {
+                    currentIsInAggregateFunction = true;
+                    try {
+                        return super.visitUnboundFunction(unboundFunction, context);
+                    } finally {
+                        currentIsInAggregateFunction = false;
+                    }
+                } else {
+                    return super.visitUnboundFunction(unboundFunction, context);
+                }
+            }
+
+            @Override
+            protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
+                if (currentIsInAggregateFunction) {
+                    return bindByAggChild.get().bindSlot(this, unboundSlot);
+                } else {
+                    return bindByGroupByThenAggOutputThenAggChild.get().bindSlot(this, unboundSlot);
+                }
+            }
+        };
+
+        Set<Expression> havingExprs = having.getConjuncts();
+        ImmutableSet.Builder<Expression> analyzedHaving = ImmutableSet.builderWithExpectedSize(havingExprs.size());
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        for (Expression expression : havingExprs) {
+            analyzedHaving.add(havingAnalyzer.analyze(expression, rewriteContext));
+        }
+
+        return new LogicalHaving<>(analyzedHaving.build(), having.child());
     }
 
     private LogicalHaving<Plan> bindHavingByScopes(
@@ -764,6 +845,11 @@ public class BindExpression implements AnalysisRuleFactory {
         }
     }
 
+    private boolean isAggregateFunction(UnboundFunction unboundFunction, FunctionRegistry functionRegistry) {
+        return functionRegistry.isAggregateFunction(
+                    unboundFunction.getDbName(), unboundFunction.getName());
+    }
+
     private <E extends Expression> E checkBoundExceptLambda(E expression, Plan plan) {
         if (expression instanceof Lambda) {
             return expression;
@@ -797,6 +883,12 @@ public class BindExpression implements AnalysisRuleFactory {
             boolean enableExactMatch, boolean bindSlotInOuterScope) {
         List<Slot> childrenOutputs = PlanUtils.fastGetChildrenOutputs(children);
         Scope scope = toScope(cascadesContext, childrenOutputs);
+        return buildSimpleExprAnalyzer(currentPlan, cascadesContext, scope, enableExactMatch, bindSlotInOuterScope);
+    }
+
+    private SimpleExprAnalyzer buildSimpleExprAnalyzer(
+            Plan currentPlan, CascadesContext cascadesContext, Scope scope,
+            boolean enableExactMatch, boolean bindSlotInOuterScope) {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
         ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(currentPlan,
                 scope, cascadesContext, enableExactMatch, bindSlotInOuterScope);

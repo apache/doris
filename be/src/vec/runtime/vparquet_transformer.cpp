@@ -40,6 +40,7 @@
 #include "olap/olap_common.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
@@ -199,9 +200,9 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
 VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                          const VExprContextSPtrs& output_vexpr_ctxs,
                                          const std::vector<TParquetSchema>& parquet_schemas,
-                                         const TParquetCompressionType::type& compression_type,
-                                         const bool& parquet_disable_dictionary,
-                                         const TParquetVersion::type& parquet_version,
+                                         TParquetCompressionType::type compression_type,
+                                         bool parquet_disable_dictionary,
+                                         TParquetVersion::type parquet_version,
                                          bool output_object_data)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _parquet_schemas(parquet_schemas),
@@ -222,7 +223,10 @@ Status VParquetTransformer::_parse_properties() {
             builder.enable_dictionary();
         }
         _parquet_writer_properties = builder.build();
-        _arrow_properties = parquet::ArrowWriterProperties::Builder().store_schema()->build();
+        _arrow_properties = parquet::ArrowWriterProperties::Builder()
+                                    .enable_deprecated_int96_timestamps()
+                                    ->store_schema()
+                                    ->build();
     } catch (const parquet::ParquetException& e) {
         return Status::InternalError("parquet writer parse properties error: {}", e.what());
     }
@@ -250,8 +254,8 @@ Status VParquetTransformer::write(const Block& block) {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
+                                           &result, _state->timezone_obj()));
 
     auto get_table_res = arrow::Table::FromRecordBatches(result->schema(), {result});
     if (!get_table_res.ok()) {

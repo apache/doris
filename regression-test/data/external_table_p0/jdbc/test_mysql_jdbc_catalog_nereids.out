@@ -175,6 +175,7 @@ key_column_usage
 metadata_name_ids
 parameters
 partitions
+processlist
 profiling
 referential_constraints
 routines

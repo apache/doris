@@ -42,7 +42,11 @@ VExprContext::~VExprContext() {
     if (!_prepared || !_opened) {
         return;
     }
-    close();
+    try {
+        close();
+    } catch (const Exception& e) {
+        LOG(WARNING) << "Exception occurs when expr context deconstruct: " << e.to_string();
+    }
 }
 
 Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {

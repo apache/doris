@@ -221,4 +221,114 @@ suite("test_runtimefilter_on_datev2", "nereids_p0") {
     qt_join1 """
         SELECT * FROM ${dateTable} a, ${dateV2Table} b WHERE a.date = b.date;
     """
+
+    // bug fix
+    sql "set disable_join_reorder=true;"
+    sql "set enable_runtime_filter_prune=false;"
+    sql "set runtime_filter_type='MIN_MAX';"
+    sql "set runtime_filter_wait_time_ms=10000;"
+
+    // test date
+    sql "drop table if exists dt_rftest_l";
+    sql "drop table if exists dt_rftest_r";
+    sql """
+        CREATE TABLE `dt_rftest_l` (
+          `k1_date_l` DATEV2
+        )
+        DISTRIBUTED BY HASH(`k1_date_l`) buckets 16
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        CREATE TABLE `dt_rftest_r` (
+          `k1_date_r` DATEV2
+        )
+        DISTRIBUTED BY HASH(`k1_date_r`) buckets 16
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        insert into dt_rftest_l values
+            ("2001-11-11 11:11:11.123455"),
+            ("2011-11-11 11:11:11.123455"),
+            ("9999-11-11 11:11:11.123456");
+    """
+    sql """
+        insert into dt_rftest_r values("2011-11-11 11:11:11.123456");
+    """
+    qt_datetime_rf_1_p1 """
+        select /*+SET_VAR(parallel_pipeline_task_num=1)*/ * from dt_rftest_l join dt_rftest_r on k1_date_l = k1_date_r order by 1, 2; 
+    """
+    qt_datetime_rf_1_p2 """
+        select /*+SET_VAR(parallel_pipeline_task_num=8)*/ * from dt_rftest_l join dt_rftest_r on k1_date_l = k1_date_r order by 1, 2; 
+    """
+
+    // test datetime
+    sql "drop table if exists dt_rftest_l";
+    sql "drop table if exists dt_rftest_r";
+    sql """
+        CREATE TABLE `dt_rftest_l` (
+          `k1_date_l` DATETIMEV2(6)
+        )
+        DISTRIBUTED BY HASH(`k1_date_l`) buckets 16
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        CREATE TABLE `dt_rftest_r` (
+          `k1_date_r` DATETIMEV2(6)
+        )
+        DISTRIBUTED BY HASH(`k1_date_r`) buckets 16
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        insert into dt_rftest_l values
+            ("2001-11-11 11:11:11.123455"),
+            ("2011-11-11 11:11:11.123455"),
+            ("9999-11-11 11:11:11.123455");
+    """
+    sql """
+        insert into dt_rftest_r values("2011-11-11 11:11:11.123455");
+    """
+    // RF is different with parallel_pipeline_task_num=1 and parallel_pipeline_task_num=2
+    qt_datetime_rf_2_p1 """
+        select /*+SET_VAR(parallel_pipeline_task_num=1)*/ * from dt_rftest_l join dt_rftest_r on k1_date_l = k1_date_r order by 1, 2; 
+    """
+    qt_datetime_rf_2_p2 """
+        select /*+SET_VAR(parallel_pipeline_task_num=8)*/ * from dt_rftest_l join dt_rftest_r on k1_date_l = k1_date_r order by 1, 2; 
+    """
+
+    sql "drop table if exists dt_rftest_l";
+    sql "drop table if exists dt_rftest_r";
+    sql """
+        CREATE TABLE `dt_rftest_l` (
+          `k1_date` DATEV2
+        )
+        DISTRIBUTED BY HASH(`k1_date`)
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        CREATE TABLE `dt_rftest_r` (
+          `k1_char` varchar(64)
+        )
+        DISTRIBUTED BY HASH(`k1_char`)
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """ insert into dt_rftest_l values
+        ("9999-12-31 23:59:59");
+    """
+    sql """ insert into dt_rftest_r values
+        ("9999-12-31 23:59:59.999999");
+    """
+    qt_datetime_rf_3 """ select * from dt_rftest_l join dt_rftest_r on k1_date = k1_char order by 1, 2"""
 }

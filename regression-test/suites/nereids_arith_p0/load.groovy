@@ -21,6 +21,8 @@ suite("load") {
     sql "drop table if exists expr_test"
     sql "drop table if exists expr_test_not_nullable"
 
+    sql  "ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"
+
     sql """
         CREATE TABLE IF NOT EXISTS `expr_test` (
             `id` int null,
@@ -32,7 +34,7 @@ suite("load") {
             `klint` largeint(40) null,
             `kfloat` float null,
             `kdbl` double null,
-            `kdcml` decimal(9, 3) null,
+            `kdcml` decimalv2(9, 3) null,
             `kchr` char(10) null,
             `kvchr` varchar(10) null,
             `kstr` string null,
@@ -59,7 +61,7 @@ suite("load") {
             `klint` largeint(40) not null,
             `kfloat` float not null,
             `kdbl` double not null,
-            `kdcml` decimal(9, 3) not null,
+            `kdcml` decimalv2(9, 3) not null,
             `kchr` char(10) not null,
             `kvchr` varchar(10) not null,
             `kstr` string not null,

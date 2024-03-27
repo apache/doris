@@ -159,13 +159,13 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
 std::string DataTypeObject::to_string(const IColumn& column, size_t row_num) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     std::string res;
-    variant.serialize_one_row_to_string(row_num, &res);
+    static_cast<void>(variant.serialize_one_row_to_string(row_num, &res));
     return res;
 }
 
 void DataTypeObject::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
-    variant.serialize_one_row_to_string(row_num, ostr);
+    static_cast<void>(variant.serialize_one_row_to_string(row_num, ostr));
 }
 
 } // namespace doris::vectorized

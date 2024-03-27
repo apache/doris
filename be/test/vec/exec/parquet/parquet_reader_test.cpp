@@ -113,7 +113,7 @@ TEST_F(ParquetReaderTest, normal) {
     static_cast<void>(DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl));
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
-    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
+    auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
     static_cast<void>(local_fs->open_file(
             "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader));

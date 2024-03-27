@@ -63,6 +63,12 @@ using std::map;
 
 namespace doris {
 
+static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
+        TYPE_BOOLEAN,  TYPE_TINYINT,  TYPE_SMALLINT, TYPE_INT,        TYPE_BIGINT,
+        TYPE_LARGEINT, TYPE_FLOAT,    TYPE_TIME,     TYPE_DOUBLE,     TYPE_TIMEV2,
+        TYPE_CHAR,     TYPE_VARCHAR,  TYPE_STRING,   TYPE_HLL,        TYPE_OBJECT,
+        TYPE_DATE,     TYPE_DATETIME, TYPE_DATEV2,   TYPE_DATETIMEV2, TYPE_DECIMALV2};
+
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
     const auto& expr_map = params.expr_map;
@@ -106,7 +112,9 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             } else {
                 expr_result.set_success(true);
                 StringRef string_ref;
-                if (!ctx->root()->type().is_complex_type()) {
+                auto type = ctx->root()->type().type;
+                //eg: strcut, array, map VARIANT... will not impl get_data_at, so could use column->to_string()
+                if (PRIMITIVE_TYPE_SET.contains(type)) {
                     string_ref = column_ptr->get_data_at(0);
                 }
                 RETURN_IF_ERROR(_get_result((void*)string_ref.data, string_ref.size,
@@ -264,6 +272,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         result = column_type->to_string(*column_ptr, 0);
         break;
     }
+    case TYPE_VARIANT:
     case TYPE_QUANTILE_STATE: {
         result = column_type->to_string(*column_ptr, 0);
         break;

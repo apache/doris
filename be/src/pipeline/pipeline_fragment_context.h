@@ -213,6 +213,7 @@ protected:
 
     VecDateTimeValue _start_time;
     int _timeout = -1;
+    std::mutex _cancel_lock;
 
 private:
     std::vector<std::unique_ptr<PipelineTask>> _tasks;

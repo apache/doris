@@ -76,8 +76,8 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                 }
             }
             if (saved_schema.index_size() != schema.index_size()) {
-                LOG(WARNING) << "saved_schema.index_size()=" << saved_schema.column_size()
-                             << " schema.index_size()=" << schema.column_size();
+                LOG(WARNING) << "saved_schema.index_size()=" << saved_schema.index_size()
+                             << " schema.index_size()=" << schema.index_size();
                 return false;
             }
             // Sort by index id

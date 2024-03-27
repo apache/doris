@@ -129,32 +129,36 @@ Nereids	900
 
 -- !partial_update_value2 --
 
--- !partial_update_value --
-Bob	9990	1
-Alice	200	2
-Tom	9992	3
-Test	400	4
-Carter	9994	5
-Smith	600	6
-Beata	9996	7
-Doris	800	8
-Nereids	9998	9
+-- !partial_update_value1 --
+Alice	200
+Test	400
+Smith	600
+Doris	800
+Bob	9990
+Tom	9992
+Carter	9994
+Beata	9996
+Nereids	9998
 
--- !partial_update_value --
-Bob	9990	1
-Alice	200	2
-Tom	9992	3
-Test	400	4
-Carter	9994	5
-Smith	600	6
-Beata	9996	7
-Doris	800	8
-Nereids	9998	9
-BBeata	9996	15
-BBob	9990	16
-CCarter	9994	17
-NNereids	9998	18
-TTom	9992	19
+-- !partial_update_value2 --
+
+-- !partial_update_value1 --
+Alice	200
+Test	400
+Smith	600
+Doris	800
+Bob	9990
+BBob	9990
+Tom	9992
+TTom	9992
+Carter	9994
+CCarter	9994
+Beata	9996
+BBeata	9996
+Nereids	9998
+NNereids	9998
+
+-- !partial_update_value2 --
 
 -- !sql --
 1	a

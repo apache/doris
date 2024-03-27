@@ -262,6 +262,8 @@ struct TWorkloadGroupInfo {
   9: optional i32 scan_thread_num
   10: optional i32 max_remote_scan_thread_num
   11: optional i32 min_remote_scan_thread_num
+  12: optional i32 spill_threshold_low_watermark
+  13: optional i32 spill_threshold_high_watermark
 }
 
 enum TWorkloadMetricType {

@@ -524,6 +524,7 @@ struct TMasterOpRequest {
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
     26: optional string defaultDatabase
+    27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -1271,7 +1272,7 @@ struct TCreatePartitionRequest {
     2: optional i64 db_id
     3: optional i64 table_id
     // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
-    4: optional list<list<Exprs.TStringLiteral>> partitionValues
+    4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
 }

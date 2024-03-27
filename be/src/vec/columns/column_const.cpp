@@ -172,7 +172,7 @@ ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
 }
 
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
-                                                                const size_t row_num) noexcept {
+                                                                size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;
     if (is_column_const(column)) {
         result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();

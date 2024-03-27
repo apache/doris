@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -185,7 +186,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     writer_options.rowset_ctx = &context;
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), seg_id, context.tablet_schema, context.tablet, context.data_dir,
-            context.max_rows_per_segment, writer_options, nullptr);
+            context.max_rows_per_segment, writer_options, nullptr, fs);
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(file_writer)));
 
     auto s = (*writer)->init(column_ids, is_key);

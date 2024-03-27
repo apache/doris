@@ -25,8 +25,7 @@
 #include "util/uid_util.h"
 #include "vec/sink/load_stream_stub.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 void StreamSinkFileWriter::init(PUniqueId load_id, int64_t partition_id, int64_t index_id,
                                 int64_t tablet_id, int32_t segment_id) {
@@ -146,8 +145,8 @@ Status StreamSinkFileWriter::finalize() {
 }
 
 Status StreamSinkFileWriter::close() {
+    _closed = true;
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

@@ -30,6 +30,7 @@
 #include <exception>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <tuple>
 #include <variant>
@@ -229,16 +230,15 @@ void OrcReader::_init_profile() {
 
 Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
-        io::FileReaderSPtr inner_reader;
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options, &_file_system,
-                &inner_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
-        _file_input_stream.reset(new ORCFileInputStream(_scan_range.path, inner_reader,
-                                                        &_statistics, _io_ctx, _profile));
+        auto inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        _file_input_stream = std::make_unique<ORCFileInputStream>(
+                _scan_range.path, std::move(inner_reader), &_statistics, _io_ctx, _profile);
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);

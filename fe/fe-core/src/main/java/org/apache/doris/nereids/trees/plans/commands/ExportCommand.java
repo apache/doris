@@ -320,7 +320,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             }
             exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
         } else {
-            exportJob.setDataConsistency(ExportJob.CONSISTENT_ALL);
+            exportJob.setDataConsistency(ExportJob.CONSISTENT_NONE);
         }
 
         // Must copy session variable, because session variable may be changed during export job running.

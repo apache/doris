@@ -277,17 +277,18 @@ public class BackupJobInfo implements Writable {
 
     public void retainOdbcTables(Set<String> odbcTableNames) {
         Iterator<BackupOdbcTableInfo> odbcIter = newBackupObjects.odbcTables.listIterator();
-        Set<String> removedOdbcResourceNames = Sets.newHashSet();
+        Set<String> retainOdbcResourceNames = Sets.newHashSet();
         while (odbcIter.hasNext()) {
             BackupOdbcTableInfo backupOdbcTableInfo = odbcIter.next();
             if (!odbcTableNames.contains(backupOdbcTableInfo.dorisTableName)) {
-                removedOdbcResourceNames.add(backupOdbcTableInfo.resourceName);
                 odbcIter.remove();
+            } else {
+                retainOdbcResourceNames.add(backupOdbcTableInfo.resourceName);
             }
         }
         Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
         while (resourceIter.hasNext()) {
-            if (removedOdbcResourceNames.contains(resourceIter.next().name)) {
+            if (!retainOdbcResourceNames.contains(resourceIter.next().name)) {
                 resourceIter.remove();
             }
         }

@@ -44,6 +44,8 @@ const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 const static uint64_t CPU_SOFT_LIMIT_DEFAULT_VALUE = 1024;
+const static int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
+const static int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
 
 WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
         : _id(tg_info.id),
@@ -56,17 +58,21 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
           _cpu_hard_limit(tg_info.cpu_hard_limit),
           _scan_thread_num(tg_info.scan_thread_num),
           _max_remote_scan_thread_num(tg_info.max_remote_scan_thread_num),
-          _min_remote_scan_thread_num(tg_info.min_remote_scan_thread_num) {}
+          _min_remote_scan_thread_num(tg_info.min_remote_scan_thread_num),
+          _spill_low_watermark(tg_info.spill_low_watermark),
+          _spill_high_watermark(tg_info.spill_high_watermark) {}
 
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
             "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = "
-            "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}]",
+            "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
+            "spill_low_watermark={}, spill_high_watermark={}]",
             _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
-            _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num);
+            _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
+            _spill_low_watermark, _spill_high_watermark);
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
@@ -91,6 +97,8 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _scan_thread_num = tg_info.scan_thread_num;
             _max_remote_scan_thread_num = tg_info.max_remote_scan_thread_num;
             _min_remote_scan_thread_num = tg_info.min_remote_scan_thread_num;
+            _spill_low_watermark = tg_info.spill_low_watermark;
+            _spill_high_watermark = tg_info.spill_high_watermark;
         } else {
             return;
         }
@@ -287,6 +295,20 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
         workload_group_info->min_remote_scan_thread_num =
                 tworkload_group_info.min_remote_scan_thread_num;
     }
+
+    // 12 spill low watermark
+    int spill_low_watermark = SPILL_LOW_WATERMARK_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.spill_threshold_low_watermark) {
+        spill_low_watermark = tworkload_group_info.spill_threshold_low_watermark;
+    }
+    workload_group_info->spill_low_watermark = spill_low_watermark;
+
+    // 13 spil high watermark
+    int spill_high_watermark = SPILL_HIGH_WATERMARK_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.spill_threshold_high_watermark) {
+        spill_high_watermark = tworkload_group_info.spill_threshold_high_watermark;
+    }
+    workload_group_info->spill_high_watermark = spill_high_watermark;
 
     return Status::OK();
 }

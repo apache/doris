@@ -220,23 +220,22 @@ public abstract class JdbcClient {
      */
     public List<String> getDatabaseNameList() {
         Connection conn = getConnection();
-        Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
-        }
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            stmt = conn.createStatement();
-            String sql = getDatabaseQuery();
-            rs = stmt.executeQuery(sql);
-            while (rs.next()) {
-                remoteDatabaseNames.add(rs.getString(1));
+            if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+                String currentDatabase = conn.getSchema();
+                remoteDatabaseNames.add(currentDatabase);
+            } else {
+                rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
+                while (rs.next()) {
+                    remoteDatabaseNames.add(rs.getString("TABLE_SCHEM"));
+                }
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
-            close(rs, stmt, conn);
+            close(rs, conn);
         }
         return filterDatabaseNames(remoteDatabaseNames);
     }
@@ -351,21 +350,7 @@ public abstract class JdbcClient {
 
     // protected methods,for subclass to override
     protected String getCatalogName(Connection conn) throws SQLException {
-        return null;
-    }
-
-    protected abstract String getDatabaseQuery();
-
-    protected List<String> getSpecifiedDatabase(Connection conn) {
-        List<String> databaseNames = Lists.newArrayList();
-        try {
-            databaseNames.add(conn.getSchema());
-        } catch (SQLException e) {
-            throw new JdbcClientException("failed to get specified database name from jdbc", e);
-        } finally {
-            close(conn);
-        }
-        return databaseNames;
+        return conn.getCatalog();
     }
 
     protected String[] getTableTypes() {

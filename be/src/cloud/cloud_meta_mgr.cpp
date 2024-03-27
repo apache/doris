@@ -59,14 +59,6 @@
 namespace doris::cloud {
 using namespace ErrorCode;
 
-namespace {
-constexpr int kBrpcRetryTimes = 3;
-
-static bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
-static bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency(
-        "cloud_table_stats_report_latency");
-} // namespace
-
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
     if (tasks.empty()) {
         return Status::OK();
@@ -129,6 +121,12 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
     return status;
 }
 
+namespace {
+constexpr int kBrpcRetryTimes = 3;
+
+bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stats_report_latency");
+
 class MetaServiceProxy {
 public:
     static Status get_client(std::shared_ptr<MetaService_Stub>* stub) {
@@ -148,6 +146,9 @@ private:
                     if (config::meta_service_connection_pooled) {
                         num_proxies = config::meta_service_connection_pool_size;
                     }
+                    if (config::meta_service_endpoint.find(',') != std::string::npos) {
+                        is_meta_service_endpoint_list = true;
+                    }
                     proxies = std::make_unique<MetaServiceProxy[]>(num_proxies);
                 });
 
@@ -164,19 +165,28 @@ private:
     static Status init_channel(brpc::Channel* channel) {
         static std::atomic<size_t> index = 1;
 
-        std::string ip;
-        uint16_t port;
-        Status s = get_meta_service_ip_and_port(&ip, &port);
-        if (!s.ok()) {
-            LOG(WARNING) << "fail to get meta service ip and port: " << s;
-            return s;
+        const char* load_balancer_name = nullptr;
+        std::string endpoint;
+        if (is_meta_service_endpoint_list) {
+            endpoint = fmt::format("list://{}", config::meta_service_endpoint);
+            load_balancer_name = "random";
+        } else {
+            std::string ip;
+            uint16_t port;
+            Status s = get_meta_service_ip_and_port(&ip, &port);
+            if (!s.ok()) {
+                LOG(WARNING) << "fail to get meta service ip and port: " << s;
+                return s;
+            }
+
+            endpoint = get_host_port(ip, port);
         }
 
-        size_t next_id = index.fetch_add(1, std::memory_order_relaxed);
         brpc::ChannelOptions options;
-        options.connection_group = fmt::format("ms_{}", next_id);
-        if (channel->Init(ip.c_str(), port, &options) != 0) {
-            return Status::InternalError("fail to init brpc channel, ip: {}, port: {}", ip, port);
+        options.connection_group =
+                fmt::format("ms_{}", index.fetch_add(1, std::memory_order_relaxed));
+        if (channel->Init(endpoint.c_str(), load_balancer_name, &options) != 0) {
+            return Status::InvalidArgument("failed to init brpc channel, endpoint: {}", endpoint);
         }
         return Status::OK();
     }
@@ -196,7 +206,8 @@ private:
 
     bool is_idle_timeout(long now) {
         auto idle_timeout_ms = config::meta_service_idle_connection_timeout_ms;
-        return idle_timeout_ms > 0 &&
+        // idle timeout only works without list endpoint.
+        return !is_meta_service_endpoint_list && idle_timeout_ms > 0 &&
                _last_access_at_ms.load(std::memory_order_relaxed) + idle_timeout_ms < now;
     }
 
@@ -223,7 +234,9 @@ private:
                                                    google::protobuf::Service::STUB_OWNS_CHANNEL);
 
         long deadline = now;
-        if (config::meta_service_connection_age_base_minutes > 0) {
+        // connection age only works without list endpoint.
+        if (!is_meta_service_endpoint_list &&
+            config::meta_service_connection_age_base_minutes > 0) {
             std::default_random_engine rng(static_cast<uint32_t>(now));
             std::uniform_int_distribution<> uni(
                     config::meta_service_connection_age_base_minutes,
@@ -241,11 +254,15 @@ private:
         return Status::OK();
     }
 
+    static std::atomic_bool is_meta_service_endpoint_list;
+
     std::shared_mutex _mutex;
     std::atomic<long> _last_access_at_ms {0};
     long _deadline_ms {0};
     std::shared_ptr<MetaService_Stub> _stub;
 };
+
+std::atomic_bool MetaServiceProxy::is_meta_service_endpoint_list = false;
 
 template <typename T, typename... Ts>
 struct is_any : std::disjunction<std::is_same<T, Ts>...> {};
@@ -274,7 +291,7 @@ static std::string debug_info(const Request& req) {
     }
 }
 
-static inline std::default_random_engine make_random_engine() {
+inline std::default_random_engine make_random_engine() {
     return std::default_random_engine(
             static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
 }
@@ -285,8 +302,8 @@ using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcCont
                                                      ::google::protobuf::Closure*);
 
 template <typename Request, typename Response>
-static Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
-                        MetaServiceMethod<Request, Response> method) {
+Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
+                 MetaServiceMethod<Request, Response> method) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
 
@@ -326,6 +343,8 @@ static Status retry_rpc(std::string_view op_name, const Request& req, Response* 
     }
     return Status::RpcError("failed to {}: rpc timeout, last msg={}", op_name, error_msg);
 }
+
+} // namespace
 
 Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta) {
     VLOG_DEBUG << "send GetTabletRequest, tablet_id: " << tablet_id;
@@ -526,10 +545,10 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
     }
 }
 
-Status CloudMetaMgr::sync_tablet_delete_bitmap(
-        CloudTablet* tablet, int64_t old_max_version,
-        const google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>& rs_metas,
-        const TabletStatsPB& stats, const TabletIndexPB& idx, DeleteBitmap* delete_bitmap) {
+Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
+                                               std::ranges::range auto&& rs_metas,
+                                               const TabletStatsPB& stats, const TabletIndexPB& idx,
+                                               DeleteBitmap* delete_bitmap) {
     if (rs_metas.empty()) {
         return Status::OK();
     }
@@ -782,8 +801,7 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_storage_vault_info(
-        std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>>* vault_infos) {
+Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -794,30 +812,22 @@ Status CloudMetaMgr::get_storage_vault_info(
     }
 
     for (const auto& obj_store : resp.obj_info()) {
-        S3Conf s3_conf;
-        s3_conf.ak = obj_store.ak();
-        s3_conf.sk = obj_store.sk();
-        s3_conf.endpoint = obj_store.endpoint();
-        s3_conf.region = obj_store.region();
-        s3_conf.bucket = obj_store.bucket();
-        s3_conf.prefix = obj_store.prefix();
-        s3_conf.sse_enabled = obj_store.sse_enabled();
-        s3_conf.provider = obj_store.provider();
-        vault_infos->emplace_back(obj_store.id(), std::move(s3_conf));
+        vault_infos->emplace_back(obj_store.id(),
+                                  S3Conf {
+                                          .bucket = obj_store.bucket(),
+                                          .prefix = obj_store.prefix(),
+                                          .client_conf {.endpoint = obj_store.endpoint(),
+                                                        .region = obj_store.region(),
+                                                        .ak = obj_store.ak(),
+                                                        .sk = obj_store.sk()},
+                                          .sse_enabled = obj_store.sse_enabled(),
+                                          .provider = obj_store.provider(),
+                                  });
     }
     for (const auto& vault : resp.storage_vault()) {
-        THdfsParams params;
-        params.fs_name = vault.hdfs_info().build_conf().fs_name();
-        params.user = vault.hdfs_info().build_conf().user();
-        params.hdfs_kerberos_keytab = vault.hdfs_info().build_conf().hdfs_kerberos_keytab();
-        params.hdfs_kerberos_principal = vault.hdfs_info().build_conf().hdfs_kerberos_principal();
-        for (const auto& confs : vault.hdfs_info().build_conf().hdfs_confs()) {
-            THdfsConf conf;
-            conf.key = confs.key();
-            conf.value = confs.value();
-            params.hdfs_conf.emplace_back(std::move(conf));
+        if (vault.has_hdfs_info()) {
+            vault_infos->emplace_back(vault.id(), vault.hdfs_info());
         }
-        vault_infos->emplace_back(vault.id(), std::move(params));
     }
     return Status::OK();
 }

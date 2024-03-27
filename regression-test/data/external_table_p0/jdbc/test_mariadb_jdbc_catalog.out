@@ -2,6 +2,11 @@
 -- !sql --
 internal
 
+-- !show_db --
+doris_test
+information_schema
+performance_schema
+
 -- !sql --
 internal
 
@@ -38,6 +43,7 @@ key_column_usage
 metadata_name_ids
 parameters
 partitions
+processlist
 profiling
 referential_constraints
 routines

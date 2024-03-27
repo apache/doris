@@ -50,7 +50,7 @@ suite("test_base_mtmv") {
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
     order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
      sql """
-        REFRESH MATERIALIZED VIEW ${mvName}
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
@@ -64,7 +64,7 @@ suite("test_base_mtmv") {
         alter table ${tableName} drop COLUMN new_col;
     """
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName}
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
@@ -86,7 +86,7 @@ suite("test_base_mtmv") {
         );
     """
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName}
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"

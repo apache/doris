@@ -135,10 +135,6 @@ public class PartitionTableInfo {
             throw new AnalysisException("Complex type column can't be partition column: "
                 + column.getType().toString());
         }
-        // prohibit to create auto partition with null column anyhow
-        if (this.isAutoPartition && column.isNullable()) {
-            throw new AnalysisException("The auto partition column must be NOT NULL");
-        }
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
             throw new AnalysisException(
                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");

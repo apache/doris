@@ -78,7 +78,7 @@ suite("test_hive_olap_mtmv", "p0,external,hive,external_docker,external_docker_h
                 INSERT INTO ${tableName} VALUES(3,"ff"),(4,"gg");
             """
            sql """
-                   REFRESH MATERIALIZED VIEW ${mvName}
+                   REFRESH MATERIALIZED VIEW ${mvName} AUTO
                """
           waitingMTMVTaskFinished(jobName)
           order_qt_refresh_2 "SELECT * FROM ${mvName} order by id"

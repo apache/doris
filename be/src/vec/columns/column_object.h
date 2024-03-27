@@ -252,16 +252,16 @@ public:
 
     ColumnPtr get_rowstore_column() const { return rowstore_column; }
 
-    bool serialize_one_row_to_string(int row, std::string* output) const;
+    Status serialize_one_row_to_string(int row, std::string* output) const;
 
-    bool serialize_one_row_to_string(int row, BufferWritable& output) const;
+    Status serialize_one_row_to_string(int row, BufferWritable& output) const;
 
     // serialize one row to json format
-    bool serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
-                                          bool* is_null) const;
+    Status serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+                                            bool* is_null) const;
 
     // merge multiple sub sparse columns into root
-    void merge_sparse_to_root_column();
+    Status merge_sparse_to_root_column();
 
     // ensure root node is a certain type
     void ensure_root_node_type(const DataTypePtr& type);
@@ -494,4 +494,5 @@ public:
 
     std::string debug_string() const;
 };
+
 } // namespace doris::vectorized

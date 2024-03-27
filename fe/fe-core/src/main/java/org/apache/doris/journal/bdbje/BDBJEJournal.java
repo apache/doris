@@ -18,6 +18,7 @@
 package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
@@ -374,6 +375,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
     @Override
     public long getMaxJournalId() {
+        if (Config.enable_check_compatibility_mode) {
+            return getMaxJournalIdWithoutCheck();
+        }
         return getMaxJournalIdInternal(true);
     }
 

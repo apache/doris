@@ -300,7 +300,7 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
 
 void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
-                                                int end) const {
+                                                int end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
     auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (int r = start; r < end; ++r) {
@@ -313,7 +313,7 @@ void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const Nul
         for (size_t ei = 0; ei < struct_column.tuple_size(); ++ei) {
             auto elem_builder = builder.field_builder(ei);
             elemSerDeSPtrs[ei]->write_column_to_arrow(struct_column.get_column(ei), nullptr,
-                                                      elem_builder, r, r + 1);
+                                                      elem_builder, r, r + 1, ctz);
         }
     }
 }

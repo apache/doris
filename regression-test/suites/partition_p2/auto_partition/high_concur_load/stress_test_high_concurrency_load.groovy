@@ -42,7 +42,7 @@ suite("stress_test_high_concurrency_load", "p2,nonConcurrent") {
     def data_count = 10
     def cur_rows = 100000
 
-    // 用doris-dbgen生成数据文件
+    // use doris-dbgen product data file
     def doris_dbgen_create_data = { db_name, tb_name, part_type ->
         def rows = cur_rows  // total rows to load
         def bulkSize = rows
@@ -82,54 +82,36 @@ suite("stress_test_high_concurrency_load", "p2,nonConcurrent") {
         }
     }
 
-    def write_to_file = { cur_path, content ->
-        File file = new File(cur_path)
-        file.write(content)
-    }
-
-    def cm_list = []
-    def doris_dbgen_load_data = { db_name, tb_name, part_type ->
-        def tableName = tb_name
-
-        def jdbcUrl = context.config.jdbcUrl
-        def urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-        def sql_port
-        if (urlWithoutSchema.indexOf("/") >= 0) {
-            // e.g: jdbc:mysql://locahost:8080/?a=b
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-        } else {
-            // e.g: jdbc:mysql://locahost:8080
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+    def load_result
+    def doris_dbgen_stream_load_data = { db_name, tb_name, part_type, i ->
+        def list = []
+        def dir = new File("""${context.file.parent}""" + "/" + part_type + "/" + part_type + "_" + i)
+        dir.eachFileRecurse (FileType.FILES) { file ->
+            list << file
         }
-        String feHttpAddress = context.config.feHttpAddress
-        def http_port = feHttpAddress.substring(feHttpAddress.indexOf(":") + 1)
+        logger.info(list[0].toString())
 
-        String realDb = db_name
-        String user = context.config.jdbcUser
-        String password = context.config.jdbcPassword
+        streamLoad {
+            db "${db_name}"
+            table "${tb_name}"
 
+            set 'column_separator', '|'
 
-        for (int i = 0; i < data_count; i++) {
-            def cm = ""
-            def list = []
-            def dir = new File("""${context.file.parent}""" + "/" + part_type + "/" + part_type + "_" + i)
-            dir.eachFileRecurse (FileType.FILES) { file ->
-                list << file
+            file """${list[0].toString()}"""
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                if (json.Status.toLowerCase() != "success" || 0 != json.NumberFilteredRows) {
+                    load_result = result
+                }
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(0, json.NumberFilteredRows)
             }
-
-            if (password) {
-                cm = """curl --location-trusted -u ${user}:${password} -H "column_separator:|" -T ${list[0]} http://${sql_ip}:${http_port}/api/${realDb}/${tableName}/_stream_load"""
-            } else {
-                cm = """curl --location-trusted -u root: -H "column_separator:|" -T ${list[0]} http://${sql_ip}:${http_port}/api/${realDb}/${tableName}/_stream_load"""
-            }
-            logger.info("command is: " + cm)
-
-            def load_path = """${context.file.parent}/range/thread_load_${i}.sh"""
-            write_to_file(load_path, cm)
-            cm = """bash ${context.file.parent}/range/thread_load_${i}.sh"""
-            def cm_copy = cm
-            cm_list = cm_list.toList() + [cm_copy]
         }
     }
 
@@ -150,32 +132,28 @@ suite("stress_test_high_concurrency_load", "p2,nonConcurrent") {
 
     data_delete("range")
     doris_dbgen_create_data(database_name, tb_name2, "range")
-    doris_dbgen_load_data(database_name, tb_name2, "range")
 
     def thread_thread_1000 = []
-    def concurrent_load = { str ->
-        logger.info("load1 start:" + str)
-        logger.info("cm: " + str)
-        def proc = str.execute()
-        def sout = new StringBuilder(), serr = new StringBuilder()
-        proc.consumeProcessOutput(sout, serr)
-        proc.waitForOrKill(7200000)
-        logger.info("std out: " + sout + "std err: " + serr)
-    }
-
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[0])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[1])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[2])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[3])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[4])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[5])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[6])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[7])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[8])})
-    thread_thread_1000.add(Thread.startDaemon {concurrent_load(cm_list[9])})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 0)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 1)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 2)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 3)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 4)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 5)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 6)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 7)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 8)})
+    thread_thread_1000.add(Thread.startDaemon {doris_dbgen_stream_load_data(database_name, tb_name2, "range", 9)})
 
     for (Thread th in thread_thread_1000) {
         th.join()
+    }
+
+    if (load_result != null) {
+        def json = parseJson(load_result)
+        log.info("Stream load failed. ${load_result}".toString())
+        assertEquals("success", json.Status.toLowerCase())
+        assertEquals(0, json.NumberFilteredRows)
     }
 
     def row_count_range = sql """select count(*) from ${tb_name2};"""

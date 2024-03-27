@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -54,6 +55,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -88,7 +90,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     }
 
     public boolean isAutoDetectOverwrite() {
-        return ((UnboundTableSink<?>) this.logicalQuery).isAutoDetectPartition();
+        return (logicalQuery instanceof UnboundTableSink)
+                && ((UnboundTableSink<?>) this.logicalQuery).isAutoDetectPartition();
     }
 
     @Override
@@ -118,27 +121,31 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
 
         Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
-                .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
+                .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalTableSink)).stream().findAny();
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
-        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
-        OlapTable targetTable = physicalOlapTableSink.getTargetTable();
-        InternalDatabaseUtil
-                .checkDatabase(targetTable.getQualifiedDbName(), ConnectContext.get());
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
-                        PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    targetTable.getQualifiedDbName() + ": " + targetTable.getName());
+        PhysicalTableSink<?> physicalTableSink = ((PhysicalTableSink<?>) plan.get());
+        TableIf targetTable = physicalTableSink.getTargetTable();
+        List<String> partitionNames;
+        if (physicalTableSink instanceof PhysicalOlapTableSink) {
+            InternalDatabaseUtil
+                    .checkDatabase(((OlapTable) targetTable).getQualifiedDbName(), ConnectContext.get());
+            // check auth
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), ((OlapTable) targetTable).getQualifiedDbName(),
+                            targetTable.getName(), PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                        ((OlapTable) targetTable).getQualifiedDbName() + ": " + targetTable.getName());
+            }
+            ConnectContext.get().setSkipAuth(true);
+            partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
+            if (CollectionUtils.isEmpty(partitionNames)) {
+                partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+            }
+        } else {
+            // Do not create temp partition on FE
+            partitionNames = new ArrayList<>();
         }
-
-        ConnectContext.get().setSkipAuth(true);
-        List<String> partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
-        if (CollectionUtils.isEmpty(partitionNames)) {
-            partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
-        }
-
         long taskId = 0;
         try {
             if (isAutoDetectOverwrite()) {
@@ -167,6 +174,18 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             throw e;
         } finally {
             ConnectContext.get().setSkipAuth(false);
+        }
+    }
+
+    private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
+                                  ConnectContext ctx, StmtExecutor executor) throws Exception {
+        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
+                Optional.of(insertCtx));
+        insertCommand.run(ctx, executor);
+        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+            String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
+            LOG.warn("InsertInto state error:{}", errMsg);
+            throw new UserException(errMsg);
         }
     }
 
@@ -208,18 +227,11 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
             insertCtx = new HiveInsertCommandContext();
-            ((HiveInsertCommandContext) insertCtx).setOverwrite(false);
+            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else {
-            throw new RuntimeException("Current catalog does not support insert overwrite yet.");
+            throw new UserException("Current catalog does not support insert overwrite yet.");
         }
-        InsertIntoTableCommand insertCommand =
-                new InsertIntoTableCommand(copySink, labelName, Optional.of(insertCtx));
-        insertCommand.run(ctx, executor);
-        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-            String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
-            LOG.warn("InsertInto state error:{}", errMsg);
-            throw new UserException(errMsg);
-        }
+        runInsertCommand(copySink, insertCtx, ctx, executor);
     }
 
     /**
@@ -229,17 +241,19 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      * @param executor executor
      */
     private void insertInto(ConnectContext ctx, StmtExecutor executor, long groupId) throws Exception {
-        UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
         // 1. for overwrite situation, we disable auto create partition.
-        // 2. we save and pass overwrite auto detect by insertCtx
-        OlapInsertCommandContext insertCtx = new OlapInsertCommandContext(false, sink.isAutoDetectPartition(), groupId);
-        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(sink, labelName, Optional.of(insertCtx));
-        insertCommand.run(ctx, executor);
-        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-            String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
-            LOG.warn("InsertInto state error:{}", errMsg);
-            throw new UserException(errMsg);
+        // 2. we save and pass overwrite auto-detected by insertCtx
+        InsertCommandContext insertCtx;
+        if (logicalQuery instanceof UnboundTableSink) {
+            insertCtx = new OlapInsertCommandContext(false,
+                    ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId);
+        } else if (logicalQuery instanceof UnboundHiveTableSink) {
+            insertCtx = new HiveInsertCommandContext();
+            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
+        } else {
+            throw new UserException("Current catalog does not support insert overwrite yet.");
         }
+        runInsertCommand(logicalQuery, insertCtx, ctx, executor);
     }
 
     @Override

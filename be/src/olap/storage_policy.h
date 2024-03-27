@@ -66,11 +66,13 @@ struct StorageResource {
 };
 
 // return nullptr if not found
-// use string `resource_id` for compatibility
-io::FileSystemSPtr get_filesystem(const std::string& resource_id);
+io::RemoteFileSystemSPtr get_filesystem(const std::string& resource_id);
 
 // return [nullptr, -1] if not found
 StorageResource get_storage_resource(int64_t resource_id);
+
+// always success
+void put_storage_resource(std::string resource_id, StorageResource resource);
 
 // always success
 void put_storage_resource(int64_t resource_id, StorageResource resource);
@@ -78,6 +80,6 @@ void put_storage_resource(int64_t resource_id, StorageResource resource);
 void delete_storage_resource(int64_t resource_id);
 
 // return [id, version] of all resources
-std::vector<std::pair<int64_t, int64_t>> get_storage_resource_ids();
+std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids();
 
 } // namespace doris

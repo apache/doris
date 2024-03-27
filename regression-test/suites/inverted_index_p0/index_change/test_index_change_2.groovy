@@ -28,7 +28,7 @@ suite("test_index_change_2") {
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
+                sleep(10000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
                 break
             }
@@ -50,6 +50,7 @@ suite("test_index_change_2") {
                 }
             }
             if (finished_num == expected_finished_num) {
+                sleep(10000)
                 logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
                 break
             }

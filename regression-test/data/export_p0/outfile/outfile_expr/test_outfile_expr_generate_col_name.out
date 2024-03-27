@@ -199,7 +199,7 @@ __max_0	INT	Yes	false	\N	NONE
 9	id not exist
 
 -- !desc_s3 --
-__case_expr_1	TEXT	Yes	false	\N	NONE
+__case_expr_1	VARCHAR(65533)	Yes	false	\N	NONE
 id	INT	Yes	false	\N	NONE
 
 -- !select_base1 --
@@ -233,7 +233,7 @@ __binary_predicate_4	BOOLEAN	Yes	false	\N	NONE
 __cast_expr_3	BIGINT	Yes	false	\N	NONE
 __in_predicate_6	BOOLEAN	Yes	false	\N	NONE
 __literal_1	TINYINT	Yes	false	\N	NONE
-__literal_2	TEXT	Yes	false	\N	NONE
+__literal_2	VARCHAR(65533)	Yes	false	\N	NONE
 id	INT	Yes	false	\N	NONE
 
 -- !select_base1 --

@@ -20,7 +20,6 @@
 #include <cstddef>
 
 #include "common/status.h"
-#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
@@ -29,21 +28,27 @@ namespace doris::io {
 
 class LocalFileWriter final : public FileWriter {
 public:
-    LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data = true);
-    LocalFileWriter(Path path, int fd);
+    LocalFileWriter(Path path, int fd, bool sync_data = true);
     ~LocalFileWriter() override;
 
     Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
+    const Path& path() const override { return _path; }
+    size_t bytes_appended() const override;
+    bool closed() const override { return _closed; }
 
 private:
     void _abort();
     Status _close(bool sync);
 
+private:
+    Path _path;
     int _fd; // owned
     bool _dirty = false;
-    const bool _sync_data = false;
+    bool _closed = false;
+    const bool _sync_data = true;
+    size_t _bytes_appended = 0;
 };
 
 } // namespace doris::io

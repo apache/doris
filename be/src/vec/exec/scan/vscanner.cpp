@@ -91,7 +91,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
-        for (const auto slot_desc : _output_tuple_desc->slots()) {
+        for (auto* const slot_desc : _output_tuple_desc->slots()) {
             if (!slot_desc->need_materialize()) {
                 // should be ignore from reading
                 continue;
@@ -112,7 +112,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             // 1. Get input block from scanner
             {
                 // get block time
-                auto timer = _parent ? _parent->_scan_timer : _local_state->_scan_timer;
+                auto* timer = _parent ? _parent->_scan_timer : _local_state->_scan_timer;
                 SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
@@ -125,7 +125,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
             // 2. Filter the output block finally.
             {
-                auto timer = _parent ? _parent->_filter_timer : _local_state->_filter_timer;
+                auto* timer = _parent ? _parent->_filter_timer : _local_state->_filter_timer;
                 SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
             }

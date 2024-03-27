@@ -113,7 +113,8 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
     FileWriter* writer = nullptr;
     {
         std::lock_guard lock(_mtx);
-        if (auto iter = _key_to_writer.find(key.hash); iter != _key_to_writer.end()) {
+        auto file_writer_map_key = std::make_pair(key.hash, key.offset);
+        if (auto iter = _key_to_writer.find(file_writer_map_key); iter != _key_to_writer.end()) {
             writer = iter->second.get();
         } else {
             std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
@@ -127,7 +128,7 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             FileWriterOptions opts {.sync_file_data = false};
             RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
             writer = file_writer.get();
-            _key_to_writer.emplace(key.hash, std::move(file_writer));
+            _key_to_writer.emplace(file_writer_map_key, std::move(file_writer));
         }
     }
     DCHECK_NE(writer, nullptr);
@@ -138,7 +139,8 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
     FileWriterPtr file_writer;
     {
         std::lock_guard lock(_mtx);
-        auto iter = _key_to_writer.find(key.hash);
+        auto file_writer_map_key = std::make_pair(key.hash, key.offset);
+        auto iter = _key_to_writer.find(file_writer_map_key);
         DCHECK(iter != _key_to_writer.end());
         file_writer = std::move(iter->second);
         _key_to_writer.erase(iter);

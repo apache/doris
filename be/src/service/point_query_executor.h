@@ -72,7 +72,7 @@ public:
     }
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                size_t block_size = 1);
+                const TQueryOptions& query_options, size_t block_size = 1);
 
     std::unique_ptr<vectorized::Block> get_block();
 

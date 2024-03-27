@@ -111,6 +111,9 @@ void NestedLoopJoinProbeLocalState::_reset_with_next_probe_row() {
 
 void NestedLoopJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
+    if (!p._use_specific_projections) {
+        return;
+    }
     if (p._is_outer_join) {
         auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
         auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
@@ -436,7 +439,9 @@ NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, con
         : JoinProbeOperatorX<NestedLoopJoinProbeLocalState>(pool, tnode, operator_id, descs),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
-          _old_version_flag(!tnode.__isset.nested_loop_join_node) {}
+          _old_version_flag(!tnode.__isset.nested_loop_join_node) {
+    _keep_origin = _is_output_left_side_only;
+}
 
 Status NestedLoopJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::init(tnode, state));

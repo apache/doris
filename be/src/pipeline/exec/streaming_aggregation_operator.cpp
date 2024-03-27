@@ -176,6 +176,7 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                (!p._have_conjuncts) && // no having conjunct
                                p._needs_finalize;      // agg's finalize step
     }
+    _init = true;
     return Status::OK();
 }
 
@@ -1076,6 +1077,13 @@ Status StreamingAggLocalState::_get_without_key_result(RuntimeState* state,
     return Status::OK();
 }
 
+void StreamingAggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
+    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+        _aggregate_evaluators[i]->function()->destroy(
+                data + _parent->cast<StreamingAggOperatorX>()._offsets_of_aggregate_states[i]);
+    }
+}
+
 void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                                       vectorized::ColumnRawPtrs& key_columns,
                                                       const size_t num_rows) {
@@ -1260,6 +1268,7 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
                 },
                 _agg_data->method_variant);
     }
+    _close_with_serialized_key();
     return Base::close(state);
 }
 

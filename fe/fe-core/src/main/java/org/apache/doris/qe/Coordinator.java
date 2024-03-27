@@ -643,7 +643,11 @@ public class Coordinator implements CoordInterface {
     @Override
     public void close() {
         if (queryQueue != null && queueToken != null) {
-            queryQueue.returnToken(queueToken);
+            try {
+                queryQueue.returnToken(queueToken);
+            } catch (Throwable t) {
+                LOG.error("error happens when coordinator close ", t);
+            }
         }
     }
 
@@ -3294,9 +3298,6 @@ public class Coordinator implements CoordInterface {
         // return true if cancel success. Otherwise, return false
 
         private synchronized boolean cancelFragment(Types.PPlanFragmentCancelReason cancelReason) {
-            if (!this.hasCanceled) {
-                return false;
-            }
             for (RuntimeProfile profile : taskProfile) {
                 profile.setIsCancel(true);
             }
@@ -3311,6 +3312,7 @@ public class Coordinator implements CoordInterface {
                 try {
                     BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(brpcAddress,
                             this.fragmentId, queryId, cancelReason);
+                    this.hasCanceled = true;
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());

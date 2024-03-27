@@ -34,4 +34,8 @@ public class AutoMappedMetric<M> {
         return nameToMetric.computeIfAbsent(name, metricSupplier);
     }
 
+    public Map<String, M> getMetrics() {
+        return nameToMetric;
+    }
+
 }

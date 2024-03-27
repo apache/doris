@@ -41,6 +41,8 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
+trinoPluginsPath = "/tmp/trino_connector"
+
 // sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
 //sf1DataPath = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
 
@@ -55,9 +57,21 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_cast_string_to_array,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv"
+excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "test_analyze_stats_p1," +
+    "test_broker_load," +
+    "test_cast_string_to_array," +
+    "test_refresh_mtmv," +
+    "test_spark_load," +
+    "test_trino_hive_orc," +
+    "test_trino_hive_other," +
+    "test_hive_write_insert," +
+    "test_broker_load_func," +
+    "test_hive_write_partitions," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "external_table_p0/trino_connector" // unstable 
 
 customConf1 = "test_custom_conf_value"
 

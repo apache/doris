@@ -45,6 +45,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver"
         );"""
+        order_qt_show_db """ show databases from ${catalog_name}; """
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """

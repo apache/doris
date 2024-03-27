@@ -27,11 +27,6 @@ public class JdbcSQLServerClient extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SELECT name FROM sys.schemas";
-    }
-
-    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         String originSqlserverType = fieldSchema.getDataTypeName();
         // For sqlserver IDENTITY type, such as 'INT IDENTITY'

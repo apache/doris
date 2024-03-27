@@ -76,8 +76,6 @@ public:
 
     Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
 
-    FileSystemSPtr fs() const override { return nullptr; }
-
     size_t get_queue_size() { return _buf_queue.size(); }
 
     // used for pipeline load, which use TUniqueId(lo: query_id.lo + fragment_id, hi: query_id.hi) as pipe_id

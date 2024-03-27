@@ -51,8 +51,6 @@ public:
 
     bool closed() const override { return _remote_file_reader->closed(); }
 
-    FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
-
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
 
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);

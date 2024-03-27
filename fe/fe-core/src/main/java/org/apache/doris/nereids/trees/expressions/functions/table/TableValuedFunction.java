@@ -53,7 +53,9 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
         } catch (AnalysisException e) {
             throw e;
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build FunctionGenTable by " + this + ": " + t.getMessage(), t);
+            // Do not print the whole stmt, it is too long and may contain sensitive information
+            throw new AnalysisException(
+                    "Can not build FunctionGenTable '" + this.getName() + "'. error: " + t.getMessage(), t);
         }
     });
 

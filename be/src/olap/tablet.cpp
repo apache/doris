@@ -410,21 +410,6 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
     return Status::OK();
 }
 
-RowsetSharedPtr Tablet::get_rowset(const RowsetId& rowset_id) {
-    std::shared_lock rdlock(_meta_lock);
-    for (auto& version_rowset : _rs_version_map) {
-        if (version_rowset.second->rowset_id() == rowset_id) {
-            return version_rowset.second;
-        }
-    }
-    for (auto& stale_version_rowset : _stale_rs_version_map) {
-        if (stale_version_rowset.second->rowset_id() == rowset_id) {
-            return stale_version_rowset.second;
-        }
-    }
-    return nullptr;
-}
-
 Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
@@ -540,7 +525,9 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
         // delete rowset in "to_delete" directly
         for (auto& rs : to_delete) {
             LOG(INFO) << "add unused rowset " << rs->rowset_id() << " because of same version";
-            _engine.add_unused_rowset(rs);
+            if (rs->is_local()) {
+                _engine.add_unused_rowset(rs);
+            }
         }
     }
     return Status::OK();
@@ -579,7 +566,9 @@ void Tablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool 
     } else {
         for (auto& rs : to_delete) {
             _timestamped_version_tracker.delete_version(rs->version());
-            _engine.add_unused_rowset(rs);
+            if (rs->is_local()) {
+                _engine.add_unused_rowset(rs);
+            }
         }
     }
 }
@@ -751,7 +740,9 @@ void Tablet::delete_expired_stale_rowset() {
                 auto it = _stale_rs_version_map.find(timestampedVersion->version());
                 if (it != _stale_rs_version_map.end()) {
                     // delete rowset
-                    _engine.add_unused_rowset(it->second);
+                    if (it->second->is_local()) {
+                        _engine.add_unused_rowset(it->second);
+                    }
                     _stale_rs_version_map.erase(it);
                     VLOG_NOTICE << "delete stale rowset tablet=" << tablet_id() << " version["
                                 << timestampedVersion->version().first << ","
@@ -2076,6 +2067,12 @@ Status Tablet::_follow_cooldowned_data() {
     std::vector<RowsetSharedPtr> overlap_rowsets;
     bool version_aligned = false;
 
+    // Holding these to delete rowsets' shared ptr until save meta can avoid trash sweeping thread
+    // deleting these rowsets' files before rowset meta has been removed from disk, which may cause
+    // data loss when BE reboot before save meta to disk.
+    std::vector<RowsetSharedPtr> to_delete;
+    std::vector<RowsetSharedPtr> to_add;
+
     {
         std::lock_guard wlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
@@ -2102,17 +2099,18 @@ Status Tablet::_follow_cooldowned_data() {
         }
 
         std::sort(overlap_rowsets.begin(), overlap_rowsets.end(), Rowset::comparator);
+
+        // Find different rowset in `overlap_rowsets` and `cooldown_meta_pb.rs_metas`
         auto rs_pb_it = cooldown_meta_pb.rs_metas().begin();
         auto rs_it = overlap_rowsets.begin();
         for (; rs_pb_it != cooldown_meta_pb.rs_metas().end() && rs_it != overlap_rowsets.end();
              ++rs_pb_it, ++rs_it) {
-            // skip cooldowned rowset with same version in BE
-            if ((*rs_it)->is_local() || rs_pb_it->end_version() != (*rs_it)->end_version()) {
+            if (rs_pb_it->rowset_id_v2() != (*rs_it)->rowset_id().to_string()) {
                 break;
             }
         }
-        std::vector<RowsetSharedPtr> to_delete(rs_it, overlap_rowsets.end());
-        std::vector<RowsetSharedPtr> to_add;
+
+        to_delete.assign(rs_it, overlap_rowsets.end());
         to_add.reserve(cooldown_meta_pb.rs_metas().end() - rs_pb_it);
         for (; rs_pb_it != cooldown_meta_pb.rs_metas().end(); ++rs_pb_it) {
             auto rs_meta = std::make_shared<RowsetMeta>();
@@ -2128,10 +2126,27 @@ Status Tablet::_follow_cooldowned_data() {
         // TODO(plat1ko): process primary key
         _tablet_meta->set_cooldown_meta_id(cooldown_meta_pb.cooldown_meta_id());
     }
+
     {
         std::lock_guard rlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         save_meta();
+    }
+
+    if (!to_add.empty()) {
+        LOG(INFO) << "modify rowsets when follow cooldowned data, tablet_id=" << tablet_id()
+                  << [&]() {
+                         std::stringstream ss;
+                         ss << " delete rowsets:\n";
+                         for (auto&& rs : to_delete) {
+                             ss << rs->version() << ' ' << rs->rowset_id() << '\n';
+                         }
+                         ss << "add rowsets:\n";
+                         for (auto&& rs : to_add) {
+                             ss << rs->version() << ' ' << rs->rowset_id() << '\n';
+                         }
+                         return ss.str();
+                     }();
     }
 
     return Status::OK();

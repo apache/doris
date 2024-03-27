@@ -58,23 +58,24 @@ suite("test_insert_random_distribution_table", "p0") {
 
     def tablets = getTablets.call(res)
 
-    def tabletId1 = tablets[0]
-    def tabletId2 = tablets[1]
-    def tabletId3 = tablets[2] 
-    def tabletId4 = tablets[3] 
-    def tabletId5 = tablets[4] 
+    // define an array to store count of each tablet
+    def rowCounts = []   
 
-    def rowCount1 = sql "select count() from ${tableName} tablet(${tabletId1})"
-    def rowCount2 = sql "select count() from ${tableName} tablet(${tabletId2})"
-    def rowCount3 = sql "select count() from ${tableName} tablet(${tabletId3})"
-    def rowCount4 = sql "select count() from ${tableName} tablet(${tabletId4})"
-    def rowCount5 = sql "select count() from ${tableName} tablet(${tabletId5})"
+    def beginIdx = -1
+    for (int i = tablets.size() - 1; i >= 0; i--) {
+        def countResult = sql "select count() from ${tableName} tablet(${tablets[i]})"
+        rowCounts[i] = countResult[0][0]
+        log.info("tablet = ${tablets[i]}, rowCounts[${i}] = ${rowCounts[i]}")
+        if (rowCounts[i] > 0 && (beginIdx == (i + 1) || beginIdx == -1)) {
+            beginIdx = i
+        }
+    }
 
-    assertEquals(rowCount1[0][0], 3)
-    assertEquals(rowCount2[0][0], 1)
-    assertEquals(rowCount3[0][0], 0)
-    assertEquals(rowCount4[0][0], 0)
-    assertEquals(rowCount5[0][0], 0)
+    assertEquals(rowCounts[beginIdx], 2)
+    assertEquals(rowCounts[(beginIdx + 1) % 5], 2)
+    assertEquals(rowCounts[(beginIdx + 2) % 5], 0)
+    assertEquals(rowCounts[(beginIdx + 3) % 5], 0)
+    assertEquals(rowCounts[(beginIdx + 4) % 5], 0)
 
     sql "set batch_size=2"
     // insert second time
@@ -83,17 +84,16 @@ suite("test_insert_random_distribution_table", "p0") {
     totalCount = sql "select count() from ${tableName}"
     assertEquals(totalCount[0][0], 8)
 
-    rowCount1 = sql "select count() from ${tableName} tablet(${tabletId1})"
-    rowCount2 = sql "select count() from ${tableName} tablet(${tabletId2})"
-    rowCount3 = sql "select count() from ${tableName} tablet(${tabletId3})"
-    rowCount4 = sql "select count() from ${tableName} tablet(${tabletId4})"
-    rowCount5 = sql "select count() from ${tableName} tablet(${tabletId5})"
-
-    assertEquals(rowCount1[0][0], 3)
-    assertEquals(rowCount2[0][0], 4)
-    assertEquals(rowCount3[0][0], 1)
-    assertEquals(rowCount4[0][0], 0)
-    assertEquals(rowCount5[0][0], 0)
+    for (int i = 0; i < tablets.size(); i++) {
+        def countResult = sql "select count() from ${tableName} tablet(${tablets[i]})"
+        rowCounts[i] = countResult[0][0]
+        log.info("tablet = ${tablets[i]}, rowCounts[${i}] = ${rowCounts[i]}")
+    }
+    assertEquals(rowCounts[(beginIdx + 0) % 5], 2)
+    assertEquals(rowCounts[(beginIdx + 1) % 5], 4)
+    assertEquals(rowCounts[(beginIdx + 2) % 5], 2)
+    assertEquals(rowCounts[(beginIdx + 3) % 5], 0)
+    assertEquals(rowCounts[(beginIdx + 4) % 5], 0)
 
     sql "set batch_size=2"
     // insert third time
@@ -102,17 +102,17 @@ suite("test_insert_random_distribution_table", "p0") {
     totalCount = sql "select count() from ${tableName}"
     assertEquals(totalCount[0][0], 12)
 
-    rowCount1 = sql "select count() from ${tableName} tablet(${tabletId1})"
-    rowCount2 = sql "select count() from ${tableName} tablet(${tabletId2})"
-    rowCount3 = sql "select count() from ${tableName} tablet(${tabletId3})"
-    rowCount4 = sql "select count() from ${tableName} tablet(${tabletId4})"
-    rowCount5 = sql "select count() from ${tableName} tablet(${tabletId5})"
+    for (int i = 0; i < tablets.size(); i++) {
+        def countResult = sql "select count() from ${tableName} tablet(${tablets[i]})"
+        rowCounts[i] = countResult[0][0]
+        log.info("tablet = ${tablets[i]}, rowCounts[${i}] = ${rowCounts[i]}")
+    }
 
-    assertEquals(rowCount1[0][0], 3)
-    assertEquals(rowCount2[0][0], 4)
-    assertEquals(rowCount3[0][0], 4)
-    assertEquals(rowCount4[0][0], 1)
-    assertEquals(rowCount5[0][0], 0)
+    assertEquals(rowCounts[(beginIdx + 0) % 5], 2)
+    assertEquals(rowCounts[(beginIdx + 1) % 5], 4)
+    assertEquals(rowCounts[(beginIdx + 2) % 5], 4)
+    assertEquals(rowCounts[(beginIdx + 3) % 5], 2)
+    assertEquals(rowCounts[(beginIdx + 4) % 5], 0)
 
     // ${tableName} partitioned table
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -141,69 +141,45 @@ suite("test_insert_random_distribution_table", "p0") {
 
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    def partition1 = "p20231011"
-    def partition2 = "p20231012"
-    def partition3 = "p20231013"
     assertEquals(totalCount[0][0], 5)
-    res = sql "show tablets from ${tableName} partition ${partition1}"
-    tablets = getTablets.call(res)
-    def tabletId11 = tablets[0] 
-    def tabletId12 = tablets[1] 
-    def tabletId13 = tablets[2] 
-    def tabletId14 = tablets[3] 
-    def tabletId15 = tablets[4] 
 
-    res = sql "show tablets from ${tableName} partition ${partition2}"
-    tablets = getTablets.call(res)
-    def tabletId21 = tablets[0] 
-    def tabletId22 = tablets[1] 
-    def tabletId23 = tablets[2] 
-    def tabletId24 = tablets[3] 
-    def tabletId25 = tablets[4] 
+    def partitions = ["p20231011", "p20231012", "p20231013"]
+    def partitionTablets = []
+    def partitionRowCounts = []
+    def partitionBeginIdx = [];
+    for (int p = 0; p < 3; p++) {
+        res = sql "show tablets from ${tableName} partition ${partitions[p]}"
+        partitionTablets[p] = getTablets.call(res)
+        partitionRowCounts[p] = []
+        numTablets = partitionTablets[p].size()
+        for (int i = numTablets - 1; i >= 0; i--) {
+            def countResult = sql "select count() from ${tableName} tablet(${partitionTablets[p][i]})"
+            partitionRowCounts[p][i] = countResult[0][0]
+            log.info("tablet = ${partitionTablets[p][i]}, partitionRowCounts[${p}][${i}] = " +
+                     "${partitionRowCounts[p][i]}")
+            if (partitionRowCounts[p][i] > 0 &&
+                (partitionBeginIdx[p] == (i + 1) || partitionBeginIdx[p] == null)) {
+                partitionBeginIdx[p] = i
+            }
+        }
+    }
 
-    res = sql "show tablets from ${tableName} partition ${partition3}"
-    tablets = getTablets.call(res)
-    def tabletId31 = tablets[0] 
-    def tabletId32 = tablets[1] 
-    def tabletId33 = tablets[2] 
-    def tabletId34 = tablets[3] 
-    def tabletId35 = tablets[4] 
+    assertEquals(partitionRowCounts[0][partitionBeginIdx[0]], 1)
+    assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + 1) % 10], 1)
+    assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + 2) % 10], 1)
+    for (int i = 3; i < 10; i++) {
+      assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + i) % 10], 0)
+    }
+    
+    assertEquals(partitionRowCounts[1][partitionBeginIdx[1]], 1)
+    assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 1) % 10], 1)
+    for (int i = 2; i < 10; i++) {
+      assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + i) % 10], 0)
+    }
 
-    def rowCount11 = sql "select count() from ${tableName} tablet(${tabletId11})"
-    def rowCount12 = sql "select count() from ${tableName} tablet(${tabletId12})"
-    def rowCount13 = sql "select count() from ${tableName} tablet(${tabletId13})"
-    def rowCount14 = sql "select count() from ${tableName} tablet(${tabletId14})"
-    def rowCount15 = sql "select count() from ${tableName} tablet(${tabletId15})"
-
-    def rowCount21 = sql "select count() from ${tableName} tablet(${tabletId21})"
-    def rowCount22 = sql "select count() from ${tableName} tablet(${tabletId22})"
-    def rowCount23 = sql "select count() from ${tableName} tablet(${tabletId23})"
-    def rowCount24 = sql "select count() from ${tableName} tablet(${tabletId24})"
-    def rowCount25 = sql "select count() from ${tableName} tablet(${tabletId25})"
-
-    def rowCount31 = sql "select count() from ${tableName} tablet(${tabletId31})"
-    def rowCount32 = sql "select count() from ${tableName} tablet(${tabletId32})"
-    def rowCount33 = sql "select count() from ${tableName} tablet(${tabletId33})"
-    def rowCount34 = sql "select count() from ${tableName} tablet(${tabletId34})"
-    def rowCount35 = sql "select count() from ${tableName} tablet(${tabletId35})"
-
-    assertEquals(rowCount11[0][0], 2)
-    assertEquals(rowCount12[0][0], 1)
-    assertEquals(rowCount13[0][0], 0)
-    assertEquals(rowCount14[0][0], 0)
-    assertEquals(rowCount15[0][0], 0)
-
-    assertEquals(rowCount21[0][0], 1)
-    assertEquals(rowCount22[0][0], 1)
-    assertEquals(rowCount23[0][0], 0)
-    assertEquals(rowCount24[0][0], 0)
-    assertEquals(rowCount25[0][0], 0)
-
-    assertEquals(rowCount31[0][0], 0)
-    assertEquals(rowCount32[0][0], 0)
-    assertEquals(rowCount33[0][0], 0)
-    assertEquals(rowCount34[0][0], 0)
-    assertEquals(rowCount35[0][0], 0)
+    for (int i = 0; i < 10; i++) {
+      assertEquals(partitionRowCounts[2][i], 0)
+    }
 
     sql "set batch_size=1"
     // insert second time
@@ -213,41 +189,42 @@ suite("test_insert_random_distribution_table", "p0") {
     totalCount = sql "select count() from ${tableName}"
     assertEquals(totalCount[0][0], 10)
 
-    rowCount11 = sql "select count() from ${tableName} tablet(${tabletId11})"
-    rowCount12 = sql "select count() from ${tableName} tablet(${tabletId12})"
-    rowCount13 = sql "select count() from ${tableName} tablet(${tabletId13})"
-    rowCount14 = sql "select count() from ${tableName} tablet(${tabletId14})"
-    rowCount15 = sql "select count() from ${tableName} tablet(${tabletId15})"
 
-    rowCount21 = sql "select count() from ${tableName} tablet(${tabletId21})"
-    rowCount22 = sql "select count() from ${tableName} tablet(${tabletId22})"
-    rowCount23 = sql "select count() from ${tableName} tablet(${tabletId23})"
-    rowCount24 = sql "select count() from ${tableName} tablet(${tabletId24})"
-    rowCount25 = sql "select count() from ${tableName} tablet(${tabletId25})"
+    for (int p = 0; p < 3; p++) {
+        numTablets = partitionTablets[p].size()
+        for (int i = numTablets - 1; i >= 0; i--) {
+            def countResult = sql "select count() from ${tableName} tablet(${partitionTablets[p][i]})"
+            partitionRowCounts[p][i] = countResult[0][0]
+            if (p == 2) {
+               if ((partitionRowCounts[p][i]) > 0 &&
+                   (partitionBeginIdx[p] == (i + 1) || partitionBeginIdx[p] == null)) {
+                   partitionBeginIdx[p] = i
+               }
+            }
+            log.info("tablet = ${partitionTablets[p][i]}, partitionRowCounts[${p}][${i}] = " +
+                     "${partitionRowCounts[p][i]}")
+        }
+    }
 
-    rowCount31 = sql "select count() from ${tableName} tablet(${tabletId31})"
-    rowCount32 = sql "select count() from ${tableName} tablet(${tabletId32})"
-    rowCount33 = sql "select count() from ${tableName} tablet(${tabletId33})"
-    rowCount34 = sql "select count() from ${tableName} tablet(${tabletId34})"
-    rowCount35 = sql "select count() from ${tableName} tablet(${tabletId35})"
+    assertEquals(partitionRowCounts[0][partitionBeginIdx[0]], 1)
+    assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + 1) % 10], 2)
+    assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + 2) % 10], 1)
+    for (int i = 3; i < 10; i++) {
+      assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + i) % 10], 0)
+    }
 
-    assertEquals(rowCount11[0][0], 2)
-    assertEquals(rowCount12[0][0], 2)
-    assertEquals(rowCount13[0][0], 0)
-    assertEquals(rowCount14[0][0], 0)
-    assertEquals(rowCount15[0][0], 0)
+    assertEquals(partitionRowCounts[1][partitionBeginIdx[1]], 1)
+    assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 1) % 10], 2)
+    assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 2) % 10], 1)
+    assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 3) % 10], 1)
+    for (int i = 4; i < 10; i++) {
+      assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + i) % 10], 0)
+    }
 
-    assertEquals(rowCount21[0][0], 1)
-    assertEquals(rowCount22[0][0], 3)
-    assertEquals(rowCount23[0][0], 1)
-    assertEquals(rowCount24[0][0], 0)
-    assertEquals(rowCount25[0][0], 0)
-
-    assertEquals(rowCount31[0][0], 0)
-    assertEquals(rowCount32[0][0], 1)
-    assertEquals(rowCount33[0][0], 0)
-    assertEquals(rowCount34[0][0], 0)
-    assertEquals(rowCount35[0][0], 0)
+    assertEquals(partitionRowCounts[2][partitionBeginIdx[2]], 1)
+    for (int i = 1; i < 10; i++) {
+        assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + i) % 10], 0)
+    }
 
     sql "set batch_size=1"
     // insert third time
@@ -258,39 +235,36 @@ suite("test_insert_random_distribution_table", "p0") {
     totalCount = sql "select count() from ${tableName}"
     assertEquals(totalCount[0][0], 16)
 
-    rowCount11 = sql "select count() from ${tableName} tablet(${tabletId11})"
-    rowCount12 = sql "select count() from ${tableName} tablet(${tabletId12})"
-    rowCount13 = sql "select count() from ${tableName} tablet(${tabletId13})"
-    rowCount14 = sql "select count() from ${tableName} tablet(${tabletId14})"
-    rowCount15 = sql "select count() from ${tableName} tablet(${tabletId15})"
+    for (int p = 0; p < 3; p++) {
+        for (int i = 0; i < partitionTablets[p].size(); i++) {
+            def countResult = sql "select count() from ${tableName} tablet(${partitionTablets[p][i]})"
+            partitionRowCounts[p][i] = countResult[0][0]
+            log.info("tablet = ${partitionTablets[p][i]}, partitionRowCounts[${p}][${i}] = " +
+                     "${partitionRowCounts[p][i]}")
+        }
+    }
 
-    rowCount21 = sql "select count() from ${tableName} tablet(${tabletId21})"
-    rowCount22 = sql "select count() from ${tableName} tablet(${tabletId22})"
-    rowCount23 = sql "select count() from ${tableName} tablet(${tabletId23})"
-    rowCount24 = sql "select count() from ${tableName} tablet(${tabletId24})"
-    rowCount25 = sql "select count() from ${tableName} tablet(${tabletId25})"
+    assertEquals(partitionRowCounts[0][partitionBeginIdx[0]], 1)
+    assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + 1) % 10], 2)
+    assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + 2) % 10], 2)
+    assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + 3) % 10], 1)
+    for (int i = 4; i < 10; i++) {
+      assertEquals(partitionRowCounts[0][(partitionBeginIdx[0] + i) % 10], 0)
+    }
 
-    rowCount31 = sql "select count() from ${tableName} tablet(${tabletId31})"
-    rowCount32 = sql "select count() from ${tableName} tablet(${tabletId32})"
-    rowCount33 = sql "select count() from ${tableName} tablet(${tabletId33})"
-    rowCount34 = sql "select count() from ${tableName} tablet(${tabletId34})"
-    rowCount35 = sql "select count() from ${tableName} tablet(${tabletId35})"
+    assertEquals(partitionRowCounts[1][partitionBeginIdx[1]], 1)
+    assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 1) % 10], 2)
+    assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 2) % 10], 2)
+    assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + 3) % 10], 1)
+    for (int i = 4; i < 10; i++) {
+      assertEquals(partitionRowCounts[1][(partitionBeginIdx[1] + i) % 10], 0)
+    }
 
-    assertEquals(rowCount11[0][0], 2)
-    assertEquals(rowCount12[0][0], 2)
-    assertEquals(rowCount13[0][0], 2)
-    assertEquals(rowCount14[0][0], 0)
-    assertEquals(rowCount15[0][0], 0)
-
-    assertEquals(rowCount21[0][0], 1)
-    assertEquals(rowCount22[0][0], 3)
-    assertEquals(rowCount23[0][0], 2)
-    assertEquals(rowCount24[0][0], 0)
-    assertEquals(rowCount25[0][0], 0)
-
-    assertEquals(rowCount31[0][0], 0)
-    assertEquals(rowCount32[0][0], 1)
-    assertEquals(rowCount33[0][0], 2)
-    assertEquals(rowCount34[0][0], 1)
-    assertEquals(rowCount35[0][0], 0)
+    assertEquals(partitionRowCounts[2][partitionBeginIdx[2]], 1)
+    assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + 1) % 10], 1)
+    assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + 2) % 10], 1)
+    assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + 3) % 10], 1)
+    for (int i = 4; i < 10; i++) {
+      assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + i) % 10], 0)
+    }
 }

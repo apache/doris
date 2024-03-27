@@ -169,6 +169,8 @@ private:
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
+    RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
+    RuntimeProfile::Counter* _collect_iterator_normal_next_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;

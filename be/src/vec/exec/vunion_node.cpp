@@ -161,7 +161,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
     MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
 
     Block child_block;
-    while (has_more_materialized() && mblock.rows() <= state->batch_size()) {
+    while (has_more_materialized() && mblock.rows() < state->batch_size()) {
         // The loop runs until we are either done iterating over the children that require
         // materialization, or the row batch is at capacity.
         DCHECK(!is_child_passthrough(_child_idx));

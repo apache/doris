@@ -173,6 +173,9 @@ void HashJoinProbeLocalState::init_for_probe(RuntimeState* state) {
 
 void HashJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     DCHECK(_parent->cast<HashJoinProbeOperatorX>()._is_outer_join);
+    if (!_parent->cast<HashJoinProbeOperatorX>()._use_specific_projections) {
+        return;
+    }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
     auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
     auto& left_null_map = reinterpret_cast<vectorized::ColumnUInt8&>(*p0);

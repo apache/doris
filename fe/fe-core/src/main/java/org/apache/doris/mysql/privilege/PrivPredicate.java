@@ -54,6 +54,10 @@ public class PrivPredicate {
     public static final PrivPredicate ADMIN = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV),
             Operator.OR);
 
+    public static final PrivPredicate ADMIN_OR_NODE = PrivPredicate.of(
+            PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV),
+            Operator.OR);
+
     // load
     public static final PrivPredicate LOAD = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
             Privilege.LOAD_PRIV),

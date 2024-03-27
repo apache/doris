@@ -494,8 +494,8 @@ BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
 BackendService::~BackendService() = default;
 
 Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
-                                      std::unique_ptr<ThriftServer>* server) {
-    auto service = std::make_shared<BackendService>(engine, exec_env);
+                                      std::unique_ptr<ThriftServer>* server,
+                                      std::shared_ptr<doris::BackendService> service) {
     service->_agent_server->start_workers(engine, exec_env);
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve

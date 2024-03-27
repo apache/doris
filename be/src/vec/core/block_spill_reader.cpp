@@ -46,15 +46,13 @@ void BlockSpillReader::_init_profile() {
 }
 
 Status BlockSpillReader::open() {
-    std::shared_ptr<io::FileSystem> file_system;
     io::FileSystemProperties system_properties;
     system_properties.system_type = TFileType::FILE_LOCAL;
 
     io::FileDescription file_description;
     file_description.path = file_path_;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
-                                                    io::FileReaderOptions::DEFAULT, &file_system,
-                                                    &file_reader_));
+    file_reader_ = DORIS_TRY(FileFactory::create_file_reader(system_properties, file_description,
+                                                             io::FileReaderOptions::DEFAULT));
 
     size_t file_size = file_reader_->size();
 

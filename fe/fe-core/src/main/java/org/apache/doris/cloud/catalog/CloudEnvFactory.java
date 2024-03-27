@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
@@ -41,6 +42,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -178,5 +180,9 @@ public class CloudEnvFactory extends EnvFactory {
     @Override
     public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler) {
         return new CloudLoadManager(loadJobScheduler);
+    }
+
+    public MasterDaemon createTabletStatMgr() {
+        return new CloudTabletStatMgr();
     }
 }

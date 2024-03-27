@@ -253,6 +253,12 @@ public:
     /** Get block data in string. */
     std::string dump_data(size_t begin = 0, size_t row_limit = 100) const;
 
+    static std::string dump_column(ColumnPtr col, DataTypePtr type) {
+        ColumnWithTypeAndName type_name {col, type, ""};
+        Block b {type_name};
+        return b.dump_data(0, b.rows());
+    }
+
     /** Get one line data from block, only use in load data */
     std::string dump_one_line(size_t row, int column_end) const;
 

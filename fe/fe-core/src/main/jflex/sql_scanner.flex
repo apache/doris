@@ -505,6 +505,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("verbose", new Integer(SqlParserSymbols.KW_VERBOSE));
         keywordMap.put("version", new Integer(SqlParserSymbols.KW_VERSION));
         keywordMap.put("view", new Integer(SqlParserSymbols.KW_VIEW));
+        keywordMap.put("views", new Integer(SqlParserSymbols.KW_VIEWS));
         keywordMap.put("warnings", new Integer(SqlParserSymbols.KW_WARNINGS));
         keywordMap.put("week", new Integer(SqlParserSymbols.KW_WEEK));
         keywordMap.put("when", new Integer(SqlParserSymbols.KW_WHEN));

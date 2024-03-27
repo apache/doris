@@ -206,6 +206,7 @@ private:
 
 private:
     friend class SegmentIterator;
+    io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
     uint32_t _segment_id;
     uint32_t _num_rows;

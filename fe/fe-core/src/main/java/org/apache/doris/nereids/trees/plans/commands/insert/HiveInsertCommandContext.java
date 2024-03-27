@@ -21,7 +21,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
  * For Hive Table
  */
 public class HiveInsertCommandContext extends InsertCommandContext {
-    private boolean overwrite = true;
+    private boolean overwrite = false;
 
     public boolean isOverwrite() {
         return overwrite;

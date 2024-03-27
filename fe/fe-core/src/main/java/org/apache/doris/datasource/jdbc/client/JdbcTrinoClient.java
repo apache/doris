@@ -22,22 +22,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
-import java.sql.Connection;
-import java.sql.SQLException;
-
 public class JdbcTrinoClient extends JdbcClient {
     protected JdbcTrinoClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
-    }
-
-    @Override
-    protected String getDatabaseQuery() {
-        return "SHOW SCHEMAS";
-    }
-
-    @Override
-    protected String getCatalogName(Connection conn) throws SQLException {
-        return conn.getCatalog();
     }
 
     @Override

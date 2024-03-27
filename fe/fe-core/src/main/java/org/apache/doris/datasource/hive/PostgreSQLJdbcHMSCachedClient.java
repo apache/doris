@@ -514,11 +514,6 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
-    }
-
-    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }

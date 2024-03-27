@@ -46,6 +46,8 @@ public abstract class Planner {
 
     protected boolean isBlockQuery = false;
 
+    protected TQueryOptions queryOptions;
+
     public abstract List<ScanNode> getScanNodes();
 
     public abstract void plan(StatementBase queryStmt,
@@ -118,6 +120,10 @@ public abstract class Planner {
         return isBlockQuery;
     }
 
+    public TQueryOptions getQueryOptions() {
+        return queryOptions;
+    }
+
     public abstract DescriptorTable getDescTable();
 
     public abstract List<RuntimeFilter> getRuntimeFilters();
@@ -125,5 +131,4 @@ public abstract class Planner {
     public abstract Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt);
 
     public abstract void addHook(PlannerHook hook);
-
 }

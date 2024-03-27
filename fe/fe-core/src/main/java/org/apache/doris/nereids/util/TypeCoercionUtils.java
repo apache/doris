@@ -798,12 +798,6 @@ public class TypeCoercionUtils {
             commonType = DoubleType.INSTANCE;
         }
 
-        // we treat decimalv2 vs dicimalv3, largeint or bigint as decimalv3 way.
-        if ((t1.isDecimalV3Type() || t1.isBigIntType() || t1.isLargeIntType()) && t2.isDecimalV2Type()
-                || t1.isDecimalV2Type() && (t2.isDecimalV3Type() || t2.isBigIntType() || t2.isLargeIntType())) {
-            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
-        }
-
         if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             // to be consistent with old planner
             // see findCommonType() method in ArithmeticExpr.java
@@ -830,6 +824,12 @@ public class TypeCoercionUtils {
         // mod retain float % float
         if (binaryArithmetic instanceof Mod && t1.isFloatType() && t2.isFloatType()) {
             return binaryArithmetic;
+        }
+
+        // we treat decimalv2 vs dicimalv3, largeint or bigint as decimalv3 way.
+        if ((t1.isDecimalV3Type() || t1.isBigIntType() || t1.isLargeIntType()) && t2.isDecimalV2Type()
+                || t1.isDecimalV2Type() && (t2.isDecimalV3Type() || t2.isBigIntType() || t2.isLargeIntType())) {
+            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
         }
 
         // if double as common type, all arithmetic should cast both side to double
@@ -1635,6 +1635,9 @@ public class TypeCoercionUtils {
     }
 
     private static boolean supportCompare(DataType dataType) {
+        if (dataType.isArrayType()) {
+            return true;
+        }
         if (!(dataType instanceof PrimitiveType)) {
             return false;
         }

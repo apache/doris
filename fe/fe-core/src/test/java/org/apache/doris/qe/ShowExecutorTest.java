@@ -325,6 +325,16 @@ public class ShowExecutorTest {
     }
 
     @Test
+    public void testShowViews() throws AnalysisException {
+        ShowTableStmt stmt = new ShowTableStmt("testDb", null, false, TableType.VIEW,
+                null, null);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+
+        Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
     public void testShowTableFromCatalog() throws AnalysisException {
         ShowTableStmt stmt = new ShowTableStmt("testDb", "internal", false, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);

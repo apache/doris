@@ -44,6 +44,8 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+extern bvar::Adder<uint64_t> g_fragment_executing_count;
+extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
 namespace pipeline {
 class PipelineFragmentContext;
@@ -99,10 +101,6 @@ public:
     // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
-    void cancel_instance_unlocked(const TUniqueId& instance_id,
-                                  const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock,
-                                  const std::string& msg = "");
     // Cancel fragment (only pipelineX).
     // {query id fragment} -> PipelineXFragmentContext
     void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
@@ -111,9 +109,6 @@ public:
     // Can be used in both version.
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
-    void cancel_query_unlocked(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                               const std::unique_lock<std::mutex>& state_lock,
-                               const std::string& msg = "");
 
     bool query_is_canceled(const TUniqueId& query_id);
 
@@ -208,5 +203,8 @@ private:
     std::unique_ptr<ThreadPool> _async_report_thread_pool =
             nullptr; // used for pipeliine context report
 };
+
+uint64_t get_fragment_executing_count();
+uint64_t get_fragment_last_active_time();
 
 } // namespace doris

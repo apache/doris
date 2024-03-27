@@ -50,10 +50,10 @@ public:
     using IndicesEntriesMap =
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
 
-    InvertedIndexFileReader(const io::FileSystemSPtr& fs, io::Path segment_file_dir,
+    InvertedIndexFileReader(io::FileSystemSPtr fs, io::Path segment_file_dir,
                             std::string segment_file_name,
                             InvertedIndexStorageFormatPB storage_format)
-            : _fs(fs),
+            : _fs(std::move(fs)),
               _index_file_dir(std::move(segment_file_dir)),
               _segment_file_name(std::move(segment_file_name)),
               _storage_format(storage_format) {
