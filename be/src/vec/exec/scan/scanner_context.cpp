@@ -254,18 +254,19 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             _set_scanner_done();
             return scan_task->get_status();
         }
-        DCHECK(!scan_task->cached_blocks.empty());
-        vectorized::BlockUPtr current_block = std::move(scan_task->cached_blocks.front());
-        scan_task->cached_blocks.pop_front();
-        size_t block_size = current_block->allocated_bytes();
-        if (_estimated_block_size > block_size) {
-            _estimated_block_size = block_size;
+        if (!scan_task->cached_blocks.empty()) {
+            vectorized::BlockUPtr current_block = std::move(scan_task->cached_blocks.front());
+            scan_task->cached_blocks.pop_front();
+            size_t block_size = current_block->allocated_bytes();
+            if (_estimated_block_size > block_size) {
+                _estimated_block_size = block_size;
+            }
+            _free_blocks_memory_usage -= block_size;
+            _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+            // consume current block
+            block->swap(*current_block);
+            return_free_block(std::move(current_block));
         }
-        _free_blocks_memory_usage -= block_size;
-        _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-        // consume current block
-        block->swap(*current_block);
-        return_free_block(std::move(current_block));
         if (scan_task->cached_blocks.empty()) {
             _blocks_queue.pop_front();
             if (scan_task->is_eos()) { // current scanner is finished, and no more data to read

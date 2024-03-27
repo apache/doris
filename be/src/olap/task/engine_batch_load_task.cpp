@@ -75,7 +75,6 @@ EngineBatchLoadTask::EngineBatchLoadTask(StorageEngine& engine, TPushReq& push_r
 EngineBatchLoadTask::~EngineBatchLoadTask() = default;
 
 Status EngineBatchLoadTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     Status status;
     if (_push_req.push_type == TPushType::LOAD_V2) {
         RETURN_IF_ERROR(_init());

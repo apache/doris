@@ -490,12 +490,13 @@ public class StmtExecutor {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         TUniqueId firstQueryId = queryId;
         int retryTime = Config.max_query_retry_time;
+        retryTime = retryTime <= 0 ? 1 : retryTime + 1;
         for (int i = 1; i <= retryTime; i++) {
             try {
                 execute(queryId);
                 return;
             } catch (UserException e) {
-                if (!e.getMessage().contains("E-230") || i == retryTime) {
+                if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
                     throw e;
                 }
                 TUniqueId lastQueryId = queryId;
@@ -788,6 +789,9 @@ public class StmtExecutor {
                 handleQueryStmt();
                 break;
             } catch (RpcException | UserException e) {
+                if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                    throw e;
+                }
                 // cloud mode retry
                 LOG.debug("due to exception {} retry {} rpc {} user {}",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
@@ -980,6 +984,10 @@ public class StmtExecutor {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw e;
         } catch (UserException e) {
+            // insert into select
+            if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                throw e;
+            }
             // analysis exception only print message, not print the stack
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -1221,6 +1229,10 @@ public class StmtExecutor {
             // table id in tableList is in ascending order because that table map is a sorted map
             List<TableIf> tables = Lists.newArrayList(tableMap.values());
             int analyzeTimes = 2;
+            if (Config.isCloudMode()) {
+                // be core and be restarted, need retry more times
+                analyzeTimes = Config.max_query_retry_time / 2;
+            }
             for (int i = 1; i <= analyzeTimes; i++) {
                 MetaLockUtils.readLockTables(tables);
                 try {
@@ -1454,6 +1466,14 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel() {
+        if (masterOpExecutor != null) {
+            try {
+                masterOpExecutor.cancel();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return;
+        }
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel();
@@ -2253,6 +2273,16 @@ public class StmtExecutor {
                     // just print a log if abort txn failed. This failure do not need to pass to user.
                     // user only concern abort how txn failed.
                     LOG.warn("errors when abort txn", abortTxnException);
+                }
+
+                // cloud mode, insert into select meet -230, retry
+                if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                    LOG.warn("insert into select meet E-230, retry again");
+                    resetAnalyzerAndStmt();
+                    if (insertStmt instanceof NativeInsertStmt) {
+                        ((NativeInsertStmt) insertStmt).resetPrepare();
+                    }
+                    throw t;
                 }
 
                 StringBuilder sb = new StringBuilder(t.getMessage());

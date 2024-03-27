@@ -1151,7 +1151,7 @@ public class NativeInsertStmt extends InsertStmt {
         targetColumns.clear();
     }
 
-    protected void resetPrepare() {
+    public void resetPrepare() {
         label = null;
         isTransactionBegin = false;
     }

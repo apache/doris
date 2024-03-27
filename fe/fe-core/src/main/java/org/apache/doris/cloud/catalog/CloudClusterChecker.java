@@ -28,9 +28,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.metric.GaugeMetricImpl;
-import org.apache.doris.metric.Metric.MetricUnit;
-import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -110,7 +107,7 @@ public class CloudClusterChecker extends MasterDaemon {
                 ClusterStatus clusterStatus = remoteClusterIdToPB.get(addId).hasClusterStatus()
                         ? remoteClusterIdToPB.get(addId).getClusterStatus() : ClusterStatus.NORMAL;
                 newTagMap.put(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(clusterStatus));
-                MetricRepo.registerClusterMetrics(clusterName, clusterId);
+                MetricRepo.registerCloudMetrics(clusterId, clusterName);
                 //toAdd.forEach(i -> i.setTagMap(newTagMap));
                 List<Backend> toAdd = new ArrayList<>();
                 for (Cloud.NodeInfoPB node : remoteClusterIdToPB.get(addId).getNodesList()) {
@@ -474,33 +471,18 @@ public class CloudClusterChecker extends MasterDaemon {
         Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
         Map<String, String> clusterNameToId = cloudSystemInfoService.getCloudClusterNameToId();
         for (Map.Entry<String, String> entry : clusterNameToId.entrySet()) {
-            long aliveNum = 0L;
+            int aliveNum = 0;
             List<Backend> bes = clusterIdToBackend.get(entry.getValue());
             if (bes == null || bes.size() == 0) {
                 LOG.info("cant get be nodes by cluster {}, bes {}", entry, bes);
                 continue;
             }
             for (Backend backend : bes) {
-                MetricRepo.CLOUD_CLUSTER_BACKEND_ALIVE.computeIfAbsent(backend.getAddress(), key -> {
-                    GaugeMetricImpl<Integer> backendAlive = new GaugeMetricImpl<>("backend_alive", MetricUnit.NOUNIT,
-                            "backend alive or not");
-                    backendAlive.addLabel(new MetricLabel("cluster_id", entry.getValue()));
-                    backendAlive.addLabel(new MetricLabel("cluster_name", entry.getKey()));
-                    backendAlive.addLabel(new MetricLabel("address", key));
-                    MetricRepo.DORIS_METRIC_REGISTER.addMetrics(backendAlive);
-                    return backendAlive;
-                }).setValue(backend.isAlive() ? 1 : 0);
+                MetricRepo.updateClusterBackendAlive(entry.getKey(), entry.getValue(),
+                        backend.getAddress(), backend.isAlive());
                 aliveNum = backend.isAlive() ? aliveNum + 1 : aliveNum;
             }
-
-            MetricRepo.CLOUD_CLUSTER_BACKEND_ALIVE_TOTAL.computeIfAbsent(entry.getKey(), key -> {
-                GaugeMetricImpl<Long> backendAliveTotal = new GaugeMetricImpl<>("backend_alive_total",
-                        MetricUnit.NOUNIT, "backend alive num in cluster");
-                backendAliveTotal.addLabel(new MetricLabel("cluster_id", entry.getValue()));
-                backendAliveTotal.addLabel(new MetricLabel("cluster_name", key));
-                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(backendAliveTotal);
-                return backendAliveTotal;
-            }).setValue(aliveNum);
+            MetricRepo.updateClusterBackendAliveTotal(entry.getKey(), entry.getValue(), aliveNum);
         }
     }
 }

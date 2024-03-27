@@ -39,7 +39,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-
 /*
  * CloudTabletStatMgr is for collecting tablet(replica) statistics from backends.
  * Each FE will collect by itself.
@@ -135,6 +134,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
+
         Map<Pair<Long, Long>, CloudTableStats> newCloudTableStatsMap = new HashMap<>();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
