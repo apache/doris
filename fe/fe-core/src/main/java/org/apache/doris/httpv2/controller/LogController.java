@@ -109,7 +109,8 @@ public class LogController {
     private void appendLogInfo(Map<String, Map<String, String>> content) {
         Map<String, String> map = new HashMap<>();
 
-        final String logPath = Config.sys_log_dir + "/fe.warn.log";
+        String logDir = Strings.isNullOrEmpty(Config.sys_log_dir) ? System.getenv("LOG_DIR") : Config.sys_log_dir;
+        final String logPath = logDir + "/fe.warn.log";
         map.put("logPath", logPath);
 
         RandomAccessFile raf = null;

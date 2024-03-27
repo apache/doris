@@ -124,8 +124,9 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         THROW_IF_ERROR(writer.finalize());
         THROW_IF_ERROR(writer.close());
     } else if (_dump_type == RecordType::Periodic) {
-        auto path = log_dir / fmt::format("until{}",
-                                       std::chrono::steady_clock::now().time_since_epoch().count());
+        auto path =
+                log_dir /
+                fmt::format("until{}", std::chrono::steady_clock::now().time_since_epoch().count());
         int fd = ::open(
                 path.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
                 S_ISGID | S_ISUID | S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IWOTH | S_IROTH);

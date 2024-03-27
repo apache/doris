@@ -523,7 +523,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
         auto write_json_to_file = [&](const nlohmann::json& json_obj,
                                       const std::string& file_name) {
             io::FileWriterPtr file_writer;
-            std::string file_path = fmt::format("{}/{}.json", std::string(getenv("LOG_DIR")), file_name);
+            std::string file_path =
+                    fmt::format("{}/{}.json", std::string(getenv("LOG_DIR")), file_name);
             RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
             RETURN_IF_ERROR(file_writer->append(json_obj.dump()));
             RETURN_IF_ERROR(file_writer->append("\n"));
