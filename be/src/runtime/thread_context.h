@@ -167,6 +167,7 @@ public:
         DCHECK(mem_tracker);
         // Orphan is thread default tracker.
         DCHECK(thread_mem_tracker()->label() == "Orphan")
+                << ", thread mem tracker label: " << thread_mem_tracker()->label()
                 << ", attach mem tracker label: " << mem_tracker->label();
 #endif
         _task_id = task_id;
