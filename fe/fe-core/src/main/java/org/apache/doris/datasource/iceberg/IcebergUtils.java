@@ -229,9 +229,7 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            if (icebergTypeID == org.apache.iceberg.types.Type.TypeID.STRING && dateLiteral.isDateTimeType()) {
-                return dateLiteral.getStringValue();
-            } else if (dateLiteral.isDateType()
+            if (dateLiteral.isDateType()
                     || icebergTypeID == org.apache.iceberg.types.Type.TypeID.STRING && dateLiteral.isDateTimeType()) {
                 return dateLiteral.getStringValue();
             } else {
