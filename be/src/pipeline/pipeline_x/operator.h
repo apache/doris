@@ -155,18 +155,23 @@ public:
               _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
-        if (!tnode.output_tuple_id_list.empty()) {
+        if (tnode.__isset.output_tuple_id) {
+            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
+        }
+        if (tnode.__isset.output_tuple_id) {
+            _output_row_descriptor = std::make_unique<RowDescriptor>(
+                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+        }
+        if (!tnode.intermediate_output_tuple_id_list.empty()) {
+            DCHECK(tnode.__isset.output_tuple_id) << " no final output tuple id";
             // common subexpression elimination
-            for (auto output_tuple_id : tnode.output_tuple_id_list) {
-                _intermediate_output_row_descriptor.push_back(std::make_unique<RowDescriptor>(
-                        descs, std::vector {output_tuple_id}, std::vector {true}));
-            }
-            _output_row_descriptor = std::move(_intermediate_output_row_descriptor.back());
-            _intermediate_output_row_descriptor.pop_back();
-        } else {
-            if (tnode.__isset.output_tuple_id) {
-                _output_row_descriptor.reset(
-                        new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
+            DCHECK_EQ(tnode.intermediate_output_tuple_id_list.size(),
+                      tnode.intermediate_projections_list.size());
+            _intermediate_output_row_descriptor.reserve(
+                    tnode.intermediate_output_tuple_id_list.size());
+            for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
+                _intermediate_output_row_descriptor.push_back(
+                        RowDescriptor(descs, std::vector {output_tuple_id}, std::vector {true}));
             }
         }
     }
@@ -269,14 +274,14 @@ public:
             return intermediate_row_desc();
         }
         DCHECK((idx - 1) < _intermediate_output_row_descriptor.size());
-        return *_intermediate_output_row_descriptor[idx - 1];
+        return _intermediate_output_row_descriptor[idx - 1];
     }
 
     [[nodiscard]] const RowDescriptor& projections_row_desc() const {
         if (_intermediate_output_row_descriptor.empty()) {
             return intermediate_row_desc();
         } else {
-            return *_intermediate_output_row_descriptor.back();
+            return _intermediate_output_row_descriptor.back();
         }
     }
 
@@ -351,7 +356,7 @@ protected:
     std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
     vectorized::VExprContextSPtrs _projections;
 
-    std::vector<std::unique_ptr<RowDescriptor>> _intermediate_output_row_descriptor;
+    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 

@@ -721,6 +721,7 @@ void Block::swap(Block&& other) noexcept {
 
 void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
     Container tmp_data;
+    tmp_data.reserve(result_column_ids.size());
     for (const int result_column_id : result_column_ids) {
         tmp_data.push_back(data[result_column_id]);
     }

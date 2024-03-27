@@ -85,21 +85,22 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _resource_profile(tnode.resource_profile),
           _limit(tnode.limit) {
-    if (!tnode.output_tuple_id_list.empty()) {
+    if (tnode.__isset.output_tuple_id) {
+        _output_row_descriptor = std::make_unique<RowDescriptor>(
+                descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+    }
+    if (!tnode.intermediate_output_tuple_id_list.empty()) {
+        DCHECK(tnode.__isset.output_tuple_id) << " no final output tuple id";
         // common subexpression elimination
-        DCHECK_EQ(tnode.output_tuple_id_list.size(), tnode.projections_list.size());
-        for (auto output_tuple_id : tnode.output_tuple_id_list) {
-            _intermediate_output_row_descriptor.push_back(std::make_unique<RowDescriptor>(
-                    descs, std::vector {output_tuple_id}, std::vector {true}));
-        }
-        _output_row_descriptor = std::move(_intermediate_output_row_descriptor.back());
-        _intermediate_output_row_descriptor.pop_back();
-    } else {
-        if (tnode.__isset.output_tuple_id) {
-            _output_row_descriptor = std::make_unique<RowDescriptor>(
-                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+        DCHECK_EQ(tnode.intermediate_output_tuple_id_list.size(),
+                  tnode.intermediate_projections_list.size());
+        _intermediate_output_row_descriptor.reserve(tnode.intermediate_output_tuple_id_list.size());
+        for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
+            _intermediate_output_row_descriptor.push_back(
+                    RowDescriptor(descs, std::vector {output_tuple_id}, std::vector {true}));
         }
     }
+
     _query_statistics = std::make_shared<QueryStatistics>();
 }
 
@@ -121,21 +122,19 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     // create the projections expr
-    if (!tnode.projections_list.empty()) {
-        for (const auto& tnode_projections : tnode.projections_list) {
+    if (tnode.__isset.projections) {
+        DCHECK(tnode.__isset.output_tuple_id);
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
+    }
+    if (!tnode.intermediate_projections_list.empty()) {
+        DCHECK(tnode.__isset.projections) << "no final projections";
+        _intermediate_projections.reserve(tnode.intermediate_projections_list.size());
+        for (const auto& tnode_projections : tnode.intermediate_projections_list) {
             vectorized::VExprContextSPtrs projections;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode_projections, projections));
             _intermediate_projections.push_back(projections);
         }
-        _projections = _intermediate_projections.back();
-        _intermediate_projections.pop_back();
-    } else {
-        if (tnode.__isset.projections) {
-            DCHECK(tnode.__isset.output_tuple_id);
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
-        }
     }
-
     return Status::OK();
 }
 
