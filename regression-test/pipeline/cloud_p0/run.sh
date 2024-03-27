@@ -101,10 +101,10 @@ if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     if log_file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         if log_info="$(upload_doris_log_to_oss "${log_file_name}")"; then
-            reporting_messages_error "${log_info}"
+            reporting_messages_error "${log_info##*logs.tar.gz to }"
         fi
     fi
-    if core_info="$(upload_doris_log_to_oss "${core_file_name}")"; then reporting_messages_error "${core_info}"; fi
+    if core_info="$(upload_doris_log_to_oss "${core_file_name}")"; then reporting_messages_error "${core_info##*coredump.tar.gz to }"; fi
 fi
 
 exit "${exit_flag}"
