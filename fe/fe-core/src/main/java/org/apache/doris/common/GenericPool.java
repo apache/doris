@@ -37,7 +37,7 @@ import java.lang.reflect.Constructor;
 
 public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private static final Logger LOG = LogManager.getLogger(GenericPool.class);
-    private GenericKeyedObjectPool<TNetworkAddress, VALUE> pool;
+    protected GenericKeyedObjectPool<TNetworkAddress, VALUE> pool;
     private String className;
     private int timeoutMs;
     private boolean isNonBlockingIO;
@@ -123,7 +123,7 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         }
     }
 
-    private class ThriftClientFactory extends BaseKeyedPooledObjectFactory<TNetworkAddress, VALUE> {
+    protected class ThriftClientFactory extends BaseKeyedPooledObjectFactory<TNetworkAddress, VALUE> {
 
         private Object newInstance(String className, TProtocol protocol) throws Exception {
             Class newoneClass = Class.forName(className);
