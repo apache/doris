@@ -196,14 +196,14 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     auto* local_state = state->get_local_state(operator_id());
     SCOPED_TIMER(local_state->exec_time_counter());
     SCOPED_TIMER(local_state->_projection_timer);
-    vectorized::Block input_block = *origin_block;
-
-    const size_t rows = input_block.rows();
+    const size_t rows = origin_block->rows();
     if (rows == 0) {
         return Status::OK();
     }
+    vectorized::Block input_block = *origin_block;
+
     std::vector<int> result_column_ids;
-    for (auto& projections : _intermediate_projections) {
+    for (const auto& projections : _intermediate_projections) {
         result_column_ids.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
