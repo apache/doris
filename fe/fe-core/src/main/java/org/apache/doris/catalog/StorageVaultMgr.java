@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateStorageVaultStmt;
+import org.apache.doris.analysis.SetDefaultStotageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
@@ -29,6 +30,8 @@ import org.apache.logging.log4j.Logger;
 
 public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
+
+    private String defaultStorageVaultId;
 
     public StorageVaultMgr() {}
 
@@ -46,6 +49,11 @@ public class StorageVaultMgr {
             default:
                 throw new DdlException("Only support S3, HDFS storage vault.");
         }
+    }
+
+    @VisibleForTesting
+    public void setDefaultStorageVault(SetDefaultStotageVaultStmt stmt) throws DdlException {
+
     }
 
     @VisibleForTesting
