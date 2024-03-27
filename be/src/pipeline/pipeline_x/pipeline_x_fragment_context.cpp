@@ -1349,7 +1349,9 @@ void PipelineXFragmentContext::_close_fragment_instance() {
         if (_runtime_state->load_channel_profile()) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
-        LOG(INFO) << ss.str();
+
+        LOG_INFO("Query {} fragment {} profile:\n {}", print_id(this->_query_id),
+                 this->_fragment_id, ss.str());
     }
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(
