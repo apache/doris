@@ -43,7 +43,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -85,16 +84,11 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             int len = qualifier.size();
             if (2 == len) {
                 CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr()
-                        .getCatalogOrException(qualifier.get(0),
-                                s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."));
-                return catalog.getDbOrException(qualifier.get(1),
-                        s -> new Exception("Database [" + qualifier.get(1) + "] does not exist in catalog ["
-                                + catalog.getName() + "]."));
+                        .getCatalogOrAnalysisException(qualifier.get(0));
+                return catalog.getDbOrAnalysisException(qualifier.get(1));
             } else if (1 == len) {
                 CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCurrentCatalog();
-                return catalog.getDbOrException(qualifier.get(0),
-                        s -> new Exception("Database [" + qualifier.get(0) + "] does not exist in catalog ["
-                                + catalog.getName() + "]."));
+                return catalog.getDbOrAnalysisException(qualifier.get(0));
             } else if (0 == len) {
                 CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCurrentCatalog();
                 ConnectContext ctx = ConnectContext.get();
@@ -122,9 +116,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
-        if (qualifier.size() == 3) {
-            return qualifier;
-        }
         return Utils.qualifiedNameParts(qualifier, table.getName());
     }
 
@@ -132,9 +123,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
-        if (qualifier.size() == 3) {
-            return StringUtils.join(qualifier, ".");
-        }
         return Utils.qualifiedName(qualifier, table.getName());
     }
 
