@@ -537,7 +537,10 @@ void PlanFragmentExecutor::close() {
                 // load_channel_profile()->compute_time_in_profile();  // TODO load channel profile add timer
                 load_channel_profile()->pretty_print(&ss);
             }
-            LOG(INFO) << ss.str();
+
+            LOG(INFO) << "Query : " << print_id(this->_query_id) << " instance "
+                      << print_id(this->runtime_state()->fragment_instance_id()) << '\n'
+                      << ss.str();
         }
         LOG(INFO) << "Close() fragment_instance_id="
                   << print_id(_runtime_state->fragment_instance_id());
