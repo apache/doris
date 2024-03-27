@@ -175,9 +175,6 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
                 if (index == null) {
                     throw new AnalysisException("Can not find grouping set expression in output: " + expression);
                 }
-                if (groupingSetIndex.contains(index)) {
-                    throw new AnalysisException("expression duplicate in grouping set: " + expression);
-                }
                 groupingSetIndex.add(index);
             }
             groupingSetsIndex.add(groupingSetIndex);
