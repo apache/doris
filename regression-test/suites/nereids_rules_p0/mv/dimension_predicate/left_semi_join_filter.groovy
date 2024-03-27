@@ -16,7 +16,6 @@
 // under the License.
 
 /*
-This suite is a two dimensional test case file.
 It mainly tests the left semi join and filter positions.
  */
 suite("left_semi_join_filter") {

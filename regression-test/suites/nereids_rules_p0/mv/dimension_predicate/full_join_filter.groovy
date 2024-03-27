@@ -16,7 +16,6 @@
 // under the License.
 
 /*
-This suite is a two dimensional test case file.
 It mainly tests the full join and filter positions.
  */
 suite("full_join_filter") {
@@ -117,33 +116,6 @@ suite("full_join_filter") {
         partition by(l_shipdate) 
         DISTRIBUTED BY RANDOM BUCKETS 2 
         PROPERTIES ('replication_num' = '1')  
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv_orders = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(o_orderdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_all_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
         AS  
         ${mv_sql}
         """
