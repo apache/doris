@@ -86,9 +86,6 @@ Status ColumnChunkReader::init() {
 }
 
 Status ColumnChunkReader::next_page() {
-    if (_state == HEADER_PARSED) {
-        return Status::OK();
-    }
     if (UNLIKELY(_state == NOT_INIT)) {
         return Status::Corruption("Should initialize chunk reader");
     }
@@ -105,16 +102,16 @@ Status ColumnChunkReader::next_page() {
     // mabe the header has been parsed in init
     if (_state != HEADER_PARSED) {
         RETURN_IF_ERROR(_page_reader->parse_page_header());
+        _state = HEADER_PARSED;
     }
+
     if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header_v2.num_values;
         _chunk_parsed_values += _remaining_num_values;
-        _state = HEADER_PARSED;
         return Status::OK();
     } else {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
         _chunk_parsed_values += _remaining_num_values;
-        _state = HEADER_PARSED;
         return Status::OK();
     }
 }
