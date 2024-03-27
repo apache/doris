@@ -32,7 +32,7 @@ public class SetDefaultStorageVaultStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("SET ").append(vaultName).append(" AS DEFAULT STORAGE VOLUME");
+        sb.append("SET ").append(vaultName).append(" AS DEFAULT STORAGE VAULT");
         return sb.toString();
     }
 }
