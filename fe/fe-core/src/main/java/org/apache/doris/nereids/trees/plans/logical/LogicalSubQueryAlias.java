@@ -41,7 +41,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * The node of logical plan for sub query and alias
@@ -165,22 +164,22 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies.Builder builder = new FunctionalDependencies
                 .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
         Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> outputs = outputSupplier.get();
+        List<Slot> outputs = getOutput();
         for (int i = 0; i < outputs.size(); i++) {
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
         builder.replace(replaceMap);
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         // TODO: inherit from child with replaceMap
         return ImmutableSet.of();
     }

@@ -179,7 +179,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         } else {
             Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
             Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
-                    ? ((LogicalPlan) this).computeFuncDeps(outputSupplier)
+                    ? ((LogicalPlan) this).computeFuncDeps()
                     : FunctionalDependencies.EMPTY_FUNC_DEPS;
             return new LogicalProperties(outputSupplier, fdSupplier);
         }

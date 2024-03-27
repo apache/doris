@@ -36,7 +36,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /** LogicalView */
 public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
@@ -129,13 +128,13 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        return ((LogicalPlan) child()).computeFuncDeps(outputSupplier);
+    public FunctionalDependencies computeFuncDeps() {
+        return ((LogicalPlan) child()).computeFuncDeps();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        return ((LogicalPlan) child()).computeFdItems(outputSupplier);
+    public ImmutableSet<FdItem> computeFdItems() {
+        return ((LogicalPlan) child()).computeFdItems();
     }
 
     @Override

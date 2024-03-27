@@ -43,7 +43,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * use for defer materialize top n
@@ -120,14 +119,14 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
         if (getLimit() == 1) {
             Builder builder = new Builder();
-            List<Slot> output = outputSupplier.get();
+            List<Slot> output = getOutput();
             output.forEach(builder::addUniformSlot);
             output.forEach(builder::addUniqueSlot);
-            ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+            ImmutableSet<FdItem> fdItems = computeFdItems();
             builder.addFdItems(fdItems);
             fd = builder.build();
         }
@@ -135,11 +134,11 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
         if (getLimit() == 1) {
             ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-            List<Slot> output = outputSupplier.get();
+            List<Slot> output = getOutput();
             ImmutableSet<SlotReference> slotSet = output.stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)

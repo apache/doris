@@ -46,7 +46,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * Logical project plan.
@@ -239,10 +238,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies childFuncDeps = child().getLogicalProperties().getFunctionalDependencies();
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(childFuncDeps);
-        builder.pruneSlots(new HashSet<>(outputSupplier.get()));
+        builder.pruneSlots(new HashSet<>(getOutput()));
         projects.stream().filter(Alias.class::isInstance).forEach(proj -> {
             if (proj.child(0).isConstant()) {
                 builder.addUniformSlot(proj.toSlot());
@@ -257,13 +256,13 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 }
             }
         });
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();

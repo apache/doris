@@ -49,7 +49,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * abstract class catalog relation for logical relation
@@ -128,7 +127,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         Builder fdBuilder = new Builder();
         Set<Slot> outputSet = Utils.fastToImmutableSet(outputSupplier.get());
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {

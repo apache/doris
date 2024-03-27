@@ -43,7 +43,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * logical node to deal with window functions;
@@ -278,19 +277,19 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(
                 child(0).getLogicalProperties().getFunctionalDependencies());
         for (NamedExpression namedExpression : windowExpressions) {
             updateFuncDepsByWindowExpr(namedExpression, builder);
         }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
         builder.addAll(childItems);

@@ -19,13 +19,11 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -61,7 +59,7 @@ public interface LogicalPlan extends Plan {
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier);
+    FunctionalDependencies computeFuncDeps();
 
-    ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier);
+    ImmutableSet<FdItem> computeFdItems();
 }
