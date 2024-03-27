@@ -22,16 +22,24 @@ import org.apache.doris.analysis.SetDefaultStotageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
 public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
 
-    private String defaultStorageVaultId;
+    private String defaultStorageVaultName;
+
+    private ReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+
 
     public StorageVaultMgr() {}
 
@@ -53,7 +61,37 @@ public class StorageVaultMgr {
 
     @VisibleForTesting
     public void setDefaultStorageVault(SetDefaultStotageVaultStmt stmt) throws DdlException {
+        Cloud.GetObjStoreInfoRequest.Builder builder = Cloud.GetObjStoreInfoRequest.newBuilder();
+        String newDefaultStorageVaultName;
+        try {
+            Cloud.GetObjStoreInfoResponse resp =
+                    MetaServiceProxy.getInstance().getObjStoreInfo(builder.build());
+            newDefaultStorageVaultName = resp.getStorageVaultList().stream()
+                    .filter(vault -> vault.getName().equals(stmt.getStorageVaultName()))
+                    .findAny().orElseThrow(() -> new DdlException("Value cannot be null")).getName();
+        } catch (RpcException e) {
+            LOG.warn("failed to alter storage vault due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
+        }
+        try {
+            rwLock.writeLock().lock();
+            defaultStorageVaultName = newDefaultStorageVaultName;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
 
+    public String getDefaultStorageVaultName() {
+        String vaultName = "";
+        try {
+            rwLock.readLock().lock();
+            if (defaultStorageVaultName != null) {
+                vaultName = defaultStorageVaultName;
+            }
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        return vaultName;
     }
 
     @VisibleForTesting
