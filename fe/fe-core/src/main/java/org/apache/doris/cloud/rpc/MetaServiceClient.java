@@ -20,7 +20,6 @@ package org.apache.doris.cloud.rpc;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
-import org.apache.doris.rpc.RpcException;
 
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
