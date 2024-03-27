@@ -114,7 +114,7 @@ suite("test_null_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
 
     order_qt_range_p_32768_10 "SELECT * FROM ${mvName} partitions(p_32768_10) order by user_id,num"
-    order_qt_list_p_10_20 "SELECT * FROM ${mvName} partitions(p_10_20) order by user_id,num"
+    order_qt_range_p_10_20 "SELECT * FROM ${mvName} partitions(p_10_20) order by user_id,num"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -160,8 +160,8 @@ suite("test_null_partition_mtmv") {
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
 
-    order_qt_range_p_00000101_20201111 "SELECT * FROM ${mvName} partitions(p_00000101_20201111) order by user_id,num"
-    order_qt_list_p_20201111_20211111 "SELECT * FROM ${mvName} partitions(p_20201111_20211111) order by user_id,num"
+    order_qt_range_p_00000101_20201111 "SELECT * FROM ${mvName} partitions(p_00000101_20201111) order by user_id,create_date"
+    order_qt_range_p_20201111_20211111 "SELECT * FROM ${mvName} partitions(p_20201111_20211111) order by user_id,create_date"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
