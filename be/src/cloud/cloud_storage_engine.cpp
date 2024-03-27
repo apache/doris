@@ -18,6 +18,7 @@
 #include "cloud/cloud_storage_engine.h"
 
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/cloud.pb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -34,6 +35,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "io/hdfs_util.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/storage_policy.h"
@@ -82,9 +84,11 @@ struct VaultCreateFSVisitor {
     }
 
     // TODO(ByteYue): Make sure enable_java_support is on
-    Status operator()(const THdfsParams& hdfs_params) const {
-        auto fs = DORIS_TRY(
-                io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr));
+    Status operator()(const cloud::HdfsVaultInfo& vault) const {
+        auto hdfs_params = io::to_hdfs_params(vault);
+        auto fs =
+                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
+                                                     vault.has_prefix() ? vault.prefix() : ""));
         put_storage_resource(id, {std::move(fs), 0});
         LOG_INFO("successfully create hdfs vault, vault id {}", id);
         return Status::OK();
@@ -107,7 +111,7 @@ struct RefreshFSVaultVisitor {
         return st;
     }
 
-    Status operator()(const THdfsParams& hdfs_params) const {
+    Status operator()(const cloud::HdfsVaultInfo& vault_info) const {
         // TODO(ByteYue): Implmente the hdfs fs refresh logic
         return Status::OK();
     }
@@ -117,7 +121,7 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>> vault_infos;
+    cloud::StorageVaultInfos vault_infos;
     do {
         auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
         if (st.ok()) {
@@ -133,7 +137,6 @@ Status CloudStorageEngine::open() {
     for (auto& [id, vault_info] : vault_infos) {
         RETURN_IF_ERROR(std::visit(VaultCreateFSVisitor {id}, vault_info));
     }
-
     set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
 
     // TODO(plat1ko): DeleteBitmapTxnManager
@@ -239,7 +242,7 @@ Status CloudStorageEngine::start_bg_threads() {
 void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::refresh_s3_info_interval_s))) {
-        std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>> vault_infos;
+        cloud::StorageVaultInfos vault_infos;
         auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
         if (!st.ok()) {
             LOG(WARNING) << "failed to get storage vault info. err=" << st;
