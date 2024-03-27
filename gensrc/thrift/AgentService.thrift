@@ -210,6 +210,7 @@ struct TAlterTabletReqV2 {
     // For cloud
     1000: optional i64 job_id
     1001: optional i64 expiration
+    1002: optional string storage_vault_id
 }
 
 struct TAlterInvertedIndexReq {
@@ -268,6 +269,7 @@ struct TPushReq {
     14: optional PlanNodes.TBrokerScanRange broker_scan_range
     15: optional Descriptors.TDescriptorTable desc_tbl
     16: optional list<Descriptors.TColumn> columns_desc
+    17: optional string storage_vault_id
 }
 
 struct TCloneReq {

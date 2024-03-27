@@ -347,7 +347,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 TTaskType.REALTIME_PUSH,
                                 transactionId,
                                 Env.getCurrentEnv().getNextId() + 10000000000L,
-                                columnsDesc);
+                                columnsDesc,
+                                targetTbl.getTableProperty().getStorageVaultId());
                         pushTask.setIsSchemaChanging(false);
                         pushTask.setCountDownLatch(countDownLatch);
 

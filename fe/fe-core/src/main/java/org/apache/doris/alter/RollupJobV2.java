@@ -471,7 +471,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
-                                tcloumnsPool, whereClause, expiration);
+                                tcloumnsPool, whereClause, expiration, tbl.getTableProperty().getStorageVaultId());
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }

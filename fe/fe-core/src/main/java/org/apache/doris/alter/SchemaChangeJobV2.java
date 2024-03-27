@@ -485,7 +485,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, tcloumnsPool,
-                                    null, expiration);
+                                    null, expiration, tbl.getTableProperty().getStorageVaultId());
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
