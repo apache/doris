@@ -74,7 +74,7 @@ under the License.
         <groovy.version>4.0.19</groovy.version>
         <antlr.version>4.9.3</antlr.version>
         <hadoop.version>2.8.0</hadoop.version>
-        <arrow.version>15.0.0</arrow.version>
+        <arrow.version>15.0.2</arrow.version>
     </properties>
     <build>
         <plugins>
