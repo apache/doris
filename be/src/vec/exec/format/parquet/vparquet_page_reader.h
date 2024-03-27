@@ -21,7 +21,6 @@
 #include <stdint.h>
 
 #include "common/status.h"
-#include "vec/exec/format/parquet/vparquet_page_index.h"
 
 namespace doris {
 namespace io {
@@ -42,59 +41,47 @@ public:
         int64_t decode_header_time = 0;
     };
 
-    PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
-               const tparquet::OffsetIndex* offset_index, int64_t num_values, uint64_t offset,
+    PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
                uint64_t length);
-
     ~PageReader() = default;
 
-    bool has_next_page() const { return _page_index < _offset_index->page_locations.size(); }
-
-    // Status next_page_header();
-
-    Status skip_page();
-
-    const tparquet::PageHeader* get_page_header();
-
-    int64_t get_page_num_values() const {
-        return _page_index < _offset_index->page_locations.size() - 1
-                       ? _offset_index->page_locations[_page_index + 1].first_row_index -
-                                 _offset_index->page_locations[_page_index].first_row_index
-                       // TODO: maybe should +1
-                       : _num_values - _offset_index->page_locations[_page_index].first_row_index;
-    };
-
-    Status load_page_header();
+    Status parse_page_header();
 
     Status get_page_data(Slice& slice);
 
-    Statistics& statistics() { return _statistics; }
+    const tparquet::PageHeader* get_page_header() const { return &_cur_page_header; }
 
-    void seek_to_page(int64_t page_header_offset) {
+    Status skip_page() {
+        if (UNLIKELY(_state != HEADER_PARSED)) {
+            return Status::IOError("Should generate page header first to skip current page");
+        }
+        _offset = _next_header_offset;
+        _state = INITIALIZED;
+        return Status::OK();
+    }
+
+    void seek_page(int64_t page_header_offset) {
         _offset = page_header_offset;
-        // TODO: make sure the page_index must be 0
-        // _page_index = page_index;
+        _next_header_offset = page_header_offset;
         _state = INITIALIZED;
     }
+
+    Statistics& statistics() { return _statistics; }
 
 private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
 
     io::BufferedStreamReader* _reader = nullptr;
     io::IOContext* _io_ctx = nullptr;
-    tparquet::PageHeader _cur_page_header;
-    Statistics _statistics;
+    tparquet::PageHeader _cur_page_header {};
+    Statistics _statistics {};
     PageReaderState _state = INITIALIZED;
 
     uint64_t _offset = 0;
-    uint64_t _header_size = 0;
+    uint64_t _next_header_offset = 0;
 
     uint64_t _start_offset = 0;
     uint64_t _end_offset = 0;
-
-    size_t _page_index = 0;
-    int64_t _num_values;
-    const tparquet::OffsetIndex* _offset_index;
 };
 
 } // namespace doris::vectorized
