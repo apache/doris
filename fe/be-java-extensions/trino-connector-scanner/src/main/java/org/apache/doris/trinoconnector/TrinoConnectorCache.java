@@ -115,7 +115,7 @@ public class TrinoConnectorCache {
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
             executorService.scheduleAtFixedRate(() -> {
                 if (!isKilled.get()) {
-                    List<Long> pids; = ProcessUtils.getChildProcessIds(
+                    List<Long> pids = ProcessUtils.getChildProcessIds(
                             ProcessUtils.getCurrentProcId());
                     for (long pid : pids) {
                         String cmd = ProcessUtils.getCommandLine(pid);
