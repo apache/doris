@@ -244,8 +244,17 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
             }
         }
     }};
+
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
+
     status = ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-            [this, &parent, state] {
+            [this, &parent, state, execution_context] {
+                auto execution_context_lock = execution_context.lock();
+                if (!execution_context_lock) {
+                    LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                    return Status::Cancelled("Cancelled");
+                }
                 SCOPED_ATTACH_TASK(state);
                 SCOPED_TIMER(Base::_spill_timer);
                 Defer defer {[&]() {
