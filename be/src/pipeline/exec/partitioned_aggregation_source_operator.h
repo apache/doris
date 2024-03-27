@@ -63,6 +63,11 @@ protected:
     std::mutex _merge_spill_lock;
     std::condition_variable _merge_spill_cv;
 
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::shared_ptr<PartitionedAggSharedState> _shared_state_holder;
+
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _serialize_result_timer = nullptr;

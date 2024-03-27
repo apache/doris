@@ -90,7 +90,15 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         }
     }};
 
-    auto spill_func = [this, state, &parent] {
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
+    auto spill_func = [this, state, &parent, execution_context] {
+        auto execution_context_lock = execution_context.lock();
+        if (!execution_context_lock) {
+            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+            return Status::OK();
+        }
+
         SCOPED_TIMER(_spill_merge_sort_timer);
         SCOPED_ATTACH_TASK(state);
         Defer defer {[&]() {

@@ -214,11 +214,20 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_eos) {
         Base::_dependency->Dependency::block();
     }
+
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
     status =
             ExecEnv::GetInstance()
                     ->spill_stream_mgr()
                     ->get_spill_io_thread_pool(_spilling_stream->get_spill_root_dir())
-                    ->submit_func([this, state, &parent] {
+                    ->submit_func([this, state, &parent, execution_context] {
+                        auto execution_context_lock = execution_context.lock();
+                        if (!execution_context_lock) {
+                            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                            return Status::OK();
+                        }
+
                         SCOPED_ATTACH_TASK(state);
                         Defer defer {[&]() {
                             if (!_shared_state->sink_status.ok()) {
