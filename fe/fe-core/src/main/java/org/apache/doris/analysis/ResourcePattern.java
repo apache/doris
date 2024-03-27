@@ -48,9 +48,9 @@ public class ResourcePattern implements Writable {
     public static ResourcePattern ALL_STAGE;
 
     static {
-        ALL_GENERAL = new ResourcePattern("*", ResourceTypeEnum.GENERAL);
-        ALL_CLUSTER = new ResourcePattern("*", ResourceTypeEnum.CLUSTER);
-        ALL_STAGE = new ResourcePattern("*", ResourceTypeEnum.STAGE);
+        ALL_GENERAL = new ResourcePattern("%", ResourceTypeEnum.GENERAL);
+        ALL_CLUSTER = new ResourcePattern("%", ResourceTypeEnum.CLUSTER);
+        ALL_STAGE = new ResourcePattern("%", ResourceTypeEnum.STAGE);
 
         try {
             ALL_GENERAL.analyze();
@@ -65,7 +65,11 @@ public class ResourcePattern implements Writable {
     }
 
     public ResourcePattern(String resourceName, ResourceTypeEnum type) {
-        this.resourceName = Strings.isNullOrEmpty(resourceName) ? "*" : resourceName;
+        // To be compatible with previous syntax
+        if ("*".equals(resourceName)) {
+            resourceName = "%";
+        }
+        this.resourceName = Strings.isNullOrEmpty(resourceName) ? "%" : resourceName;
         resourceType = type;
     }
 
@@ -86,15 +90,11 @@ public class ResourcePattern implements Writable {
     }
 
     public PrivLevel getPrivLevel() {
-        if (resourceName.equals("*")) {
-            return PrivLevel.GLOBAL;
-        } else {
-            return PrivLevel.RESOURCE;
-        }
+        return PrivLevel.RESOURCE;
     }
 
     public void analyze() throws AnalysisException {
-        if (!resourceName.equals("*")) {
+        if (!resourceName.equals("%")) {
             FeNameFormat.checkResourceName(resourceName, resourceType);
         }
     }
