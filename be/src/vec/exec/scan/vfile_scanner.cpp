@@ -925,15 +925,14 @@ Status VFileScanner::_get_next_reader() {
         }
 
         COUNTER_UPDATE(_file_counter, 1);
-        if (init_status.is<END_OF_FILE>()) {
+        if (init_status.is<END_OF_FILE>() || init_status.is<ErrorCode::NOT_FOUND>()) {
+            // The VFileScanner for external table may try to open not exist files,
+            // Because FE file cache for external table may out of date.
+            // So, NOT_FOUND for VFileScanner is not a fail case.
+            // Will remove this after file reader refactor.
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
-            if (init_status.is<ErrorCode::NOT_FOUND>()) {
-                COUNTER_UPDATE(_empty_file_counter, 1);
-                LOG(INFO) << "failed to find file: " << range.path;
-                return init_status;
-            }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
