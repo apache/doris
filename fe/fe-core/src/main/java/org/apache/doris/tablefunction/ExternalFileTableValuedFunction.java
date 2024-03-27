@@ -246,7 +246,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         skipLines = Integer.valueOf(
                 getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_SKIP_LINES, "0")).intValue();
 
-        String compressTypeStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_COMPRESS_TYPE, "UNKNOWN");
+        String compressTypeStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_COMPRESS_TYPE, "PLAIN");
         try {
             compressionType = Util.getFileCompressType(compressTypeStr);
         } catch (IllegalArgumentException e) {
