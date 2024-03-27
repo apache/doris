@@ -129,7 +129,6 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         }
         _projections = _intermediate_projections.back();
         _intermediate_projections.pop_back();
-
     } else {
         if (tnode.__isset.projections) {
             DCHECK(tnode.__isset.output_tuple_id);
@@ -544,12 +543,12 @@ std::string ExecNode::get_name() {
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_projection_timer);
-    vectorized::Block input_block = *origin_block;
-
-    const size_t rows = input_block.rows();
+    const size_t rows = origin_block->rows();
     if (rows == 0) {
         return Status::OK();
     }
+    vectorized::Block input_block = *origin_block;
+
     std::vector<int> result_column_ids;
     for (auto& projections : _intermediate_projections) {
         result_column_ids.resize(projections.size());
@@ -582,27 +581,25 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
     MutableBlock mutable_block =
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
 
-    if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
+    auto& mutable_columns = mutable_block.mutable_columns();
 
-        if (mutable_columns.size() != _projections.size()) {
-            return Status::InternalError(
-                    "Logical error during processing {}, output of projections {} mismatches with "
-                    "exec node output {}",
-                    this->get_name(), _projections.size(), mutable_columns.size());
-        }
-
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            auto result_column_id = -1;
-            RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
-            auto column_ptr = input_block.get_by_position(result_column_id)
-                                      .column->convert_to_full_column_if_const();
-            //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
-            insert_column_datas(mutable_columns[i], column_ptr, rows);
-        }
-        DCHECK(mutable_block.rows() == rows);
-        output_block->set_columns(std::move(mutable_columns));
+    if (mutable_columns.size() != _projections.size()) {
+        return Status::InternalError(
+                "Logical error during processing {}, output of projections {} mismatches with "
+                "exec node output {}",
+                this->get_name(), _projections.size(), mutable_columns.size());
     }
+
+    for (int i = 0; i < mutable_columns.size(); ++i) {
+        auto result_column_id = -1;
+        RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
+        auto column_ptr = input_block.get_by_position(result_column_id)
+                                  .column->convert_to_full_column_if_const();
+        //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
+        insert_column_datas(mutable_columns[i], column_ptr, rows);
+    }
+    DCHECK(mutable_block.rows() == rows);
+    output_block->set_columns(std::move(mutable_columns));
 
     return Status::OK();
 }

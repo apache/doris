@@ -188,12 +188,12 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
     SCOPED_TIMER(exec_timer);
     SCOPED_TIMER(projection_timer);
 
-    vectorized::Block input_block = *origin_block;
-
-    const size_t rows = input_block.rows();
+    const size_t rows = origin_block->rows();
     if (rows == 0) {
         return Status::OK();
     }
+    vectorized::Block input_block = *origin_block;
+
     std::vector<int> result_column_ids;
     for (auto& projections : _intermediate_projections) {
         result_column_ids.resize(projections.size());
@@ -207,33 +207,31 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
     MutableBlock mutable_block =
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
 
-    if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
+    auto& mutable_columns = mutable_block.mutable_columns();
 
-        if (mutable_columns.size() != _projections.size()) {
-            return Status::InternalError(
-                    "Logical error in scanner, output of projections {} mismatches with "
-                    "scanner output {}",
-                    _projections.size(), mutable_columns.size());
-        }
-
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            auto result_column_id = -1;
-            RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
-            auto column_ptr = input_block.get_by_position(result_column_id)
-                                      .column->convert_to_full_column_if_const();
-            //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
-            if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
-                DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
-                reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
-                        ->insert_range_from_not_nullable(*column_ptr, 0, rows);
-            } else {
-                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
-            }
-        }
-        DCHECK(mutable_block.rows() == rows);
-        output_block->set_columns(std::move(mutable_columns));
+    if (mutable_columns.size() != _projections.size()) {
+        return Status::InternalError(
+                "Logical error in scanner, output of projections {} mismatches with "
+                "scanner output {}",
+                _projections.size(), mutable_columns.size());
     }
+
+    for (int i = 0; i < mutable_columns.size(); ++i) {
+        auto result_column_id = -1;
+        RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
+        auto column_ptr = input_block.get_by_position(result_column_id)
+                                  .column->convert_to_full_column_if_const();
+        //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
+        if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
+            DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
+            reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
+                    ->insert_range_from_not_nullable(*column_ptr, 0, rows);
+        } else {
+            mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+        }
+    }
+    DCHECK(mutable_block.rows() == rows);
+    output_block->set_columns(std::move(mutable_columns));
 
     return Status::OK();
 }

@@ -235,7 +235,7 @@ public:
     void swap(Block&& other) noexcept;
 
     // Shuffle columns in place based on the result_column_ids
-    void shuffle_columns(std::vector<int>& result_column_ids);
+    void shuffle_columns(const std::vector<int>& result_column_ids);
 
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
