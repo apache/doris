@@ -109,13 +109,12 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
+        StringBuilder sb = new StringBuilder(t.getMessage());
         if (txnId != INVALID_TXN_ID) {
             LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
-            StringBuilder sb = new StringBuilder(t.getMessage());
             if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
                 sb.append(". url: ").append(coordinator.getTrackingUrl());
             }
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
         }
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
     }
