@@ -101,6 +101,7 @@ void register_function_ignore(SimpleFunctionFactory& factory);
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
+void register_function_oct_variadic(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
 
@@ -274,6 +275,7 @@ public:
             register_function_encryption(instance);
             register_function_regexp_extract(instance);
             register_function_hex_variadic(instance);
+            register_function_oct_variadic(instance);
             register_function_array(instance);
             register_function_map(instance);
             register_function_struct(instance);
