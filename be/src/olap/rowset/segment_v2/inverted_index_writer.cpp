@@ -248,6 +248,9 @@ public:
             // array's inverted index do need create field first
             _doc->setNeedResetFieldData(true);
         }
+        auto ignore_above_value =
+                get_parser_ignore_above_value_from_properties(_index_meta->properties());
+        _ignore_above = std::stoi(ignore_above_value);
         return Status::OK();
     }
 
@@ -324,13 +327,10 @@ public:
                         "field or index writer is null in inverted index writer");
             }
             auto* v = (Slice*)values;
-            auto ignore_above_value =
-                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
-            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
                 // only ignore_above UNTOKENIZED strings and empty strings not tokenized
                 if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                     v->get_size() > ignore_above) ||
+                     v->get_size() > _ignore_above) ||
                     (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
                     RETURN_IF_ERROR(add_null_document());
                 } else {
@@ -358,9 +358,6 @@ public:
                 LOG(ERROR) << "index writer is null in inverted index writer.";
                 return Status::InternalError("index writer is null in inverted index writer");
             }
-            auto ignore_above_value =
-                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
-            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
                 // offsets[i+1] is now row element count
                 // [0, 3, 6]
@@ -383,7 +380,7 @@ public:
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
                     if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                         v->get_size() > ignore_above) ||
+                         v->get_size() > _ignore_above) ||
                         (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
                         // is here a null value?
                         // TODO. Maybe here has performance problem for large size string.
@@ -615,6 +612,7 @@ private:
     InvertedIndexParserType _parser_type;
     std::wstring _field_name;
     InvertedIndexFileWriter* _index_file_writer;
+    uint32_t _ignore_above;
 };
 
 Status InvertedIndexColumnWriter::create(const Field* field,
