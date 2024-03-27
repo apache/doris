@@ -20,7 +20,6 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -30,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -55,11 +55,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.net.URI;
-import java.security.SecureRandom;
 import java.util.List;
-import java.util.Random;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -394,19 +391,7 @@ public class LoadAction extends RestBaseController {
 
     private TNetworkAddress selectCloudRedirectBackend(String clusterName, String reqHostStr, boolean groupCommit)
             throws LoadException {
-        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getBackendsByClusterName(clusterName)
-                .stream().filter(be -> be.isAlive() && (!groupCommit || groupCommit && !be.isDecommissioned()))
-                .collect(Collectors.toList());
-
-        if (backends.isEmpty()) {
-            LOG.warn("No available backend for stream load redirect, cluster name {}", clusterName);
-            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", cluster: " + clusterName);
-        }
-
-        Random rand = new SecureRandom();
-        int randomIndex = rand.nextInt(backends.size());
-        Backend backend = backends.get(randomIndex);
+        Backend backend = StreamLoadHandler.selectBackend(clusterName, groupCommit);
 
         Pair<String, Integer> publicHostPort = null;
         Pair<String, Integer> privateHostPort = null;
