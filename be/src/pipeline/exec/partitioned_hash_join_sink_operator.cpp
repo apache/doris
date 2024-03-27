@@ -74,7 +74,14 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         auto* spill_io_pool =
                 ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool();
         DCHECK(spill_io_pool != nullptr);
-        auto st = spill_io_pool->submit_func([this, state, spilling_stream, i] {
+        auto execution_context = state->get_task_execution_context();
+        _shared_state_holder = _shared_state->shared_from_this();
+        auto st = spill_io_pool->submit_func([this, execution_context, state, spilling_stream, i] {
+            auto execution_context_lock = execution_context.lock();
+            if (!execution_context_lock) {
+                LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                return;
+            }
             (void)state; // avoid ut compile error
             SCOPED_ATTACH_TASK(state);
             _spill_to_disk(i, spilling_stream);

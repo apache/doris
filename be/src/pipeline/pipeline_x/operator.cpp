@@ -299,7 +299,7 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
         return nullptr;
     } else {
         std::shared_ptr<BasicSharedState> ss = nullptr;
-        ss.reset(new typename LocalStateType::SharedStateType());
+        ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();
         for (auto& dest : dests_id()) {
             ss->related_op_ids.insert(dest);
