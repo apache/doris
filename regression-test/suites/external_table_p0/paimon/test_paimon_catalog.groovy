@@ -173,7 +173,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             def c100= """select * from array_nested order by c1;"""
 
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
-            String catalog_name = "paimon1"
+            String catalog_name = "ctl_test_paimon_catalog"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
