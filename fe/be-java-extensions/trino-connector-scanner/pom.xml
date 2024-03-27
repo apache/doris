@@ -35,7 +35,7 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>hudi-scanner</artifactId>
+            <artifactId>preload-extensions</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

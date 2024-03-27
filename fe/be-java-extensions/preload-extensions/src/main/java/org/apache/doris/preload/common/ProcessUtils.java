@@ -15,14 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.hudi;
-
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
+package org.apache.doris.preload.common;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hudi.common.table.HoodieTableMetaClient;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -32,7 +27,10 @@ import java.lang.management.ManagementFactory;
 import java.util.LinkedList;
 import java.util.List;
 
-public class Utils {
+/**
+ * Utils for handling processes
+ */
+public class ProcessUtils {
     public static long getCurrentProcId() {
         try {
             return ManagementFactory.getRuntimeMXBean().getPid();
@@ -44,16 +42,13 @@ public class Utils {
     public static List<Long> getChildProcessIds(long pid) {
         try {
             Process pgrep = (new ProcessBuilder("pgrep", "-P", String.valueOf(pid))).start();
-            System.out.println("--ftw: pgrep = " + pgrep);
             BufferedReader reader = new BufferedReader(new InputStreamReader(pgrep.getInputStream()));
             List<Long> result = new LinkedList<>();
             String line;
             while ((line = reader.readLine()) != null) {
                 result.add(Long.valueOf(line.trim()));
             }
-            System.out.println("--ftw: pgrep.waitFor();");
             pgrep.waitFor();
-            System.out.println("--ftw: get all result");
             return result;
         } catch (Exception e) {
             throw new RuntimeException("Couldn't get child processes of PID " + pid, e);
@@ -75,10 +70,5 @@ public class Utils {
         } catch (Exception e) {
             throw new RuntimeException("Couldn't kill process PID " + pid, e);
         }
-    }
-
-    public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
-        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> HoodieTableMetaClient.builder()
-                .setConf(conf).setBasePath(basePath).build());
     }
 }

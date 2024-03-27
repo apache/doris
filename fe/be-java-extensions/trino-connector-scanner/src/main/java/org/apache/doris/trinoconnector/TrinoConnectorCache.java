@@ -17,7 +17,7 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.hudi.Utils;
+import org.apache.doris.preload.common.ProcessUtils;
 
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -112,37 +112,33 @@ public class TrinoConnectorCache {
             // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
             // so use another process to kill this stuck process.
             AtomicBoolean isKilled = new AtomicBoolean(false);
-            LOG.info("--ftw: isKilled = " + isKilled);
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
             executorService.scheduleAtFixedRate(() -> {
                 if (!isKilled.get()) {
-                    LOG.info("--ftw: isKilled is false.");
-                    long currentPid = Utils.getCurrentProcId();
-                    LOG.info("--ftw: currentPid = " + currentPid);
-                    List<Long> pids = Utils.getChildProcessIds(currentPid);
-                    LOG.info("--ftw: get all pids");
+                    List<Long> pids;
+                    try {
+                        pids = ProcessUtils.getChildProcessIds(
+                                ProcessUtils.getCurrentProcId());
+                    } catch (Exception e) {
+                        System.out.println("get pid exception: " + e.getMessage());
+                        LOG.info("get pid exception: " + e.getMessage());
+                        throw new RuntimeException("get pid error.", e);
+                    }
                     for (long pid : pids) {
-                        LOG.info("--ftw: pid = " + pid);
-                        String cmd = Utils.getCommandLine(pid);
-                        LOG.info("--ftw: get cmd = " + cmd);
+                        String cmd = ProcessUtils.getCommandLine(pid);
                         if (cmd != null && cmd.contains("org.openjdk.jol.vm.sa.AttachMain")) {
-                            LOG.info("--ftw: begin kill, cmd = " + cmd);
-                            Utils.killProcess(pid);
-                            LOG.info("--ftw: finish killed, cmd = " + cmd);
+                            ProcessUtils.killProcess(pid);
                             isKilled.set(true);
                         }
                     }
                 }
             }, 100, 1000, TimeUnit.MILLISECONDS);
-            LOG.info("--ftw: isKill = " + isKilled);
 
             // create CatalogHandle
             CatalogHandle catalogHandle = CatalogHandle.createRootCatalogHandle(key.catalogName,
                     new CatalogVersion("test"));
-            LOG.info("--ftw: finish create catalog handle.");
 
             isKilled.set(true);
-            LOG.info("--ftw: isKill = " + isKilled);
             executorService.shutdownNow();
 
             CatalogFactory catalogFactory = createCatalogFactory(key.trinoConnectorPluginManager.getTypeRegistry(),
