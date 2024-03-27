@@ -18,9 +18,10 @@
 package org.apache.doris.analysis;
 
 // SET vault_name DEFAULT STORAGE VAULT
-public class SetDefaultStotageVaultStmt  extends DdlStmt {
+public class SetDefaultStorageVaultStmt extends DdlStmt {
     public final String vaultName;
-    public SetDefaultStotageVault(String vaultName) {
+
+    public SetDefaultStorageVaultStmt(String vaultName) {
         this.vaultName = vaultName;
     }
 
