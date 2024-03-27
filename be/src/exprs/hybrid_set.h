@@ -170,6 +170,8 @@ public:
 
     size_t size() const { return _set.size(); }
 
+    void clear() { _set.clear(); }
+
 private:
     vectorized::flat_hash_set<T> _set;
 };
@@ -233,7 +235,18 @@ public:
 
     virtual IteratorBase* begin() = 0;
 
-    bool contain_null() const { return _contains_null && _null_aware; }
+    bool contain_null() const {
+        LOG(INFO) << "Entering the func contain_null.. ";
+        if (_contains_null && _null_aware) {
+            LOG(INFO)
+                    << "The func finds out containing null, _contains_null && _null_aware is true.";
+        } else if (_null_aware) {
+            LOG(INFO) << "The func finds out not containing null,  _contains_null is not true";
+        } else {
+            LOG(INFO) << "The func finds out not containing null, both are false ";
+        }
+        return _contains_null && _null_aware; 
+    }
     bool _contains_null = false;
 };
 
@@ -271,6 +284,12 @@ public:
     ~HybridSet() override = default;
 
     void insert(const void* data) override {
+        LOG(INFO) << "Entering the func insert.. ";
+        if (data == nullptr) {
+            LOG(INFO) << "The func finds out data is nullptr.";
+        } else {
+            LOG(INFO) << "The func finds out data is not nullptr. ";
+        }
         if (data == nullptr) {
             _contains_null = true;
             return;
@@ -307,6 +326,8 @@ public:
     }
 
     int size() override { return _set.size(); }
+
+    void clear() { _set.clear(); }
 
     bool find(const void* data) const override {
         if (data == nullptr) {
