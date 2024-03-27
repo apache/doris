@@ -620,8 +620,6 @@ int main(int argc, char** argv) {
     brpc_service.reset(nullptr);
     LOG(INFO) << "Brpc service stopped";
     service.reset();
-    LOG(INFO) << "Backend Service stopped";
-    exec_env->destroy();
     doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
     LOG(INFO) << "Doris main exited.";
     return 0;
