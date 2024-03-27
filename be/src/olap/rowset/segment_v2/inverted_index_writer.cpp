@@ -290,28 +290,15 @@ public:
         return Status::OK();
     }
 
-    void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
-        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
-            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
-            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
-            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
+    void new_inverted_index_field(const char* field_value_data, size_t field_value_size) {
+        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+            _parser_type != InvertedIndexParserType::PARSER_NONE) {
             new_char_token_stream(field_value_data, field_value_size, _field);
         } else {
             new_field_char_value(field_value_data, field_value_size, _field);
         }
     }
 
-    void new_fulltext_field(const char* field_value_data, size_t field_value_size,
-                            lucene::document::Field* field) {
-        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
-            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
-            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
-            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
-            new_char_token_stream(field_value_data, field_value_size, field);
-        } else {
-            new_field_char_value(field_value_data, field_value_size, field);
-        }
-    }
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field) {
         _char_string_reader->init(s, len, false);
         auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader.get());
@@ -347,7 +334,7 @@ public:
                     (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
                     RETURN_IF_ERROR(add_null_document());
                 } else {
-                    new_fulltext_field(v->get_data(), v->get_size());
+                    new_inverted_index_field(v->get_data(), v->get_size());
                     RETURN_IF_ERROR(add_document());
                 }
                 ++v;
@@ -402,10 +389,8 @@ public:
                         // TODO. Maybe here has performance problem for large size string.
                         continue;
                     } else {
-                        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
-                            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
-                            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
-                            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
+                        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+                            _parser_type != InvertedIndexParserType::PARSER_NONE) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
                             _char_string_reader->init(v->get_data(), v->get_size(), false);
@@ -466,7 +451,7 @@ public:
                     item_data_ptr = (uint8_t*)item_data_ptr + field_size;
                 }
                 auto value = join(strings, " ");
-                new_fulltext_field(value.c_str(), value.length());
+                new_inverted_index_field(value.c_str(), value.length());
                 _rid++;
                 RETURN_IF_ERROR(add_document());
                 values++;
