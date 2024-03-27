@@ -216,7 +216,8 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
             continue;
         }
 
-        if (!value_columns.empty() && value_columns.size() % config::vertical_compaction_num_columns_per_group == 0) {
+        if (!value_columns.empty() &&
+            value_columns.size() % config::vertical_compaction_num_columns_per_group == 0) {
             column_groups->push_back(value_columns);
             value_columns.clear();
         }
