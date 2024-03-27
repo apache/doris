@@ -619,7 +619,7 @@ int main(int argc, char** argv) {
     LOG(INFO) << "Be server stopped";
     brpc_service.reset(nullptr);
     LOG(INFO) << "Brpc service stopped";
-    service.reset();
+    exec_env->destroy();
     doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
     LOG(INFO) << "Doris main exited.";
     return 0;
