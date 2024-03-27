@@ -75,7 +75,6 @@ private:
     phmap::flat_hash_map<TUniqueId, uint64_t> _id_to_workload_group;
 
     RecordType _dump_type = RecordType::None;
-    std::filesystem::path _dir = config::pipeline_tracing_log_dir;
     decltype(MonotonicSeconds()) _last_dump_time;
     decltype(MonotonicSeconds()) _dump_interval_s =
             60; // effective iff Periodic mode. 1 minute default.
