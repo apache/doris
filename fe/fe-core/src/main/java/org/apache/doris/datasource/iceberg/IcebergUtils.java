@@ -156,7 +156,7 @@ public class IcebergUtils {
                     String colName = slotRef.getColumnName();
                     Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
                     colName = nestedField.name();
-                    Object value = extractDorisLiteral(literalExpr);
+                    Object value = extractDorisLiteral(nestedField.type().typeId(), literalExpr);
                     if (value == null) {
                         if (opCode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
                             return Expressions.isNull(colName);
@@ -196,18 +196,18 @@ public class IcebergUtils {
             if (slotRef == null) {
                 return null;
             }
+            String colName = slotRef.getColumnName();
+            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+            colName = nestedField.name();
             List<Object> valueList = new ArrayList<>();
             for (int i = 1; i < inExpr.getChildren().size(); ++i) {
                 if (!(inExpr.getChild(i) instanceof LiteralExpr)) {
                     return null;
                 }
                 LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
-                Object value = extractDorisLiteral(literalExpr);
+                Object value = extractDorisLiteral(nestedField.type().typeId(), literalExpr);
                 valueList.add(value);
             }
-            String colName = slotRef.getColumnName();
-            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
-            colName = nestedField.name();
             if (inExpr.isNotIn()) {
                 // not in
                 return Expressions.notIn(colName, valueList);
@@ -220,7 +220,7 @@ public class IcebergUtils {
         return null;
     }
 
-    private static Object extractDorisLiteral(Expr expr) {
+    private static Object extractDorisLiteral(org.apache.iceberg.types.Type.TypeID icebergTypeID, Expr expr) {
         if (!expr.isLiteral()) {
             return null;
         }
@@ -229,7 +229,10 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            if (dateLiteral.isDateType() || dateLiteral.isDateTimeType()) {
+            if (icebergTypeID == org.apache.iceberg.types.Type.TypeID.STRING && dateLiteral.isDateTimeType()) {
+                return dateLiteral.getStringValue();
+            } else if (dateLiteral.isDateType()
+                    || icebergTypeID == org.apache.iceberg.types.Type.TypeID.STRING && dateLiteral.isDateTimeType()) {
                 return dateLiteral.getStringValue();
             } else {
                 return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
