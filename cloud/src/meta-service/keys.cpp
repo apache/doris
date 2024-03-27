@@ -17,10 +17,6 @@
 
 #include "keys.h"
 
-#include <cassert>
-#include <type_traits>
-#include <variant>
-
 #include "codec.h"
 
 namespace doris::cloud {
