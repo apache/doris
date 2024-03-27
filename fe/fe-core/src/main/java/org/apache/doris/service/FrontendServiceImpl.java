@@ -3597,7 +3597,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TReplacePartitionResult replacePartition(TReplacePartitionRequest request) throws TException {
-        LOG.info("Receive create partition request: {}", request);
+        LOG.info("Receive replace partition request: {}", request);
         long dbId = request.getDbId();
         long tableId = request.getTableId();
         List<Long> partitionIds = request.getPartitionIds();
