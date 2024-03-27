@@ -128,6 +128,7 @@ public class LoadScanProvider {
         fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
         fileAttributes.setTrimDoubleQuotes(fileGroup.getTrimDoubleQuotes());
         fileAttributes.setSkipLines(fileGroup.getSkipLines());
+        fileAttributes.setIgnoreCsvRedundantCol(fileGroup.getIgnoreCsvRedundantCol());
     }
 
     private String getHeaderType(String formatType) {

@@ -1870,6 +1870,10 @@ public class Auth implements Writable {
         return userManager.getAllUsers();
     }
 
+    public String getUserId(String userName) {
+        return userManager.getUserId(userName);
+    }
+
     // just for ut
     public UserManager getUserManager() {
         return userManager;

@@ -114,8 +114,10 @@ public abstract class DorisHttpTestCase {
     public static int testSchemaHash = 93423942;
 
     public static int HTTP_PORT;
+    public static int CLOUD_HTTP_PORT;
 
     protected static String URI;
+    protected static String CloudURI;
 
     protected String rootAuth = Credentials.basic("root", "");
 
@@ -332,6 +334,7 @@ public abstract class DorisHttpTestCase {
             socket.setReuseAddress(true);
             HTTP_PORT = socket.getLocalPort();
             URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+            CloudURI = "http://localhost:" + HTTP_PORT;
         } catch (Exception e) {
             throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
         } finally {

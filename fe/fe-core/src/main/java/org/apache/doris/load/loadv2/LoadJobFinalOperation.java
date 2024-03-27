@@ -24,9 +24,14 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * This object will be created when job finished or cancelled.
@@ -41,6 +46,10 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
     private JobState jobState;
     // optional
     private FailMsg failMsg;
+    // only used for copy into
+    private String copyId = "";
+    private String loadFilePaths = "";
+    private Map<String, String> properties = new HashMap<>();
 
     public LoadJobFinalOperation() {
         super(TransactionState.LoadJobSourceType.BATCH_LOAD_JOB);
@@ -56,6 +65,15 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
         this.finishTimestamp = finishTimestamp;
         this.jobState = jobState;
         this.failMsg = failMsg;
+    }
+
+    public LoadJobFinalOperation(long id, EtlStatus loadingStatus, int progress, long loadStartTimestamp,
+                                 long finishTimestamp, JobState jobState, FailMsg failMsg, String copyId,
+                                 String loadFilePaths, Map<String, String> properties) {
+        this(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp, jobState, failMsg);
+        this.copyId = copyId;
+        this.loadFilePaths = loadFilePaths;
+        this.properties = properties;
     }
 
     public long getId() {
@@ -86,6 +104,18 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
         return failMsg;
     }
 
+    public String getCopyId() {
+        return copyId;
+    }
+
+    public String getLoadFilePaths() {
+        return loadFilePaths;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
@@ -101,6 +131,10 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
             out.writeBoolean(true);
             failMsg.write(out);
         }
+        Text.writeString(out, copyId);
+        Text.writeString(out, loadFilePaths);
+        Gson gson = new Gson();
+        Text.writeString(out, properties == null ? "" : gson.toJson(properties));
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -115,6 +149,12 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
             failMsg = new FailMsg();
             failMsg.readFields(in);
         }
+        copyId = Text.readString(in);
+        loadFilePaths = Text.readString(in);
+        String property = Text.readString(in);
+        properties = property.isEmpty() ? new HashMap<>()
+                : (new Gson().fromJson(property, new TypeToken<Map<String, String>>() {
+                }.getType()));
     }
 
     @Override
@@ -127,6 +167,9 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
                 + ", finishTimestamp=" + finishTimestamp
                 + ", jobState=" + jobState
                 + ", failMsg=" + failMsg
+                + ", queryId=" + copyId
+                + ", loadFilePaths=" + loadFilePaths
+                + ", properties=" + properties
                 + '}';
     }
 }

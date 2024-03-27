@@ -15,43 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.analysis;
 
-public enum InternalErrorCode {
-    OK(0),
+import lombok.Getter;
 
-    // for common error
-    IMPOSSIBLE_ERROR_ERR(1),
-    INTERNAL_ERR(2),
-    REPLICA_FEW_ERR(3),
-    PARTITIONS_ERR(4),
-    DB_ERR(5),
-    TABLE_ERR(6),
-    META_NOT_FOUND_ERR(7),
+public class StageAndPattern {
 
-    // for load job error
-    MANUAL_PAUSE_ERR(100),
-    MANUAL_STOP_ERR(101),
-    TOO_MANY_FAILURE_ROWS_ERR(102),
-    CREATE_TASKS_ERR(103),
-    TASKS_ABORT_ERR(104),
-    CANNOT_RESUME_ERR(105),
-    TIMEOUT_TOO_MUCH(106),
+    @Getter
+    private String stageName;
+    @Getter
+    private String pattern;
 
-    // for external catalog
-    GET_REMOTE_DATA_ERROR(202),
-
-    // for MoW table
-    DELETE_BITMAP_LOCK_ERR(301);
-
-    private long errCode;
-
-    InternalErrorCode(long code) {
-        this.errCode = code;
+    public StageAndPattern(String stageName, String pattern) {
+        this.stageName = stageName;
+        this.pattern = pattern;
     }
 
-    @Override
-    public String toString() {
-        return "errCode = " + errCode;
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("@").append(stageName);
+        if (pattern != null) {
+            sb.append("('").append(pattern).append("')");
+        }
+        return sb.toString();
     }
 }

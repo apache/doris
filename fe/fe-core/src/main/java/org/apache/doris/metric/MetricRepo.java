@@ -78,6 +78,12 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
     public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
+
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_ERR;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_QUERY_REQUEST;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_QUERY_ERR;
+
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ALL;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ERR;
     public static Histogram HISTO_QUERY_LATENCY;
@@ -103,6 +109,8 @@ public final class MetricRepo {
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
     public static Histogram HISTO_JOURNAL_BATCH_SIZE;
     public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
+    public static Histogram HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY;
+    public static Histogram HISTO_HTTP_COPY_INTO_QUERY_LATENCY;
 
     public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
