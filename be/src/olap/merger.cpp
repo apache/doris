@@ -165,6 +165,7 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
             key_columns.emplace_back(delete_sign_idx);
         }
     }
+
     VLOG_NOTICE << "sequence_col_idx=" << sequence_col_idx
                 << ", delete_sign_idx=" << delete_sign_idx;
     // for duplicate no keys
@@ -176,10 +177,16 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
         if (i == sequence_col_idx || i == delete_sign_idx) {
             continue;
         }
-        if ((i - num_key_cols) % config::vertical_compaction_num_columns_per_group == 0) {
-            column_groups->emplace_back();
+
+        if (!value_columns.empty() && value_columns.size() % config::vertical_compaction_num_columns_per_group == 0) {
+            column_groups->push_back(value_columns);
+            value_columns.clear();
         }
-        column_groups->back().emplace_back(i);
+        value_columns.push_back(i);
+    }
+
+    if (!value_columns.empty()) {
+        column_groups->push_back(value_columns);
     }
 }
 
