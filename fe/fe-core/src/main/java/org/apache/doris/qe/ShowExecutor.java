@@ -856,6 +856,9 @@ public class ShowExecutor {
             if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
                 continue;
             }
+            if (showTableStmt.getType() != null && tbl.getType() != showTableStmt.getType()) {
+                continue;
+            }
             if (matcher != null && !matcher.match(tbl.getName())) {
                 continue;
             }
