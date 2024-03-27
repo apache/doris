@@ -17,35 +17,24 @@
 
 package com.alibaba.datax.plugin.writer.doriswriter;
 
-import java.io.IOException;
-import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-public class DorisWriterExcetion extends IOException {
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class BaseResponse<T> {
+    private int code;
+    private String msg;
+    private T data;
+    private int count;
 
-    private Map<String, Object> response;
-    private boolean reCreateLabel;
-
-    public DorisWriterExcetion(String message, Map<String, Object> response) {
-        super(message);
-        this.response = response;
+    public int getCode() {
+        return code;
     }
 
-    public DorisWriterExcetion(String message, boolean reCreateLabel) {
-        super(message);
-        this.reCreateLabel = reCreateLabel;
+    public String getMsg() {
+        return msg;
     }
 
-    public DorisWriterExcetion(String message, Map<String, Object> response, boolean reCreateLabel) {
-        super(message);
-        this.response = response;
-        this.reCreateLabel = reCreateLabel;
-    }
-
-    public Map<String, Object> getFailedResponse() {
-        return response;
-    }
-
-    public boolean needReCreateLabel() {
-        return reCreateLabel;
+    public T getData(){
+        return data;
     }
 }
