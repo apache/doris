@@ -19,9 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
@@ -142,6 +145,11 @@ public class CreateUserStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris") && LdapConfig.ldap_authentication_enabled) {
+            throw new AnalysisException("Create user is prohibited when Ranger and LDAP are enabled at same time.");
+        }
+
         userIdent.analyze();
 
         if (userIdent.isRootUser()) {
