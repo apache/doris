@@ -2674,6 +2674,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (!Config.isCloudMode()) {
             return tableAttributes.getNextVersion();
         } else {
+            // cloud mode should not reach here
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getNextVersion in Cloud mode in OlapTable {} ", getName());
+            }
             return getVisibleVersion() + 1;
         }
     }

@@ -361,10 +361,11 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     @Override
-    protected void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+    protected void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+                                         boolean isCreateTable)
             throws DdlException {
         if (partitionIds == null) {
-            commitMaterializedIndex(dbId, tableId, indexIds);
+            commitMaterializedIndex(dbId, tableId, indexIds, isCreateTable);
         } else {
             commitPartition(dbId, tableId, partitionIds, indexIds);
         }
@@ -471,12 +472,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds) throws DdlException {
+    public void commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean isCreateTable)
+            throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setDbId(dbId);
         indexRequestBuilder.setTableId(tableId);
+        indexRequestBuilder.setIsNewTable(isCreateTable);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;

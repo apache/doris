@@ -92,7 +92,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         rollupIndexList.add(rollupIndexId);
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                .commitMaterializedIndex(dbId, tableId, rollupIndexList);
+                .commitMaterializedIndex(dbId, tableId, rollupIndexList, false);
         } catch (Exception e) {
             LOG.warn("commitMaterializedIndex Exception:{}", e);
             throw new AlterCancelException(e.getMessage());

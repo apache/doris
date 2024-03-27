@@ -83,7 +83,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 indexIdMap.keySet().stream().collect(Collectors.toList());
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .commitMaterializedIndex(dbId, tableId, shadowIdxList);
+                    .commitMaterializedIndex(dbId, tableId, shadowIdxList, false);
         } catch (Exception e) {
             LOG.warn("commitMaterializedIndex exception:", e);
             throw new AlterCancelException(e.getMessage());
