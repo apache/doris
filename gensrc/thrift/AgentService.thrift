@@ -388,6 +388,8 @@ struct TPublishVersionRequest {
     2: required list<TPartitionVersionInfo> partition_version_infos
     // strict mode means BE will check tablet missing version
     3: optional bool strict_mode = false
+    // for delta rows statistics to exclude rollup tablets
+    4: optional set<Types.TTabletId> base_tablet_ids
 }
 
 struct TClearAlterTaskRequest {
