@@ -94,31 +94,24 @@ public:
     // Whether the chunk reader has a more page to read.
     bool has_next_page() const { return _chunk_parsed_values < _metadata.num_values; }
 
-    // Deprecated
-    // Seek to the specific page, page_header_offset must be the start offset of the page header.
-    // _end_offset may exceed the actual data area, so we can only use the number of parsed values
-    // to determine whether there are remaining pages to read. That's to say we can't use the
-    // PageLocation in parquet metadata to seek to the specified page. We should call next_page()
-    // and skip_page() to skip pages one by one.
-    // todo: change this interface to seek_to_page(int64_t page_header_offset, size_t num_parsed_values)
-    // and set _chunk_parsed_values = num_parsed_values
-    // [[deprecated]]
-    void seek_to_page(int64_t page_header_offset) {
-        _remaining_num_values = 0;
-        _page_reader->seek_page(page_header_offset);
-        _state = INITIALIZED;
-    }
-
     // Seek to next page. Only read and parse the page header.
     Status next_page();
 
     // Skip current page(will not read and parse) if the page is filtered by predicates.
     Status skip_page() {
         Status res = Status::OK();
-        _remaining_num_values = 0;
-        if (_state == HEADER_PARSED) {
-            res = _page_reader->skip_page();
+        if (_offset_index) {
+            _page_index++;
+            if (_page_index == _offset_index->page_locations.size()) {
+                return Status::EndOfFile("End of file");
+            }
+            _page_reader->seek_page(_offset_index->page_locations[_page_index].offset);
+        } else {
+            if (_state == HEADER_PARSED) {
+                res = _page_reader->skip_page();
+            }
         }
+        _remaining_num_values = 0;
         _state = PAGE_SKIPPED;
         return res;
     }
@@ -136,6 +129,7 @@ public:
         }
         return load_page_data();
     }
+
     // The remaining number of values in current page(including null values). Decreased when reading or skipping.
     uint32_t remaining_num_values() const { return _remaining_num_values; }
     // null values are generated from definition levels
@@ -194,6 +188,16 @@ private:
     int32_t _get_type_length();
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
 
+    //Returns the number of values in the current page.
+    int64_t _get_page_num_values() const {
+        DCHECK(_offset_index);
+        return _page_index + 1 < _offset_index->page_locations.size()
+                       ? _offset_index->page_locations[_page_index + 1].first_row_index -
+                                 _offset_index->page_locations[_page_index].first_row_index
+                       : _metadata.num_values -
+                                 _offset_index->page_locations[_page_index].first_row_index;
+    }
+
     ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema = nullptr;
     level_t _max_rep_level;
@@ -202,6 +206,7 @@ private:
 
     io::BufferedStreamReader* _stream_reader = nullptr;
     tparquet::ColumnMetaData _metadata;
+    size_t _page_index = 0;
     const tparquet::OffsetIndex* _offset_index = nullptr;
     //    cctz::time_zone* _ctz;
     io::IOContext* _io_ctx = nullptr;

@@ -49,7 +49,10 @@ public:
 
     Status get_page_data(Slice& slice);
 
-    const tparquet::PageHeader* get_page_header() const { return &_cur_page_header; }
+    const tparquet::PageHeader* get_page_header() const {
+        DCHECK_EQ(_state, HEADER_PARSED);
+        return &_cur_page_header;
+    }
 
     Status skip_page() {
         if (UNLIKELY(_state != HEADER_PARSED)) {

@@ -144,12 +144,12 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
     } else if (field->type.type == TYPE_STRUCT) {
         std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> child_readers;
         child_readers.reserve(field->children.size());
-        for (int i = 0; i < field->children.size(); ++i) {
+        for (auto& child : field->children) {
             std::unique_ptr<ParquetColumnReader> child_reader;
-            RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
-                                   offset_index, child_reader, max_buf_size));
+            RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx, offset_index,
+                                   child_reader, max_buf_size));
             child_reader->set_nested_column();
-            child_readers[field->children[i].name] = std::move(child_reader);
+            child_readers[child.name] = std::move(child_reader);
         }
         auto struct_reader = StructColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
@@ -289,7 +289,7 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
         }
         data_column = doris_column->assume_mutable();
     }
-    if (null_map.size() == 0) {
+    if (null_map.empty()) {
         size_t remaining = num_values;
         while (remaining > USHRT_MAX) {
             null_map.emplace_back(USHRT_MAX);
@@ -436,7 +436,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             *eof = true;
         }
     }
-    if (_rep_levels.size() > 0) {
+    if (!_rep_levels.empty()) {
         // make sure the rows of complex type are aligned correctly,
         // so the repetition level of first element should be 0, meaning a new row is started.
         DCHECK_EQ(_rep_levels[0], 0);
@@ -510,7 +510,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         _generate_read_ranges(_current_row_index,
                               _current_row_index + _chunk_reader->remaining_num_values(),
                               read_ranges);
-        if (read_ranges.size() == 0) {
+        if (read_ranges.empty()) {
             // skip the whole page
             _current_row_index += _chunk_reader->remaining_num_values();
             RETURN_IF_ERROR(_chunk_reader->skip_page());

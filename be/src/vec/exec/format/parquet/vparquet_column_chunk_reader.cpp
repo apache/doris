@@ -69,14 +69,18 @@ Status ColumnChunkReader::init() {
     if (_metadata.__isset.dictionary_page_offset) {
         // seek to the directory page
         _page_reader->seek_page(_metadata.dictionary_page_offset);
-        // Parse dictionary data when reading
-        // RETURN_IF_ERROR(_page_reader->next_page_header());
-        // RETURN_IF_ERROR(_decode_dict_page());
     } else {
         // seek to the first data page
         _page_reader->seek_page(_metadata.data_page_offset);
     }
     _state = INITIALIZED;
+
+    // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false
+    RETURN_IF_ERROR(_page_reader->parse_page_header());
+    if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
+        // Parse dictionary data when reading
+        RETURN_IF_ERROR(_decode_dict_page());
+    }
     return Status::OK();
 }
 
@@ -90,14 +94,15 @@ Status ColumnChunkReader::next_page() {
     if (UNLIKELY(_remaining_num_values != 0)) {
         return Status::Corruption("Should skip current page");
     }
-    RETURN_IF_ERROR(_page_reader->next_page_header());
-    if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
-        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
-        // so we should parse the directory page in next_page()
-        RETURN_IF_ERROR(_decode_dict_page());
-        // parse the real first data page
-        return next_page();
-    } else if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
+
+    if (_offset_index) {
+        _remaining_num_values = _get_page_num_values();
+        _chunk_parsed_values += _remaining_num_values;
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_page_reader->parse_page_header());
+    if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header_v2.num_values;
         _chunk_parsed_values += _remaining_num_values;
         _state = HEADER_PARSED;
@@ -121,6 +126,12 @@ void ColumnChunkReader::_get_uncompressed_levels(const tparquet::DataPageHeaderV
 }
 
 Status ColumnChunkReader::load_page_data() {
+    if (_offset_index) {
+        DCHECK_NE(_state, HEADER_PARSED);
+        RETURN_IF_ERROR(_page_reader->parse_page_header());
+        _page_index++;
+    }
+
     if (UNLIKELY(_state != HEADER_PARSED)) {
         return Status::Corruption("Should parse page header");
     }
