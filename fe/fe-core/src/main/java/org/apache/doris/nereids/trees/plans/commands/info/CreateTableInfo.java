@@ -464,6 +464,10 @@ public class CreateTableInfo {
                     "Iceberg doesn't support 'DISTRIBUTE BY', "
                         + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
             }
+            // TODO: support iceberg partition check
+            if (engineName.equalsIgnoreCase("hive")) {
+                partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, isEnableMergeOnWrite, true);
+            }
             for (ColumnDefinition columnDef : columns) {
                 if (!columnDef.isNullable()
                         && engineName.equalsIgnoreCase("hive")) {
@@ -474,7 +478,6 @@ public class CreateTableInfo {
                 }
                 columnDef.setIsKey(true);
             }
-            partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, isEnableMergeOnWrite, true);
         }
 
         // validate column
