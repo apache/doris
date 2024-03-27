@@ -69,7 +69,6 @@ import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubqueryOrView;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
-import org.apache.doris.nereids.rules.rewrite.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.ExtractFilterFromCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractSingleTableExpressionFromDisjunction;
@@ -121,6 +120,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoin;
@@ -328,7 +328,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
             ),
 
-            // this rule should invoke after topic "Join pull up"
+            // this rule should be invoked after topic "Join pull up"
             topic("eliminate group by keys according to fd items",
                     topDown(new EliminateGroupByKey())
             ),
@@ -389,11 +389,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
                     bottomUp(new EliminateEmptyRelation())
             ),
-
+            topic("agg rewrite",
+                // these rules should be put after mv optimization to avoid mv matching fail
+                topDown(new SumLiteralRewrite())
+            ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
                     custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
-                    custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
                     topDown(new PushDownFilterThroughProject(), new MergeProjects()),
                     custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     bottomUp(

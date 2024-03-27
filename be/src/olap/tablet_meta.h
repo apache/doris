@@ -111,7 +111,9 @@ public:
                int64_t time_series_compaction_file_count_threshold = 2000,
                int64_t time_series_compaction_time_threshold_seconds = 3600,
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
-               int64_t time_series_compaction_level_threshold = 1);
+               int64_t time_series_compaction_level_threshold = 1,
+               TInvertedIndexStorageFormat::type inverted_index_storage_format =
+                       TInvertedIndexStorageFormat::V1);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -271,6 +273,16 @@ public:
         return _time_series_compaction_level_threshold;
     }
 
+    int64_t ttl_seconds() const {
+        std::shared_lock rlock(_meta_lock);
+        return _ttl_seconds;
+    }
+
+    void set_ttl_seconds(int64_t ttl_seconds) {
+        std::lock_guard wlock(_meta_lock);
+        _ttl_seconds = ttl_seconds;
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -325,6 +337,9 @@ private:
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
     int64_t _time_series_compaction_level_threshold = 0;
+
+    // cloud
+    int64_t _ttl_seconds = 0;
 
     mutable std::shared_mutex _meta_lock;
 };

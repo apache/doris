@@ -911,7 +911,7 @@ public class Config extends ConfigBase {
      * You may reduce this number to avoid Avalanche disaster.
      */
     @ConfField(mutable = true)
-    public static int max_query_retry_time = 1;
+    public static int max_query_retry_time = 3;
 
     /**
      * The number of point query retries in executor.
@@ -1143,8 +1143,8 @@ public class Config extends ConfigBase {
     /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'routine_load_thread_pool_size'(default 10),
-     * which is the routine load task thread pool size on BE.
+     * than BE config 'max_routine_load_thread_pool_size'(default 1024),
+     * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_num_per_be = 5;
@@ -2216,21 +2216,15 @@ public class Config extends ConfigBase {
             "Enable external table DDL"})
     public static boolean enable_external_ddl = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "启用Hive分桶表",
+            "Enable external hive bucket table"})
+    public static boolean enable_create_hive_bucket_table = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "Hive创建外部表默认指定的input format",
-            "Default hive input format for creating table."})
-    public static String hive_default_input_format = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Hive创建外部表默认指定的output format",
-            "Default hive output format for creating table."})
-    public static String hive_default_output_format = "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat";
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Hive创建外部表默认指定的SerDe类",
-            "Default hive serde class for creating table."})
-    public static String hive_default_serde = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
+            "Hive创建外部表默认指定的文件格式",
+            "Default hive file format for creating table."})
+    public static String hive_default_file_format = "orc";
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
@@ -2284,11 +2278,6 @@ public class Config extends ConfigBase {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
-
-    @ConfField(description = {
-            "是否开启列权限",
-            "Whether to enable col auth"})
-    public static boolean enable_col_auth = false;
 
     @ConfField
     public static boolean forbid_running_alter_job = false;
@@ -2526,9 +2515,36 @@ public class Config extends ConfigBase {
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
 
+    @ConfField(mutable = true)
+    public static boolean fix_tablet_partition_id_eq_0 = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "倒排索引默认存储格式",
+            "Default storage format of inverted index, the default value is V1."
+    })
+    public static String inverted_index_storage_format = "V1";
+
+    @ConfField(description = {
+            "是否开启 Proxy Protocol 支持",
+            "Whether to enable proxy protocol"
+    })
+    public static boolean enable_proxy_protocol = false;
+
+    // Used to check compatibility when upgrading.
+    @ConfField
+    public static boolean enable_check_compatibility_mode = false;
+
+    // Do checkpoint after replaying edit logs.
+    @ConfField
+    public static boolean checkpoint_after_check_compatibility = false;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
+
+    @ConfField public static int info_sys_accumulated_file_size = 4;
+    @ConfField public static int warn_sys_accumulated_file_size = 2;
+    @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
     public static String cloud_unique_id = "";
@@ -2543,6 +2559,9 @@ public class Config extends ConfigBase {
 
     /**
      * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     *
+     * If you want to access a group of meta services, separated the endpoints by comma,
+     * like "host-1:port,host-2:port".
      */
     @ConfField
     public static String meta_service_endpoint = "";
@@ -2558,6 +2577,8 @@ public class Config extends ConfigBase {
 
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
+    //
+    // It only works if the meta_service_endpoint is not point to a group of meta services.
     @ConfField(mutable = true)
     public static int meta_service_connection_age_base_minutes = 5;
 
@@ -2608,6 +2629,9 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
+
+    @ConfField
+    public static int drop_user_notify_ms_max_times = 86400;
 
     //==========================================================================
     //                      end of cloud config

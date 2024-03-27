@@ -399,6 +399,7 @@ private:
                 },
                 agg_data->method_variant);
     }
+
     void _close_without_key() {
         //because prepare maybe failed, and couldn't create agg data.
         //but finally call close to destory agg data, if agg data has bitmapValue
@@ -578,6 +579,7 @@ struct HashJoinSharedState : public JoinSharedState {
 struct PartitionedHashJoinSharedState : public HashJoinSharedState {
     std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
+    bool need_to_spill = false;
 };
 
 struct NestedLoopJoinSharedState : public JoinSharedState {

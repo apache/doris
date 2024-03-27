@@ -66,6 +66,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFetchOption;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
@@ -473,6 +474,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             }
         }
         return null;
+    }
+
+    public List<Long> getAllTabletIds() {
+        List<Long> tabletIds = new ArrayList<>();
+        try {
+            rwLock.readLock().lock();
+            for (Partition partition : getPartitions()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    tabletIds.addAll(index.getTablets().stream()
+                                                        .map(tablet -> tablet.getId())
+                                                        .collect(Collectors.toList()));
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("get all tablet ids failed {}", e.getMessage());
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        return tabletIds;
     }
 
     public Map<Long, MaterializedIndexMeta> getVisibleIndexIdToMeta() {
@@ -1084,6 +1104,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     // get all partitions' name except the temp partitions
     public Set<String> getPartitionNames() {
         return Sets.newHashSet(nameToPartition.keySet());
+    }
+
+    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+        List<String> names = new ArrayList<String>();
+        for (Long id : partitionIds) {
+            names.add(idToPartition.get(id).getName());
+        }
+        return names;
     }
 
     public List<Long> getPartitionIds() {
@@ -2376,11 +2404,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         tableProperty.buildStorageFormat();
     }
 
+    public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                invertedIndexStorageFormat.name());
+        tableProperty.buildInvertedIndexStorageFormat();
+    }
+
     public TStorageFormat getStorageFormat() {
         if (tableProperty == null) {
             return TStorageFormat.DEFAULT;
         }
         return tableProperty.getStorageFormat();
+    }
+
+    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+        if (tableProperty == null) {
+            return TInvertedIndexStorageFormat.V2;
+        }
+        return tableProperty.getInvertedIndexStorageFormat();
     }
 
     public TCompressionType getCompressionType() {

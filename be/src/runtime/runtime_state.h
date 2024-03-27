@@ -452,6 +452,8 @@ public:
 
     std::vector<TTabletCommitInfo>& tablet_commit_infos() { return _tablet_commit_infos; }
 
+    std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
+
     const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
@@ -482,6 +484,8 @@ public:
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
+
+    void set_query_options(const TQueryOptions& query_options) { _query_options = query_options; }
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
@@ -725,6 +729,8 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
     int _task_id = -1;
+
+    std::vector<THivePartitionUpdate> _hive_partition_updates;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 

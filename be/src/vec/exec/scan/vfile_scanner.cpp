@@ -35,7 +35,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "io/cache/block/block_file_cache_profile.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -725,6 +725,7 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
 Status VFileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
+            _cur_reader->collect_profile_before_close();
             RETURN_IF_ERROR(_cur_reader->close());
         }
         _cur_reader.reset(nullptr);
@@ -814,9 +815,8 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, *_params, range, _state->query_options().batch_size, tz,
                     _io_ctx.get(), _state,
-                    config::max_external_file_meta_cache_num <= 0
-                            ? nullptr
-                            : ExecEnv::GetInstance()->file_meta_cache(),
+                    _shoudl_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
+                                                     : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
             {
                 SCOPED_TIMER(_open_reader_timer);
@@ -931,19 +931,18 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
 
-        if (init_status.is<END_OF_FILE>()) {
+        COUNTER_UPDATE(_file_counter, 1);
+        if (init_status.is<END_OF_FILE>() || init_status.is<ErrorCode::NOT_FOUND>()) {
+            // The VFileScanner for external table may try to open not exist files,
+            // Because FE file cache for external table may out of date.
+            // So, NOT_FOUND for VFileScanner is not a fail case.
+            // Will remove this after file reader refactor.
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
-            if (init_status.is<ErrorCode::NOT_FOUND>()) {
-                COUNTER_UPDATE(_empty_file_counter, 1);
-                LOG(INFO) << "failed to find file: " << range.path;
-                return init_status;
-            }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
-        COUNTER_UPDATE(_file_counter, 1);
 
         _name_to_col_type.clear();
         _missing_cols.clear();
@@ -1144,11 +1143,6 @@ Status VFileScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
-        io::FileCacheProfileReporter cache_profile(_profile);
-        cache_profile.update(_file_cache_statistics.get());
-    }
-
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
@@ -1161,6 +1155,19 @@ void VFileScanner::try_stop() {
     VScanner::try_stop();
     if (_io_ctx) {
         _io_ctx->should_stop = true;
+    }
+}
+
+void VFileScanner::_collect_profile_before_close() {
+    VScanner::_collect_profile_before_close();
+    if (config::enable_file_cache && _state->query_options().enable_file_cache &&
+        _profile != nullptr) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
+    }
+
+    if (_cur_reader != nullptr) {
+        _cur_reader->collect_profile_before_close();
     }
 }
 

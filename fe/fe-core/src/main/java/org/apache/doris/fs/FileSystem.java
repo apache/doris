@@ -23,6 +23,9 @@ import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * File system interface.
@@ -45,6 +48,30 @@ public interface FileSystem {
     Status directUpload(String content, String remoteFile);
 
     Status rename(String origFilePath, String destFilePath);
+
+    default Status renameDir(String origFilePath,
+                          String destFilePath,
+                          Runnable runWhenPathNotExist) {
+        throw new UnsupportedOperationException("Unsupported operation rename dir on current file system.");
+    }
+
+    default void asyncRename(Executor executor,
+                             List<CompletableFuture<?>> renameFileFutures,
+                             AtomicBoolean cancelled,
+                             String origFilePath,
+                             String destFilePath,
+                             List<String> fileNames) {
+        throw new UnsupportedOperationException("Unsupported operation async rename on current file system.");
+    }
+
+    default void asyncRenameDir(Executor executor,
+                        List<CompletableFuture<?>> renameFileFutures,
+                        AtomicBoolean cancelled,
+                        String origFilePath,
+                        String destFilePath,
+                        Runnable runWhenPathNotExist) {
+        throw new UnsupportedOperationException("Unsupported operation async rename dir on current file system.");
+    }
 
     Status delete(String remotePath);
 

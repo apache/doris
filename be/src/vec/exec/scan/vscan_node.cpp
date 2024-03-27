@@ -864,7 +864,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
 
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
-        if (!is_fixed_range && state->null_in_set) {
+        if (!is_fixed_range && state->hybrid_set->contain_null()) {
             _eos = true;
         }
         while (iter->has_next()) {

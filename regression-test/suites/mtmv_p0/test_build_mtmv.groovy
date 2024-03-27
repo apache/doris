@@ -213,7 +213,7 @@ suite("test_build_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName}
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName

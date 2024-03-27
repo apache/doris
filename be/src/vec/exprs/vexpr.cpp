@@ -101,7 +101,7 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         break;
     }
     case TYPE_DATETIMEV2: {
-        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node));
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node, precision, scale));
         break;
     }
     case TYPE_DATE: {
@@ -279,6 +279,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::ARITHMETIC_EXPR:
         case TExprNodeType::BINARY_PRED:
+        case TExprNodeType::NULL_AWARE_BINARY_PRED:
         case TExprNodeType::FUNCTION_CALL:
         case TExprNodeType::COMPUTE_FUNCTION_CALL: {
             expr = VectorizedFnCall::create_shared(expr_node);
@@ -541,10 +542,10 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
                                    const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        // close failed will make system unstable. dont swallow it.
-        THROW_IF_ERROR(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        // `close_function_context` is called in VExprContext's destructor so do not throw exceptions here.
+        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            THROW_IF_ERROR(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         }
     }
 }

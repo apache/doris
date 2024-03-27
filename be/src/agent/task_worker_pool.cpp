@@ -54,6 +54,7 @@
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -75,6 +76,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -445,7 +447,6 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(PUBLISH_VERSION)
     ADD_TASK_COUNT(CLEAR_TRANSACTION_TASK)
     ADD_TASK_COUNT(UPDATE_TABLET_META_INFO)
-    ADD_TASK_COUNT(ALTER)
     ADD_TASK_COUNT(CLONE)
     ADD_TASK_COUNT(STORAGE_MEDIUM_MIGRATE)
     ADD_TASK_COUNT(GC_BINLOG)
@@ -458,6 +459,17 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
             DELETE_count << n;
         }
         return;
+    case TTaskType::ALTER:
+    {
+        ALTER_count << n;
+        // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
+        doris::g_fragment_executing_count << 1;
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+        g_fragment_last_active_time.set_value(now);
+        return;
+    }
     default:
         return;
     }
@@ -476,7 +488,7 @@ bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
 TaskWorkerPool::TaskWorkerPool(std::string_view name, int worker_count,
                                std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWorkerPool.{}", name))
+    auto st = ThreadPoolBuilder(fmt::format("TaskWP_{}", name))
                       .set_min_threads(worker_count)
                       .set_max_threads(worker_count)
                       .build(&_thread_pool);
@@ -511,7 +523,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::string_view name, int normal_worker_count, int high_prior_worker_conut,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWorkerPool.{}", name))
+    auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
                       .set_min_threads(normal_worker_count)
                       .set_max_threads(normal_worker_count)
                       .build(&_normal_pool);
@@ -702,6 +714,7 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
     auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
     if (tablet_ptr != nullptr) {
         EngineIndexChangeTask engine_task(engine, alter_inverted_index_rq);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     } else {
         status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
@@ -748,6 +761,23 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             continue;
         }
         bool need_to_save = false;
+        if (tablet_meta_info.__isset.partition_id) {
+            // for fix partition_id = 0
+            LOG(WARNING) << "change be tablet id: " << tablet->tablet_meta()->tablet_id()
+                         << "partition id from : " << tablet->tablet_meta()->partition_id()
+                         << " to : " << tablet_meta_info.partition_id;
+            auto succ = engine.tablet_manager()->update_tablet_partition_id(
+                    tablet_meta_info.partition_id, tablet->tablet_meta()->tablet_id());
+            if (!succ) {
+                std::string err_msg = fmt::format(
+                        "change be tablet id : {} partition_id : {} failed",
+                        tablet->tablet_meta()->tablet_id(), tablet_meta_info.partition_id);
+                LOG(WARNING) << err_msg;
+                status = Status::InvalidArgument(err_msg);
+                continue;
+            }
+            need_to_save = true;
+        }
         if (tablet_meta_info.__isset.storage_policy_id) {
             tablet->tablet_meta()->set_storage_policy_id(tablet_meta_info.storage_policy_id);
             need_to_save = true;
@@ -911,6 +941,7 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
     EngineChecksumTask engine_task(engine, check_consistency_req.tablet_id,
                                    check_consistency_req.schema_hash, check_consistency_req.version,
                                    &checksum);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status status = engine_task.execute();
     if (!status.ok()) {
         LOG_WARNING("failed to check consistency")
@@ -999,6 +1030,31 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
     }
 }
 
+void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info) {
+    // Random sleep 1~5 seconds before doing report.
+    // In order to avoid the problem that the FE receives many report requests at the same time
+    // and can not be processed.
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
+    (void)engine; // To be used in the future
+
+    TReportRequest request;
+    request.__set_backend(BackendOptions::get_local_backend());
+    request.__isset.disks = true;
+
+    // TODO(deardeng): report disk info in cloud mode. And make it more clear
+    //                 that report CPU by using a separte report procedure
+    //                 or abstracting disk report as "host info report"
+    request.__set_num_cores(CpuInfo::num_cores());
+    request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
+                                                 ? config::pipeline_executor_size
+                                                 : CpuInfo::num_cores());
+    bool succ = handle_report(request, master_info, "disk");
+    report_disk_total << 1;
+    report_disk_failed << !succ;
+}
+
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info) {
     if (config::report_random_wait) {
         random_sleep(5);
@@ -1034,10 +1090,16 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     }
     request.__isset.storage_policy = true;
     auto& resource_list = request.resource;
-    for (auto [id, version] : get_storage_resource_ids()) {
+    for (auto [id_str, version] : get_storage_resource_ids()) {
         auto& resource = resource_list.emplace_back();
-        resource.__set_id(id);
-        resource.__set_version(version);
+        int64_t id = -1;
+        if (auto [_, ec] = std::from_chars(id_str.data(), id_str.data() + id_str.size(), id);
+            ec == std::errc {}) [[unlikely]] {
+            LOG(ERROR) << "invalid resource id format: " << id_str;
+        } else {
+            resource.__set_id(id);
+            resource.__set_version(version);
+        }
     }
     request.__isset.resource = true;
 
@@ -1285,64 +1347,108 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
     }
 }
 
+namespace {
+
+void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr existed_fs) {
+    Status st;
+    io::RemoteFileSystemSPtr fs;
+
+    if (!existed_fs) {
+        // No such FS instance on BE
+        S3Conf s3_conf {
+                .bucket = param.s3_storage_param.bucket,
+                .prefix = param.s3_storage_param.root_path,
+                .client_conf = {
+                        .endpoint = param.s3_storage_param.endpoint,
+                        .region = param.s3_storage_param.region,
+                        .ak = param.s3_storage_param.ak,
+                        .sk = param.s3_storage_param.sk,
+                        .max_connections = param.s3_storage_param.max_conn,
+                        .request_timeout_ms = param.s3_storage_param.request_timeout_ms,
+                        .connect_timeout_ms = param.s3_storage_param.conn_timeout_ms,
+                        // When using cold heat separation in minio, user might use ip address directly,
+                        // which needs enable use_virtual_addressing to true
+                        .use_virtual_addressing = !param.s3_storage_param.use_path_style,
+                }};
+        auto res = io::S3FileSystem::create(std::move(s3_conf), std::to_string(param.id));
+        if (!res.has_value()) {
+            st = std::move(res).error();
+        } else {
+            fs = std::move(res).value();
+        }
+    } else {
+        DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
+        auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
+        S3ClientConf conf {
+                .ak = param.s3_storage_param.ak,
+                .sk = param.s3_storage_param.sk,
+        };
+        st = client->reset(conf);
+        fs = std::move(existed_fs);
+    }
+
+    if (!st.ok()) {
+        LOG(WARNING) << "update s3 resource failed: " << st;
+    } else {
+        LOG_INFO("successfully update hdfs resource")
+                .tag("resource_id", param.id)
+                .tag("resource_name", param.name);
+        put_storage_resource(param.id, {std::move(fs), param.version});
+    }
+}
+
+void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPtr existed_fs) {
+    Status st;
+    io::RemoteFileSystemSPtr fs;
+    std::string root_path =
+            param.hdfs_storage_param.__isset.root_path ? param.hdfs_storage_param.root_path : "";
+
+    if (!existed_fs) {
+        // No such FS instance on BE
+        auto res = io::HdfsFileSystem::create(
+                param.hdfs_storage_param, param.hdfs_storage_param.fs_name,
+                std::to_string(param.id), nullptr, std::move(root_path));
+        if (!res.has_value()) {
+            st = std::move(res).error();
+        } else {
+            fs = std::move(res).value();
+        }
+
+    } else {
+        DCHECK_EQ(existed_fs->type(), io::FileSystemType::HDFS) << param.id << ' ' << param.name;
+        // TODO(plat1ko): update hdfs conf
+        fs = std::move(existed_fs);
+    }
+
+    if (!st.ok()) {
+        LOG(WARNING) << "update hdfs resource failed: " << st;
+    } else {
+        LOG_INFO("successfully update hdfs resource")
+                .tag("resource_id", param.id)
+                .tag("resource_name", param.name)
+                .tag("root_path", fs->root_path().string());
+        put_storage_resource(param.id, {std::move(fs), param.version});
+    }
+}
+
+} // namespace
+
 void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& push_storage_policy_req = req.push_storage_policy_req;
     // refresh resource
-    for (auto& resource : push_storage_policy_req.resource) {
-        auto existed_resource = get_storage_resource(resource.id);
-        if (existed_resource.version >= resource.version) {
+    for (auto&& param : push_storage_policy_req.resource) {
+        auto existed_resource = get_storage_resource(param.id);
+        if (existed_resource.version >= param.version) {
+            // Stale request, ignore
             continue;
         }
-        if (resource.__isset.s3_storage_param) {
-            Status st;
-            S3Conf s3_conf;
-            s3_conf.ak = std::move(resource.s3_storage_param.ak);
-            s3_conf.sk = std::move(resource.s3_storage_param.sk);
-            s3_conf.endpoint = std::move(resource.s3_storage_param.endpoint);
-            s3_conf.region = std::move(resource.s3_storage_param.region);
-            s3_conf.prefix = std::move(resource.s3_storage_param.root_path);
-            s3_conf.bucket = std::move(resource.s3_storage_param.bucket);
-            s3_conf.connect_timeout_ms = resource.s3_storage_param.conn_timeout_ms;
-            s3_conf.max_connections = resource.s3_storage_param.max_conn;
-            s3_conf.request_timeout_ms = resource.s3_storage_param.request_timeout_ms;
-            // When using cold heat separation in minio, user might use ip address directly,
-            // which needs enable use_virtual_addressing to true
-            s3_conf.use_virtual_addressing = !resource.s3_storage_param.use_path_style;
-            std::shared_ptr<io::S3FileSystem> fs;
-            if (existed_resource.fs == nullptr) {
-                st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
-            } else {
-                fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
-                fs->set_conf(s3_conf);
-            }
-            if (!st.ok()) {
-                LOG(WARNING) << "update s3 resource failed: " << st;
-            } else {
-                LOG_INFO("successfully update s3 resource")
-                        .tag("resource_id", resource.id)
-                        .tag("resource_name", resource.name)
-                        .tag("s3_conf", s3_conf.to_string());
-                put_storage_resource(resource.id, {std::move(fs), resource.version});
-            }
-        } else if (resource.__isset.hdfs_storage_param) {
-            Status st;
-            std::shared_ptr<io::HdfsFileSystem> fs;
-            if (existed_resource.fs == nullptr) {
-                st = io::HdfsFileSystem::create(resource.hdfs_storage_param,
-                                                std::to_string(resource.id), "", nullptr, &fs);
-            } else {
-                fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
-            }
-            if (!st.ok()) {
-                LOG(WARNING) << "update hdfs resource failed: " << st;
-            } else {
-                LOG_INFO("successfully update hdfs resource")
-                        .tag("resource_id", resource.id)
-                        .tag("resource_name", resource.name);
-                put_storage_resource(resource.id, {std::move(fs), resource.version});
-            }
+
+        if (param.__isset.s3_storage_param) {
+            update_s3_resource(param, std::move(existed_resource.fs));
+        } else if (param.__isset.hdfs_storage_param) {
+            update_hdfs_resource(param, std::move(existed_resource.fs));
         } else {
-            LOG(WARNING) << "unknown resource=" << resource;
+            LOG(WARNING) << "unknown resource=" << param;
         }
     }
     // drop storage policy
@@ -1350,12 +1456,12 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
         delete_storage_policy(policy_id);
     }
     // refresh storage policy
-    for (auto& storage_policy : push_storage_policy_req.storage_policy) {
+    for (auto&& storage_policy : push_storage_policy_req.storage_policy) {
         auto existed_storage_policy = get_storage_policy(storage_policy.id);
         if (existed_storage_policy == nullptr ||
             existed_storage_policy->version < storage_policy.version) {
             auto storage_policy1 = std::make_shared<StoragePolicy>();
-            storage_policy1->name = std::move(storage_policy.name);
+            storage_policy1->name = storage_policy.name;
             storage_policy1->version = storage_policy.version;
             storage_policy1->cooldown_datetime = storage_policy.cooldown_datetime;
             storage_policy1->cooldown_ttl = storage_policy.cooldown_ttl;
@@ -1492,6 +1598,7 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     std::vector<TTabletInfo> tablet_infos;
 
     EngineBatchLoadTask engine_task(engine, const_cast<TPushReq&>(push_req), &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
 
     // Return result to fe
@@ -1761,6 +1868,11 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
         alter_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
+    doris::g_fragment_executing_count << -1;
+    int64 now = duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
 
@@ -1782,6 +1894,11 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
         alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
+    doris::g_fragment_executing_count << -1;
+    int64 now = duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
 
@@ -1814,6 +1931,7 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
 
     std::vector<TTabletInfo> tablet_infos;
     EngineCloneTask engine_task(engine, clone_req, master_info, req.signature, &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
     // Return result to fe
     TFinishTaskRequest finish_task_request;

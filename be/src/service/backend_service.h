@@ -156,6 +156,8 @@ public:
     void warm_up_tablets(TWarmUpTabletsResponse& response,
                          const TWarmUpTabletsRequest& request) override;
 
+    void stop_works() { _agent_server->stop_report_workers(); }
+
 protected:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
 
@@ -169,7 +171,8 @@ class BackendService final : public BaseBackendService {
 public:
     // NOTE: now we do not support multiple backend in one process
     static Status create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
-                                 std::unique_ptr<ThriftServer>* server);
+                                 std::unique_ptr<ThriftServer>* server,
+                                 std::shared_ptr<doris::BackendService> service);
 
     BackendService(StorageEngine& engine, ExecEnv* exec_env);
 

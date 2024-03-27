@@ -372,7 +372,7 @@ public class ExportStmt extends StatementBase {
             }
             this.dataConsistency = ExportJob.CONSISTENT_PARTITION;
         } else {
-            this.dataConsistency = ExportJob.CONSISTENT_ALL;
+            this.dataConsistency = ExportJob.CONSISTENT_NONE;
         }
     }
 

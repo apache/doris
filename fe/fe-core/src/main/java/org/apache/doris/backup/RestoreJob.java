@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -1058,6 +1059,8 @@ public class RestoreJob extends AbstractJob {
         }
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
+            List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
+                                    ? localTbl.getCopiedIndexes() : null;
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
@@ -1071,7 +1074,7 @@ public class RestoreJob extends AbstractJob {
                             indexMeta.getKeysType(), TStorageType.COLUMN,
                             TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
-                            localTbl.getCopiedIndexes(),
+                            indexes,
                             localTbl.isInMemory(),
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,
@@ -1382,7 +1385,10 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beToSnapshots.keySet()) {
                     List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
                     int totalNum = beSnapshotInfos.size();
-                    int batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
+                    int batchNum = totalNum;
+                    if (Config.restore_download_task_num_per_be > 0) {
+                        batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
+                    }
                     // each task contains several upload sub tasks
                     int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
                     if (LOG.isDebugEnabled()) {
@@ -1538,7 +1544,10 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beToSnapshots.keySet()) {
                     List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
                     int totalNum = beSnapshotInfos.size();
-                    int batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
+                    int batchNum = totalNum;
+                    if (Config.restore_download_task_num_per_be > 0) {
+                        batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
+                    }
                     // each task contains several upload sub tasks
                     int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
 

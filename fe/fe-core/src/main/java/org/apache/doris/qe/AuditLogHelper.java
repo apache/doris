@@ -32,6 +32,7 @@ import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
 
 public class AuditLogHelper {
@@ -43,6 +44,8 @@ public class AuditLogHelper {
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         CatalogIf catalog = ctx.getCurrentCatalog();
+
+        String cluster = Config.isCloudMode() ? ctx.getCloudCluster(false) : "";
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         auditEventBuilder.reset();
@@ -66,22 +69,26 @@ public class AuditLogHelper {
                 .setReturnRows(ctx.getReturnRows())
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
+                .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
             MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+            MetricRepo.increaseClusterQueryAll(ctx.getCloudCluster(false));
             if (ctx.getState().getStateType() == MysqlStateType.ERR
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
                 MetricRepo.COUNTER_QUERY_ERR.increase(1L);
                 MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+                MetricRepo.increaseClusterQueryErr(ctx.getCloudCluster(false));
             } else if (ctx.getState().getStateType() == MysqlStateType.OK
                     || ctx.getState().getStateType() == MysqlStateType.EOF) {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                 MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
+                MetricRepo.updateClusterQueryLatency(ctx.getCloudCluster(false), elapseMs);
 
                 if (elapseMs > Config.qe_slow_log_ms) {
                     String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());

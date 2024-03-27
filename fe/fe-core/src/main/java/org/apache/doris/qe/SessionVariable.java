@@ -254,6 +254,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
 
+    public static final String CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD = "enable_multi_cluster_sync_load";
+
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
@@ -484,6 +486,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
     public static final String EXTERNAL_AGG_BYTES_THRESHOLD = "external_agg_bytes_threshold";
     public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
+    public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
     public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
     public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
@@ -714,11 +717,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT)
-    public int netWriteTimeout = 60;
+    public int netWriteTimeout = 600;
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_READ_TIMEOUT)
-    public int netReadTimeout = 60;
+    public int netReadTimeout = 600;
 
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true)
@@ -772,6 +775,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FRAGMENT_TRANSMISSION_COMPRESSION_CODEC)
     public String fragmentTransmissionCompressionCodec = "none";
+
+    // whether sync load to other cluster
+    @VariableMgr.VarAttr(name = CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD, needForward = true)
+    public static boolean cloudEnableMultiClusterSyncLoad = false;
 
     /*
      * the parallel exec instance num for one Fragment in one BE
@@ -936,7 +943,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
-    private boolean enableFoldConstantByBe = false;
+    public boolean enableFoldConstantByBe = true;
 
     @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
     private boolean enableRewriteElementAtToSlot = true;
@@ -1698,8 +1705,13 @@ public class SessionVariable implements Serializable, Writable {
     // Set to 0 to disable; min: 128M
     public static final long MIN_EXTERNAL_AGG_BYTES_THRESHOLD = 134217728;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_BYTES_THRESHOLD,
-            checker = "checkExternalAggBytesThreshold", fuzzy = true)
+            checker = "checkExternalAggBytesThreshold", fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public long externalAggBytesThreshold = 0;
+
+    // The memory limit of streaming agg when spilling is enabled
+    // NOTE: streaming agg operator will not spill to disk.
+    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT)
+    public long spillStreamingAggMemLimit = 268435456; //256MB
 
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
@@ -1745,6 +1757,7 @@ public class SessionVariable implements Serializable, Writable {
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
         }
+
         /*
         switch (randomInt) {
             case 0:
@@ -1788,6 +1801,23 @@ public class SessionVariable implements Serializable, Writable {
                     break;
                 default:
                     break;
+            }
+            randomInt = random.nextInt(2);
+            if (randomInt % 2 == 0) {
+                this.enableFoldConstantByBe = false;
+            } else {
+                this.enableFoldConstantByBe = true;
+            }
+
+            switch (Config.pull_request_id % 3) {
+                case 0:
+                    this.fragmentTransmissionCompressionCodec = "snappy";
+                    break;
+                case 1:
+                    this.fragmentTransmissionCompressionCodec = "lz4";
+                    break;
+                default:
+                    this.fragmentTransmissionCompressionCodec = "none";
             }
 
             this.runtimeFilterType = 1 << randomInt;
@@ -1967,6 +1997,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isAutoCommit() {
         return autoCommit;
+    }
+
+    public boolean enableMultiClusterSyncLoad() {
+        return cloudEnableMultiClusterSyncLoad;
+    }
+
+    public void setEnableMultiClusterSyncLoad(boolean cloudEnableMultiClusterSyncLoad) {
+        this.cloudEnableMultiClusterSyncLoad = cloudEnableMultiClusterSyncLoad;
     }
 
     public boolean isTxReadonly() {
@@ -3005,6 +3043,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setExternalAggBytesThreshold(0); // disable for now
+
+        tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
 
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 

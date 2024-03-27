@@ -169,9 +169,7 @@ public:
     // TODO should we rename the method to remove_files() to be more specific?
     virtual Status remove() = 0;
 
-    // used for partial update, when publish, partial update may add a new rowset
-    // and we should update rowset meta
-    Status merge_rowset_meta(const RowsetMeta& other);
+    virtual std::string segment_file_path(int segment_id) const = 0;
 
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on

@@ -17,6 +17,8 @@
 
 #include "s3_file_bufferpool.h"
 
+#include <bvar/bvar.h>
+
 #include <chrono>
 #include <memory>
 
@@ -25,8 +27,8 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/sync_point.h"
-#include "io/cache/block/block_file_cache_fwd.h"
-#include "io/cache/block/block_file_segment.h"
+#include "io/cache/file_block.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/s3_common.h"
 #include "runtime/exec_env.h"
 #include "util/defer_op.h"
@@ -92,13 +94,12 @@ void UploadFileBuffer::set_index_offset(size_t offset) {
     _index_offset = offset;
     if (_holder) {
         bool change_to_index_cache = false;
-        for (auto iter = _holder->file_segments.begin(); iter != _holder->file_segments.end();
-             ++iter) {
-            if (iter == _cur_file_segment) {
+        for (auto iter = _holder->file_blocks.begin(); iter != _holder->file_blocks.end(); ++iter) {
+            if (iter == _cur_file_block) {
                 change_to_index_cache = true;
             }
             if (change_to_index_cache) {
-                static_cast<void>((*iter)->change_cache_type_self(CacheType::INDEX));
+                static_cast<void>((*iter)->change_cache_type_self(FileCacheType::INDEX));
             }
         }
     }
@@ -193,26 +194,26 @@ void UploadFileBuffer::upload_to_local_file_cache(bool is_cancelled) {
     _holder = _alloc_holder();
     size_t pos = 0;
     size_t data_remain_size = _size;
-    for (auto& segment : _holder->file_segments) {
+    for (auto& block : _holder->file_blocks) {
         if (data_remain_size == 0) {
             break;
         }
-        size_t segment_size = segment->range().size();
-        size_t append_size = std::min(data_remain_size, segment_size);
-        if (segment->state() == FileBlock::State::EMPTY) {
-            if (_index_offset != 0 && segment->range().right >= _index_offset) {
-                static_cast<void>(segment->change_cache_type_self(CacheType::INDEX));
+        size_t block_size = block->range().size();
+        size_t append_size = std::min(data_remain_size, block_size);
+        if (block->state() == FileBlock::State::EMPTY) {
+            if (_index_offset != 0 && block->range().right >= _index_offset) {
+                static_cast<void>(block->change_cache_type_self(FileCacheType::INDEX));
             }
-            segment->get_or_set_downloader();
+            block->get_or_set_downloader();
             // Another thread may have started downloading due to a query
             // Just skip putting to cache from UploadFileBuffer
-            if (segment->is_downloader()) {
+            if (block->is_downloader()) {
                 Slice s(_inner_data->data().get_data() + pos, append_size);
-                Status st = segment->append(s);
+                Status st = block->append(s);
                 TEST_INJECTION_POINT_CALLBACK("UploadFileBuffer::upload_to_local_file_cache_inject",
                                               &st);
                 if (st.ok()) {
-                    st = segment->finalize_write();
+                    st = block->finalize();
                 }
                 if (!st.ok()) {
                     {
@@ -244,7 +245,7 @@ FileBufferBuilder& FileBufferBuilder::set_sync_after_complete_task(std::function
     return *this;
 }
 
-FileBufferBuilder& FileBufferBuilder::set_allocate_file_segments_holder(
+FileBufferBuilder& FileBufferBuilder::set_allocate_file_blocks_holder(
         std::function<FileBlocksHolderPtr()> cb) {
     _alloc_holder_cb = std::move(cb);
     return *this;

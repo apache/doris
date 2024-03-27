@@ -845,7 +845,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     // For case 1 doesn't need path check because BE is just starting and not ready,
     // just check tablet meta status to judge whether tablet is delete is enough.
     // For case 2, If a tablet has just been copied to local BE,
-    // it may be cleared by gc-thread(see perform_path_gc_by_tablet) because the tablet meta may not be loaded to memory.
+    // it may be cleared by gc-thread(see perform_tablet_gc) because the tablet meta may not be loaded to memory.
     // So clone task should check path and then failed and retry in this case.
     if (check_path) {
         bool exists = true;
@@ -1533,6 +1533,26 @@ std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
     }
 
     return bad_tablets;
+}
+
+bool TabletManager::update_tablet_partition_id(::doris::TPartitionId partition_id,
+                                               ::doris::TTabletId tablet_id) {
+    std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
+    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "get tablet err partition_id: " << partition_id
+                     << " tablet_id:" << tablet_id;
+        return false;
+    }
+    _remove_tablet_from_partition(tablet);
+    auto st = tablet->tablet_meta()->set_partition_id(partition_id);
+    if (!st.ok()) {
+        LOG(WARNING) << "set partition id err partition_id: " << partition_id
+                     << " tablet_id:" << tablet_id;
+        return false;
+    }
+    _add_tablet_to_partition(tablet);
+    return true;
 }
 
 } // end namespace doris

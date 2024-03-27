@@ -41,6 +41,7 @@
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
@@ -72,6 +73,7 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris::segment_v2 {
+bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
 class InvertedIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -81,6 +83,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema)));
+    segment->_fs = std::move(fs);
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
@@ -93,9 +96,12 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _rowset_id(rowset_id),
           _tablet_schema(std::move(tablet_schema)),
           _segment_meta_mem_tracker(
-                  ExecEnv::GetInstance()->storage_engine().segment_meta_mem_tracker()) {}
+                  ExecEnv::GetInstance()->storage_engine().segment_meta_mem_tracker()) {
+    g_total_segment_num << 1;
+}
 
 Segment::~Segment() {
+    g_total_segment_num << -1;
 #ifndef BE_TEST
     _segment_meta_mem_tracker->release(_meta_mem_usage);
 #endif
@@ -113,6 +119,20 @@ Status Segment::_open() {
     _sk_index_page = footer.short_key_index_page();
     _num_rows = footer.num_rows();
     return Status::OK();
+}
+
+Status Segment::_open_inverted_index() {
+    _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
+            _fs, _file_reader->path().parent_path(), _file_reader->path().filename().native(),
+            _tablet_schema->get_inverted_index_storage_format());
+    bool open_idx_file_cache = true;
+    auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                open_idx_file_cache);
+    if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+        LOG(INFO) << st;
+        return Status::OK();
+    }
+    return st;
 }
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -152,6 +172,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     if (read_options.use_topn_opt) {
         auto* query_ctx = read_options.runtime_state->get_query_ctx();
         for (int id : read_options.topn_filter_source_node_ids) {
+            if (!query_ctx->get_runtime_predicate(id).need_update()) {
+                continue;
+            }
             auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate();
 
             int32_t uid =
@@ -177,7 +200,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
-        iter->reset(new SegmentIterator(this->shared_from_this(), schema));
+        *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
     }
 
     if (config::ignore_always_true_predicate_for_segment &&
@@ -629,7 +652,12 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        RETURN_IF_ERROR(reader->new_inverted_index_iterator(index_meta, read_options, iter));
+        if (_inverted_index_file_reader == nullptr) {
+            RETURN_IF_ERROR(
+                    _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
+        }
+        RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
+                                                            read_options, iter));
         return Status::OK();
     }
     return Status::OK();

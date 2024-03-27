@@ -52,6 +52,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    config::enable_retry_txn_conflict = false;
+
     if (!doris::cloud::init_glog("meta_service_test")) {
         std::cerr << "failed to init glog" << std::endl;
         return -1;
@@ -1195,12 +1197,6 @@ TEST(MetaServiceTest, CommitTxnTest) {
             BeginTxnResponse res;
             meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                     &req, &res, nullptr);
-            for (const auto& tstats : res.table_stats()) {
-                LOG(INFO) << "table_id=" << tstats.table_id()
-                          << " updatedRowCount=" << tstats.updated_row_count();
-                ASSERT_EQ(tstats.table_id(), 1234);
-                ASSERT_EQ(tstats.updated_row_count(), 500);
-            }
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             txn_id = res.txn_id();
         }
@@ -5082,6 +5078,351 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         get_test_instance(instance);
         ASSERT_EQ(*(instance.resource_ids().begin() + 1), "3");
         ASSERT_EQ(*(instance.storage_vault_names().begin() + 1), "test_alter_add_hdfs_info_1");
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
+TEST(MetaServiceTest, DropHdfsInfoTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = cloud::SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
+                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
+        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
+                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_id("1");
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    StorageVaultPB vault;
+    vault.set_name("test_hdfs_vault");
+    vault.set_id("2");
+    InstanceInfoPB instance;
+    instance.add_obj_info()->CopyFrom(obj_info);
+    instance.add_storage_vault_names(vault.name());
+    instance.add_resource_ids(vault.id());
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    txn = nullptr;
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    // update failed because has no storage vault set
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::DROP_HDFS_INFO);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+    }
+
+    // update failed because vault name does not exist
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::DROP_HDFS_INFO);
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_hdfs_vault_not_found");
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STORAGE_VAULT_NOT_FOUND)
+                << res.status().msg();
+    }
+
+    // update successfully
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::DROP_HDFS_INFO);
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_hdfs_vault");
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(instance.resource_ids().size(), 0);
+        ASSERT_EQ(instance.storage_vault_names().size(), 0);
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // To test we can not read the storage vault anymore
+        std::string vault_key = storage_vault_key({instance.instance_id(), "2"});
+        std::string vault_value;
+        auto code = txn->get(vault_key, &vault_value);
+        ASSERT_TRUE(code != TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Try to add one new hdfs info and then check the vault id is expected
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_alter_add_hdfs_info");
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(*(instance.resource_ids().begin()), "2");
+        ASSERT_EQ(*(instance.storage_vault_names().begin()), "test_alter_add_hdfs_info");
+    }
+
+    // Add two more vaults
+    {
+        // Try to add one new hdfs info and then check the vault id is expected
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_alter_add_hdfs_info_1");
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(instance.resource_ids().at(1), "3");
+        ASSERT_EQ(instance.storage_vault_names().at(1), "test_alter_add_hdfs_info_1");
+    }
+
+    {
+        // Try to add one new hdfs info and then check the vault id is expected
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_alter_add_hdfs_info_2");
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(instance.resource_ids().at(2), "4");
+        ASSERT_EQ(instance.storage_vault_names().at(2), "test_alter_add_hdfs_info_2");
+    }
+
+    // Remove one vault among three vaults
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::DROP_HDFS_INFO);
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_alter_add_hdfs_info_1");
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(instance.resource_ids().size(), 2);
+        ASSERT_EQ(instance.storage_vault_names().size(), 2);
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // To test we can not read the storage vault anymore
+        std::string vault_key = storage_vault_key({instance.instance_id(), "3"});
+        std::string vault_value;
+        auto code = txn->get(vault_key, &vault_value);
+        ASSERT_TRUE(code != TxnErrorCode::TXN_OK);
+        ASSERT_EQ(2, instance.resource_ids().size());
+        ASSERT_EQ(2, instance.storage_vault_names().size());
+        ASSERT_EQ(instance.resource_ids().at(0), "2");
+        ASSERT_EQ(instance.storage_vault_names().at(0), "test_alter_add_hdfs_info");
+        ASSERT_EQ(instance.resource_ids().at(1), "4");
+        ASSERT_EQ(instance.storage_vault_names().at(1), "test_alter_add_hdfs_info_2");
+    }
+
+    {
+        // Try to add one new hdfs info and then check the vault id is expected
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+        StorageVaultPB hdfs;
+        hdfs.set_name("test_alter_add_hdfs_info_3");
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(instance.resource_ids().at(2), "5");
+        ASSERT_EQ(instance.storage_vault_names().at(2), "test_alter_add_hdfs_info_3");
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
+TEST(MetaServiceTest, GetObjStoreInfoTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = cloud::SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
+                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
+        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
+                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_id("1");
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    StorageVaultPB vault;
+    vault.set_name("test_hdfs_vault");
+    vault.set_id("2");
+    InstanceInfoPB instance;
+    instance.add_obj_info()->CopyFrom(obj_info);
+    instance.add_storage_vault_names(vault.name());
+    instance.add_resource_ids(vault.id());
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    txn = nullptr;
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    for (size_t i = 0; i < 20; i++) {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+        StorageVaultPB hdfs;
+        auto name = fmt::format("test_alter_add_hdfs_info_{}", i);
+        hdfs.set_name(name);
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_TRUE(std::find_if(instance.resource_ids().begin(), instance.resource_ids().end(),
+                                 [&](const auto& id) { return id == std::to_string(i + 3); }) !=
+                    instance.resource_ids().end());
+        ASSERT_TRUE(std::find_if(instance.storage_vault_names().begin(),
+                                 instance.storage_vault_names().end(), [&](const auto& vault_name) {
+                                     return name == vault_name;
+                                 }) != instance.storage_vault_names().end());
+    }
+
+    {
+        brpc::Controller cntl;
+        GetObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        GetObjStoreInfoResponse res;
+        meta_service->get_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(res.storage_vault().size(), 21);
+        const auto& vaults = res.storage_vault();
+        for (size_t i = 0; i < 20; i++) {
+            auto id = std::to_string(i + 3);
+            auto name = fmt::format("test_alter_add_hdfs_info_{}", i);
+            ASSERT_TRUE(std::find_if(vaults.begin(), vaults.end(), [&](const auto& vault) {
+                            return id == vault.id();
+                        }) != vaults.end());
+            ASSERT_TRUE(std::find_if(vaults.begin(), vaults.end(), [&](const auto& vault) {
+                            return name == vault.name();
+                        }) != vaults.end());
+        }
     }
 
     SyncPoint::get_instance()->disable_processing();

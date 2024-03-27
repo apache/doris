@@ -25,18 +25,24 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
+
 public class CreateRoleStmt extends DdlStmt {
 
     private boolean ifNotExists;
     private String role;
 
+    private String comment;
+
     public CreateRoleStmt(String role) {
         this.role = role;
     }
 
-    public CreateRoleStmt(boolean ifNotExists, String role) {
+    public CreateRoleStmt(boolean ifNotExists, String role, String comment) {
         this.ifNotExists = ifNotExists;
         this.role = role;
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     public boolean isSetIfNotExists() {
@@ -45,6 +51,10 @@ public class CreateRoleStmt extends DdlStmt {
 
     public String getRole() {
         return role;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override
@@ -60,6 +70,12 @@ public class CreateRoleStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return "CREATE ROLE " + role;
+        StringBuilder sb = new StringBuilder();
+        sb.append("CREATE ROLE ");
+        sb.append(role);
+        if (!StringUtils.isEmpty(comment)) {
+            sb.append(" COMMENT \"").append(comment).append("\"");
+        }
+        return sb.toString();
     }
 }

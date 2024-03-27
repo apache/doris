@@ -443,6 +443,26 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
 
 Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id) {
     int ret;
+    if (_context.tablet_schema->get_inverted_index_storage_format() !=
+        InvertedIndexStorageFormatPB::V1) {
+        if (_context.tablet_schema->has_inverted_index()) {
+            auto src_seg_path =
+                    begin < 0 ? BetaRowset::segment_file_path(_context.rowset_dir,
+                                                              _context.rowset_id, seg_id)
+                              : BetaRowset::local_segment_path_segcompacted(
+                                        _context.rowset_dir, _context.rowset_id, begin, end);
+            auto dst_seg_path = BetaRowset::segment_file_path(
+                    _context.rowset_dir, _context.rowset_id, _num_segcompacted);
+            auto src_idx_path = InvertedIndexDescriptor::get_index_file_name(src_seg_path);
+            auto dst_idx_path = InvertedIndexDescriptor::get_index_file_name(dst_seg_path);
+            ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
+            if (ret) {
+                return Status::Error<ROWSET_RENAME_FILE_FAILED>(
+                        "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path, dst_idx_path,
+                        ret, errno);
+            }
+        }
+    }
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
         if (_context.tablet_schema->has_inverted_index(*column)) {
@@ -458,13 +478,16 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
             auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
                     _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id,
                     index_info->get_index_suffix());
-            VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
-                       << dst_idx_path;
-            ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
-            if (ret) {
-                return Status::Error<INVERTED_INDEX_RENAME_FILE_FAILED>(
-                        "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path, dst_idx_path,
-                        ret, errno);
+            if (_context.tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
+                VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
+                           << dst_idx_path;
+                ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
+                if (ret) {
+                    return Status::Error<INVERTED_INDEX_RENAME_FILE_FAILED>(
+                            "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path,
+                            dst_idx_path, ret, errno);
+                }
             }
             // Erase the origin index file cache
             RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
@@ -787,11 +810,10 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
     io::FileWriterOptions opts {
             .write_file_cache = _context.write_file_cache,
             .is_cold_data = _context.is_hot_data,
-            .file_cache_expiration =
+            .file_cache_expiration = static_cast<int64_t>(
                     _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
                             ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
-                            : 0,
-            .create_empty_file = false};
+                            : 0)};
     Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
@@ -825,7 +847,8 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
 
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
-            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context);
+            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
+            _context.fs);
     if (_segcompaction_worker->get_file_writer() != nullptr) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());
     }
