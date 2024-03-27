@@ -2519,21 +2519,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public PartitionTableInfo visitPartitionTable(DorisParser.PartitionTableContext ctx) {
         boolean isAutoPartition = ctx.autoPartition != null;
-        ImmutableList<Expression> partitionList = ctx.partitionList.identityOrFunction().stream()
-                .map(partition -> {
-                    IdentifierContext identifier = partition.identifier();
-                    if (identifier != null) {
-                        return UnboundSlot.quoted(identifier.getText());
-                    } else {
-                        return visitFunctionCallExpression(partition.functionCallExpression());
-                    }
-                })
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Expression> partitionColumns = ImmutableList.builder();
+        if (ctx.partitionColumns != null) {
+            visitIdentifierList(ctx.partitionColumns).stream().map(UnboundSlot::quoted).forEach(partitionColumns::add);
+        } else {
+            partitionColumns.add(visitFunctionCallExpression(ctx.functionCallExpression()));
+        }
         return new PartitionTableInfo(
-            isAutoPartition,
-            ctx.RANGE() != null ? "RANGE" : "LIST",
-            ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
-            partitionList);
+                isAutoPartition,
+                ctx.RANGE() != null ? "RANGE" : "LIST",
+                ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                partitionColumns.build());
     }
 
     @Override
