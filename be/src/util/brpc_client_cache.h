@@ -75,6 +75,10 @@ public:
     }
 #endif
 
+    std::shared_ptr<T> get_client(const PNetworkAddress& paddr) {
+        return get_client(paddr.hostname(), paddr.port());
+    }
+
     std::shared_ptr<T> get_client(const std::string& host, int port) {
         std::string realhost;
         realhost = host;
