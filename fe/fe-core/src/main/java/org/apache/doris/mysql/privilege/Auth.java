@@ -38,6 +38,8 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -449,20 +451,21 @@ public class Auth implements Writable {
     // create user
     public void createUser(CreateUserStmt stmt) throws DdlException {
         createUserInternal(stmt.getUserIdent(), stmt.getQualifiedRole(),
-                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(), stmt.getComment(), false);
+                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(),
+                stmt.getComment(), stmt.getUserId(), false);
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
         try {
             createUserInternal(privInfo.getUserIdent(), privInfo.getRole(), privInfo.getPasswd(), false,
-                    privInfo.getPasswordOptions(), privInfo.getComment(), true);
+                    privInfo.getPasswordOptions(), privInfo.getComment(), privInfo.getUserId(), true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
     }
 
     private void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
-            boolean ignoreIfExists, PasswordOptions passwordOptions, String comment, boolean isReplay)
+            boolean ignoreIfExists, PasswordOptions passwordOptions, String comment, String userId, boolean isReplay)
             throws DdlException {
         writeLock();
         try {
@@ -487,7 +490,10 @@ public class Auth implements Writable {
             // create user
             try {
                 // we should not throw AnalysisException at here,so transfer it
-                userManager.createUser(userIdent, password, null, false, comment);
+                User user = userManager.createUser(userIdent, password, null, false, comment);
+                if (Strings.isNullOrEmpty(user.getUserId())) {
+                    user.setUserId(userId);
+                }
             } catch (PatternMatcherException e) {
                 throw new DdlException("create user failed,", e);
             }
@@ -509,7 +515,8 @@ public class Auth implements Writable {
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
 
             if (!isReplay) {
-                PrivInfo privInfo = new PrivInfo(userIdent, null, password, roleName, passwordOptions, comment);
+                PrivInfo privInfo = new PrivInfo(userIdent, null, password,
+                        roleName, passwordOptions, comment, userId);
                 Env.getCurrentEnv().getEditLog().logCreateUser(privInfo);
             }
             LOG.info("finished to create user: {}, is replay: {}", userIdent, isReplay);
@@ -530,6 +537,8 @@ public class Auth implements Writable {
     private void dropUserInternal(UserIdentity userIdent, boolean ignoreIfNonExists, boolean isReplay)
             throws DdlException {
         writeLock();
+        String mysqlUserName = ClusterNamespace.getNameFromFullName(userIdent.getUser());
+        String toDropMysqlUserId;
         try {
             // check if user exists
             if (!doesUserExist(userIdent)) {
@@ -541,6 +550,8 @@ public class Auth implements Writable {
                 throw new DdlException(String.format("User `%s`@`%s` does not exist.",
                         userIdent.getQualifiedUser(), userIdent.getHost()));
             }
+            // must get user id before drop user
+            toDropMysqlUserId = Env.getCurrentEnv().getAuth().getUserId(mysqlUserName);
 
             // drop default role
             roleManager.removeDefaultRole(userIdent);
@@ -558,6 +569,38 @@ public class Auth implements Writable {
             LOG.info("finished to drop user: {}, is replay: {}", userIdent.getQualifiedUser(), isReplay);
         } finally {
             writeUnlock();
+        }
+
+        if (Config.isNotCloudMode()) {
+            LOG.info("run in non-cloud mode, does not need notify Ms");
+            return;
+        }
+
+        String reason = String.format("drop user notify to meta service, userName [%s], userId [%s]",
+                mysqlUserName, toDropMysqlUserId);
+        LOG.info(reason);
+        int retryTime = 0;
+        // if notify ms failed, at least wait 5 mins, default 1 day
+        int maxRetryTimes = Config.drop_user_notify_ms_max_times > 300 ? Config.drop_user_notify_ms_max_times : 300;
+        while (retryTime < maxRetryTimes) {
+            try {
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).dropStage(Cloud.StagePB.StageType.INTERNAL,
+                        mysqlUserName, toDropMysqlUserId, null, reason, true);
+                break;
+            } catch (DdlException e) {
+                LOG.warn("drop user failed, try again, user: [{}-{}], retryTimes: {}",
+                        mysqlUserName, toDropMysqlUserId, retryTime);
+            }
+            try {
+                Thread.sleep(1000);
+                ++retryTime;
+            } catch (InterruptedException e) {
+                LOG.info("InterruptedException: ", e);
+            }
+        }
+        if (retryTime >= Config.drop_user_notify_ms_max_times) {
+            LOG.warn("drop user failed, tried {} times, but still failed, plz check",
+                    Config.drop_user_notify_ms_max_times);
         }
     }
 
@@ -981,7 +1024,7 @@ public class Auth implements Writable {
             roleManager.dropRole(role, true /* err on non exist */);
             userRoleManager.dropRole(role);
             if (!isReplay) {
-                PrivInfo info = new PrivInfo(null, null, null, role, null);
+                PrivInfo info = new PrivInfo(null, null, null, role, null, null, "");
                 Env.getCurrentEnv().getEditLog().logDropRole(info);
             }
         } finally {
@@ -1401,11 +1444,13 @@ public class Auth implements Writable {
             UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
             rootUser.setIsAnalyzed();
             createUserInternal(rootUser, Role.OPERATOR_ROLE, new byte[0],
-                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, "ROOT", true /* is replay */);
+                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION,
+                    "ROOT", ROOT_USER, true /* is replay */);
             UserIdentity adminUser = new UserIdentity(ADMIN_USER, "%");
             adminUser.setIsAnalyzed();
             createUserInternal(adminUser, Role.ADMIN_ROLE, new byte[0],
-                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, "ADMIN", true /* is replay */);
+                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION,
+                    "ADMIN", ADMIN_USER, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
         }
@@ -1868,6 +1913,10 @@ public class Auth implements Writable {
 
     public Set<String> getAllUsers() {
         return userManager.getAllUsers();
+    }
+
+    public String getUserId(String userName) {
+        return userManager.getUserId(userName);
     }
 
     // just for ut

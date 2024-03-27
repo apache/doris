@@ -27,6 +27,10 @@
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 
+namespace cloud {
+class HdfsVaultInfo;
+}
+
 namespace doris {
 class HDFSCommonBuilder;
 class THdfsParams;
@@ -124,6 +128,8 @@ std::string get_fs_name(const std::string& path);
 
 // return true if path_or_fs contains "hdfs://"
 bool is_hdfs(const std::string& path_or_fs);
+
+THdfsParams to_hdfs_params(const cloud::HdfsVaultInfo& vault);
 
 } // namespace io
 } // namespace doris

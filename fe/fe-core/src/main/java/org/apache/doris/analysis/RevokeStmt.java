@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -121,6 +122,10 @@ public class RevokeStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
+            throw new AnalysisException("Revoke is prohibited when Ranger is enabled.");
+        }
+
         if (userIdent != null) {
             userIdent.analyze();
         } else {

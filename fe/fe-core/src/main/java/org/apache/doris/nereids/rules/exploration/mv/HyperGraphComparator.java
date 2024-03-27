@@ -73,7 +73,11 @@ public class HyperGraphComparator {
     private final Map<Edge, List<? extends Expression>> pullUpQueryExprWithEdge = new HashMap<>();
     private final Map<Edge, List<? extends Expression>> pullUpViewExprWithEdge = new HashMap<>();
     private final LogicalCompatibilityContext logicalCompatibilityContext;
-    private final Map<JoinEdge, Pair<JoinType, Set<Slot>>> inferredViewEdgeWithCond = new HashMap<>();
+    // this records the slots which needs to reject null
+    // the key is the target join which should reject null, the value is a pair, the first value of the pair is the
+    // join type, the second value is also a pair which left represents the slots in the left of join that should
+    // reject null, right represents the slots in the right of join that should reject null.
+    private final Map<JoinEdge, Pair<JoinType, Pair<Set<Slot>, Set<Slot>>>> inferredViewEdgeWithCond = new HashMap<>();
     private List<JoinEdge> viewJoinEdgesAfterInferring;
     private List<FilterEdge> viewFilterEdgesAfterInferring;
     private final long eliminateViewNodesMap;
@@ -263,7 +267,7 @@ public class HyperGraphComparator {
             }
             builder.addViewExpressions(rawFilter);
         }
-        for (Pair<JoinType, Set<Slot>> inferredCond : inferredViewEdgeWithCond.values()) {
+        for (Pair<JoinType, Pair<Set<Slot>, Set<Slot>>> inferredCond : inferredViewEdgeWithCond.values()) {
             builder.addViewNoNullableSlot(inferredCond.second);
         }
         builder.addQueryAllPulledUpExpressions(
@@ -485,11 +489,14 @@ public class HyperGraphComparator {
             if (noNullableChild == null) {
                 return false;
             }
-            Set<Slot> noNullableSlot = Sets.union(
-                    noNullableChild.first ? view.getJoin().left().getOutputSet() : ImmutableSet.of(),
-                    noNullableChild.second ? view.getJoin().right().getOutputSet() : ImmutableSet.of()
-            );
-            inferredViewEdgeWithCond.put(view, Pair.of(query.getJoinType(), noNullableSlot));
+            Pair<Set<Slot>, Set<Slot>> noNullableSlotSetPair = Pair.of(ImmutableSet.of(), ImmutableSet.of());
+            if (noNullableChild.first) {
+                noNullableSlotSetPair.first = view.getJoin().left().getOutputSet();
+            }
+            if (noNullableChild.second) {
+                noNullableSlotSetPair.second = view.getJoin().right().getOutputSet();
+            }
+            inferredViewEdgeWithCond.put(view, Pair.of(query.getJoinType(), noNullableSlotSetPair));
         }
         return true;
     }

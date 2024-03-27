@@ -27,7 +27,7 @@ suite("load") {
         CREATE STORAGE VAULT IF NOT EXISTS ssb_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="127.0.0.1:8020"
+        "fs.defaultFS"="${getHdfsFs()}"
         );
     """
 
