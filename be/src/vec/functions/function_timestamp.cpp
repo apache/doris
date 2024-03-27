@@ -559,6 +559,13 @@ struct UnixTimeStampImpl {
         return (Int32)timestamp;
     }
 
+    static std::pair<Int32, Int32> trim_timestamp(std::pair<Int64, Int64> timestamp) {
+        if (timestamp.first < 0 || timestamp.first > INT_MAX) {
+            return {0, 0};
+        }
+        return std::make_pair((Int32)timestamp.first, (Int32)timestamp.second);
+    }
+
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
@@ -846,16 +853,17 @@ struct UnixTimeStampStrImpl {
 
             std::pair<int64_t, int64_t> timestamp {};
             if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
-                null_map_data[i] = true;
+                null_map_data[i] = true; // impossible now
             } else {
                 null_map_data[i] = false;
 
-                auto& [sec, ms] = timestamp;
-                sec = UnixTimeStampImpl::trim_timestamp(sec);
+                auto [sec, ms] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                // trailing ms
                 auto ms_str = std::to_string(ms).substr(0, 6);
                 if (ms_str.empty()) {
                     ms_str = "0";
                 }
+
                 col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), 6).value;
             }
         }
