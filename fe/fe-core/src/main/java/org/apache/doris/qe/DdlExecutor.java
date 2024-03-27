@@ -116,6 +116,7 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.RevokeStmt;
+import org.apache.doris.analysis.SetDefaultStotageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
@@ -406,6 +407,8 @@ public class DdlExecutor {
             env.getBackupHandler().alterRepository((AlterRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateStorageVaultStmt) {
             env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
+        } else if (ddlStmt instanceof SetDefaultStotageVaultStmt) {
+            env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStotageVaultStmt) ddlStmt);
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
