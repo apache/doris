@@ -115,15 +115,8 @@ public class TrinoConnectorCache {
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
             executorService.scheduleAtFixedRate(() -> {
                 if (!isKilled.get()) {
-                    List<Long> pids;
-                    try {
-                        pids = ProcessUtils.getChildProcessIds(
-                                ProcessUtils.getCurrentProcId());
-                    } catch (Exception e) {
-                        System.out.println("get pid exception: " + e.getMessage());
-                        LOG.info("get pid exception: " + e.getMessage());
-                        throw new RuntimeException("get pid error.", e);
-                    }
+                    List<Long> pids; = ProcessUtils.getChildProcessIds(
+                            ProcessUtils.getCurrentProcId());
                     for (long pid : pids) {
                         String cmd = ProcessUtils.getCommandLine(pid);
                         if (cmd != null && cmd.contains("org.openjdk.jol.vm.sa.AttachMain")) {
