@@ -569,7 +569,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         std::vector<TTabletCommitInfo> tablet_commit_infos;
         DBUG_EXECUTE_IF("VTabletWriterV2.close.add_failed_tablet", {
             auto node = _streams_for_node.begin()->second;
-            int64_t tablet_id;
+            int64_t tablet_id = -1;
             for (auto& stream : node->streams()) {
                 const auto& tablets = stream->success_tablets();
                 if (tablets.size() > 0) {
@@ -577,8 +577,10 @@ Status VTabletWriterV2::close(Status exec_status) {
                     break;
                 }
             }
-            node->streams()[0]->add_failed_tablet(tablet_id,
-                                                  Status::InternalError("fault injection"));
+            if (tablet_id != -1) {
+                node->streams()[0]->add_failed_tablet(tablet_id,
+                                                      Status::InternalError("fault injection"));
+            }
         });
         RETURN_IF_ERROR(_create_commit_info(tablet_commit_infos, _streams_for_node, _num_replicas));
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
