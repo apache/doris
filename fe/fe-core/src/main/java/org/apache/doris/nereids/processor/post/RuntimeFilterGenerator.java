@@ -447,7 +447,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
 
-        if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) != 0) {
+        if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) != 0
+                && !ctx.getSessionVariable().isIgnoreStorageDataDistribution()) {
             generateBitMapRuntimeFilterForNLJ(join, ctx);
         }
 
