@@ -295,7 +295,13 @@ struct TimeDiffImpl {
         const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
         if constexpr (UsingTimev2) {
-            return ts0.microsecond_diff(ts1);
+            // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+            // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
+            int64_t diff_m = ts0.microsecond_diff(ts1);
+            if (diff_m > (int64_t)3020399 * 1000 * 1000) {
+                diff_m = (int64_t)3020399 * 1000 * 1000;
+            }
+            return (double)diff_m;
         } else {
             return (1000 * 1000) * ts0.second_diff(ts1);
         }
