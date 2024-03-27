@@ -37,12 +37,12 @@ public class MergeProjectPostProcessor extends PlanPostProcessor {
         Plan newChild = child.accept(this, ctx);
         if (newChild instanceof PhysicalProject) {
             List<NamedExpression> projections = project.mergeProjections((PhysicalProject) newChild);
-            return project
+            return (PhysicalProject) project
                     .withProjectionsAndChild(projections, newChild.child(0))
                     .copyStatsAndGroupIdFrom(project);
         }
         return child != newChild
-                ? project.withChildren(Lists.newArrayList(newChild)).copyStatsAndGroupIdFrom(project)
+                ? (PhysicalProject) project.withChildren(Lists.newArrayList(newChild)).copyStatsAndGroupIdFrom(project)
                 : project;
     }
 }

@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import java.util.ArrayList;
@@ -63,12 +65,30 @@ public class ColumnPruningPostProcessor extends PlanPostProcessor {
                 }
             }
 
-            Plan newLeft = leftNewProjections.size() != leftOutput.size()
-                    ? new PhysicalProject<>(leftNewProjections, left.getLogicalProperties(), left)
-                    : left;
-            Plan newRight = rightNewProjections.size() != rightOutput.size()
-                    ? new PhysicalProject<>(rightNewProjections, right.getLogicalProperties(), right)
-                    : right;
+            Plan newLeft;
+            if (left instanceof PhysicalDistribute) {
+                newLeft = leftNewProjections.size() != leftOutput.size() && !leftNewProjections.isEmpty()
+                        ? left.withChildren(new PhysicalProject<>(leftNewProjections,
+                        left.getLogicalProperties(), left.child(0)))
+                        : left;
+            } else {
+                newLeft = leftNewProjections.size() != leftOutput.size() && !leftNewProjections.isEmpty()
+                        ? new PhysicalProject<>(leftNewProjections, left.getLogicalProperties(),
+                        left).copyStatsAndGroupIdFrom((AbstractPhysicalPlan) left)
+                        : left;
+            }
+            Plan newRight;
+            if (right instanceof PhysicalDistribute) {
+                newRight = rightNewProjections.size() != rightOutput.size() && !rightNewProjections.isEmpty()
+                        ? right.withChildren(new PhysicalProject<>(rightNewProjections,
+                        right.getLogicalProperties(), right.child(0)))
+                        : right;
+            } else {
+                newRight = rightNewProjections.size() != rightOutput.size() && !rightNewProjections.isEmpty()
+                        ? new PhysicalProject<>(rightNewProjections, right.getLogicalProperties(),
+                        right).copyStatsAndGroupIdFrom((AbstractPhysicalPlan) right)
+                        : right;
+            }
 
             if (newLeft != left || newRight != right) {
                 return (PhysicalProject) project.withChildren(join.withChildren(newLeft, newRight));
