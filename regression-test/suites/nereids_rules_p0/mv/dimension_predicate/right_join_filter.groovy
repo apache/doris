@@ -16,7 +16,6 @@
 // under the License.
 
 /*
-This suite is a two dimensional test case file.
 It mainly tests the right join and filter positions.
  */
 suite("right_join_filter") {
@@ -320,7 +319,6 @@ suite("right_join_filter") {
         } else if (i == 6) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                // 5, 11 should be success but not now, should support in the future by equivalence class
                 if (j in [4, 6, 9]) {
                     explain {
                         sql("${mv_list_1[j]}")

@@ -16,7 +16,6 @@
 // under the License.
 
 /*
-This suite is a two dimensional test case file.
 It mainly tests the right anti join and filter positions.
  */
 suite("right_anti_join_filter") {
@@ -163,12 +162,6 @@ suite("right_anti_join_filter") {
         right anti join (select o_orderdate,o_orderkey,o_custkey from orders_right_anti_join where o_orderdate > '2023-10-17' ) t 
         on lineitem_right_anti_join.l_orderkey = t.o_orderkey"""
 
-//    def mv_stmt_2 = """select o_orderdate, o_orderkey, o_custkey
-//        from lineitem_right_anti_join
-//        right anti join orders_right_anti_join
-//        on lineitem_right_anti_join.l_orderkey = orders_right_anti_join.o_orderkey
-//        where l_shipdate > '2023-10-16'"""
-
     def mv_stmt_2 = """select o_orderdate, o_orderkey, o_custkey  
         from lineitem_right_anti_join  
         right anti join orders_right_anti_join 
@@ -196,12 +189,6 @@ suite("right_anti_join_filter") {
         right anti join lineitem_right_anti_join  
         on lineitem_right_anti_join.l_orderkey = orders_right_anti_join.o_orderkey 
         where l_shipdate > '2023-10-16' """
-
-//    def mv_stmt_8 = """select l_shipdate, l_partkey, l_suppkey
-//        from orders_right_anti_join
-//        right anti join lineitem_right_anti_join
-//        on lineitem_right_anti_join.l_orderkey = orders_right_anti_join.o_orderkey
-//        where o_orderdate > '2023-10-16'  """
 
     def mv_stmt_7 = """select l_shipdate, l_partkey, l_suppkey   
         from orders_right_anti_join 
@@ -338,70 +325,6 @@ suite("right_anti_join_filter") {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
                 if (j in [7]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
-                    compare_res(mv_list_1[j] + " order by 1,2,3")
-                } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
-                }
-            }
-        } else if (i == 8) {
-            for (int j = 0; j < mv_list_1.size(); j++) {
-                logger.info("j:" + j)
-                if (j in [4, 5, 8, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
-                    compare_res(mv_list_1[j] + " order by 1,2,3")
-                } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
-                }
-            }
-        } else if (i == 9) {
-            for (int j = 0; j < mv_list_1.size(); j++) {
-                logger.info("j:" + j)
-                if (j in [4, 5, 7, 9, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
-                    compare_res(mv_list_1[j] + " order by 1,2,3")
-                } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
-                }
-            }
-        } else if (i == 10) {
-            for (int j = 0; j < mv_list_1.size(); j++) {
-                logger.info("j:" + j)
-                if (j in [4, 5, 10, 11]) {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        contains "${mv_name}(${mv_name})"
-                    }
-                    compare_res(mv_list_1[j] + " order by 1,2,3")
-                } else {
-                    explain {
-                        sql("${mv_list_1[j]}")
-                        notContains "${mv_name}(${mv_name})"
-                    }
-                }
-            }
-        } else if (i == 11) {
-            for (int j = 0; j < mv_list_1.size(); j++) {
-                logger.info("j:" + j)
-                if (j in [5, 11]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
