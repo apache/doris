@@ -139,7 +139,7 @@ SHOW DATA SKEW
     +----------------------+-----------+-------------+-------------+-------+---------+
 
 
-    mysql> show data skew from test_show_data_skew2 partition(test_show_data_skew2);
+    mysql> SHOW DATA SKEW FROM test_show_data_skew2 PARTITION(test_show_data_skew2);
     +----------------------+-----------+-------------+-------------+-------+---------+
     | PartitionName        | BucketIdx | AvgRowCount | AvgDataSize | Graph | Percent |
     +----------------------+-----------+-------------+-------------+-------+---------+
