@@ -89,7 +89,8 @@ public class GroupCommitPlanner {
         TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
         if (targetColumnNames != null) {
             streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
-            if (targetColumnNames.stream().anyMatch(col -> col.equalsIgnoreCase(Column.SEQUENCE_COL))) {
+            if (targetColumnNames.stream().anyMatch(col -> col.replace("`", "")
+                    .equalsIgnoreCase(Column.SEQUENCE_COL))) {
                 streamLoadPutRequest.setSequenceCol(Column.SEQUENCE_COL);
             }
         }

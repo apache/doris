@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -110,12 +111,23 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
                 throws UserException, TException, RpcException, ExecutionException, InterruptedException {
         // TODO we should refactor this to remove rely on UnionNode
         List<InternalService.PDataRow> rows = new ArrayList<>();
+
+        Optional<PhysicalUnion> union = planner.getPhysicalPlan()
+                .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+        List<List<NamedExpression>> constantExprsList = null;
+        if (union.isPresent()) {
+            constantExprsList = union.get().getConstantExprsList();
+        }
         Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
                 .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
-        ImmutableList<List<NamedExpression>> constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
+        if (oneRowRelation.isPresent()) {
+            constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
+        }
         List<String> columnNames = physicalOlapTableSink.getTargetTable().getFullSchema().stream()
-                    .map(c -> c.getName())
-                    .collect(Collectors.toList());
+                .map(Column::getName)
+                .map(n -> n.replace("`", "``"))
+                .map(n -> "`" + n + "`")
+                .collect(Collectors.toList());
         for (List<NamedExpression> row : constantExprsList) {
             rows.add(InsertUtils.getRowStringValue(row));
         }
