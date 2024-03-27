@@ -214,6 +214,7 @@ public abstract class ConnectProcessor {
     public void executeQuery(MysqlCommand mysqlCommand, String originStmt) throws Exception {
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+            MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
         }
 
         String convertedStmt = convertOriginStmt(originStmt);

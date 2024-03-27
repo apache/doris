@@ -266,20 +266,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         }
         status = scanner->get_block_after_projects(state, free_block.get(), &eos);
         first_read = false;
-        // The VFileScanner for external table may try to open not exist files,
-        // Because FE file cache for external table may out of date.
-        // So, NOT_FOUND for VFileScanner is not a fail case.
-        // Will remove this after file reader refactor.
-        if (!status.ok() && (scanner->get_name() != doris::vectorized::VFileScanner::NAME ||
-                             (scanner->get_name() == doris::vectorized::VFileScanner::NAME &&
-                              !status.is<ErrorCode::NOT_FOUND>()))) {
+        if (!status.ok()) {
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
-            break;
-        } else if (status.is<ErrorCode::NOT_FOUND>()) {
-            // The only case in this "if" branch is external table file delete and fe cache has not been updated yet.
-            // Set status to OK.
-            status = Status::OK();
-            eos = true;
             break;
         }
         raw_bytes_read += free_block->allocated_bytes();

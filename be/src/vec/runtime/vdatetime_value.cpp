@@ -3265,7 +3265,7 @@ bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
                               ctz);
         timestamp->first = tp.time_since_epoch().count();
         timestamp->second = date_v2_value_.microsecond_;
-    } else {
+    } else { // just make compiler happy
     }
     return true;
 }

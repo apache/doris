@@ -27,26 +27,34 @@
 #include <memory>
 
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "util/murmur_hash3.h"
 
 namespace doris {
 namespace segment_v2 {
 
-inline bvar::Adder<size_t> g_total_bloom_filter_num("doris_total_bloom_filter_num");
-inline bvar::Adder<size_t> g_read_bloom_filter_num("doris_read_bloom_filter_num");
-inline bvar::Adder<size_t> g_write_bloom_filter_num("doris_write_bloom_filter_num");
+inline bvar::Adder<int64_t> g_total_bloom_filter_num("doris_total_bloom_filter_num");
+inline bvar::Adder<int64_t> g_read_bloom_filter_num("doris_read_bloom_filter_num");
+inline bvar::Adder<int64_t> g_write_bloom_filter_num("doris_write_bloom_filter_num");
 
-inline bvar::Adder<size_t> g_total_bloom_filter_total_bytes("doris_total_bloom_filter_bytes");
-inline bvar::Adder<size_t> g_read_bloom_filter_total_bytes("doris_read_bloom_filter_bytes");
-inline bvar::Adder<size_t> g_write_bloom_filter_total_bytes("doris_write_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_total_bloom_filter_total_bytes("doris_total_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_read_bloom_filter_total_bytes("doris_read_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_write_bloom_filter_total_bytes("doris_write_bloom_filter_bytes");
 
-inline bvar::Adder<size_t> g_pk_total_bloom_filter_num("doris_pk_total_bloom_filter_num");
-inline bvar::Adder<size_t> g_pk_read_bloom_filter_num("doris_pk_read_bloom_filter_num");
-inline bvar::Adder<size_t> g_pk_write_bloom_filter_num("doris_pk_write_bloom_filter_num");
+inline bvar::Adder<int64_t> g_pk_total_bloom_filter_num("doris_pk_total_bloom_filter_num");
+inline bvar::Adder<int64_t> g_pk_read_bloom_filter_num("doris_pk_read_bloom_filter_num");
+inline bvar::Adder<int64_t> g_pk_write_bloom_filter_increase_num(
+        "doris_pk_write_bloom_filter_increase_num");
+inline bvar::Adder<int64_t> g_pk_write_bloom_filter_decrease_num(
+        "doris_pk_write_bloom_filter_decrease_num");
 
-inline bvar::Adder<size_t> g_pk_total_bloom_filter_total_bytes("doris_pk_total_bloom_filter_bytes");
-inline bvar::Adder<size_t> g_pk_read_bloom_filter_total_bytes("doris_pk_read_bloom_filter_bytes");
-inline bvar::Adder<size_t> g_pk_write_bloom_filter_total_bytes("doris_pk_write_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_pk_total_bloom_filter_total_bytes(
+        "doris_pk_total_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_pk_read_bloom_filter_total_bytes("doris_pk_read_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_pk_write_bloom_filter_increase_bytes(
+        "doris_pk_write_bloom_filter_increase_bytes");
+inline bvar::Adder<int64_t> g_pk_write_bloom_filter_decrease_bytes(
+        "doris_pk_write_bloom_filter_decrease_bytes");
 
 struct BloomFilterOptions {
     // false positive probability
@@ -79,13 +87,13 @@ public:
     virtual ~BloomFilter() {
         if (_data) {
             if (_is_write) {
-                g_write_bloom_filter_total_bytes << -_size;
+                g_write_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
                 g_write_bloom_filter_num << -1;
             } else {
-                g_read_bloom_filter_total_bytes << -_size;
+                g_read_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
                 g_read_bloom_filter_num << -1;
             }
-            g_total_bloom_filter_total_bytes << -_size;
+            g_total_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
             delete[] _data;
         }
         g_total_bloom_filter_num << -1;

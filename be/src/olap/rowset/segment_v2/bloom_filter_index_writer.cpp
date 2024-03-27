@@ -197,8 +197,8 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::flush() {
     _bf_buffer_size += bf->size();
     g_pk_total_bloom_filter_num << 1;
     g_pk_total_bloom_filter_total_bytes << bf->size();
-    g_pk_write_bloom_filter_num << 1;
-    g_pk_write_bloom_filter_total_bytes << bf->size();
+    g_pk_write_bloom_filter_increase_num << 1;
+    g_pk_write_bloom_filter_increase_bytes << bf->size();
     _bfs.push_back(std::move(bf));
     _values.clear();
     _has_null = false;

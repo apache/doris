@@ -2663,6 +2663,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false)
     public static int cloud_copy_into_statement_submitter_threads_num = 64;
+  
+    @ConfField
+    public static int drop_user_notify_ms_max_times = 86400;
 
     //==========================================================================
     //                      end of cloud config

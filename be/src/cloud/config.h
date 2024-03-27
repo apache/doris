@@ -85,4 +85,7 @@ DECLARE_mInt32(refresh_s3_info_interval_s);
 DECLARE_mInt32(vacuum_stale_rowsets_interval_s);
 DECLARE_mInt32(schedule_sync_tablets_interval_s);
 
+// Cloud mow
+DECLARE_mInt32(mow_stream_load_commit_retry_times);
+
 } // namespace doris::config

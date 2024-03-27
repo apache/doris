@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -55,9 +56,9 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
         return logicalAggregate()
                 .whenNot(agg -> agg.getSourceRepeat().isPresent())
                 .then(agg -> {
-                    Map<NamedExpression, Pair<Expression, Literal>> sumLiteralMap = new HashMap<>();
+                    Map<NamedExpression, Pair<SumInfo, Literal>> sumLiteralMap = new HashMap<>();
                     for (NamedExpression namedExpression : agg.getOutputs()) {
-                        Pair<NamedExpression, Pair<Expression, Literal>> pel = extractSumLiteral(namedExpression);
+                        Pair<NamedExpression, Pair<SumInfo, Literal>> pel = extractSumLiteral(namedExpression);
                         if (pel == null) {
                             continue;
                         }
@@ -71,7 +72,7 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
     }
 
     private Plan rewriteSumLiteral(
-            LogicalAggregate<?> agg, Map<NamedExpression, Pair<Expression, Literal>> sumLiteralMap) {
+            LogicalAggregate<?> agg, Map<NamedExpression, Pair<SumInfo, Literal>> sumLiteralMap) {
         Set<NamedExpression> newAggOutput = new HashSet<>();
         for (NamedExpression expr : agg.getOutputExpressions()) {
             if (!sumLiteralMap.containsKey(expr)) {
@@ -79,8 +80,8 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
             }
         }
 
-        Map<Expression, Slot> exprToSum = new HashMap<>();
-        Map<Expression, Slot> exprToCount = new HashMap<>();
+        Map<SumInfo, Slot> exprToSum = new HashMap<>();
+        Map<SumInfo, Slot> exprToCount = new HashMap<>();
 
         Map<AggregateFunction, NamedExpression> existedAggFunc = new HashMap<>();
         for (NamedExpression e : agg.getOutputExpressions()) {
@@ -89,16 +90,16 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
             }
         }
 
-        Set<Expression> countSumExpr = new HashSet<>();
-        for (Pair<Expression, Literal> pair : sumLiteralMap.values()) {
+        Set<SumInfo> countSumExpr = new HashSet<>();
+        for (Pair<SumInfo, Literal> pair : sumLiteralMap.values()) {
             countSumExpr.add(pair.first);
         }
 
-        for (Expression e : countSumExpr) {
-            NamedExpression namedSum = constructSum(e, existedAggFunc);
-            NamedExpression namedCount = constructCount(e, existedAggFunc);
-            exprToSum.put(e, namedSum.toSlot());
-            exprToCount.put(e, namedCount.toSlot());
+        for (SumInfo info : countSumExpr) {
+            NamedExpression namedSum = constructSum(info, existedAggFunc);
+            NamedExpression namedCount = constructCount(info, existedAggFunc);
+            exprToSum.put(info, namedSum.toSlot());
+            exprToCount.put(info, namedCount.toSlot());
             newAggOutput.add(namedSum);
             newAggOutput.add(namedCount);
         }
@@ -111,15 +112,15 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
     }
 
     private List<NamedExpression> constructProjectExpression(
-            LogicalAggregate<?> agg, Map<NamedExpression, Pair<Expression, Literal>> sumLiteralMap,
-            Map<Expression, Slot> exprToSum, Map<Expression, Slot> exprToCount) {
+            LogicalAggregate<?> agg, Map<NamedExpression, Pair<SumInfo, Literal>> sumLiteralMap,
+            Map<SumInfo, Slot> exprToSum, Map<SumInfo, Slot> exprToCount) {
         List<NamedExpression> newProjects = new ArrayList<>();
         for (NamedExpression namedExpr : agg.getOutputExpressions()) {
             if (!sumLiteralMap.containsKey(namedExpr)) {
                 newProjects.add(namedExpr.toSlot());
                 continue;
             }
-            Expression originExpr = sumLiteralMap.get(namedExpr).first;
+            SumInfo originExpr = sumLiteralMap.get(namedExpr).first;
             Literal literal = sumLiteralMap.get(namedExpr).second;
             Expression newExpr;
             if (namedExpr.child(0).child(0) instanceof Add) {
@@ -134,8 +135,8 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
         return newProjects;
     }
 
-    private NamedExpression constructSum(Expression child, Map<AggregateFunction, NamedExpression> existedAggFunc) {
-        Sum sum = new Sum(child);
+    private NamedExpression constructSum(SumInfo info, Map<AggregateFunction, NamedExpression> existedAggFunc) {
+        Sum sum = new Sum(info.isDistinct, info.isAlwaysNullable, info.expr);
         NamedExpression namedSum;
         if (existedAggFunc.containsKey(sum)) {
             namedSum = existedAggFunc.get(sum);
@@ -145,8 +146,8 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
         return namedSum;
     }
 
-    private NamedExpression constructCount(Expression child, Map<AggregateFunction, NamedExpression> existedAggFunc) {
-        Count count = new Count(child);
+    private NamedExpression constructCount(SumInfo info, Map<AggregateFunction, NamedExpression> existedAggFunc) {
+        Count count = new Count(info.isDistinct, info.expr);
         NamedExpression namedCount;
         if (existedAggFunc.containsKey(count)) {
             namedCount = existedAggFunc.get(count);
@@ -156,7 +157,7 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
         return namedCount;
     }
 
-    private @Nullable Pair<NamedExpression, Pair<Expression, Literal>> extractSumLiteral(
+    private @Nullable Pair<NamedExpression, Pair<SumInfo, Literal>> extractSumLiteral(
             NamedExpression namedExpression) {
         if (namedExpression.children().size() != 1) {
             return null;
@@ -180,6 +181,44 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
             // only support integer or float types
             return null;
         }
-        return Pair.of(namedExpression, Pair.of(left, (Literal) right));
+        SumInfo info = new SumInfo(left, ((Sum) func).isDistinct(), ((Sum) func).isAlwaysNullable());
+        return Pair.of(namedExpression, Pair.of(info, (Literal) right));
+    }
+
+    static class SumInfo {
+        Expression expr;
+        boolean isDistinct;
+        boolean isAlwaysNullable;
+
+        SumInfo(Expression expr, boolean isDistinct, boolean isAlwaysNullable) {
+            this.expr = expr;
+            this.isDistinct = isDistinct;
+            this.isAlwaysNullable = isAlwaysNullable;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+
+            SumInfo sumInfo = (SumInfo) o;
+
+            if (isDistinct != sumInfo.isDistinct) {
+                return false;
+            }
+            if (isAlwaysNullable != sumInfo.isAlwaysNullable) {
+                return false;
+            }
+            return Objects.equals(expr, sumInfo.expr);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(expr, isDistinct, isAlwaysNullable);
+        }
     }
 }

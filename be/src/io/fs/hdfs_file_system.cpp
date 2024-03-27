@@ -77,7 +77,7 @@ Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(const THdfsParams
 
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_name, std::string id,
                                RuntimeProfile* profile, std::string root_path)
-        : RemoteFileSystem(root_path, std::move(id), FileSystemType::HDFS),
+        : RemoteFileSystem(std::move(root_path), std::move(id), FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
           _fs_name(std::move(fs_name)),
           _profile(profile) {

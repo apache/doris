@@ -25,7 +25,7 @@ suite("sumRewrite") {
     sql """
     CREATE TABLE IF NOT EXISTS sr(
       `id` int NULL,
-      `null_id` int not NULL,
+      `not_null_id` int not NULL,
       `f_id` float NULL,
       `d_id` decimal(10,2),
     ) ENGINE = OLAP
@@ -36,7 +36,7 @@ suite("sumRewrite") {
     """
 
     sql """
-INSERT INTO sr (id, null_id, f_id, d_id) VALUES 
+INSERT INTO sr (id, not_null_id, f_id, d_id) VALUES 
 (11, 6, 1.1, 210.01),
 (12, 6, 2.2, 220.02),
 (13, 7, 3.3, 230.03),
@@ -55,9 +55,9 @@ INSERT INTO sr (id, null_id, f_id, d_id) VALUES
 
     order_qt_sum_add_const_where$ """ select sum(id + 2) from sr where id is not null """
 
-    order_qt_sum_add_const_group_by$ """ select null_id, sum(id + 2) from sr group by null_id """
+    order_qt_sum_add_const_group_by$ """ select not_null_id, sum(id + 2) from sr group by not_null_id """
 
-    order_qt_sum_add_const_having$ """ select null_id, sum(id + 2) from sr group by null_id having sum(id + 2) > 5 """
+    order_qt_sum_add_const_having$ """ select not_null_id, sum(id + 2) from sr group by not_null_id having sum(id + 2) > 5 """
 
     order_qt_sum_sub_const$ """ select sum(id - 2) from sr """
 
@@ -65,17 +65,17 @@ INSERT INTO sr (id, null_id, f_id, d_id) VALUES
 
     order_qt_sum_sub_const_where$ """ select sum(id - 2) from sr where id is not null """
 
-    order_qt_sum_sub_const_group_by$ """ select null_id, sum(id - 2) from sr group by null_id """
+    order_qt_sum_sub_const_group_by$ """ select not_null_id, sum(id - 2) from sr group by not_null_id """
 
-    order_qt_sum_sub_const_having$ """ select null_id, sum(id - 2) from sr group by null_id having sum(id - 2) > 0 """
+    order_qt_sum_sub_const_having$ """ select not_null_id, sum(id - 2) from sr group by not_null_id having sum(id - 2) > 0 """
 
     order_qt_sum_add_const_empty_table$ """ select sum(id + 2) from sr where 1=0 """
 
-    order_qt_sum_add_const_empty_table_group_by$ """ select null_id, sum(id + 2) from sr where 1=0 group by null_id """
+    order_qt_sum_add_const_empty_table_group_by$ """ select not_null_id, sum(id + 2) from sr where 1=0 group by not_null_id """
 
     order_qt_sum_sub_const_empty_table$ """ select sum(id - 2) from sr where 1=0 """
 
-    order_qt_sum_sub_const_empty_table_group_by$ """ select null_id, sum(id - 2) from sr where 1=0 group by null_id """
+    order_qt_sum_sub_const_empty_table_group_by$ """ select not_null_id, sum(id - 2) from sr where 1=0 group by not_null_id """
 
     // float类型字段测试
     order_qt_float_sum_add_const$ """ select sum(f_id + 2) from sr """
@@ -84,9 +84,9 @@ INSERT INTO sr (id, null_id, f_id, d_id) VALUES
 
     order_qt_float_sum_add_const_where$ """ select sum(f_id + 2) from sr where f_id is not null """
 
-    order_qt_float_sum_add_const_group_by$ """ select null_id, sum(f_id + 2) from sr group by null_id """
+    order_qt_float_sum_add_const_group_by$ """ select not_null_id, sum(f_id + 2) from sr group by not_null_id """
 
-    order_qt_float_sum_add_const_having$ """ select null_id, sum(f_id + 2) from sr group by null_id having sum(f_id + 2) > 5 """
+    order_qt_float_sum_add_const_having$ """ select not_null_id, sum(f_id + 2) from sr group by not_null_id having sum(f_id + 2) > 5 """
 
     order_qt_float_sum_sub_const$ """ select sum(f_id - 2) from sr """
 
@@ -94,25 +94,30 @@ INSERT INTO sr (id, null_id, f_id, d_id) VALUES
 
     order_qt_float_sum_sub_const_where$ """ select sum(f_id - 2) from sr where f_id is not null """
 
-    order_qt_float_sum_sub_const_group_by$ """ select null_id, sum(f_id - 2) from sr group by null_id """
+    order_qt_float_sum_sub_const_group_by$ """ select not_null_id, sum(f_id - 2) from sr group by not_null_id """
 
-    order_qt_float_sum_sub_const_having$ """ select null_id, sum(f_id - 2) from sr group by null_id having sum(f_id - 2) > 0 """
+    order_qt_float_sum_sub_const_having$ """ select not_null_id, sum(f_id - 2) from sr group by not_null_id having sum(f_id - 2) > 0 """
 
+    order_qt_sum_null_and_not_null """ select sum(id), sum(id + 1), sum(id - 1), sum(not_null_id), sum(not_null_id + 1), sum(not_null_id - 1) from sr"""
+
+    order_qt_sum_distinct """select sum(id), sum(distinct id), sum(id + 1), sum(distinct id + 1) from sr"""
+
+    order_qt_sum_not_null_distinct """select sum(not_null_id), sum(distinct not_null_id), sum(not_null_id + 1), sum(distinct not_null_id + 1) from sr"""        
     // 测试精度变化对sum加常数的影响
     // order_qt_decimal_sum_add_const_precision_1$ """ select sum(d_id + 2) from sr """
 
     // order_qt_decimal_sum_add_const_precision_2$ """ select sum(d_id + 2.2) from sr """
 
-    // order_qt_decimal_sum_add_const_precision_3$ """ select null_id, sum(d_id + 2) from sr group by null_id """
+    // order_qt_decimal_sum_add_const_precision_3$ """ select not_null_id, sum(d_id + 2) from sr group by not_null_id """
 
-    // order_qt_decimal_sum_add_const_precision_4$ """ select null_id, sum(d_id + 2.223) from sr group by null_id """
+    // order_qt_decimal_sum_add_const_precision_4$ """ select not_null_id, sum(d_id + 2.223) from sr group by not_null_id """
 
     // 测试精度变化对sum减常数的影响  
     // order_qt_decimal_sum_sub_const_precision_1$ """ select sum(d_id - 2) from sr """
 
     // order_qt_decimal_sum_sub_const_precision_2$ """ select sum(d_id - 2.2) from sr """
 
-    // order_qt_decimal_sum_sub_const_precision_3$ """ select null_id, sum(d_id - 2) from sr group by null_id """
+    // order_qt_decimal_sum_sub_const_precision_3$ """ select not_null_id, sum(d_id - 2) from sr group by not_null_id """
 
-    // order_qt_decimal_sum_sub_const_precision_4$ """ select null_id, sum(d_id - 2.223) from sr group by null_id """
+    // order_qt_decimal_sum_sub_const_precision_4$ """ select not_null_id, sum(d_id - 2.223) from sr group by not_null_id """
 }

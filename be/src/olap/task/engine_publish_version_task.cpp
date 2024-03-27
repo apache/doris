@@ -242,8 +242,12 @@ Status EnginePublishVersionTask::execute() {
             }
 
             auto rowset_meta_ptr = rowset->rowset_meta();
-            tablet_id_to_num_delta_rows.insert(
-                    {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
+            auto tablet_id = rowset_meta_ptr->tablet_id();
+            if (_publish_version_req.base_tablet_ids.contains(tablet_id)) {
+                // exclude delta rows in rollup tablets
+                tablet_id_to_num_delta_rows.insert(
+                        {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
+            }
 
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     _engine, this, tablet, rowset, partition_id, transaction_id, version,

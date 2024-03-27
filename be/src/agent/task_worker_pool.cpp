@@ -714,6 +714,7 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
     auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
     if (tablet_ptr != nullptr) {
         EngineIndexChangeTask engine_task(engine, alter_inverted_index_rq);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     } else {
         status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
@@ -940,6 +941,7 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
     EngineChecksumTask engine_task(engine, check_consistency_req.tablet_id,
                                    check_consistency_req.schema_hash, check_consistency_req.version,
                                    &checksum);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status status = engine_task.execute();
     if (!status.ok()) {
         LOG_WARNING("failed to check consistency")
@@ -1596,6 +1598,7 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     std::vector<TTabletInfo> tablet_infos;
 
     EngineBatchLoadTask engine_task(engine, const_cast<TPushReq&>(push_req), &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
 
     // Return result to fe
@@ -1928,6 +1931,7 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
 
     std::vector<TTabletInfo> tablet_infos;
     EngineCloneTask engine_task(engine, clone_req, master_info, req.signature, &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
     // Return result to fe
     TFinishTaskRequest finish_task_request;

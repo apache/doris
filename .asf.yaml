@@ -109,8 +109,8 @@ github:
     - shuke987
     - wm1581066
     - KassieZ
-    - yujun777
     - gavinchou
+    - yujun777
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

@@ -43,7 +43,7 @@ Status get_remote_file_system(int64_t storage_policy_id,
     auto resource = get_storage_resource(storage_policy->resource_id);
     *fs = resource.fs;
     if (*fs == nullptr) {
-        return Status::NotFound<false>("could not find resource, resouce_id={}",
+        return Status::NotFound<false>("could not find resource, resource_id={}",
                                        storage_policy->resource_id);
     }
     return Status::OK();

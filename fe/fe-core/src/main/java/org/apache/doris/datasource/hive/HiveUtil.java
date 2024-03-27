@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
@@ -192,7 +193,9 @@ public final class HiveUtil {
         // table.setViewOriginalText(hiveTable.getViewSql());
         // table.setViewExpandedText(hiveTable.getViewSql());
         table.setTableType("MANAGED_TABLE");
-        table.setParameters(hiveTable.getProperties());
+        Map<String, String> props = new HashMap<>(hiveTable.getProperties());
+        props.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
+        table.setParameters(props);
         return table;
     }
 

@@ -113,4 +113,9 @@ suite("test_cast") {
         sql """select k0 from table_decimal38_4 union all select k0 from table_decimal27_9;"""
         contains """AS DECIMALV3(38, 4)"""
     }
+    sql """set enable_nereids_planner=false;"""
+    explain {
+        sql """select k0 from table_decimal38_4 union all select k0 from table_decimal27_9;"""
+        contains """AS DECIMALV3(38, 4)"""
+    }
 }
