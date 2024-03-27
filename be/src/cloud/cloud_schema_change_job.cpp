@@ -155,6 +155,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
         break;
     }
+    sc_params.vault_id = request.storage_vault_id;
     if (!request.__isset.materialized_view_params) {
         return _convert_historical_rowsets(sc_params);
     }
@@ -251,10 +252,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        if (_cloud_storage_engine.latest_fs() == nullptr) [[unlikely]] {
-            return Status::IOError("Invalid latest fs");
-        }
-        context.fs = _cloud_storage_engine.latest_fs();
+        context.fs = _cloud_storage_engine.get_fs_by_vault_id(sc_params.vault_id);
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
 
