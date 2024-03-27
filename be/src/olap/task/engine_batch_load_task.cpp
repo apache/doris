@@ -73,7 +73,6 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
 Status EngineBatchLoadTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     Status status;
     if (_push_req.push_type == TPushType::LOAD_V2) {
         RETURN_IF_ERROR(_init());

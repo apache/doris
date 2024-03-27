@@ -352,6 +352,7 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
                 alter_inverted_index_rq.tablet_id);
         if (tablet_ptr != nullptr) {
             EngineIndexChangeTask engine_task(alter_inverted_index_rq);
+            SCOPED_ATTACH_TASK(engine_task.mem_tracker());
             status = _env->storage_engine()->execute_task(&engine_task);
         } else {
             status =
@@ -587,6 +588,7 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         EngineChecksumTask engine_task(check_consistency_req.tablet_id,
                                        check_consistency_req.schema_hash,
                                        check_consistency_req.version, &checksum);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         Status status = _env->storage_engine()->execute_task(&engine_task);
         if (!status.ok()) {
             LOG_WARNING("failed to check consistency")
@@ -1487,6 +1489,7 @@ void PushTaskPool::_push_worker_thread_callback() {
         std::vector<TTabletInfo> tablet_infos;
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         auto status = _env->storage_engine()->execute_task(&engine_task);
 
         // Return result to fe
@@ -1893,6 +1896,7 @@ void CloneTaskPool::_clone_worker_thread_callback() {
         std::vector<TTabletInfo> tablet_infos;
         EngineCloneTask engine_task(clone_req, _master_info, agent_task_req.signature,
                                     &tablet_infos);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         auto status = _env->storage_engine()->execute_task(&engine_task);
         // Return result to fe
         TFinishTaskRequest finish_task_request;
