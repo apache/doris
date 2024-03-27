@@ -29,6 +29,7 @@ import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -72,8 +73,9 @@ public class DFSFileSystem extends RemoteFileSystem {
         this.properties.putAll(properties);
     }
 
+    @VisibleForTesting
     @Override
-    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
+    public FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem != null) {
             return dfsFileSystem;
         }
