@@ -149,7 +149,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -214,7 +215,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -279,7 +281,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -344,7 +347,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -411,7 +415,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label1}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         sql """
@@ -420,7 +425,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label2}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label1)
@@ -454,7 +460,8 @@ suite("test_export_basic", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
-                "columns" = "id, name"
+                "columns" = "id, name",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -519,7 +526,8 @@ suite("test_export_basic", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
-                "columns" = "id"
+                "columns" = "id",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -588,7 +596,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(label_db, label)
@@ -601,7 +610,8 @@ suite("test_export_basic", "p0") {
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "csv",
-                    "column_separator"=","
+                    "column_separator"=",",
+                    "data_consistency" = "none"
                 );
             """
             exception "has already been used"
@@ -625,7 +635,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(label_db, label)
