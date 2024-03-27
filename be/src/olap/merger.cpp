@@ -192,7 +192,6 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
         if (delete_sign_idx != -1) {
             key_columns.emplace_back(delete_sign_idx);
         }
-
         if (!tablet_schema.cluster_key_idxes().empty()) {
             for (const auto& cid : tablet_schema.cluster_key_idxes()) {
                 if (cid >= num_key_cols) {
@@ -201,7 +200,6 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
             }
         }
     }
-
     VLOG_NOTICE << "sequence_col_idx=" << sequence_col_idx
                 << ", delete_sign_idx=" << delete_sign_idx;
     // for duplicate no keys
