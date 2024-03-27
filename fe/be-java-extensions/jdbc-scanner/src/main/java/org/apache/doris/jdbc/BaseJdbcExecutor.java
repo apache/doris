@@ -17,6 +17,7 @@
 
 package org.apache.doris.jdbc;
 
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.UdfUtils;
@@ -316,7 +317,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                         DruidDataSource ds = new DruidDataSource();
                         ds.setDriverClassLoader(classLoader);
                         ds.setDriverClassName(config.getJdbcDriverClass());
-                        ds.setUrl(config.getJdbcUrl());
+                        ds.setUrl(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()));
                         ds.setUsername(config.getJdbcUser());
                         ds.setPassword(config.getJdbcPassword());
                         ds.setMinIdle(config.getConnectionPoolMinSize()); // default 1
