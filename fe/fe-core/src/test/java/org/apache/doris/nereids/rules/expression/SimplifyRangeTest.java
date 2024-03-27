@@ -187,7 +187,7 @@ public class SimplifyRangeTest {
                 "TA > date '2024-01-05' or TA < date '2024-01-01'");
         assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-01' or TA > date '2024-01-10'",
                 "TA > date '2024-01-01'");
-        assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-01' or TA < date '2024-01-10'", "TA IS NOT NULL");
+        assertRewrite("TA > date '2024-01-05' or TA > date '2024-01-01' or TA < date '2024-01-10'", "cast(TA as date) IS NOT NULL");
         assertRewriteNotNull("TA > date '2024-01-05' or TA > date '2024-01-01' or TA < date '2024-01-10'", "TRUE");
         assertRewrite("TA > date '2024-01-05' and TA > date '2024-01-01' and TA > date '2024-01-10'",
                 "TA > date '2024-01-10'");
@@ -195,7 +195,7 @@ public class SimplifyRangeTest {
                 "TA > date '2024-01-05' and TA < date '2024-01-10'");
         assertRewrite("TA > date '2024-01-05' or TA < date '2024-01-05'",
                 "TA > date '2024-01-05' or TA < date '2024-01-05'");
-        assertRewrite("TA > date '2024-01-01' or TA < date '2024-01-10'", "TA IS NOT NULL");
+        assertRewrite("TA > date '2024-01-01' or TA < date '2024-01-10'", "cast(TA as date) IS NOT NULL");
         assertRewriteNotNull("TA > date '2024-01-01' or TA < date '2024-01-10'", "TRUE");
         assertRewrite("TA > date '2024-01-05' and TA < date '2024-01-10'",
                 "TA > date '2024-01-05' and TA < date '2024-01-10'");
@@ -253,7 +253,7 @@ public class SimplifyRangeTest {
                 "TA > timestamp '2024-01-05 00:00:10' or TA < timestamp '2024-01-01 00:00:10'");
         assertRewrite("TA > timestamp '2024-01-05 00:00:10' or TA > timestamp '2024-01-01 00:00:10' or TA > timestamp '2024-01-10 00:00:10'",
                 "TA > timestamp '2024-01-01 00:00:10'");
-        assertRewrite("TA > timestamp '2024-01-05 00:00:10' or TA > timestamp '2024-01-01 00:00:10' or TA < timestamp '2024-01-10 00:00:10'", "TA IS NOT NULL");
+        assertRewrite("TA > timestamp '2024-01-05 00:00:10' or TA > timestamp '2024-01-01 00:00:10' or TA < timestamp '2024-01-10 00:00:10'", "cast(TA as datetime) IS NOT NULL");
         assertRewriteNotNull("TA > timestamp '2024-01-05 00:00:10' or TA > timestamp '2024-01-01 00:00:10' or TA < timestamp '2024-01-10 00:00:10'", "TRUE");
         assertRewrite("TA > timestamp '2024-01-05 00:00:10' and TA > timestamp '2024-01-01 00:00:10' and TA > timestamp '2024-01-10 00:00:15'",
                 "TA > timestamp '2024-01-10 00:00:15'");
@@ -261,7 +261,7 @@ public class SimplifyRangeTest {
                 "TA > timestamp '2024-01-05 00:00:10' and TA < timestamp '2024-01-10 00:00:10'");
         assertRewrite("TA > timestamp '2024-01-05 00:00:10' or TA < timestamp '2024-01-05 00:00:10'",
                 "TA > timestamp '2024-01-05 00:00:10' or TA < timestamp '2024-01-05 00:00:10'");
-        assertRewrite("TA > timestamp '2024-01-01 00:02:10' or TA < timestamp '2024-01-10 00:02:10'", "TA IS NOT NULL");
+        assertRewrite("TA > timestamp '2024-01-01 00:02:10' or TA < timestamp '2024-01-10 00:02:10'", "cast(TA as datetime) IS NOT NULL");
         assertRewriteNotNull("TA > timestamp '2024-01-01 00:00:00' or TA < timestamp '2024-01-10 00:00:00'", "TRUE");
         assertRewrite("TA > timestamp '2024-01-05 01:00:00' and TA < timestamp '2024-01-10 01:00:00'",
                 "TA > timestamp '2024-01-05 01:00:00' and TA < timestamp '2024-01-10 01:00:00'");
@@ -316,9 +316,7 @@ public class SimplifyRangeTest {
     private void assertRewriteNotNull(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceNotNullUnboundSlot(PARSER.parseExpression(expression), mem);
-        needRewriteExpression = typeCoercion(needRewriteExpression);
         Expression expectedExpression = replaceNotNullUnboundSlot(PARSER.parseExpression(expected), mem);
-        expectedExpression = typeCoercion(expectedExpression);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
