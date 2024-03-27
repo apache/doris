@@ -6046,6 +6046,10 @@ public class Env {
         return statisticsAutoCollector;
     }
 
+    public MasterDaemon getTabletStatMgr() {
+        return tabletStatMgr;
+    }
+
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {
         AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo(), MTMVAlterOpType.ALTER_REFRESH_INFO);
         this.alter.processAlterMTMV(alter, false);
