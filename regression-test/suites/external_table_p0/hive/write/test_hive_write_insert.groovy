@@ -393,7 +393,6 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
 
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}; """)
         hive_docker """ truncate table all_types_${format_compression}; """
-        sql """refresh catalog ${catalog_name};"""
         order_qt_q06 """ select * from all_types_${format_compression};
         """
     }
@@ -445,7 +444,6 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
 
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}; """)
         hive_docker """ truncate table all_types_${format_compression}; """
-        sql """refresh catalog ${catalog_name};"""
         order_qt_q05 """
         select * from all_types_${format_compression};
         """
@@ -527,7 +525,6 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
         """
         order_qt_q01 """ select * from all_types_par_${format_compression}_${catalog_name}_q03;
         """
-        //sql """refresh catalog ${catalog_name};"""
 
         sql """
         INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
@@ -729,21 +726,19 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
         """
         order_qt_q02 """ select * from all_types_par_${format_compression}_${catalog_name}_q03;
         """
-//        disable it temporarily
-//        sql """refresh catalog ${catalog_name};"""
 
-//        sql """
-//        INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
-//        VALUES (
-//          CAST(123.45 AS FLOAT), -- float_col
-//          MAP(CAST(1 AS INT), CAST(10 AS INT)), -- t_map_int
-//          ARRAY(CAST(1.2345 AS DECIMAL(8,4)), CAST(2.3456 AS DECIMAL(8,4))), -- t_array_decimal_precision_8
-//          ARRAY(null, CAST('value1' AS STRING), CAST('value2' AS STRING)), -- t_array_string_starting_with_nulls
-//          20240321 -- dt
-//        );
-//        """
-//        order_qt_q03 """ select * from all_types_par_${format_compression}_${catalog_name}_q03;
-//        """
+        sql """
+        INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
+        VALUES (
+          CAST(123.45 AS FLOAT), -- float_col
+          MAP(CAST(1 AS INT), CAST(10 AS INT)), -- t_map_int
+          ARRAY(CAST(1.2345 AS DECIMAL(8,4)), CAST(2.3456 AS DECIMAL(8,4))), -- t_array_decimal_precision_8
+          ARRAY(null, CAST('value1' AS STRING), CAST('value2' AS STRING)), -- t_array_string_starting_with_nulls
+          20240321 -- dt
+        );
+        """
+        order_qt_q03 """ select * from all_types_par_${format_compression}_${catalog_name}_q03;
+        """
 
         sql """
         insert overwrite table all_types_par_${format_compression}_${catalog_name}_q03
@@ -815,21 +810,19 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
         """
         order_qt_q04 """ select * from all_types_par_${format_compression}_${catalog_name}_q03;
         """
-//        disable it temporarily
-//        sql """refresh catalog ${catalog_name};"""
-//
-//        sql """
-//        INSERT overwrite table all_types_par_${format_compression}_${catalog_name}_q03(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
-//        VALUES (
-//          CAST(123.45 AS FLOAT), -- float_col
-//          MAP(CAST(1 AS INT), CAST(10 AS INT)), -- t_map_int
-//          ARRAY(CAST(1.2345 AS DECIMAL(8,4)), CAST(2.3456 AS DECIMAL(8,4))), -- t_array_decimal_precision_8
-//          ARRAY(null, CAST('value1' AS STRING), CAST('value2' AS STRING)), -- t_array_string_starting_with_nulls
-//          20240321 -- dt
-//        );
-//        """
-//        order_qt_q05 """ select * from all_types_par_${format_compression}_${catalog_name}_q03;
-//        """
+
+        sql """
+        INSERT overwrite table all_types_par_${format_compression}_${catalog_name}_q03(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
+        VALUES (
+          CAST(123.45 AS FLOAT), -- float_col
+          MAP(CAST(1 AS INT), CAST(10 AS INT)), -- t_map_int
+          ARRAY(CAST(1.2345 AS DECIMAL(8,4)), CAST(2.3456 AS DECIMAL(8,4))), -- t_array_decimal_precision_8
+          ARRAY(null, CAST('value1' AS STRING), CAST('value2' AS STRING)), -- t_array_string_starting_with_nulls
+          20240321 -- dt
+        );
+        """
+        order_qt_q05 """ select * from all_types_par_${format_compression}_${catalog_name}_q03;
+        """
 
         logger.info("hive sql: " + """ DROP TABLE IF EXISTS all_types_par_${format_compression}_${catalog_name}_q03; """)
         hive_docker """ DROP TABLE IF EXISTS all_types_par_${format_compression}_${catalog_name}_q03; """
@@ -848,7 +841,6 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
         """
         order_qt_q01 """ select * from all_types_par_${format_compression}_${catalog_name}_q04;
         """
-        //sql """refresh catalog ${catalog_name};"""
 
         sql """
         INSERT INTO all_types_par_${format_compression}_${catalog_name}_q04
@@ -866,24 +858,21 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
         """
         order_qt_q02 """ select * from all_types_par_${format_compression}_${catalog_name}_q04;
         """
-        //sql """refresh catalog ${catalog_name};"""
 
-        //sql """
-        //INSERT INTO all_types_par_${format_compression}_${catalog_name}_q04(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
-        //SELECT float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt FROM all_types_parquet_snappy_src;
-        //"""
-        //order_qt_q03 """ select * from all_types_par_${format_compression}_${catalog_name}_q04;
-        //"""
-        //sql """refresh catalog ${catalog_name};"""
+        sql """
+        INSERT INTO all_types_par_${format_compression}_${catalog_name}_q04(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
+        SELECT float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt FROM all_types_parquet_snappy_src;
+        """
+        order_qt_q03 """ select * from all_types_par_${format_compression}_${catalog_name}_q04;
+        """
 
-        //sql """
-        //INSERT OVERWRITE TABLE all_types_par_${format_compression}_${catalog_name}_q04(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
-        //SELECT float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt FROM all_types_parquet_snappy_src;
-        //"""
-        //order_qt_q04 """
-        //select * from all_types_par_${format_compression}_${catalog_name}_q04;
-        //"""
-        //sql """refresh catalog ${catalog_name};"""
+        sql """
+        INSERT OVERWRITE TABLE all_types_par_${format_compression}_${catalog_name}_q04(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
+        SELECT float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt FROM all_types_parquet_snappy_src;
+        """
+        order_qt_q04 """
+        select * from all_types_par_${format_compression}_${catalog_name}_q04;
+        """
 
         logger.info("hive sql: " + """ DROP TABLE IF EXISTS all_types_par_${format_compression}_${catalog_name}_q04; """)
         hive_docker """ DROP TABLE IF EXISTS all_types_par_${format_compression}_${catalog_name}_q04; """
