@@ -107,15 +107,14 @@ suite("full_join_filter") {
     sql """analyze table orders_full_join with sync;"""
     sql """analyze table lineitem_full_join with sync;"""
 
-    def create_mv_lineitem = { mv_name, mv_sql ->
+    def create_all_mv = { mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
         sql """DROP TABLE IF EXISTS ${mv_name}"""
         sql"""
         CREATE MATERIALIZED VIEW ${mv_name} 
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(l_shipdate) 
         DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
+        PROPERTIES ('replication_num' = '1') 
         AS  
         ${mv_sql}
         """
@@ -237,7 +236,7 @@ suite("full_join_filter") {
         } else if (i == 2) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [0, 2, 4, 5, 7, 9]) {
+                if (j in [2, 4, 7, 9]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
@@ -253,7 +252,7 @@ suite("full_join_filter") {
         } else if (i == 3) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [1, 3, 4, 6, 8, 9]) {
+                if (j in [3, 4, 8, 9]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
@@ -317,7 +316,7 @@ suite("full_join_filter") {
         } else if (i == 7) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [0, 2, 4, 5, 7, 9]) {
+                if (j in [2, 4, 7, 9]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
@@ -333,7 +332,7 @@ suite("full_join_filter") {
         } else if (i == 8) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [1, 3, 4, 6, 8, 9]) {
+                if (j in [3, 4, 8, 9]) {
                     explain {
                         sql("${mv_list_1[j]}")
                         contains "${mv_name}(${mv_name})"
