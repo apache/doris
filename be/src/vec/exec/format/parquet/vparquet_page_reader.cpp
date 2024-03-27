@@ -45,14 +45,12 @@ PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, 
         : _reader(reader), _io_ctx(io_ctx), _start_offset(offset), _end_offset(offset + length) {}
 
 Status PageReader::parse_page_header() {
-    if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
-        return Status::IOError("Out-of-bounds Access");
-    }
-    if (UNLIKELY(_offset != _next_header_offset)) {
-        return Status::IOError("Wrong header position, should seek to a page header first");
-    }
     if (UNLIKELY(_state != INITIALIZED)) {
         return Status::IOError("Should skip or load current page to get next page");
+    }
+
+    if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
+        return Status::IOError("Out-of-bounds Access");
     }
 
     const uint8_t* page_header_buf = nullptr;
