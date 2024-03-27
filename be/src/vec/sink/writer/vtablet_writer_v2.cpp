@@ -432,6 +432,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
+                .storage_vault_id = _t_sink.olap_table_sink.storage_vault_id,
         };
         bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {
