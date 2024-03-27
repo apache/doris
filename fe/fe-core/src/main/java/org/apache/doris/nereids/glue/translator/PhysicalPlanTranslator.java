@@ -1852,9 +1852,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         .map(NamedExpression::toSlot)
                         .collect(Collectors.toList());
                 if (i < layerCount - 1) {
-                    inputPlanNode.addProjectList(projectionExprs);
+                    inputPlanNode.addIntermediateProjectList(projectionExprs);
                     TupleDescriptor projectionTuple = generateTupleDesc(slots, null, context);
-                    inputPlanNode.addOutputTupleDescList(projectionTuple);
+                    inputPlanNode.addIntermediateOutputTupleDescList(projectionTuple);
                 }
                 allProjectionExprs.addAll(projectionExprs);
             }
