@@ -166,15 +166,17 @@ public class TableSchemaAction extends RestBaseController {
                 Column column = baseIter.next();
                 if (column.getName().equalsIgnoreCase(dropColName)) {
                     if (column.isKey()) {
-                        return ResponseEntityBuilder.okWithCommonError("Column " + dropColName
-                                + " is primary key that can't do the light schema change");
+                        return ResponseEntityBuilder.okWithCommonError(
+                                dbName + "." + tableName + " Column " + dropColName
+                                        + " is primary key that can't do the light schema change");
                     }
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                return ResponseEntityBuilder.okWithCommonError("Column does not exists: " + dropColName);
+                return ResponseEntityBuilder.okWithCommonError(dbName + "." + tableName
+                        + " Column does not exists: " + dropColName);
             }
 
             // find column in except base indexes.
@@ -195,8 +197,8 @@ public class TableSchemaAction extends RestBaseController {
                         }
                     }
                     if (containedByMV) {
-                        return ResponseEntityBuilder.okWithCommonError("Column " + dropColName
-                                + " contain mv that can't do the light schema change. "
+                        return ResponseEntityBuilder.okWithCommonError(dbName + "." + tableName
+                                + " Column " + dropColName + " contain mv that can't do the light schema change. "
                                 + "mv = " + table.getIndexNameById(indexIds.get(i)));
                     }
                 }
