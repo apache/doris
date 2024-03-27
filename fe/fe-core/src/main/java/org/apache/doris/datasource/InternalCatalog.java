@@ -103,6 +103,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.catalog.StorageVaultMgr;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -2350,9 +2351,12 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // set storage vault
         String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
+        // If user does not specify one storage vault then FE would use the default vault
         if (storageVaultName != null && !storageVaultName.isEmpty()) {
-            olapTable.setStorageVault(storageVaultName);
+            storageVaultName = env.getStorageVaultMgr().getDefaultStorageVaultName();
         }
+        // If the storage vault is null or empty then it would throw DdlException
+        olapTable.setStorageVault(storageVaultName);
 
         // check `update on current_timestamp`
         if (!enableUniqueKeyMergeOnWrite) {
