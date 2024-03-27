@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/task/engine_index_change_task.h"
+
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 
