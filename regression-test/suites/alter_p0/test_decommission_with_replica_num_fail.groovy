@@ -25,8 +25,8 @@ suite('test_decommission_with_replica_num_fail') {
     def replicaNum = 0
     def targetBackend = null
     for (def be : backends) {
-        def alive = be.Alive == "true"
-        def decommissioned = be.SystemDecommissioned == "true"
+        def alive = be.Alive.toBoolean()
+        def decommissioned = be.SystemDecommissioned.toBoolean()
         if (alive && !decommissioned) {
             replicaNum++
             targetBackend = be
@@ -50,7 +50,7 @@ suite('test_decommission_with_replica_num_fail') {
     try {
         test {
             sql "ALTER SYSTEM DECOMMISSION BACKEND '${targetBackend.Host}:${targetBackend.HeartbeatPort}'"
-            exception "need decrease the partition's replication num"
+            exception "otherwise need to decrease the partition's replication num"
         }
     } finally {
         sql "CANCEL DECOMMISSION BACKEND '${targetBackend.Host}:${targetBackend.HeartbeatPort}'"

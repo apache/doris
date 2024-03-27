@@ -42,6 +42,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.resource.Tag;
@@ -277,7 +278,8 @@ public class SystemHandler extends AlterHandler {
 
     private static void checkDecommissionWithReplicaAllocation(List<Backend> decommissionBackends)
             throws DdlException {
-        if (Config.isCloudMode() || decommissionBackends.isEmpty()) {
+        if (Config.isCloudMode() || decommissionBackends.isEmpty()
+                || DebugPointUtil.isEnable("SystemHandler.decommission_no_check_replica_num")) {
             return;
         }
 
@@ -327,10 +329,11 @@ public class SystemHandler extends AlterHandler {
                             int replicaNum = (int) entry.getValue();
                             int backendNum = tagAvailBackendNums.getOrDefault(tag, 0);
                             if (replicaNum > backendNum) {
-                                throw new DdlException("Partition " + partition.getName() + " of table " + db.getName()
-                                        + "." + tbl.getName() + " 's replication allocation "
-                                        + replicaAlloc + " > available backend num " + backendNum
-                                        + " with tag " + tag + ", need decrease the partition's replication num.");
+                                throw new DdlException("After decommission, partition " + partition.getName()
+                                        + " of table " + db.getName() + "." + tbl.getName()
+                                        + " 's replication allocation { " + replicaAlloc
+                                        + " } > available backend num " + backendNum + " on tag " + tag
+                                        + ", otherwise need to decrease the partition's replication num.");
                             }
                         }
                     }
