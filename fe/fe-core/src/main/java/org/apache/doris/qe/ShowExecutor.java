@@ -742,6 +742,9 @@ public class ShowExecutor {
                     CaseSensibility.TABLE.getCaseSensibility());
         }
         for (TableIf tbl : db.getTables()) {
+            if (showTableStmt.getType() != null && tbl.getType() != showTableStmt.getType()) {
+                continue;
+            }
             if (matcher != null && !matcher.match(tbl.getName())) {
                 continue;
             }
