@@ -465,7 +465,7 @@ public class Config extends ConfigBase {
             "Check the replicas which are doing schema change when publish transaction. Do not turn off this check "
             + " under normal circumstances. It's only temporarily skip check if publish version and schema change have"
             + " dead lock" })
-    public static boolean publish_version_check_alter_replica = false;
+    public static boolean publish_version_check_alter_replica = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {"单个事务 publish 失败打日志间隔",
             "print log interval for publish transaction failed interval"})
