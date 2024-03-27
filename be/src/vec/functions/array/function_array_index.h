@@ -76,7 +76,7 @@ struct ArrayCountEqual {
 
 struct ParamValue {
     PrimitiveType type;
-    StringRef tmp;
+    Field query_value;
 };
 
 template <typename ConcreteAction, bool OldVersion = false>
@@ -105,8 +105,13 @@ public:
         DCHECK(context->get_arg_type(0)->is_array_type());
         // now we only support same
         std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
-        //        Field field;
-        state->tmp = context->get_constant_col(1)->column_ptr->get_data_at(0);
+        Field field;
+        context->get_constant_col(1)->column_ptr->get(0, field);
+        if (field == nullptr) {
+            return Status::InternalError("field is nullptr");
+        } else {
+            state->query_value = field;
+        }
         state->type = context->get_arg_type(1)->type;
         context->set_function_state(scope, state);
         return Status::OK();
@@ -124,7 +129,7 @@ public:
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
         RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, &param_value->tmp,
+                data_type_with_name.first, &param_value->query_value, param_value->type,
                 segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, num_rows, roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL

@@ -74,8 +74,7 @@ public:
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.
     /**
-     * @param name_with_types all columns with name and type in all _common_expr_ctxs_push_down see in SegmentIterator.h.
-     * @param inverted_indexs_iter columns which extracted from _common_expr_ctxs_push_down and has inverted index.
+     * @param colId_invertedIndexIter_mapping contains all column id to inverted index iterator mapping from segmentIterator
      * @param num_rows number of rows in one segment.
      * @param bitmap roaring bitmap to store the result. 0 is present filed by index.
      * @return status not ok means execute failed.
