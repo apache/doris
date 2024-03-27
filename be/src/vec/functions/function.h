@@ -63,10 +63,8 @@ void has_variadic_argument_types(...);
 
 template <typename T>
 concept HasGetVariadicArgumentTypesImpl = requires(T t) {
-                                              {
-                                                  t.get_variadic_argument_types_impl()
-                                                  } -> std::same_as<DataTypes>;
-                                          };
+    { t.get_variadic_argument_types_impl() } -> std::same_as<DataTypes>;
+};
 
 bool have_null_column(const Block& block, const ColumnNumbers& args);
 bool have_null_column(const ColumnsWithTypeAndName& args);
