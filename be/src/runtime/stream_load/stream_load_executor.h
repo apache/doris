@@ -35,13 +35,15 @@ class StreamLoadExecutor {
 public:
     StreamLoadExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
+    virtual ~StreamLoadExecutor() = default;
+
     Status begin_txn(StreamLoadContext* ctx);
 
     Status pre_commit_txn(StreamLoadContext* ctx);
 
     Status operate_txn_2pc(StreamLoadContext* ctx);
 
-    Status commit_txn(StreamLoadContext* ctx);
+    virtual Status commit_txn(StreamLoadContext* ctx);
 
     void get_commit_request(StreamLoadContext* ctx, TLoadTxnCommitRequest& request);
 
