@@ -92,7 +92,7 @@ public:
     Status init();
 
     // Whether the chunk reader has a more page to read.
-    bool has_next_page() const { return _page_reader->has_next_page(); }
+    bool has_next_page() const { return _chunk_parsed_values < _metadata.num_values; }
 
     // Deprecated
     // Seek to the specific page, page_header_offset must be the start offset of the page header.
@@ -105,7 +105,7 @@ public:
     // [[deprecated]]
     void seek_to_page(int64_t page_header_offset) {
         _remaining_num_values = 0;
-        _page_reader->seek_to_page(page_header_offset);
+        _page_reader->seek_page(page_header_offset);
         _state = INITIALIZED;
     }
 
@@ -116,8 +116,9 @@ public:
     Status skip_page() {
         Status res = Status::OK();
         _remaining_num_values = 0;
-        res = _page_reader->skip_page();
-        // TODO: PAGE_SKIPPED is unused
+        if (_state == HEADER_PARSED) {
+            res = _page_reader->skip_page();
+        }
         _state = PAGE_SKIPPED;
         return res;
     }
@@ -194,7 +195,6 @@ private:
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
 
     ColumnChunkReaderState _state = NOT_INIT;
-    bool _has_dict_parsed = false;
     FieldSchema* _field_schema = nullptr;
     level_t _max_rep_level;
     level_t _max_def_level;
@@ -202,7 +202,7 @@ private:
 
     io::BufferedStreamReader* _stream_reader = nullptr;
     tparquet::ColumnMetaData _metadata;
-    const tparquet::OffsetIndex* _offset_index;
+    const tparquet::OffsetIndex* _offset_index = nullptr;
     //    cctz::time_zone* _ctz;
     io::IOContext* _io_ctx = nullptr;
 
@@ -211,6 +211,7 @@ private:
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
+    size_t _chunk_parsed_values = 0;
     uint32_t _remaining_num_values = 0;
     Slice _page_data;
     std::unique_ptr<uint8_t[]> _decompress_buf;
