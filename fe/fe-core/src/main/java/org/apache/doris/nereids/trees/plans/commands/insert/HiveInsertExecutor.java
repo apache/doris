@@ -17,13 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -36,6 +34,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.THivePartitionUpdate;
+import org.apache.doris.transaction.ExternalTransaction;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
@@ -69,7 +68,14 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     public void beginTransaction() {
-        // TODO: use hive txn rather than internal txn
+        txnId = Env.getExternalTransactionManager().getNextTransactionId();
+        ExternalTransaction externalTransaction = new ExternalTransaction(
+                txnId,
+                ((HMSExternalTable) table).getCatalog().getMetadataOps(),
+                ((HMSExternalTable) table).getDbName(),
+                table.getName()
+            );
+        Env.getExternalTransactionManager().beginTransaction(txnId, externalTransaction);
     }
 
     @Override
@@ -86,6 +92,7 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
     @Override
     protected void beforeExec() {
         // check params
+        Env.getExternalTransactionManager().beginInsert(txnId);
     }
 
     @Override
@@ -93,17 +100,16 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
         } else {
-            // TODO use transaction
             List<THivePartitionUpdate> ups = coordinator.getHivePartitionUpdates();
-            ExternalCatalog catalog = ((HMSExternalTable) table).getCatalog();
-            ExternalMetadataOps metadataOps = catalog.getMetadataOps();
-            ((HiveMetadataOps) metadataOps).commit(((HMSExternalTable) table).getDbName(), table.getName(), ups);
+            Env.getExternalTransactionManager().finishInsert(txnId, ups);
+            Env.getExternalTransactionManager().commit(txnId);
             txnStatus = TransactionStatus.COMMITTED;
         }
     }
 
     @Override
     protected void onFail(Throwable t) {
+        Env.getExternalTransactionManager().rollback(txnId);
         errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
