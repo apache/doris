@@ -200,6 +200,7 @@ fi
 
 echo "===== Run Regression Test ====="
 
+# if use jdk17, add java option "--add-opens=java.base/java.nio=ALL-UNNAMED"
 if [[ "${TEAMCITY}" -eq 1 ]]; then
     JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
 fi
@@ -209,7 +210,6 @@ fi
     -Dfile.encoding="UTF-8" \
     -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
     ${JAVA_OPTS:+${JAVA_OPTS}} \
-    --add-opens=java.base/java.nio=ALL-UNNAMED \
     -jar ${RUN_JAR:+${RUN_JAR}} \
     -cf "${CONFIG_FILE}" \
     ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
