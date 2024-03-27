@@ -156,8 +156,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected int nereidsId = -1;
 
     private List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
-    private List<TupleDescriptor> outputTupleDescList = Lists.newArrayList();
-    private List<List<Expr>> projectListList = Lists.newArrayList();
+    private List<TupleDescriptor> intermediateOutputTupleDescList = Lists.newArrayList();
+    private List<List<Expr>> intermediateProjectListList = Lists.newArrayList();
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
@@ -544,13 +544,13 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             expBuilder.append(detailPrefix).append("final project output tuple id: ")
                     .append(outputTupleDesc.getId().asInt()).append("\n");
         }
-        if (!projectListList.isEmpty()) {
-            int layers = projectListList.size();
+        if (!intermediateProjectListList.isEmpty()) {
+            int layers = intermediateProjectListList.size();
             for (int i = layers - 1; i >= 0; i--) {
                 expBuilder.append(detailPrefix).append("intermediate projections: ")
-                        .append(getExplainString(projectListList.get(i))).append("\n");
+                        .append(getExplainString(intermediateProjectListList.get(i))).append("\n");
                 expBuilder.append(detailPrefix).append("intermediate tuple id: ")
-                        .append(outputTupleDescList.get(i).getId().asInt()).append("\n");
+                        .append(intermediateOutputTupleDescList.get(i).getId().asInt()).append("\n");
             }
         }
         if (!CollectionUtils.isEmpty(childrenDistributeExprLists)) {
@@ -673,20 +673,17 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
                 }
             }
         }
-        if (outputTupleDescList != null && ! outputTupleDescList.isEmpty()) {
-            outputTupleDescList
-                    .forEach(tupleDescriptor -> msg.addToOutputTupleIdList(tupleDescriptor.getId().asInt()));
-            // hashJoinNode.outputTupleDesc is null, its counterpart is vOutputTupleDesc
-            if (outputTupleDesc != null) {
-                msg.addToOutputTupleIdList(outputTupleDesc.getId().asInt());
-            }
-            if (projectList != null) {
-                projectListList.forEach(
-                        projectList -> msg.addToProjectionsList(
-                                projectList.stream().map(expr -> expr.treeToThrift()).collect(Collectors.toList())));
-                msg.addToProjectionsList(projectList.stream()
-                        .map(expr -> expr.treeToThrift()).collect(Collectors.toList()));
-            }
+
+        if (!intermediateOutputTupleDescList.isEmpty()) {
+            intermediateOutputTupleDescList
+                    .forEach(
+                            tupleDescriptor -> msg.addToIntermediateOutputTupleIdList(tupleDescriptor.getId().asInt()));
+        }
+
+        if (!intermediateProjectListList.isEmpty()) {
+            intermediateProjectListList.forEach(
+                    projectList -> msg.addToIntermediateProjectionsList(
+                            projectList.stream().map(expr -> expr.treeToThrift()).collect(Collectors.toList())));
         }
 
         if (this instanceof ExchangeNode) {
@@ -1251,11 +1248,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.nereidsId = nereidsId;
     }
 
-    public void addOutputTupleDescList(TupleDescriptor tupleDescriptor) {
-        outputTupleDescList.add(tupleDescriptor);
+    public void addIntermediateOutputTupleDescList(TupleDescriptor tupleDescriptor) {
+        intermediateOutputTupleDescList.add(tupleDescriptor);
     }
 
-    public void addProjectList(List<Expr> exprs) {
-        projectListList.add(exprs);
+    public void addIntermediateProjectList(List<Expr> exprs) {
+        intermediateProjectListList.add(exprs);
     }
 }
