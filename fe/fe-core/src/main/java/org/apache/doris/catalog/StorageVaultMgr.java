@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateStorageVaultStmt;
-import org.apache.doris.analysis.SetDefaultStotageVaultStmt;
+import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
@@ -60,7 +60,7 @@ public class StorageVaultMgr {
     }
 
     @VisibleForTesting
-    public void setDefaultStorageVault(SetDefaultStotageVaultStmt stmt) throws DdlException {
+    public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
         Cloud.GetObjStoreInfoRequest.Builder builder = Cloud.GetObjStoreInfoRequest.newBuilder();
         String newDefaultStorageVaultName;
         try {
