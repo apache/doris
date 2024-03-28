@@ -275,7 +275,11 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             scan_task->cached_blocks.back()->rows() + free_block->rows() <= ctx->batch_size()) {
             size_t block_size = scan_task->cached_blocks.back()->allocated_bytes();
             vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().get());
-            static_cast<void>(mutable_block.merge(*free_block));
+            status = mutable_block.merge(*free_block);
+            if (!status.ok()) {
+                LOG(WARNING) << "Block merge failed: " << status.to_string();
+                break;
+            }
             scan_task->cached_blocks.back().get()->set_columns(
                     std::move(mutable_block.mutable_columns()));
             ctx->return_free_block(std::move(free_block));
