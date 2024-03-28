@@ -130,16 +130,9 @@ partitionSpec
     ;
 
 partitionTable
-    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST)? partitionList=identityOrFunctionList
-       (LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN))
-    ;
-
-identityOrFunctionList
-    : LEFT_PAREN identityOrFunction (COMMA partitions+=identityOrFunction)* RIGHT_PAREN
-    ;
-
-identityOrFunction
-    : (identifier | functionCallExpression)
+    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST)
+        (partitionColumns=identifierList | functionCallExpression)
+        (LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN))
     ;
 
 dataDesc
