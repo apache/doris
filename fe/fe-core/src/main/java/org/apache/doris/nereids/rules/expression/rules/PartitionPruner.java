@@ -98,7 +98,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public List<Long> prune() {
         Builder<Long> scanPartitionIds = ImmutableList.builder();
         for (OnePartitionEvaluator partition : partitions) {
-            if (!canPrune(partition)) {
+            if (!canBePrunedOut(partition)) {
                 scanPartitionIds.add(partition.getPartitionId());
             }
         }
@@ -143,14 +143,19 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
-    private boolean canPrune(OnePartitionEvaluator evaluator) {
+    /**
+     * return true if partition is not qualified. that is, can be pruned out.
+     */
+    private boolean canBePrunedOut(OnePartitionEvaluator evaluator) {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
         for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
+            // evaluate wether there's possible for this partition to accept this predicate
             Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
             if (!result.equals(BooleanLiteral.FALSE) && !(result instanceof NullLiteral)) {
                 return false;
             }
         }
+        // only have false result: Can be pruned out. have other exprs: CanNot be pruned out
         return true;
     }
 }

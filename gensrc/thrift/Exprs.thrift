@@ -191,6 +191,11 @@ struct TStringLiteral {
   1: required string value;
 }
 
+struct TNullableStringLiteral {
+  1: optional string value;
+  2: optional bool is_null = false;
+}
+
 struct TJsonLiteral {
   1: required string value;
 }
