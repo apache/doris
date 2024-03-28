@@ -170,6 +170,9 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
         if (revocable_mem_size(state) > 0) {
             RETURN_IF_ERROR(revoke_memory(state));
         } else {
+            for (auto& partition : local_state._shared_state->spill_partitions) {
+                RETURN_IF_ERROR(partition->finish_current_spilling(eos));
+            }
             local_state._dependency->set_ready_to_read();
         }
     }
