@@ -31,21 +31,21 @@ public enum Privilege {
             "GLOBAL,CATALOG,DATABASE,TABLE,RESOURCE,WORKLOAD GROUP"),
     SELECT_PRIV("Select_priv", 3, "Privilege for select data in tables", "GLOBAL,CATALOG,DATABASE,TABLE"),
     LOAD_PRIV("Load_priv", 4, "Privilege for loading data into tables", "GLOBAL,CATALOG,DATABASE,TABLE"),
-    ALTER_PRIV("Alter_priv", 5, "Privilege for alter database or table", "GLOBAL,CATALOG,DATABASE,TABLE"),
-    CREATE_PRIV("Create_priv", 6, "Privilege for creating database or table", "GLOBAL,CATALOG,DATABASE,TABLE"),
-    DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table", "GLOBAL,CATALOG,DATABASE,TABLE"),
+    ALTER_PRIV("Alter_priv", 5, "Privilege for alter catalog, database or table", "GLOBAL,CATALOG,DATABASE,TABLE"),
+    CREATE_PRIV("Create_priv", 6, "Privilege for creating catalog, database or table", "GLOBAL,CATALOG,DATABASE,TABLE"),
+    DROP_PRIV("Drop_priv", 7, "Privilege for dropping catalog, database or table", "GLOBAL,CATALOG,DATABASE,TABLE"),
     USAGE_PRIV("Usage_priv", 8, "Privilege for using resource or workloadGroup", "RESOURCE,WORKLOAD GROUP"),
     // in doris code < VERSION_130
-    SHOW_VIEW_PRIV_DEPRECATED("show_view_priv", 9, "Privilege for show create view", ""),
+    SHOW_VIEW_PRIV_DEPRECATED("Show_view_priv", 9, "Privilege for show create view", ""),
 
     // in cloud code < VERSION_130
-    CLUSTER_USAGE_PRIV_DEPRECATED("Cluster_Usage_priv", 9, "Privilege for using cluster", ""),
-    STAGE_USAGE_PRIV_DEPRECATED("Stage_Usage_priv", 10, "Privilege for using stage", ""),
+    CLUSTER_USAGE_PRIV_DEPRECATED("Cluster_usage_priv", 9, "Privilege for using cluster", ""),
+    STAGE_USAGE_PRIV_DEPRECATED("Stage_usage_priv", 10, "Privilege for using stage", ""),
     SHOW_VIEW_PRIV_CLOUD_DEPRECATED("Show_view_priv", 11, "Privilege for show create view", ""),
     // compatible doris and cloud, and 9 ~ 11 has been contaminated
-    CLUSTER_USAGE_PRIV("Cluster_Usage_priv", 12, "Privilege for using cluster", "RESOURCE"),
+    CLUSTER_USAGE_PRIV("Cluster_usage_priv", 12, "Privilege for using cluster", "RESOURCE"),
     // 13 placeholder for stage
-    STAGE_USAGE_PRIV("Stage_Usage_priv", 13, "Privilege for using stage", "RESOURCE"),
+    STAGE_USAGE_PRIV("Stage_usage_priv", 13, "Privilege for using stage", "RESOURCE"),
     SHOW_VIEW_PRIV("Show_view_priv", 14, "Privilege for show create view", "GLOBAL,CATALOG,DATABASE,TABLE");
 
     public static final Map<Integer, Privilege> privileges;
