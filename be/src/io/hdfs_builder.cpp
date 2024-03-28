@@ -46,7 +46,7 @@ Status HDFSCommonBuilder::run_kinit() {
     if (hdfs_kerberos_principal.empty() || hdfs_kerberos_keytab.empty()) {
         return Status::InvalidArgument("Invalid hdfs_kerberos_principal or hdfs_kerberos_keytab");
     }
-    std::string ticket_path = TICKET_CACHE_PATH + generate_uuid_string();
+    ticket_path = TICKET_CACHE_PATH + generate_uuid_string();
     const char* krb_home = getenv("KRB_HOME");
     std::string krb_home_str(krb_home ? krb_home : "");
     fmt::memory_buffer kinit_command;
