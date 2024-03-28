@@ -320,9 +320,9 @@ public class CreateMTMVInfo {
 
     private void analyzeBaseTables(Plan plan) {
         TableCollectorContext collectorContext =
-                new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.MATERIALIZED_VIEW));
+                new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.MATERIALIZED_VIEW), true);
         plan.accept(TableCollector.INSTANCE, collectorContext);
-        List<TableIf> collectedTables = collectorContext.getCollectedTables();
+        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         if (!CollectionUtils.isEmpty(collectedTables)) {
             throw new AnalysisException("can not contain MATERIALIZED_VIEW");
         }
