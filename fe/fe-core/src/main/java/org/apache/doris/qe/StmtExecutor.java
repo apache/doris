@@ -117,6 +117,7 @@ import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
+import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -1406,10 +1407,12 @@ public class StmtExecutor {
         }
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
-        Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
-        if (resultSet.isPresent()) {
-            sendResultSet(resultSet.get());
-            return;
+        if (context.getCommand() != MysqlCommand.COM_STMT_EXECUTE) {
+            Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
+            if (resultSet.isPresent()) {
+                sendResultSet(resultSet.get());
+                return;
+            }
         }
 
         MysqlChannel channel = context.getMysqlChannel();
@@ -2142,19 +2145,24 @@ public class StmtExecutor {
 
     private void sendStmtPrepareOK() throws IOException {
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
+        SelectStmt selectStmt = (SelectStmt) prepareStmt.getInnerStmt();
         serializer.reset();
         // 0x00 OK
         serializer.writeInt1(0);
         // statement_id
         serializer.writeInt4(Integer.valueOf(prepareStmt.getName()));
         // num_columns
-        int numColumns = 0;
+        int numColumns = selectStmt.getResultExprs().size();
         serializer.writeInt2(numColumns);
         // num_params
         int numParams = prepareStmt.getColLabelsOfPlaceHolders().size();
         serializer.writeInt2(numParams);
         // reserved_1
         serializer.writeInt1(0);
+        // warning_count
+        serializer.writeInt2(0);
+        // metadata follows
+        serializer.writeInt1(1);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             // send field one by one
@@ -2168,13 +2176,37 @@ public class StmtExecutor {
                 serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
+            serializer.reset();
+            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                eofPacket.writeTo(serializer);
+            } else {
+                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                okPacket.writeTo(serializer);
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
-        // send EOF if nessessary
-        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-            context.getState().setEof();
-        } else {
-            context.getState().setOk();
+        if (numColumns > 0) {
+            List<String> colNames = selectStmt.getColLabels();
+            List<Type> types = exprToType(selectStmt.getResultExprs());
+            for (int i = 0; i < colNames.size(); ++i) {
+                serializer.reset();
+                serializer.writeField(colNames.get(i), types.get(i));
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
+            serializer.reset();
+            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                eofPacket.writeTo(serializer);
+            } else {
+                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                okPacket.writeTo(serializer);
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
+
+        context.getMysqlChannel().flush();
+        context.getState().setNoop();
     }
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {
@@ -2186,7 +2218,7 @@ public class StmtExecutor {
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            if (prepareStmt != null && isExecuteStmt) {
+            if (prepareStmt != null && isExecuteStmt && prepareStmt.isPointQuery()) {
                 // Using PreparedStatment pre serializedField to avoid serialize each time
                 // we send a field
                 byte[] serializedField = prepareStmt.getSerializedField(colNames.get(i));

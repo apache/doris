@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
@@ -106,6 +107,7 @@ public class ShowVariablesStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(tableName, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
+        selectStmt.setOrigStmt(new OriginStatement(selectStmt.toSql(), getOrigStmt().idx));
         LOG.debug("select stmt is {}", selectStmt.toSql());
 
         // DB: type

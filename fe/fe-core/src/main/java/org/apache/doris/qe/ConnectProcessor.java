@@ -242,7 +242,7 @@ public class ConnectProcessor {
         String stmtStr = "";
         try {
             // new_params_bind_flag
-            if ((int) packetBuf.get() != 0) {
+            if (packetBuf.hasRemaining() && (int) packetBuf.get() != 0) {
                 // parse params's types
                 for (int i = 0; i < paramCount; ++i) {
                     int typeCode = packetBuf.getChar();
@@ -263,7 +263,7 @@ public class ConnectProcessor {
             }
             ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
             // TODO set real origin statement
-            executeStmt.setOrigStmt(new OriginStatement("null", 0));
+            executeStmt.setOrigStmt(new OriginStatement(prepareCtx.stmt.getInnerStmt().toSql(), 0));
             executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
             LOG.debug("executeStmt {}", executeStmt);
             executor = new StmtExecutor(ctx, executeStmt);

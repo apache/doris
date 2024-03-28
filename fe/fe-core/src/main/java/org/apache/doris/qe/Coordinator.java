@@ -36,6 +36,8 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -276,6 +278,8 @@ public class Coordinator implements CoordInterface {
     // True if all scan node are ExternalScanNode.
     private boolean isAllExternalScan = true;
 
+    private boolean isBinaryRow = false;
+
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
             StatsErrorEstimator statsErrorEstimator) {
@@ -319,6 +323,10 @@ public class Coordinator implements CoordInterface {
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.executionProfile = new ExecutionProfile(queryId, fragments.size());
         this.maxMsgSizeOfResultReceiver = context.getSessionVariable().getMaxMsgSizeOfResultReceiver();
+
+        if (context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            this.isBinaryRow = true;
+        }
     }
 
     // Used for broker load task/export task/update coordinator
@@ -567,6 +575,10 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
+            if (topDataSink instanceof ResultSink && isBinaryRow) {
+                ResultSink resultSink = (ResultSink) topDataSink;
+                resultSink.setBinaryRow(true);
+            }
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline,
