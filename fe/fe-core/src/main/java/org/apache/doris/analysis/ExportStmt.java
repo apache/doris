@@ -106,7 +106,7 @@ public class ExportStmt extends StatementBase {
     private String maxFileSize;
     private String deleteExistingFiles;
     private String withBom;
-    private String dataConsistency;
+    private String dataConsistency = ExportJob.CONSISTENT_PARTITION;
     private SessionVariable sessionVariables;
 
     private String qualifiedUser;
@@ -365,14 +365,15 @@ public class ExportStmt extends StatementBase {
         this.withBom = properties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false");
 
         // data consistency
-        String dataConsistencyStr = properties.get(DATA_CONSISTENCY);
-        if (dataConsistencyStr != null) {
-            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_NONE)) {
-                throw new UserException("The value of data_consistency is invalid, only `none` is allowed");
+        if (properties.containsKey(DATA_CONSISTENCY)) {
+            String dataConsistencyStr = properties.get(DATA_CONSISTENCY);
+            if (ExportJob.CONSISTENT_NONE.equalsIgnoreCase(dataConsistencyStr)) {
+                this.dataConsistency = ExportJob.CONSISTENT_NONE;
+            } else if (ExportJob.CONSISTENT_PARTITION.equalsIgnoreCase(dataConsistencyStr)) {
+                this.dataConsistency = ExportJob.CONSISTENT_PARTITION;
+            } else {
+
             }
-            this.dataConsistency = ExportJob.CONSISTENT_NONE;
-        } else {
-            this.dataConsistency = ExportJob.CONSISTENT_PARTITION;
         }
     }
 

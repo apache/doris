@@ -313,14 +313,16 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
 
         // set data consistency
-        String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
-        if (dataConsistencyStr != null) {
-            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_NONE)) {
-                throw new AnalysisException("The value of data_consistency is invalid, only `none` is allowed!");
+        if (fileProperties.containsKey(DATA_CONSISTENCY)) {
+            String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
+            if (ExportJob.CONSISTENT_NONE.equalsIgnoreCase(dataConsistencyStr)) {
+                exportJob.setDataConsistency(ExportJob.CONSISTENT_NONE);
+            } else if (ExportJob.CONSISTENT_PARTITION.equalsIgnoreCase(dataConsistencyStr)) {
+                exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
+            } else {
+                throw new AnalysisException("The value of data_consistency is invalid, please use `"
+                        + ExportJob.CONSISTENT_PARTITION + "`/`" + ExportJob.CONSISTENT_NONE + "`");
             }
-            exportJob.setDataConsistency(ExportJob.CONSISTENT_NONE);
-        } else {
-            exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
         }
 
         // Must copy session variable, because session variable may be changed during export job running.
