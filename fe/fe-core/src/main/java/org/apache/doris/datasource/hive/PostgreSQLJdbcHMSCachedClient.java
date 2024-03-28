@@ -468,7 +468,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     private String getStringResult(ResultSet rs, String columnLabel) throws Exception {
         String s = rs.getString(columnLabel);
         if (rs.wasNull()) {
-            LOG.warn("get `NULL` value of field `" + columnLabel + "`.");
+            LOG.debug("get `NULL` value of field `" + columnLabel + "`.");
             return "";
         }
         return s;
