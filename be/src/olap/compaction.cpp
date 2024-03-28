@@ -110,7 +110,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
 
 Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
         : _mem_tracker(
-                  std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label)),
+                  MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
           _is_vertical(config::enable_vertical_compaction),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {

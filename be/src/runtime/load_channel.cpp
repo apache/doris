@@ -25,8 +25,10 @@
 #include "cloud/config.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -40,6 +42,17 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
           _sender_ip(sender_ip),
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
+    std::shared_ptr<QueryContext> query_context =
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(_load_id.to_thrift());
+    if (query_context != nullptr) {
+        _query_thread_context = {_load_id.to_thrift(), query_context->query_mem_tracker};
+    } else {
+        _query_thread_context = {
+                _load_id.to_thrift(),
+                MemTrackerLimiter::create_shared(
+                        MemTrackerLimiter::Type::LOAD,
+                        fmt::format("(FromLoadChannel)Load#Id={}", _load_id.to_string()))};
+    }
     g_loadchannel_cnt << 1;
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
@@ -81,6 +94,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                 "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
                 params.txn_expiration());
     }
+    SCOPED_ATTACH_TASK(_query_thread_context);
 
     int64_t index_id = params.index_id();
     std::shared_ptr<BaseTabletsChannel> channel;
@@ -143,6 +157,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
+    SCOPED_ATTACH_TASK(_query_thread_context);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<BaseTabletsChannel> channel;

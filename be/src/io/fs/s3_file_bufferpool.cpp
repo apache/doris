@@ -31,6 +31,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/fs/s3_common.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
 #include "vec/common/arena.h"
@@ -85,7 +86,10 @@ FileBuffer::FileBuffer(BufferType type, std::function<FileBlocksHolderPtr()> all
           _inner_data(std::make_unique<FileBuffer::PartData>()),
           _capacity(_inner_data->size()) {}
 
-FileBuffer::~FileBuffer() = default;
+FileBuffer::~FileBuffer() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+    _inner_data.reset();
+}
 /**
  * 0. check if file cache holder allocated
  * 1. update the cache's type to index cache
@@ -252,6 +256,7 @@ FileBufferBuilder& FileBufferBuilder::set_allocate_file_blocks_holder(
 }
 
 Status FileBufferBuilder::build(std::shared_ptr<FileBuffer>* buf) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->s3_file_buffer_tracker());
     OperationState state(_sync_after_complete_task, _is_cancelled);
 
     if (_type == BufferType::UPLOAD) {

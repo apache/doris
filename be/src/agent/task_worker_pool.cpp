@@ -179,7 +179,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
-        auto mem_tracker = std::make_shared<MemTrackerLimiter>(
+        auto mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
@@ -247,7 +247,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     TTabletId new_tablet_id = 0;
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
-        auto mem_tracker = std::make_shared<MemTrackerLimiter>(
+        auto mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),

@@ -88,6 +88,7 @@ class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class BlockSpillManager;
 class BackendServiceClient;
+class ThreadContext;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -142,6 +143,7 @@ public:
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
+    static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
@@ -164,12 +166,27 @@ public:
         return nullptr;
     }
 
+    ThreadContext* env_thread_context() { return _env_thread_context; }
+    // Save all MemTrackerLimiters in use.
+    // Each group corresponds to several MemTrackerLimiters and has a lock.
+    // Multiple groups are used to reduce the impact of locks.
+    std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
     void init_mem_tracker();
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
-    MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
+    MemTrackerLimiter* details_mem_tracker_set() { return _details_mem_tracker_set.get(); }
     std::shared_ptr<MemTracker> page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker; }
     MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
+    std::shared_ptr<MemTrackerLimiter> segcompaction_mem_tracker() {
+        return _segcompaction_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> rowid_storage_reader_tracker() {
+        return _rowid_storage_reader_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> subcolumns_tree_tracker() {
+        return _subcolumns_tree_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> s3_file_buffer_tracker() { return _s3_file_buffer_tracker; }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* buffered_reader_prefetch_thread_pool() {
@@ -295,6 +312,7 @@ private:
     void _deregister_metrics();
 
     inline static std::atomic_bool _s_ready {false};
+    inline static std::atomic_bool _s_tracking_memory {false};
     std::vector<StorePath> _store_paths;
     std::vector<StorePath> _spill_store_paths;
 
@@ -309,6 +327,7 @@ private:
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
 
+    ThreadContext* _env_thread_context = nullptr;
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
     // by default all consumption will be passed to the process tracker through the orphan tracker.
     // In real time, `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`.
@@ -316,10 +335,17 @@ private:
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw = nullptr;
-    std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _details_mem_tracker_set;
     // page size not in cache, data page/index page/etc.
     std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
     std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
+    // Count the memory consumption of segment compaction tasks.
+    std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
+
+    // TODO, looking forward to more accurate tracking.
+    std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
+    std::shared_ptr<MemTrackerLimiter> _subcolumns_tree_tracker;
+    std::shared_ptr<MemTrackerLimiter> _s3_file_buffer_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
