@@ -118,15 +118,6 @@ int64_t WorkloadGroup::memory_used() {
     return used_memory;
 }
 
-std::unordered_set<std::shared_ptr<MemTrackerLimiter>> WorkloadGroup::get_all_mem_trackers() {
-    std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
-    for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
-        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
-        trackers.insert(mem_tracker_group.trackers.cbegin(), mem_tracker_group.trackers.cend());
-    }
-    return trackers;
-}
-
 void WorkloadGroup::set_weighted_memory_used(int64_t wg_total_mem_used, double ratio) {
     _weighted_mem_used.store(wg_total_mem_used * ratio, std::memory_order_relaxed);
 }

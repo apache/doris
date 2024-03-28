@@ -307,21 +307,23 @@ Status PipelineXTask::execute(bool* eos) {
 
 bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes) {
     auto* query_ctx = state->get_query_ctx();
-    bool need_revoke = query_ctx->query_mem_tracker->need_revoke();
+    bool need_revoke = query_ctx->need_revoke();
     if (!need_revoke) {
         return false;
     }
 
     const auto min_revocable_mem_bytes = state->min_revocable_mem();
 
-    auto tg = query_ctx->workload_group();
-    bool is_tg_mem_low_water_mark = false;
-    bool is_tg_mem_high_water_mark = false;
-    if (tg) {
-        tg->check_mem_used(is_tg_mem_low_water_mark, is_tg_mem_high_water_mark);
+    auto wg = query_ctx->workload_group();
+    if (!wg) {
+        LOG_ONCE(INFO) << "no workload group for query " << print_id(state->query_id());
+        return false;
     }
-    if (is_tg_mem_high_water_mark) {
-        if (revocable_mem_bytes > 1024 * 1024) {
+    bool is_wg_mem_low_water_mark = false;
+    bool is_wg_mem_high_water_mark = false;
+    wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
+    if (is_wg_mem_high_water_mark) {
+        if (revocable_mem_bytes > 0) {
             LOG_EVERY_N(INFO, 5) << "revoke memory, hight water mark";
             return true;
         }
@@ -330,8 +332,7 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
 
     int64_t query_weighted_limit = 0;
     int64_t query_weighted_consumption = 0;
-    query_ctx->query_mem_tracker->get_weighted_mem_info(query_weighted_limit,
-                                                        query_weighted_consumption);
+    query_ctx->get_weighted_mem_info(query_weighted_limit, query_weighted_consumption);
     auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
     DCHECK(big_memory_operator_num >= 0);
     int64_t mem_limit_of_op;

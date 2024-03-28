@@ -39,6 +39,7 @@ class RuntimeProfile;
 class ThreadPool;
 class ExecEnv;
 class CgroupCpuCtl;
+class QueryContext;
 
 namespace vectorized {
 class SimplifiedScanScheduler;
@@ -87,18 +88,16 @@ public:
 
     void set_weighted_memory_used(int64_t wg_total_mem_used, double ratio);
 
-    std::unordered_set<std::shared_ptr<MemTrackerLimiter>> get_all_mem_trackers();
-
     int64_t get_weighted_memory_used() {
         return _weighted_mem_used.load(std::memory_order_relaxed);
     }
 
-    void check_mem_used(bool& is_low_wartermark, bool& is_high_wartermark) {
+    void check_mem_used(bool* is_low_wartermark, bool* is_high_wartermark) const {
         auto weighted_mem_used = _weighted_mem_used.load(std::memory_order_relaxed);
-        is_low_wartermark =
+        *is_low_wartermark =
                 (weighted_mem_used > ((double)_memory_limit *
                                       _spill_low_watermark.load(std::memory_order_relaxed) / 100));
-        is_high_wartermark =
+        *is_high_wartermark =
                 (weighted_mem_used > ((double)_memory_limit *
                                       _spill_high_watermark.load(std::memory_order_relaxed) / 100));
     }
@@ -118,7 +117,7 @@ public:
         return _memory_limit > 0;
     }
 
-    Status add_query(TUniqueId query_id) {
+    Status add_query(TUniqueId query_id, std::shared_ptr<QueryContext> query_ctx) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         if (_is_shutdown) {
             // If the workload group is set shutdown, then should not run any more,
@@ -127,13 +126,13 @@ public:
                     "Failed add query to workload group, the workload group is shutdown. host: {}",
                     BackendOptions::get_localhost());
         }
-        _query_id_set.insert(query_id);
+        _query_ctxs.insert({query_id, query_ctx});
         return Status::OK();
     }
 
     void remove_query(TUniqueId query_id) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
-        _query_id_set.erase(query_id);
+        _query_ctxs.erase(query_id);
     }
 
     void shutdown() {
@@ -143,7 +142,7 @@ public:
 
     int query_num() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _query_id_set.size();
+        return _query_ctxs.size();
     }
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
@@ -156,6 +155,11 @@ public:
                              vectorized::SimplifiedScanScheduler** remote_scan_sched);
 
     void try_stop_schedulers();
+
+    std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> queries() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _query_ctxs;
+    }
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
@@ -178,7 +182,7 @@ private:
     // new query can not submit
     // waiting running query to be cancelled or finish
     bool _is_shutdown = false;
-    std::unordered_set<TUniqueId> _query_id_set;
+    std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctxs;
 
     std::shared_mutex _task_sched_lock;
     std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
