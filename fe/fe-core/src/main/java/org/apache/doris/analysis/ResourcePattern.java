@@ -22,6 +22,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -34,7 +35,7 @@ import java.io.IOException;
 // only the following 2 formats are allowed
 // *
 // resource
-public class ResourcePattern implements Writable {
+public class ResourcePattern implements Writable, GsonPostProcessable {
     @SerializedName(value = "resourceName")
     private String resourceName;
 
@@ -131,6 +132,7 @@ public class ResourcePattern implements Writable {
         return GsonUtils.GSON.fromJson(json, ResourcePattern.class);
     }
 
+    @Override
     public void gsonPostProcess() throws IOException {
         // // To be compatible with previous syntax
         if ("*".equals(resourceName)) {
