@@ -66,13 +66,7 @@ PhysicalResultSink
 
 -- !filter_join_inner --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------filter((t1.id = 1) and (t1.id = 2))
---------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecHash]
---------filter((t2.id = 1) and (t2.id = 2))
-----------PhysicalOlapScan[t2]
+--PhysicalEmptyRelation
 
 -- !filter_join_inner --
 PhysicalResultSink
@@ -94,13 +88,7 @@ PhysicalResultSink
 
 -- !filter_join_left --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------filter((t1.id = 1) and (t1.id = 2))
---------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecHash]
---------filter((t2.id = 1) and (t2.id = 2))
-----------PhysicalOlapScan[t2]
+--PhysicalEmptyRelation
 
 -- !filter_join_left --
 PhysicalResultSink
@@ -133,13 +121,7 @@ PhysicalResultSink
 
 -- !filter_join_left --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------filter((t1.id = 1) and (t1.id = 2))
---------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecHash]
---------filter((t2.id = 1) and (t2.id = 2))
-----------PhysicalOlapScan[t2]
+--PhysicalEmptyRelation
 
 -- !filter_join_left --
 PhysicalResultSink
@@ -412,7 +394,7 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalUnion
 ------PhysicalDistribute[DistributionSpecExecutionAny]
---------filter(((cast(random() as INT) = 2) OR (cast(random() as INT) = 3)))
+--------filter(cast(random() as INT) IN (2, 3))
 ----------PhysicalOneRowRelation
 ------PhysicalDistribute[DistributionSpecExecutionAny]
 --------filter(id IN (2, 3))
@@ -423,7 +405,7 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
 ------PhysicalDistribute[DistributionSpecHash]
---------filter(((cast(random() as INT) = 2) OR (cast(random() as INT) = 3)))
+--------filter(cast(random() as INT) IN (2, 3))
 ----------PhysicalOneRowRelation
 ------PhysicalDistribute[DistributionSpecHash]
 --------filter(id IN (2, 3))

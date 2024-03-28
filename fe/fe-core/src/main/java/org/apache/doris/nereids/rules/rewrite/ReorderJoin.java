@@ -42,7 +42,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -293,10 +293,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
 
         // following this multiJoin just contain INNER/CROSS.
-        Set<Expression> joinFilter = new HashSet<>(multiJoinHandleChildren.getJoinFilter());
+        Set<Expression> joinFilter = new LinkedHashSet<>(multiJoinHandleChildren.getJoinFilter());
 
         Plan left = multiJoinHandleChildren.child(0);
-        Set<Integer> usedPlansIndex = new HashSet<>();
+        Set<Integer> usedPlansIndex = new LinkedHashSet<>();
         usedPlansIndex.add(0);
 
         while (usedPlansIndex.size() != multiJoinHandleChildren.children().size()) {

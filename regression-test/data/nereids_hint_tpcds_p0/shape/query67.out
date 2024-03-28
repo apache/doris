@@ -32,7 +32,6 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item]
-
 Hint log:
 Used:  leading(store_sales broadcast date_dim broadcast store broadcast item )
 UnUsed:

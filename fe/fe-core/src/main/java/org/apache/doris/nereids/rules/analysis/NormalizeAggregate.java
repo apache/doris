@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -139,8 +141,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // Push down exprs:
         // collect group by exprs
-        Set<Expression> groupingByExprs =
-                ImmutableSet.copyOf(aggregate.getGroupByExpressions());
+        Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());
 
         // collect all trivial-agg
         List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
@@ -149,27 +150,37 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // split non-distinct agg child as two part
         // TRUE part 1: need push down itself, if it contains subquery or window expression
         // FALSE part 2: need push down its input slots, if it DOES NOT contain subquery or window expression
-        Map<Boolean, Set<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
+        Map<Boolean, ImmutableSet<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
                 .filter(aggFunc -> !aggFunc.isDistinct())
                 .flatMap(agg -> agg.children().stream())
+                // should not push down literal under aggregate
+                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
+                .filter(arg -> !(arg instanceof Literal))
                 .collect(Collectors.groupingBy(
                         child -> child.containsType(SubqueryExpr.class, WindowExpression.class),
-                        Collectors.toSet()));
+                        ImmutableSet.toImmutableSet()));
 
         // split distinct agg child as two parts
         // TRUE part 1: need push down itself, if it is NOT SlotReference or Literal
         // FALSE part 2: need push down its input slots, if it is SlotReference or Literal
-        Map<Boolean, Set<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
+        Map<Object, ImmutableSet<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
                 .filter(AggregateFunction::isDistinct)
                 .flatMap(agg -> agg.children().stream())
-                .collect(Collectors.groupingBy(child -> !(child instanceof SlotReference), Collectors.toSet()));
+                // should not push down literal under aggregate
+                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
+                .filter(arg -> !(arg instanceof Literal))
+                .collect(
+                        Collectors.groupingBy(
+                                child -> !(child instanceof SlotReference),
+                                ImmutableSet.toImmutableSet())
+                );
 
         Set<Expression> needPushSelf = Sets.union(
-                categorizedNoDistinctAggsChildren.getOrDefault(true, new HashSet<>()),
-                categorizedDistinctAggsChildren.getOrDefault(true, new HashSet<>()));
+                categorizedNoDistinctAggsChildren.getOrDefault(true, ImmutableSet.of()),
+                categorizedDistinctAggsChildren.getOrDefault(true, ImmutableSet.of()));
         Set<Slot> needPushInputSlots = ExpressionUtils.getInputSlotSet(Sets.union(
-                categorizedNoDistinctAggsChildren.getOrDefault(false, new HashSet<>()),
-                categorizedDistinctAggsChildren.getOrDefault(false, new HashSet<>())));
+                categorizedNoDistinctAggsChildren.getOrDefault(false, ImmutableSet.of()),
+                categorizedDistinctAggsChildren.getOrDefault(false, ImmutableSet.of())));
 
         Set<Alias> existsAlias =
                 ExpressionUtils.mutableCollect(aggregateOutput, Alias.class::isInstance);
@@ -194,8 +205,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // create bottom project
         Plan bottomPlan;
         if (!bottomProjects.isEmpty()) {
-            bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects),
-                    aggregate.child());
+            bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
         } else {
             bottomPlan = aggregate.child();
         }
@@ -230,13 +240,17 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // agg output include 2 parts
         // pushedGroupByExprs and normalized agg functions
-        List<NamedExpression> normalizedAggOutput = ImmutableList.<NamedExpression>builder()
-                .addAll(pushedGroupByExprs.stream().map(NamedExpression::toSlot).iterator())
-                .addAll(normalizedAggFuncsToSlotContext
-                        .pushDownToNamedExpression(normalizedAggFuncs))
-                .build();
 
+        ImmutableList.Builder<NamedExpression> normalizedAggOutputBuilder
+                = ImmutableList.builderWithExpectedSize(groupingByExprs.size() + normalizedAggFuncs.size());
+        for (NamedExpression pushedGroupByExpr : pushedGroupByExprs) {
+            normalizedAggOutputBuilder.add(pushedGroupByExpr.toSlot());
+        }
+        normalizedAggOutputBuilder.addAll(
+                normalizedAggFuncsToSlotContext.pushDownToNamedExpression(normalizedAggFuncs)
+        );
         // create new agg node
+        ImmutableList<NamedExpression> normalizedAggOutput = normalizedAggOutputBuilder.build();
         LogicalAggregate<?> newAggregate =
                 aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutput, bottomPlan);
 

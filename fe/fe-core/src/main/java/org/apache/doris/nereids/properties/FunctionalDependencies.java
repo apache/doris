@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -196,12 +197,23 @@ public class FunctionalDependencies {
         }
 
         public void removeNotContain(Set<Slot> slotSet) {
-            slots = slots.stream()
-                    .filter(slotSet::contains)
-                    .collect(Collectors.toSet());
-            slotSets = slotSets.stream()
-                    .filter(slotSet::containsAll)
-                    .collect(Collectors.toSet());
+            if (!slotSet.isEmpty()) {
+                Set<Slot> newSlots = Sets.newLinkedHashSetWithExpectedSize(slots.size());
+                for (Slot slot : slots) {
+                    if (slotSet.contains(slot)) {
+                        newSlots.add(slot);
+                    }
+                }
+                this.slots = newSlots;
+
+                Set<ImmutableSet<Slot>> newSlotSets = Sets.newLinkedHashSetWithExpectedSize(slots.size());
+                for (ImmutableSet<Slot> set : slotSets) {
+                    if (slotSet.containsAll(set)) {
+                        newSlotSets.add(set);
+                    }
+                }
+                this.slotSets = newSlotSets;
+            }
         }
 
         public void add(Slot slot) {

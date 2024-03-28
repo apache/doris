@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -69,42 +70,43 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     }
 
     private void checkUnexpectedExpression(Plan plan) {
-        if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(SubqueryExpr.class::isInstance))) {
-            throw new AnalysisException("Subquery is not allowed in " + plan.getType());
-        }
-        if (!(plan instanceof Generate)) {
-            if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(TableGeneratingFunction.class::isInstance))) {
-                throw new AnalysisException("table generating function is not allowed in " + plan.getType());
-            }
-        }
-        if (!(plan instanceof LogicalAggregate || plan instanceof LogicalWindow)) {
-            if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(AggregateFunction.class::isInstance))) {
-                throw new AnalysisException("aggregate function is not allowed in " + plan.getType());
-            }
-        }
-        if (!(plan instanceof LogicalAggregate)) {
-            if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(GroupingScalarFunction.class::isInstance))) {
-                throw new AnalysisException("grouping scalar function is not allowed in " + plan.getType());
-            }
-        }
-        if (!(plan instanceof LogicalWindow)) {
-            if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(WindowExpression.class::isInstance))) {
-                throw new AnalysisException("analytic function is not allowed in " + plan.getType());
-            }
+        boolean isGenerate = plan instanceof Generate;
+        boolean isAgg = plan instanceof LogicalAggregate;
+        boolean isWindow = plan instanceof LogicalWindow;
+        boolean notAggAndWindow = !isAgg && !isWindow;
+
+        for (Expression expression : plan.getExpressions()) {
+            expression.foreach(expr -> {
+                if (expr instanceof SubqueryExpr) {
+                    throw new AnalysisException("Subquery is not allowed in " + plan.getType());
+                } else if (!isGenerate && expr instanceof TableGeneratingFunction) {
+                    throw new AnalysisException("table generating function is not allowed in " + plan.getType());
+                } else if (notAggAndWindow && expr instanceof AggregateFunction) {
+                    throw new AnalysisException("aggregate function is not allowed in " + plan.getType());
+                } else if (!isAgg && expr instanceof GroupingScalarFunction) {
+                    throw new AnalysisException("grouping scalar function is not allowed in " + plan.getType());
+                } else if (!isWindow && expr instanceof WindowExpression) {
+                    throw new AnalysisException("analytic function is not allowed in " + plan.getType());
+                }
+            });
         }
     }
 
     private void checkAllSlotReferenceFromChildren(Plan plan) {
-        Set<Slot> notFromChildren = plan.getExpressions().stream()
-                .flatMap(expr -> expr.getInputSlots().stream())
-                .collect(Collectors.toSet());
-        Set<ExprId> childrenOutput = plan.children().stream()
-                .flatMap(child -> child.getOutput().stream())
-                .map(NamedExpression::getExprId)
-                .collect(Collectors.toSet());
-        notFromChildren = notFromChildren.stream()
-                .filter(s -> !childrenOutput.contains(s.getExprId()))
-                .collect(Collectors.toSet());
+        Set<Slot> inputSlots = plan.getInputSlots();
+        Set<ExprId> childrenOutput = plan.getChildrenOutputExprIdSet();
+
+        ImmutableSet.Builder<Slot> notFromChildrenBuilder = ImmutableSet.builderWithExpectedSize(inputSlots.size());
+        for (Slot inputSlot : inputSlots) {
+            if (!childrenOutput.contains(inputSlot.getExprId())) {
+                notFromChildrenBuilder.add(inputSlot);
+            }
+        }
+        Set<Slot> notFromChildren = notFromChildrenBuilder.build();
+        if (notFromChildren.isEmpty()) {
+            return;
+        }
+
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
             if (plan.arity() != 0 && plan.child(0) instanceof LogicalAggregate) {
@@ -181,17 +183,18 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {
-        if (plan.getExpressions().stream().anyMatch(
-                expression -> expression instanceof Match)) {
-            if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
-                    || plan.child(0) instanceof LogicalDeferMaterializeOlapScan
-                    || plan.child(0) instanceof LogicalProject
+        for (Expression expression : plan.getExpressions()) {
+            if (expression instanceof Match) {
+                if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
+                        || plan.child(0) instanceof LogicalDeferMaterializeOlapScan
+                        || plan.child(0) instanceof LogicalProject
                         && ((LogicalProject<?>) plan.child(0)).hasPushedDownToProjectionFunctions())) {
-                return;
-            } else {
-                throw new AnalysisException(String.format(
-                    "Not support match in %s in plan: %s, only support in olapScan filter",
-                    plan.child(0), plan));
+                    return;
+                } else {
+                    throw new AnalysisException(String.format(
+                            "Not support match in %s in plan: %s, only support in olapScan filter",
+                            plan.child(0), plan));
+                }
             }
         }
     }

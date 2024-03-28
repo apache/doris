@@ -24,13 +24,15 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  * SortNode on BE always output order keys because BE needs them to do merge sort. So we normalize LogicalSort as BE
@@ -40,29 +42,44 @@ import java.util.stream.Stream;
 public class NormalizeSort extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalSort().whenNot(sort -> sort.getOrderKeys().stream()
-                        .map(OrderKey::getExpr).allMatch(Slot.class::isInstance))
+        return logicalSort().whenNot(this::allOrderKeyIsSlot)
                 .then(sort -> {
                     List<NamedExpression> newProjects = Lists.newArrayList();
-                    List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
-                            .map(orderKey -> {
-                                Expression expr = orderKey.getExpr();
-                                if (!(expr instanceof Slot)) {
-                                    Alias alias = new Alias(expr);
-                                    newProjects.add(alias);
-                                    expr = alias.toSlot();
-                                }
-                                return orderKey.withExpression(expr);
-                            }).collect(ImmutableList.toImmutableList());
-                    List<NamedExpression> bottomProjections = Stream.concat(
-                            sort.child().getOutput().stream(),
-                            newProjects.stream()
-                    ).collect(ImmutableList.toImmutableList());
-                    List<NamedExpression> topProjections = sort.getOutput().stream()
-                            .map(NamedExpression.class::cast)
-                            .collect(ImmutableList.toImmutableList());
-                    return new LogicalProject<>(topProjections, sort.withOrderKeysAndChild(newOrderKeys,
+
+                    Builder<OrderKey> newOrderKeys =
+                            ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
+                    for (OrderKey orderKey : sort.getOrderKeys()) {
+                        Expression expr = orderKey.getExpr();
+                        if (!(expr instanceof Slot)) {
+                            Alias alias = new Alias(expr);
+                            newProjects.add(alias);
+                            expr = alias.toSlot();
+                            newOrderKeys.add(orderKey.withExpression(expr));
+                        } else {
+                            newOrderKeys.add(orderKey);
+                        }
+                    }
+
+                    List<Slot> childOutput = sort.child().getOutput();
+                    List<NamedExpression> bottomProjections = ImmutableList.<NamedExpression>builderWithExpectedSize(
+                            childOutput.size() + newProjects.size())
+                            .addAll(childOutput)
+                            .addAll(newProjects)
+                            .build();
+
+                    List<NamedExpression> topProjections = (List) sort.getOutput();
+                    return new LogicalProject<>(topProjections, sort.withOrderKeysAndChild(
+                            newOrderKeys.build(),
                             new LogicalProject<>(bottomProjections, sort.child())));
                 }).toRule(RuleType.NORMALIZE_SORT);
+    }
+
+    private boolean allOrderKeyIsSlot(LogicalSort<Plan> sort) {
+        for (OrderKey orderKey : sort.getOrderKeys()) {
+            if (!(orderKey.getExpr() instanceof Slot)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

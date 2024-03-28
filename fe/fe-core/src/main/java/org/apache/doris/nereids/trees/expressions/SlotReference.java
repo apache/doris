@@ -132,8 +132,8 @@ public class SlotReference extends Slot {
      */
     public static SlotReference fromColumn(TableIf table, Column column, List<String> qualifier, Relation relation) {
         DataType dataType = DataType.fromCatalogType(column.getType());
-        SlotReference slot = new SlotReference(StatementScopeIdGenerator.newExprId(), column.getName(), dataType,
-                column.isAllowNull(), qualifier, table, column, Optional.empty(), null);
+        SlotReference slot = new SlotReference(StatementScopeIdGenerator.newExprId(), () -> column.getName(), dataType,
+                column.isAllowNull(), qualifier, table, column, () -> Optional.of(column.getName()), null);
         if (relation != null && ConnectContext.get() != null
                 && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().addSlotToRelation(slot, relation);
@@ -260,6 +260,9 @@ public class SlotReference extends Slot {
 
     @Override
     public SlotReference withName(String name) {
+        if (this.name.get().equals(name)) {
+            return this;
+        }
         return new SlotReference(
                 exprId, () -> name, dataType, nullable, qualifier, table, column, internalName, subColPath);
     }

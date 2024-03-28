@@ -31,16 +31,17 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.Collection;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * poll up effective predicates from operator's children.
@@ -60,7 +61,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     @Override
     public ImmutableSet<Expression> visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
         return cacheOrElse(filter, () -> {
-            List<Expression> predicates = Lists.newArrayList(filter.getConjuncts());
+            Set<Expression> predicates = Sets.newLinkedHashSet(filter.getConjuncts());
             predicates.addAll(filter.child().accept(this, context));
             return getAvailableExpressions(predicates, filter);
         });
@@ -82,14 +83,14 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return cacheOrElse(project, () -> {
             ImmutableSet<Expression> childPredicates = project.child().accept(this, context);
-
-            Set<Expression> allPredicates = Sets.newHashSet(childPredicates);
-            project.getAliasToProducer().forEach((k, v) -> {
-                Set<Expression> expressions = childPredicates.stream()
-                        .map(e -> e.rewriteDownShortCircuit(c -> c.equals(v) ? k : c)).collect(Collectors.toSet());
-                allPredicates.addAll(expressions);
-            });
-
+            Set<Expression> allPredicates = Sets.newLinkedHashSet(childPredicates);
+            for (Entry<Slot, Expression> kv : project.getAliasToProducer().entrySet()) {
+                Slot k = kv.getKey();
+                Expression v = kv.getValue();
+                for (Expression childPredicate : childPredicates) {
+                    allPredicates.add(childPredicate.rewriteDownShortCircuit(c -> c.equals(v) ? k : c));
+                }
+            }
             return getAvailableExpressions(allPredicates, project);
         });
     }
@@ -99,21 +100,22 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         return cacheOrElse(aggregate, () -> {
             ImmutableSet<Expression> childPredicates = aggregate.child().accept(this, context);
             // TODO
-            Map<Expression, Slot> expressionSlotMap = aggregate.getOutputExpressions()
-                    .stream()
-                    .filter(this::hasAgg)
-                    .collect(Collectors.toMap(
-                            namedExpr -> {
-                                if (namedExpr instanceof Alias) {
-                                    return ((Alias) namedExpr).child();
-                                } else {
-                                    return namedExpr;
-                                }
-                            }, NamedExpression::toSlot)
+            List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+
+            Map<Expression, Slot> expressionSlotMap
+                    = Maps.newLinkedHashMapWithExpectedSize(outputExpressions.size());
+            for (NamedExpression output : outputExpressions) {
+                if (hasAgg(output)) {
+                    expressionSlotMap.putIfAbsent(
+                            output instanceof Alias ? output.child(0) : output, output.toSlot()
                     );
-            Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                    expressionSlotMap);
-            List<Expression> predicates = ExpressionUtils.extractConjunction(expression);
+                }
+            }
+            Expression expression = ExpressionUtils.replace(
+                    ExpressionUtils.and(Lists.newArrayList(childPredicates)),
+                    expressionSlotMap
+            );
+            Set<Expression> predicates = Sets.newLinkedHashSet(ExpressionUtils.extractConjunction(expression));
             return getAvailableExpressions(predicates, aggregate);
         });
     }
@@ -128,12 +130,23 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         return predicates;
     }
 
-    private ImmutableSet<Expression> getAvailableExpressions(Collection<Expression> predicates, Plan plan) {
-        Set<Expression> expressions = Sets.newHashSet(predicates);
-        expressions.addAll(PredicatePropagation.infer(expressions));
-        return expressions.stream()
-                .filter(p -> plan.getOutputSet().containsAll(p.getInputSlots()))
-                .collect(ImmutableSet.toImmutableSet());
+    private ImmutableSet<Expression> getAvailableExpressions(Set<Expression> predicates, Plan plan) {
+        Set<Expression> inferPredicates = PredicatePropagation.infer(predicates);
+        Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size() + 10);
+        Set<Slot> outputSet = plan.getOutputSet();
+
+        for (Expression predicate : predicates) {
+            if (outputSet.containsAll(predicate.getInputSlots())) {
+                newPredicates.add(predicate);
+            }
+        }
+
+        for (Expression inferPredicate : inferPredicates) {
+            if (outputSet.containsAll(inferPredicate.getInputSlots())) {
+                newPredicates.add(inferPredicate);
+            }
+        }
+        return newPredicates.build();
     }
 
     private boolean hasAgg(Expression expression) {

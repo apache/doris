@@ -1611,7 +1611,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
-        return ExpressionUtils.anyMatch(aggregate.getOutputExpressions(), expr ->
+        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr ->
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 

@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 
-import java.util.ArrayList;
-import java.util.HashSet;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+
 import java.util.List;
 import java.util.Set;
 
@@ -31,25 +32,32 @@ import java.util.Set;
  * Deduplicate InPredicate, For example:
  * where A in (x, x) ==> where A in (x)
  */
-public class InPredicateDedup extends AbstractExpressionRewriteRule {
-
-    public static InPredicateDedup INSTANCE = new InPredicateDedup();
+public class InPredicateDedup implements ExpressionPatternRuleFactory {
+    public static final InPredicateDedup INSTANCE = new InPredicateDedup();
 
     @Override
-    public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+            matchesType(InPredicate.class).then(InPredicateDedup::dedup)
+        );
+    }
+
+    /** dedup */
+    public static Expression dedup(InPredicate inPredicate) {
         // In many BI scenarios, the sql is auto-generated, and hence there may be thousands of options.
         // It takes a long time to apply this rule. So set a threshold for the max number.
-        if (inPredicate.getOptions().size() > 200) {
+        int optionSize = inPredicate.getOptions().size();
+        if (optionSize > 200) {
             return inPredicate;
         }
-        Set<Expression> dedupExpr = new HashSet<>();
-        List<Expression> newOptions = new ArrayList<>();
+        ImmutableSet.Builder<Expression> newOptionsBuilder = ImmutableSet.builderWithExpectedSize(inPredicate.arity());
         for (Expression option : inPredicate.getOptions()) {
-            if (dedupExpr.contains(option)) {
-                continue;
-            }
-            dedupExpr.add(option);
-            newOptions.add(option);
+            newOptionsBuilder.add(option);
+        }
+
+        Set<Expression> newOptions = newOptionsBuilder.build();
+        if (newOptions.size() == optionSize) {
+            return inPredicate;
         }
         return new InPredicate(inPredicate.getCompareExpr(), newOptions);
     }

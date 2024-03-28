@@ -25,6 +25,7 @@ import javax.annotation.Nullable;
 public class RewriteJobContext {
 
     final boolean childrenVisited;
+    final int batchId;
     final RewriteJobContext parentContext;
     final int childIndexInParentContext;
     final Plan plan;
@@ -33,7 +34,7 @@ public class RewriteJobContext {
 
     /** RewriteJobContext */
     public RewriteJobContext(Plan plan, @Nullable RewriteJobContext parentContext, int childIndexInParentContext,
-            boolean childrenVisited) {
+            boolean childrenVisited, int batchId) {
         this.plan = plan;
         this.parentContext = parentContext;
         this.childIndexInParentContext = childIndexInParentContext;
@@ -42,6 +43,7 @@ public class RewriteJobContext {
         if (parentContext != null) {
             parentContext.childrenContext[childIndexInParentContext] = this;
         }
+        this.batchId = batchId;
     }
 
     public void setResult(Plan result) {
@@ -49,15 +51,15 @@ public class RewriteJobContext {
     }
 
     public RewriteJobContext withChildrenVisited(boolean childrenVisited) {
-        return new RewriteJobContext(plan, parentContext, childIndexInParentContext, childrenVisited);
+        return new RewriteJobContext(plan, parentContext, childIndexInParentContext, childrenVisited, batchId);
     }
 
     public RewriteJobContext withPlan(Plan plan) {
-        return new RewriteJobContext(plan, parentContext, childIndexInParentContext, childrenVisited);
+        return new RewriteJobContext(plan, parentContext, childIndexInParentContext, childrenVisited, batchId);
     }
 
     public RewriteJobContext withPlanAndChildrenVisited(Plan plan, boolean childrenVisited) {
-        return new RewriteJobContext(plan, parentContext, childIndexInParentContext, childrenVisited);
+        return new RewriteJobContext(plan, parentContext, childIndexInParentContext, childrenVisited, batchId);
     }
 
     public boolean isRewriteRoot() {

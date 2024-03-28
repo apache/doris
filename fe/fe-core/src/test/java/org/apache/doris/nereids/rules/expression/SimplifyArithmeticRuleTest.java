@@ -29,9 +29,11 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
     @Test
     void testSimplifyArithmetic() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                SimplifyArithmeticRule.INSTANCE,
+                bottomUp(SimplifyArithmeticRule.INSTANCE),
                 FunctionBinder.INSTANCE,
-                FoldConstantRule.INSTANCE
+                bottomUp(
+                    FoldConstantRule.INSTANCE
+                )
         ));
         assertRewriteAfterTypeCoercion("IA", "IA");
         assertRewriteAfterTypeCoercion("IA + 1", "IA + 1");
@@ -55,7 +57,7 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
     @Test
     void testSimplifyArithmeticRuleOnly() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                SimplifyArithmeticRule.INSTANCE
+                bottomUp(SimplifyArithmeticRule.INSTANCE)
         ));
 
         // add and subtract
@@ -67,39 +69,43 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("IA - 2 - ((-IB - 1) - (3 + (IC + 4)))", "(((IA + IB) + IC) - ((((2 + 0) - 1) - 3) - 4))");
 
         // multiply and divide
-        assertRewriteAfterTypeCoercion("2 / IA / ((1 / IB) / (3 * IC))", "((((cast(2 as DOUBLE) / cast(1 as DOUBLE)) / cast(IA as DOUBLE)) * cast(IB as DOUBLE)) * cast((3 * IC) as DOUBLE))");
+        assertRewriteAfterTypeCoercion("2 / IA / ((1 / IB) / (3 * IC))", "((((cast(2 as DOUBLE) / cast(1 as DOUBLE)) / cast(IA as DOUBLE)) * cast(IB as DOUBLE)) * cast((IC * 3) as DOUBLE))");
         assertRewriteAfterTypeCoercion("IA / 2 / ((IB * 1) / (3 / (IC / 4)))", "(((cast(IA as DOUBLE) / cast((IB * 1) as DOUBLE)) / cast(IC as DOUBLE)) / ((cast(2 as DOUBLE) / cast(3 as DOUBLE)) / cast(4 as DOUBLE)))");
         assertRewriteAfterTypeCoercion("IA / 2 / ((IB / 1) / (3 / (IC * 4)))", "(((cast(IA as DOUBLE) / cast(IB as DOUBLE)) / cast((IC * 4) as DOUBLE)) / ((cast(2 as DOUBLE) / cast(1 as DOUBLE)) / cast(3 as DOUBLE)))");
-        assertRewriteAfterTypeCoercion("IA / 2 / ((IB / 1) / (3 * (IC * 4)))", "(((cast(IA as DOUBLE) / cast(IB as DOUBLE)) * cast((3 * (IC * 4)) as DOUBLE)) / (cast(2 as DOUBLE) / cast(1 as DOUBLE)))");
+        assertRewriteAfterTypeCoercion("IA / 2 / ((IB / 1) / (3 * (IC * 4)))", "(((cast(IA as DOUBLE) / cast(IB as DOUBLE)) * cast((IC * (3 * 4)) as DOUBLE)) / (cast(2 as DOUBLE) / cast(1 as DOUBLE)))");
 
         // hybrid
         // root is subtract
         assertRewriteAfterTypeCoercion("-2 - IA * ((1 - IB) - (3 / IC))", "(cast(-2 as DOUBLE) - (cast(IA as DOUBLE) * (cast((1 - IB) as DOUBLE) - (cast(3 as DOUBLE) / cast(IC as DOUBLE)))))");
-        assertRewriteAfterTypeCoercion("-IA - 2 - ((IB * 1) - (3 * (IC / 4)))", "((cast(((0 - IA) - 2) as DOUBLE) - cast((IB * 1) as DOUBLE)) + (cast(3 as DOUBLE) * (cast(IC as DOUBLE) / cast(4 as DOUBLE))))");
+        assertRewriteAfterTypeCoercion("-IA - 2 - ((IB * 1) - (3 * (IC / 4)))", "((cast(((0 - 2) - IA) as DOUBLE) - cast((IB * 1) as DOUBLE)) + (cast(3 as DOUBLE) * (cast(IC as DOUBLE) / cast(4 as DOUBLE))))");
         // root is add
-        assertRewriteAfterTypeCoercion("-IA * 2 + ((IB - 1) / (3 - (IC + 4)))", "(cast(((0 - IA) * 2) as DOUBLE) + (cast((IB - 1) as DOUBLE) / cast((3 - (IC + 4)) as DOUBLE)))");
+        assertRewriteAfterTypeCoercion("-IA * 2 + ((IB - 1) / (3 - (IC + 4)))", "(cast(((0 - IA) * 2) as DOUBLE) + (cast((IB - 1) as DOUBLE) / cast(((3 - 4) - IC) as DOUBLE)))");
         assertRewriteAfterTypeCoercion("-IA + 2 + ((IB - 1) - (3 * (IC + 4)))", "(((((0 + 2) - 1) - IA) + IB) - (3 * (IC + 4)))");
         // root is multiply
-        assertRewriteAfterTypeCoercion("-IA / 2 * ((-IB - 1) - (3 + (IC + 4)))", "((cast((0 - IA) as DOUBLE) * cast((((0 - IB) - 1) - (3 + (IC + 4))) as DOUBLE)) / cast(2 as DOUBLE))");
-        assertRewriteAfterTypeCoercion("-IA / 2 * ((-IB - 1) * (3 / (IC + 4)))", "(((cast((0 - IA) as DOUBLE) * cast(((0 - IB) - 1) as DOUBLE)) / cast((IC + 4) as DOUBLE)) / (cast(2 as DOUBLE) / cast(3 as DOUBLE)))");
+        assertRewriteAfterTypeCoercion("-IA / 2 * ((-IB - 1) - (3 + (IC + 4)))", "((cast((0 - IA) as DOUBLE) * cast((((((0 - 1) - 3) - 4) - IB) - IC) as DOUBLE)) / cast(2 as DOUBLE))");
+        assertRewriteAfterTypeCoercion("-IA / 2 * ((-IB - 1) * (3 / (IC + 4)))", "(((cast((0 - IA) as DOUBLE) * cast(((0 - 1) - IB) as DOUBLE)) / cast((IC + 4) as DOUBLE)) / (cast(2 as DOUBLE) / cast(3 as DOUBLE)))");
         // root is divide
-        assertRewriteAfterTypeCoercion("(-IA / 2) / ((-IB - 1) - (3 + (IC + 4)))", "((cast((0 - IA) as DOUBLE) / cast((((0 - IB) - 1) - (3 + (IC + 4))) as DOUBLE)) / cast(2 as DOUBLE))");
-        assertRewriteAfterTypeCoercion("(-IA / 2) / ((-IB - 1) / (3 + (IC * 4)))", "(((cast((0 - IA) as DOUBLE) / cast(((0 - IB) - 1) as DOUBLE)) * cast((3 + (IC * 4)) as DOUBLE)) / cast(2 as DOUBLE))");
+        assertRewriteAfterTypeCoercion("(-IA / 2) / ((-IB - 1) - (3 + (IC + 4)))", "((cast((0 - IA) as DOUBLE) / cast((((((0 - 1) - 3) - 4) - IB) - IC) as DOUBLE)) / cast(2 as DOUBLE))");
+        assertRewriteAfterTypeCoercion("(-IA / 2) / ((-IB - 1) / (3 + (IC * 4)))", "(((cast((0 - IA) as DOUBLE) / cast(((0 - 1) - IB) as DOUBLE)) * cast(((IC * 4) + 3) as DOUBLE)) / cast(2 as DOUBLE))");
 
         // unsupported decimal
-        assertRewriteAfterTypeCoercion("-2 - MA - ((1 - IB) - (3 + IC))", "((cast(-2 as DECIMALV3(38, 9)) - MA) - cast(((1 - IB) - (3 + IC)) as DECIMALV3(38, 9)))");
-        assertRewriteAfterTypeCoercion("-IA / 2.0 * ((-IB - 1) - (3 + (IC + 4)))", "((cast((0 - IA) as DECIMALV3(25, 5)) / 2.0) * cast((((0 - IB) - 1) - (3 + (IC + 4))) as DECIMALV3(20, 0)))");
+        assertRewriteAfterTypeCoercion("-2 - MA - ((1 - IB) - (3 + IC))", "((cast(-2 as DECIMALV3(38, 9)) - MA) - cast((((1 - 3) - IB) - IC) as DECIMALV3(38, 9)))");
+        assertRewriteAfterTypeCoercion("-IA / 2.0 * ((-IB - 1) - (3 + (IC + 4)))", "((cast((0 - IA) as DECIMALV3(25, 5)) / 2.0) * cast((((((0 - 1) - 3) - 4) - IB) - IC) as DECIMALV3(20, 0)))");
     }
 
     @Test
     void testSimplifyArithmeticComparison() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                SimplifyArithmeticRule.INSTANCE,
-                FoldConstantRule.INSTANCE,
-                SimplifyArithmeticComparisonRule.INSTANCE,
-                SimplifyArithmeticRule.INSTANCE,
+                bottomUp(
+                    SimplifyArithmeticRule.INSTANCE,
+                    FoldConstantRule.INSTANCE,
+                    SimplifyArithmeticComparisonRule.INSTANCE,
+                    SimplifyArithmeticRule.INSTANCE
+                ),
                 FunctionBinder.INSTANCE,
-                FoldConstantRule.INSTANCE
+                bottomUp(
+                    FoldConstantRule.INSTANCE
+                )
         ));
         assertRewriteAfterTypeCoercion("IA", "IA");
         assertRewriteAfterTypeCoercion("IA > IB", "IA > IB");
@@ -134,12 +140,16 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
     @Test
     void testSimplifyDateTimeComparison() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                SimplifyArithmeticRule.INSTANCE,
-                FoldConstantRule.INSTANCE,
-                SimplifyArithmeticComparisonRule.INSTANCE,
-                SimplifyArithmeticRule.INSTANCE,
+                bottomUp(
+                    SimplifyArithmeticRule.INSTANCE,
+                    FoldConstantRule.INSTANCE,
+                    SimplifyArithmeticComparisonRule.INSTANCE,
+                    SimplifyArithmeticRule.INSTANCE
+                ),
                 FunctionBinder.INSTANCE,
-                FoldConstantRule.INSTANCE
+                bottomUp(
+                    FoldConstantRule.INSTANCE
+                )
         ));
         assertRewriteAfterTypeCoercion("years_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-01-01 00:00:00')");
         assertRewriteAfterTypeCoercion("years_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2022-01-01 00:00:00')");
