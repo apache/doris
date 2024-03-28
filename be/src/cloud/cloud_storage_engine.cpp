@@ -289,8 +289,14 @@ void CloudStorageEngine::get_cumu_compaction(
     }
 }
 
-void CloudStorageEngine::_adjust_compaction_thread_num() {
+Status CloudStorageEngine::_adjust_compaction_thread_num() {
     int base_thread_num = get_base_thread_num();
+
+    if (!_base_compaction_thread_pool || !_cumu_compaction_thread_pool) {
+        LOG(WARNING) << "base or cumu compaction thread pool is not created";
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("");
+    }
+
     if (_base_compaction_thread_pool->max_threads() != base_thread_num) {
         int old_max_threads = _base_compaction_thread_pool->max_threads();
         Status status = _base_compaction_thread_pool->set_max_threads(base_thread_num);
@@ -325,6 +331,7 @@ void CloudStorageEngine::_adjust_compaction_thread_num() {
                         << " to " << cumu_thread_num;
         }
     }
+    return Status::OK();
 }
 
 void CloudStorageEngine::_compaction_tasks_producer_callback() {
@@ -345,7 +352,10 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
-            _adjust_compaction_thread_num();
+            Status st = _adjust_compaction_thread_num();
+            if (!st.ok()) {
+                break;
+            }
 
             bool check_score = false;
             int64_t cur_time = UnixMillis();
