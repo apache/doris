@@ -17,17 +17,25 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.thrift.THdfsConf;
 import org.apache.doris.thrift.THdfsParams;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -43,6 +51,7 @@ import java.util.Map;
  * );
  */
 public class HdfsResource extends Resource {
+    private static final Logger LOG = LogManager.getLogger(HdfsResource.class);
     public static final String HADOOP_FS_PREFIX = "dfs.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
     public static String HADOOP_FS_ROOT_PATH = "root_path";
@@ -51,6 +60,7 @@ public class HdfsResource extends Resource {
     public static String DSF_NAMESERVICES = "dfs.nameservices";
     public static final String HDFS_PREFIX = "hdfs:";
     public static final String HDFS_FILE_PREFIX = "hdfs://";
+    public static final String VALIDITY_CHECK = "hdfs_validity_check";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -64,16 +74,63 @@ public class HdfsResource extends Resource {
         properties = Maps.newHashMap();
     }
 
+    private static void pingHdfs(String hdfsUri, Map<String, String> properties) throws DdlException {
+        String testFile = hdfsUri + "/test_hdfs_valid.txt";
+        RemoteFileSystem dfsRemote = FileSystemFactory.get("", StorageBackend.StorageType.HDFS, properties);
+        Map<String, String> propertiesPing = new HashMap<>();
+        propertiesPing.put(HADOOP_FS_NAME, hdfsUri);
+        properties.putAll(propertiesPing);
+        String content = "doris hdfs valid";
+        Status status = Status.OK;
+        try {
+            status = dfsRemote.directUpload(content, testFile);
+            if (status != Status.OK) {
+                throw new DdlException("ping hdfs failed(upload), status: " + status + new PrintableMap<>(
+                    propertiesPing, "=", true, false, true, false));
+            }
+        } finally {
+            if (status.ok()) {
+                Status delete = dfsRemote.delete(testFile);
+                if (delete != Status.OK) {
+                    LOG.warn("delete test file failed, status: {}, properties: {}", delete, new PrintableMap<>(
+                            propertiesPing, "=", true, false, true, false));
+                }
+            }
+        }
+        LOG.info("success to ping hdfs");
+    }
+
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
+        boolean needCheck = isNeedCheck(properties);
+        if (needCheck) {
+            Map<String, String> changedProperties = new HashMap<>(this.properties);
+            changedProperties.putAll(properties);
+            String hdfsUri = properties.getOrDefault(HADOOP_FS_NAME, this.properties.get(HADOOP_FS_NAME));
+            pingHdfs(hdfsUri, changedProperties);
+        }
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
         super.modifyProperties(properties);
     }
 
+    private boolean isNeedCheck(Map<String, String> newProperties) {
+        boolean needCheck = !this.properties.containsKey(VALIDITY_CHECK)
+                || Boolean.parseBoolean(this.properties.get(VALIDITY_CHECK));
+        if (newProperties != null && newProperties.containsKey(VALIDITY_CHECK)) {
+            needCheck = Boolean.parseBoolean(newProperties.get(VALIDITY_CHECK));
+        }
+        return needCheck;
+    }
+
     @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
+        boolean needCheck = isNeedCheck(properties);
+        if (needCheck) {
+            String hdfsUri = properties.getOrDefault(HADOOP_FS_NAME, this.properties.get(HADOOP_FS_NAME));
+            pingHdfs(hdfsUri, properties);
+        }
         // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
         // We should disable short circuit read if they are not both set because it will cause performance down.
         if (!(enableShortCircuitRead(properties))) {
