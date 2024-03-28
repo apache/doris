@@ -105,7 +105,7 @@ suite ("test_alter_colocate_table") {
          );
     """
 
-    def errMsg = "Cannot change replication allocation of colocate table"
+    def errMsg = "Invalid replication parameter: replication_num and replication_allocation can not be used together"
 
     test {
         sql """
