@@ -251,9 +251,9 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        if (engine.latest_fs() == nullptr) [[unlikely]] {
-        return Status::IOError("Invalid latest fs");
-    }
+        if (_cloud_storage_engine.latest_fs() == nullptr) [[unlikely]] {
+            return Status::IOError("Invalid latest fs");
+        }
         context.fs = _cloud_storage_engine.latest_fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
