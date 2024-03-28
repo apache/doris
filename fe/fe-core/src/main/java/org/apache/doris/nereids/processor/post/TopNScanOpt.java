@@ -79,7 +79,8 @@ public class TopNScanOpt extends PlanPostProcessor {
             Plan child = topN.child();
             topN = rewriteTopN(topN);
             if (child != topN.child()) {
-                topN = ((PhysicalTopN<? extends Plan>) topN.withChildren(child)).copyStatsAndGroupIdFrom(topN);
+                topN = (PhysicalTopN<? extends Plan>) ((PhysicalTopN<? extends Plan>) topN.withChildren(
+                        child)).copyStatsAndGroupIdFrom(topN);
             }
             return topN;
         } else if (topN.getSortPhase() == SortPhase.MERGE_SORT) {
@@ -94,7 +95,8 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (topN.getSortPhase() == SortPhase.LOCAL_SORT) {
             PhysicalTopN<? extends Plan> rewrittenTopN = rewriteTopN(topN.getPhysicalTopN());
             if (topN.getPhysicalTopN() != rewrittenTopN) {
-                topN = topN.withPhysicalTopN(rewrittenTopN).copyStatsAndGroupIdFrom(topN);
+                topN = (PhysicalDeferMaterializeTopN<? extends Plan>) topN.withPhysicalTopN(rewrittenTopN)
+                        .copyStatsAndGroupIdFrom(topN);
             }
             return topN;
         } else if (topN.getSortPhase() == SortPhase.MERGE_SORT) {
