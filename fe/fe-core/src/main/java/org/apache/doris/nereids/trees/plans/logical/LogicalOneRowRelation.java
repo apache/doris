@@ -136,7 +136,7 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
 
     @Override
     public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
-        getOutput().forEach(fdBuilder::addUniformSlot);
+        getOutput().forEach(fdBuilder::addUniqueSlot);
     }
 
     @Override

@@ -258,7 +258,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
     @Test
     void testWindow() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select row_number() over(partition by id) from agg")
+                .analyze("select id, row_number() over(partition by id) from agg")
                 .rewrite()
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
