@@ -149,7 +149,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         return this;
     }
 
-    public <T extends AbstractPhysicalPlan> T copyStatsAndGroupIdFrom(T from) {
+    public <T extends AbstractPhysicalPlan> AbstractPhysicalPlan copyStatsAndGroupIdFrom(T from) {
         T newPlan = (T) withPhysicalPropertiesAndStats(
                 from.getPhysicalProperties(), from.getStats());
         newPlan.setMutableState(MutableState.KEY_GROUP, from.getGroupIdAsString());
