@@ -1336,7 +1336,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 null, null, null, hashJoin.isMarkJoin());
         hashJoinNode.setNereidsId(hashJoin.getId());
         hashJoinNode.setChildrenDistributeExprLists(distributeExprLists);
-        hashJoinNode.setUseSpecificProjections(false);
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
 
         if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
@@ -1564,8 +1563,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             TupleDescriptor outputDescriptor = context.generateTupleDesc();
             outputSlotReferences.forEach(s -> context.createSlotDesc(outputDescriptor, s));
 
-            hashJoinNode.setOutputTupleDesc(outputDescriptor);
-            hashJoinNode.setProjectList(srcToOutput);
+            hashJoinNode.setvOutputTupleDesc(outputDescriptor);
+            hashJoinNode.setvSrcToOutputSMap(srcToOutput);
         }
         if (hashJoin.getStats() != null) {
             hashJoinNode.setCardinality((long) hashJoin.getStats().getRowCount());
@@ -1599,7 +1598,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             NestedLoopJoinNode nestedLoopJoinNode = new NestedLoopJoinNode(context.nextPlanNodeId(),
                     leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds, JoinType.toJoinOperator(joinType),
                     null, null, null, nestedLoopJoin.isMarkJoin());
-            nestedLoopJoinNode.setUseSpecificProjections(false);
             nestedLoopJoinNode.setNereidsId(nestedLoopJoin.getId());
             nestedLoopJoinNode.setChildrenDistributeExprLists(distributeExprLists);
             if (nestedLoopJoin.getStats() != null) {
@@ -1746,8 +1744,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 TupleDescriptor outputDescriptor = context.generateTupleDesc();
                 outputSlotReferences.forEach(s -> context.createSlotDesc(outputDescriptor, s));
 
-                nestedLoopJoinNode.setOutputTupleDesc(outputDescriptor);
-                nestedLoopJoinNode.setProjectList(srcToOutput);
+                nestedLoopJoinNode.setvOutputTupleDesc(outputDescriptor);
+                nestedLoopJoinNode.setvSrcToOutputSMap(srcToOutput);
             }
             if (nestedLoopJoin.getStats() != null) {
                 nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
@@ -1873,8 +1871,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (inputPlanNode instanceof JoinNodeBase) {
             TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
             JoinNodeBase joinNode = (JoinNodeBase) inputPlanNode;
-            joinNode.setOutputTupleDesc(tupleDescriptor);
-            joinNode.setProjectList(projectionExprs);
+            joinNode.setvOutputTupleDesc(tupleDescriptor);
+            joinNode.setvSrcToOutputSMap(projectionExprs);
             // prune the hashOutputSlotIds
             if (joinNode instanceof HashJoinNode) {
                 ((HashJoinNode) joinNode).getHashOutputSlotIds().clear();

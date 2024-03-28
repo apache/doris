@@ -228,7 +228,7 @@ public:
     const RowDescriptor& row_desc() const override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
-                       : (_output_row_descriptor ? *_output_row_descriptor : *_output_row_desc);
+                       : *_output_row_desc;
     }
 
     bool need_more_input_data(RuntimeState* state) const override;

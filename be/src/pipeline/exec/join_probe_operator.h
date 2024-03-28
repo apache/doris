@@ -70,12 +70,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;
-    [[nodiscard]] const RowDescriptor& row_desc() const override {
-        if (Base::_output_row_descriptor) {
-            return *Base::_output_row_descriptor;
-        }
-        return *_output_row_desc;
-    }
+    [[nodiscard]] const RowDescriptor& row_desc() const override { return *_output_row_desc; }
 
     [[nodiscard]] const RowDescriptor& intermediate_row_desc() const override {
         return *_intermediate_row_desc;
@@ -119,11 +114,6 @@ protected:
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     OperatorXPtr _build_side_child = nullptr;
     const bool _short_circuit_for_null_in_build_side;
-    // In the Old planner, there is a plan for two columns of tuple is null,
-    // but in the Nereids planner, this logic does not exist.
-    // Therefore, we should not insert these two columns under the Nereids optimizer.
-    // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
-    const bool _use_specific_projections;
 };
 
 } // namespace pipeline
