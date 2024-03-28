@@ -218,6 +218,9 @@ public:
     DNSCache* dns_cache() { return _dns_cache; }
 
 #ifdef BE_TEST
+    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
+        this->_tmp_file_dirs = std::move(tmp_file_dirs);
+    }
     void set_ready() { this->_s_ready = true; }
     void set_not_ready() { this->_s_ready = false; }
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
