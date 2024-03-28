@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -34,7 +35,12 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Set;
 
-/** EliminateRollup */
+/** EliminateRollup
+ *
+ * select c1, sum(c2) from t1 group by rollup(c1) having c1 > 1; ->
+ * select c1, sum(c2) from t1 group by c1 having c1 > 1;
+ *
+ * */
 public class EliminateRollup implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
@@ -59,7 +65,7 @@ public class EliminateRollup implements RewriteRuleFactory {
             for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
                 NamedExpression expr = (NamedExpression) agg.getOutputExpressions().get(i);
                 if (expr instanceof VirtualSlotReference
-                        && ((VirtualSlotReference) expr).getName().equals("GROUPING_ID")) {
+                        && ((VirtualSlotReference) expr).getName().equals(Repeat.COL_GROUPING_ID)) {
                     continue;
                 } else {
                     newOutput.add(expr);
@@ -80,7 +86,7 @@ public class EliminateRollup implements RewriteRuleFactory {
             return new LogicalFilter(filter.getConjuncts(),
                     new LogicalAggregate<>((List<Expression>) newGroupByExprs.build(),
                     (List<NamedExpression>) newOutput.build(), (Plan) agg.child().child(0).child(0)));
-        }).toRule(RuleType.ELIMINATE_AGGREGATE),
+        }).toRule(RuleType.ELIMINATE_ROLLUP),
         logicalAggregate(logicalProject(logicalRepeat())).thenApply(ctx -> {
             LogicalAggregate agg = ctx.root;
             LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) agg.child().child(0);
@@ -96,7 +102,7 @@ public class EliminateRollup implements RewriteRuleFactory {
             for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
                 NamedExpression expr = (NamedExpression) agg.getOutputExpressions().get(i);
                 if (expr instanceof VirtualSlotReference
-                        && ((VirtualSlotReference) expr).getName().equals("GROUPING_ID")) {
+                        && ((VirtualSlotReference) expr).getName().equals(Repeat.COL_GROUPING_ID)) {
                     continue;
                 } else {
                     newOutput.add(expr);
@@ -107,7 +113,7 @@ public class EliminateRollup implements RewriteRuleFactory {
             for (int i = 0; i < agg.getGroupByExpressions().size(); i++) {
                 Expression expr = (Expression) agg.getGroupByExpressions().get(i);
                 if (expr instanceof VirtualSlotReference
-                        && ((VirtualSlotReference) expr).getName().equals("GROUPING_ID")) {
+                        && ((VirtualSlotReference) expr).getName().equals(Repeat.COL_GROUPING_ID)) {
                     continue;
                 } else {
                     newGroupByExprs.add(expr);
@@ -116,15 +122,7 @@ public class EliminateRollup implements RewriteRuleFactory {
             // eliminate repeat
             return new LogicalAggregate<>((List<Expression>) newGroupByExprs.build(),
                     (List<NamedExpression>) newOutput.build(), (Plan) agg.child().child(0).child(0));
-        }).toRule(RuleType.ELIMINATE_AGGREGATE)
+        }).toRule(RuleType.ELIMINATE_ROLLUP)
         );
-    }
-
-    private boolean isSame(List<Expression> list1, List<Expression> list2) {
-        return list1.size() == list2.size() && list2.containsAll(list1);
-    }
-
-    private boolean onlyHasSlots(List<? extends Expression> exprs) {
-        return exprs.stream().allMatch(SlotReference.class::isInstance);
     }
 }
