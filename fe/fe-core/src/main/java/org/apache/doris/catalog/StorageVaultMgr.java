@@ -67,14 +67,18 @@ public class StorageVaultMgr {
                     MetaServiceProxy.getInstance().getObjStoreInfo(builder.build());
             newDefaultStorageVaultName = resp.getStorageVaultList().stream()
                     .filter(vault -> vault.getName().equals(stmt.getStorageVaultName()))
-                    .findAny().orElseThrow(() -> new DdlException("Value cannot be null")).getName();
+                    .findAny().orElseThrow(() -> new DdlException("There is no such vault")).getName();
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
+        setDefaultStorageVaultName(newDefaultStorageVaultName);
+    }
+
+    public void setDefaultStorageVaultName(String vaultName) {
         try {
             rwLock.writeLock().lock();
-            defaultStorageVaultName = newDefaultStorageVaultName;
+            defaultStorageVaultName = vaultName;
         } finally {
             rwLock.writeLock().unlock();
         }

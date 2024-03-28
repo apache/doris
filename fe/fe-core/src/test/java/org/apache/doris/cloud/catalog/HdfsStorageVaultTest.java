@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.analysis.CreateStorageVaultStmt;
+import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.HdfsStorageVault;
 import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.StorageVaultMgr;
@@ -159,5 +160,52 @@ public class HdfsStorageVaultTest {
                 "type", "hdfs",
                 "path", "abs/"));
         mgr.createHdfsVault(vault);
+    }
+
+    @Test
+    public void testSetDefaultVault() throws Exception {
+        new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
+            private String defaultStorageVaultName;
+            private HashSet<String> existed = new HashSet<>();
+            @Mock
+            public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
+                if (!existed.contains(stmt.getStorageVaultName())) {
+                    throw new DdlException("There is no such vault");
+                }
+                this.defaultStorageVaultName = stmt.getStorageVaultName();
+            }
+            @Mock
+            public String getDefaultStorageVaultName() {
+                return defaultStorageVaultName;
+            }
+
+            @Mock
+            public Cloud.AlterObjStoreInfoResponse
+            alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
+                MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
+                if (existed.contains(request.getHdfs().getName())) {
+                    status.setCode(MetaServiceCode.ALREADY_EXISTED);
+                } else {
+                    status.setCode(MetaServiceCode.OK);
+                    existed.add(request.getHdfs().getName());
+                }
+                resp.setStatus(status.build());
+                resp.setStorageVaultId(String.valueOf(existed.size()));
+                return resp.build();
+            }
+        };
+        StorageVault vault = new HdfsStorageVault("name", true);
+        Assertions.assertThrows(DdlException.class,
+                () -> {
+                    mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt(vault.getName()));
+                });
+        vault.modifyProperties(ImmutableMap.of(
+                "type", "hdfs",
+                "path", "abs/"));
+        mgr.createHdfsVault(vault);
+        Assertions.assertTrue(mgr.getDefaultStorageVaultName() == null);
+        mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt(vault.getName()));
+        Assertions.assertTrue(mgr.getDefaultStorageVaultName().equals(vault.getName()));
     }
 }
