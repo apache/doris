@@ -28,6 +28,7 @@ import org.apache.doris.cloud.proto.Cloud.MetaServiceResponseStatus;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.ImmutableMap;
@@ -160,18 +161,18 @@ public class HdfsStorageVaultTest {
     @Test
     public void testSetDefaultVault() throws Exception {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
-            private String defaultStorageVaultName;
+            private Pair<String, String> defaultVaultInfo;;
             private HashSet<String> existed = new HashSet<>();
             @Mock
             public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
                 if (!existed.contains(stmt.getStorageVaultName())) {
                     throw new DdlException("There is no such vault");
                 }
-                this.defaultStorageVaultName = stmt.getStorageVaultName();
+                this.defaultVaultInfo = Pair.of(stmt.getStorageVaultName(), "1");
             }
             @Mock
-            public String getDefaultStorageVaultName() {
-                return defaultStorageVaultName;
+            public Pair getDefaultStorageVaultInfo() {
+                return defaultVaultInfo;
             }
 
             @Mock
@@ -199,8 +200,8 @@ public class HdfsStorageVaultTest {
                 "type", "hdfs",
                 "path", "abs/"));
         mgr.createHdfsVault(vault);
-        Assertions.assertTrue(mgr.getDefaultStorageVaultName() == null);
+        Assertions.assertTrue(mgr.getDefaultStorageVaultInfo() == null);
         mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt(vault.getName()));
-        Assertions.assertTrue(mgr.getDefaultStorageVaultName().equals(vault.getName()));
+        Assertions.assertTrue(mgr.getDefaultStorageVaultInfo().first.equals(vault.getName()));
     }
 }
