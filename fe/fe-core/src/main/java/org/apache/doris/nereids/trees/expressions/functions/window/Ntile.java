@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -62,6 +64,20 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
     public Ntile withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Ntile(children.get(0));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        checkValidParams(getBuckets(), true);
+        if (getBuckets() instanceof Literal) {
+            if (((Literal) getBuckets()).getDouble() <= 0) {
+                throw new AnalysisException(
+                    "The bucket parameter of NTILE must be a constant positive integer: " + this.toSql());
+            }
+        } else {
+            throw new AnalysisException(
+                "The bucket parameter of NTILE must be a constant positive integer: " + this.toSql());
+        }
     }
 
     @Override
