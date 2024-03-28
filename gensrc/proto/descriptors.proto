@@ -34,6 +34,10 @@ message PSlotDescriptor {
     required string col_name = 8;
     required int32 slot_idx = 9;
     required bool is_materialized = 10;
+    optional int32 col_unique_id = 11;
+    optional bool is_key = 12;
+    optional bool is_auto_increment = 13;
+    optional int32 col_type = 14 [default = 0];
 };
 
 message PTupleDescriptor {
