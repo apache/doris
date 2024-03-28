@@ -98,7 +98,8 @@ struct VaultCreateFSVisitor {
 };
 
 struct RefreshFSVaultVisitor {
-    RefreshFSVaultVisitor(std::string_view id, io::FileSystemSPtr fs) : id(id), fs(std::move(fs)) {}
+    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs)
+            : id(id), fs(std::move(fs)) {}
 
     Status operator()(const S3Conf& s3_conf) const {
         DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
@@ -111,12 +112,17 @@ struct RefreshFSVaultVisitor {
         return st;
     }
 
-    Status operator()(const cloud::HdfsVaultInfo& vault_info) const {
-        // TODO(ByteYue): Implmente the hdfs fs refresh logic
+    Status operator()(const cloud::HdfsVaultInfo& vault) const {
+        auto hdfs_params = io::to_hdfs_params(vault);
+        auto hdfs_fs =
+                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
+                                                     vault.has_prefix() ? vault.prefix() : ""));
+        auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
+        put_storage_resource(id, {std::move(hdfs), 0});
         return Status::OK();
     }
 
-    std::string_view id;
+    const std::string& id;
     io::FileSystemSPtr fs;
 };
 
@@ -260,7 +266,8 @@ void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
             }
         }
 
-        if (auto& id = std::get<0>(vault_infos.back()); latest_fs()->id() != id) {
+        if (auto& id = std::get<0>(vault_infos.back());
+            latest_fs() == nullptr || latest_fs()->id() != id) {
             set_latest_fs(get_filesystem(id));
         }
     }

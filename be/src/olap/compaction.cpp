@@ -1060,6 +1060,9 @@ Status CloudCompactionMixin::modify_rowsets() {
 }
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
+    if (_engine.latest_fs() == nullptr) [[unlikely]] {
+        return Status::IOError("Invalid latest fs");
+    }
     ctx.fs = _engine.latest_fs();
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
