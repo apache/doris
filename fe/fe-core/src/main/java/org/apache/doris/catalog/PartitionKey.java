@@ -32,7 +32,6 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
