@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.Pair;
+
 import java.util.Set;
 import java.util.StringJoiner;
 
@@ -25,25 +27,25 @@ public class AutoAnalysisPendingJob {
     public final String catalogName;
     public final String dbName;
     public final String tableName;
-    public final Set<String> columnNames;
+    public final Set<Pair<String, String>> columns;
     public final JobPriority priority;
 
     public AutoAnalysisPendingJob(String catalogName, String dbName, String tableName,
-            Set<String> columnNames, JobPriority priority) {
+            Set<Pair<String, String>> columns, JobPriority priority) {
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tableName = tableName;
-        this.columnNames = columnNames;
+        this.columns = columns;
         this.priority = priority;
     }
 
     public String getColumnNames() {
-        if (columnNames == null) {
+        if (columns == null) {
             return "";
         }
         StringJoiner stringJoiner = new StringJoiner(",");
-        for (String colName : columnNames) {
-            stringJoiner.add(colName);
+        for (Pair<String, String> col : columns) {
+            stringJoiner.add(col.toString());
         }
         return stringJoiner.toString();
     }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
@@ -175,7 +176,7 @@ class StatisticsUtilTest {
                 return null;
             }
         };
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test user injected flag is set.
         TableStatsMeta tableMeta = new TableStatsMeta();
@@ -186,11 +187,11 @@ class StatisticsUtilTest {
                 return tableMeta;
             }
         };
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test column meta is null.
         tableMeta.userInjected = false;
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         new MockUp<TableStatsMeta>() {
             @Mock
@@ -201,7 +202,7 @@ class StatisticsUtilTest {
 
         // Test not supported external table type.
         ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbcdb", null);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(externalTable, column.getName()));
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(externalTable, Pair.of("index", column.getName())));
 
         // Test hms external table not hive type.
         new MockUp<HMSExternalTable>() {
@@ -211,7 +212,7 @@ class StatisticsUtilTest {
             }
         };
         ExternalTable hmsExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsExternalTable, column.getName()));
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsExternalTable, Pair.of("index", column.getName())));
 
         // Test partition first load.
         new MockUp<OlapTable>() {
@@ -221,7 +222,7 @@ class StatisticsUtilTest {
             }
         };
         tableMeta.newPartitionLoaded.set(true);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test empty table to non-empty table.
         new MockUp<OlapTable>() {
@@ -231,7 +232,7 @@ class StatisticsUtilTest {
             }
         };
         tableMeta.newPartitionLoaded.set(false);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test non-empty table to empty table.
         new MockUp<OlapTable>() {
@@ -247,7 +248,7 @@ class StatisticsUtilTest {
             }
         };
         tableMeta.newPartitionLoaded.set(false);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test table still empty.
         new MockUp<TableStatsMeta>() {
@@ -257,7 +258,7 @@ class StatisticsUtilTest {
             }
         };
         tableMeta.newPartitionLoaded.set(false);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test row count changed more than threshold.
         new MockUp<OlapTable>() {
@@ -273,7 +274,7 @@ class StatisticsUtilTest {
             }
         };
         tableMeta.newPartitionLoaded.set(false);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test update rows changed more than threshold.
         new MockUp<OlapTable>() {
@@ -290,12 +291,12 @@ class StatisticsUtilTest {
         };
         tableMeta.newPartitionLoaded.set(false);
         tableMeta.updatedRows.set(200);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test update rows changed less than threshold
         tableMeta.newPartitionLoaded.set(false);
         tableMeta.updatedRows.set(100);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, column.getName()));
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.StmtExecutor;
@@ -33,7 +34,7 @@ import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -41,7 +42,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -158,8 +158,8 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         };
 
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
-        colToPartitions.put("col1", Collections.singleton("t1"));
+        Set<Pair<String, String>> columns = Sets.newHashSet();
+        columns.add(Pair.of("col1", "t1"));
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogId(0).setDBId(0).setTblId(0)
                 .setColName("col1").setJobType(JobType.MANUAL)
@@ -167,7 +167,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .setState(AnalysisState.RUNNING)
-                .setColToPartitions(colToPartitions)
+                .setJobColumns(columns)
                 .build();
         OlapAnalysisTask task = new OlapAnalysisTask(analysisInfo);
 

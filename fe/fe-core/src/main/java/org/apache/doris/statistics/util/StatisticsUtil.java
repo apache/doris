@@ -76,7 +76,6 @@ import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
-import org.apache.doris.statistics.QueryColumn;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -1044,7 +1043,10 @@ public class StatisticsUtil {
         return true;
     }
 
-    public static boolean needAnalyzeColumn(TableIf table, String column) {
+    public static boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {
+        if (column == null) {
+            return false;
+        }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         // Table never been analyzed, need analyze.
@@ -1055,7 +1057,7 @@ public class StatisticsUtil {
         if (tableStatsStatus.userInjected) {
             return false;
         }
-        ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column);
+        ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column.first, column.second);
         // Column never been analyzed, need analyze.
         if (columnStatsMeta == null) {
             return true;
@@ -1063,7 +1065,7 @@ public class StatisticsUtil {
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // 0. Check new partition first time loaded flag.
-            if (olapTable.isPartitionColumn(column) && tableStatsStatus.newPartitionLoaded.get()) {
+            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.newPartitionLoaded.get()) {
                 return true;
             }
             // 1. Check row count.
@@ -1108,23 +1110,4 @@ public class StatisticsUtil {
                     - tableStatsStatus.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }
     }
-
-    public static boolean needAnalyzeColumn(QueryColumn column) {
-        if (column == null) {
-            return false;
-        }
-        TableIf table;
-        Column col;
-        try {
-            table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
-            col = table.getColumn(column.colName);
-        } catch (Exception e) {
-            LOG.warn("Failed to find table for column {}", column.colName, e);
-            return false;
-        }
-        return col != null
-                && !StatisticsUtil.isUnsupportedType(col.getType())
-                && StatisticsUtil.needAnalyzeColumn(table, column.colName);
-    }
-
 }
