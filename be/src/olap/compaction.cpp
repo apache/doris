@@ -466,6 +466,7 @@ Status CompactionMixin::do_inverted_index_compaction() {
                     _tablet->table_id());
             DCHECK(false) << err_msg;
             LOG(WARNING) << err_msg;
+            return Status::InternalError(err_msg);
         }
     }
 
