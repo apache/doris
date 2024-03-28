@@ -45,6 +45,14 @@ public:
 protected:
     Status _init_profile() override;
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
+    Status _process_conjuncts() override;
+
+private:
+    Status _process_rf_exprs();
+    Status _convert_rf_expr_to_sql_str(const vectorized::VExprSPtr& expr,
+                                       std::vector<std::string>& filters);
+    std::string _convert_value_data(PrimitiveType type, const void* value);
+    void _append_rf_string(std::string filter_str);
 
 private:
     std::string _table_name;
