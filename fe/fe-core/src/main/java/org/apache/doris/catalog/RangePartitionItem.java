@@ -75,7 +75,7 @@ public class RangePartitionItem extends PartitionItem {
         }
         // If the upper limit of the partition range meets the requirements, this partition needs to be retained
         return !isDefaultPartition() && MTMVUtil.getExprTimeSec(partitionKey.getKeys().get(pos), dateFormatOptional)
-                >= nowTruncSubSec;
+                > nowTruncSubSec;
     }
 
     @Override
