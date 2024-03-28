@@ -2639,6 +2639,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static int drop_user_notify_ms_max_times = 86400;
 
+    @ConfField(mutable = true)
+    public static boolean apsaradb_env_enabled = false;
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

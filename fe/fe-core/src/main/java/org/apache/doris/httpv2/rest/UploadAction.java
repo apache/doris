@@ -131,6 +131,10 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) {
 
+        if (Config.apsaradb_env_enabled) {
+            return ResponseEntityBuilder.badRequest("Not support upload data api in apsaradb env");
+        }
+
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
