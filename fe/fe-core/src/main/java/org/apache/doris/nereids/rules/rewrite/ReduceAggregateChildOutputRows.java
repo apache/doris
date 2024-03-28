@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -32,9 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /** ReduceAggregateChildOutputRows
  * with group by:
@@ -48,7 +47,7 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
         return logicalAggregate().then(agg -> {
             Set<AggregateFunction> aggFunctions = agg.getAggregateFunctions();
             // check whether we have aggregate(constant) in all aggregateFunctions
-            if (!agg.isRewrittenByReduceAggregateChildOutputRows()
+            if (!(agg.child() instanceof LogicalLimit)
                     || aggFunctions.isEmpty() || !aggFunctions.stream().allMatch(
                         f -> (f instanceof Min || f instanceof Max)
                             && (f.arity() == 1 && f.child(0).isConstant()))) {
@@ -74,13 +73,15 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
                 LogicalAggregate newAgg = new LogicalAggregate<>(agg.getGroupByExpressions(),
                         agg.getOutputExpressions(), new LogicalLimit(1, 0, LimitPhase.ORIGIN,
                                 new LogicalProject<>(newOutput.build(), agg.child())));
-                newAgg.setRewrittenByReduceAggregateChildOutputRows(true);
                 return newAgg;
             } else {
-                List<NamedExpression> childOutput = agg.getGroupByExpressions().stream().map(expr ->
-                        (NamedExpression) expr).collect(Collectors.toList());
+                ImmutableList.Builder<NamedExpression> childOutput =
+                        ImmutableList.builderWithExpectedSize(agg.getGroupByExpressions().size());
+                for (Expression expr : agg.getGroupByExpressions()) {
+                    childOutput.add((NamedExpression) expr);
+                }
                 return new LogicalProject<>(newOutput.build(),
-                                new LogicalAggregate<>(agg.getGroupByExpressions(), childOutput, agg.child()));
+                                new LogicalAggregate<>(agg.getGroupByExpressions(), childOutput.build(), agg.child()));
             }
         }).toRule(RuleType.REDUCE_AGGREGATE_CHILD_OUTPUT_ROWS);
     }
