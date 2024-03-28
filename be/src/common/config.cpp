@@ -201,10 +201,8 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
 
-// log dir
-DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
+DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
-DEFINE_String(pipeline_tracing_log_dir, "${DORIS_HOME}/log/tracing");
 // INFO, WARNING, ERROR, FATAL
 DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn

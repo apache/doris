@@ -208,6 +208,8 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
+export PPROF_TMPDIR="${LOG_DIR}"
+
 if [[ -z "${JAVA_HOME}" ]]; then
     echo "The JAVA_HOME environment variable is not defined correctly"
     echo "This environment variable is needed to run this program"
