@@ -171,7 +171,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
 
     _dns_cache = new DNSCache();
-    _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");

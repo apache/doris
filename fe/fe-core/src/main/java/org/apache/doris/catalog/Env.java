@@ -691,15 +691,7 @@ public class Env {
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
-<<<<<<< HEAD
-=======
-        this.queryCancelWorker = new QueryCancelWorker(systemInfo);
-        this.topicPublisherThread = new TopicPublisherThread(
-                "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
-        this.mtmvService = new MTMVService();
-        this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
->>>>>>> 39d695c05c ([opt](fqdn) Add DNS Cache for FE and BE (#32869))
     }
 
     public static void destroyCheckpoint() {
@@ -1549,13 +1541,8 @@ public class Env {
         columnIdFlusher.start();
     }
 
-<<<<<<< HEAD
     // start threads that should running on all FE
     private void startNonMasterDaemonThreads() {
-=======
-    // start threads that should run on all FE
-    protected void startNonMasterDaemonThreads() {
->>>>>>> 39d695c05c ([opt](fqdn) Add DNS Cache for FE and BE (#32869))
         // start load manager thread
         loadManager.start();
         tabletStatMgr.start();
@@ -1565,16 +1552,7 @@ public class Env {
         getInternalCatalog().getEsRepository().start();
         // domain resolver
         domainResolver.start();
-<<<<<<< HEAD
-=======
-        // fe disk updater
-        feDiskUpdater.start();
-        if (Config.enable_hms_events_incremental_sync) {
-            metastoreEventsProcessor.start();
-        }
-
         dnsCache.start();
->>>>>>> 39d695c05c ([opt](fqdn) Add DNS Cache for FE and BE (#32869))
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
