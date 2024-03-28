@@ -130,4 +130,11 @@ public class ResourcePattern implements Writable {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ResourcePattern.class);
     }
+
+    public void gsonPostProcess() throws IOException {
+        // // To be compatible with previous syntax
+        if ("*".equals(resourceName)) {
+            resourceName = "%";
+        }
+    }
 }
