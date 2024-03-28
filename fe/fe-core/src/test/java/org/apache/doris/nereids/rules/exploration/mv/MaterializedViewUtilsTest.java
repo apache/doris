@@ -269,7 +269,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_shipdate", rewrittenPlan);
-                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                            Assertions.assertTrue(relatedTableInfo.isPresent());
                         });
     }
 
