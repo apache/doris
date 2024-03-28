@@ -259,7 +259,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
             while (it->has_next()) {
                 auto [k, v] = it->next();
-                auto *vault = response->add_storage_vault();
+                auto* vault = response->add_storage_vault();
                 if (!vault->ParseFromArray(v.data(), v.size())) {
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                     msg = fmt::format("malformed storage vault, unable to deserialize key={}",
@@ -399,6 +399,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         };
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_HDFS_INFO:
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (!request->has_hdfs() || !request->hdfs().has_name()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -558,6 +559,22 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
         break;
+    }
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_HDFS_INFO: {
+        std::string vault_id = "0";
+        std::string key = storage_vault_key({instance_id, vault_id});
+        auto* hdfs = request->hdfs().New();
+        hdfs->set_id(std::move(vault_id));
+        hdfs->set_name("built_in_storage_vault");
+        std::string val = hdfs->SerializeAsString();
+        txn->put(key, val);
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            msg = fmt::format("failed to commit kv txn, err={}", err);
+            LOG(WARNING) << msg;
+        }
+        return;
     }
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);

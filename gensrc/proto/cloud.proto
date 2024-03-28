@@ -748,6 +748,7 @@ message AlterObjStoreInfoRequest {
 
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
+        ADD_BUILT_IN_HDFS_INFO = 102;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
