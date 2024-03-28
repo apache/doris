@@ -534,6 +534,7 @@ terminal String
     KW_PRECEDING,
     KW_PERCENT,
     KW_RECYCLE,
+    KW_PRIVILEGES,
     KW_PROC,
     KW_PROCEDURE,
     KW_PROCESSLIST,
@@ -4314,6 +4315,10 @@ show_param ::=
     | KW_ROLES
     {:
         RESULT = new ShowRolesStmt();
+    :}
+    | KW_PRIVILEGES
+    {:
+        RESULT = new ShowPrivilegesStmt();
     :}
     | opt_full opt_builtin:isBuiltin KW_FUNCTIONS opt_db:dbName opt_wild_where
     {:

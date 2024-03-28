@@ -379,6 +379,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("policy", new Integer(SqlParserSymbols.KW_POLICY));
         keywordMap.put("preceding", new Integer(SqlParserSymbols.KW_PRECEDING));
         keywordMap.put("percent", new Integer(SqlParserSymbols.KW_PERCENT));
+        keywordMap.put("privileges", new Integer(SqlParserSymbols.KW_PRIVILEGES));
         keywordMap.put("proc", new Integer(SqlParserSymbols.KW_PROC));
         keywordMap.put("procedure", new Integer(SqlParserSymbols.KW_PROCEDURE));
         keywordMap.put("processlist", new Integer(SqlParserSymbols.KW_PROCESSLIST));
