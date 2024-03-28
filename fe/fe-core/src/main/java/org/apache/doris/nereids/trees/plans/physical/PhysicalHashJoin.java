@@ -211,12 +211,12 @@ public class PhysicalHashJoin<
                 if (builderJoin == this) {
                     return false;
                 }
-                EqualPredicate equal = (EqualPredicate) builderNode.getHashJoinConjuncts().get(exprOrder);
-                if (equal instanceof NullSafeEqual) {
-                    if (this.joinType.isOuterJoin()) {
-                        return false;
-                    }
-                }
+            }
+        }
+        EqualPredicate equal = (EqualPredicate) builderNode.getHashJoinConjuncts().get(exprOrder);
+        if (equal instanceof NullSafeEqual) {
+            if (this.joinType.isOuterJoin()) {
+                return false;
             }
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
