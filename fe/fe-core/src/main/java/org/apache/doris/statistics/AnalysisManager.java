@@ -114,9 +114,10 @@ public class AnalysisManager implements Writable {
     public static final int COLUMN_QUEUE_SIZE = 1000;
     public final Queue<QueryColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Queue<QueryColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
-    public final Map<TableName, Set<String>> highPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<String>> midPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<String>> lowPriorityJobs = new LinkedHashMap<>();
+    // Map<TableName, Set<Pair<IndexName, ColumnName>>>
+    public final Map<TableName, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -168,7 +169,7 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException, AnalysisException {
+    public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws AnalysisException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
         List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDB(db, analyzeDBStmt.getAnalyzeProperties());
         if (!analyzeDBStmt.isSync()) {
@@ -187,9 +188,8 @@ public class AnalysisManager implements Writable {
                 if (table instanceof View) {
                     continue;
                 }
-                TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
-                        table.getName());
-                // columnNames null means to add all visitable columns.
+                TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());
+                // columnNames null means to add all visible columns.
                 // Will get all the visible columns in analyzeTblStmt.check()
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
                         null, db.getId(), table);
@@ -220,7 +220,8 @@ public class AnalysisManager implements Writable {
         // Using auto analyzer if user specifies.
         if (stmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
             Env.getCurrentEnv().getStatisticsAutoCollector()
-                    .processOneJob(stmt.getTable(), stmt.getColumnNames(), JobPriority.HIGH);
+                    .processOneJob(stmt.getTable(),
+                            stmt.getTable().getColumnIndexPairs(stmt.getColumnNames()), JobPriority.HIGH);
             return;
         }
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
@@ -344,7 +345,6 @@ public class AnalysisManager implements Writable {
         infoBuilder.setAnalysisMode(analysisMode);
         infoBuilder.setAnalysisMethod(analysisMethod);
         infoBuilder.setScheduleType(scheduleType);
-        infoBuilder.setLastExecTimeInMs(0);
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(stmt.forceFull());
         infoBuilder.setUsingSqlForPartitionColumn(stmt.usingSqlForPartitionColumn());
@@ -361,7 +361,7 @@ public class AnalysisManager implements Writable {
 
         long periodTimeInMs = stmt.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
-        List<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames);
+        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames);
         infoBuilder.setJobColumns(jobColumns);
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
@@ -390,7 +390,7 @@ public class AnalysisManager implements Writable {
 
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
             boolean isSync) throws DdlException {
-        List<Pair<String, String>> jobColumns = jobInfo.jobColumns;
+        Set<Pair<String, String>> jobColumns = jobInfo.jobColumns;
         TableIf table = jobInfo.getTable();
         for (Pair<String, String> pair : jobColumns) {
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
@@ -565,11 +565,11 @@ public class AnalysisManager implements Writable {
         return result;
     }
 
-    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableName, Set<String>> jobMap,
+    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableName, Set<Pair<String, String>>> jobMap,
             JobPriority priority, TableName tblName) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         synchronized (jobMap) {
-            for (Entry<TableName, Set<String>> entry : jobMap.entrySet()) {
+            for (Entry<TableName, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
                 TableName table = entry.getKey();
                 if (tblName == null || tblName.equals(table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),

@@ -25,7 +25,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
+import java.util.HashSet;
 
 class TableStatsMetaTest {
 
@@ -38,7 +38,7 @@ class TableStatsMetaTest {
             }
         };
         TableStatsMeta tableStatsMeta = new TableStatsMeta();
-        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setJobColumns(new HashSet<>())
                 .setColName("col1").build();
         tableStatsMeta.update(jobInfo, table);
         Assertions.assertEquals(4, tableStatsMeta.rowCount);

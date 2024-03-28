@@ -96,7 +96,7 @@ public class AnalysisInfo implements Writable {
     public final long tblId;
 
     // Pair<IndexName, ColumnName>
-    public final List<Pair<String, String>> jobColumns;
+    public final Set<Pair<String, String>> jobColumns;
 
     public final Set<String> partitionNames;
 
@@ -207,7 +207,7 @@ public class AnalysisInfo implements Writable {
     public final JobPriority priority;
 
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
-            List<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
+            Set<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,

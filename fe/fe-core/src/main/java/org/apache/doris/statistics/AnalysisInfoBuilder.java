@@ -36,7 +36,7 @@ public class AnalysisInfoBuilder {
     private long catalogId;
     private long dbId;
     private long tblId;
-    private List<Pair<String, String>> jobColumns;
+    private Set<Pair<String, String>> jobColumns;
     private Set<String> partitionNames;
     private String colName;
     private long indexId = -1L;
@@ -139,7 +139,7 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setJobColumns(List<Pair<String, String>> jobColumns) {
+    public AnalysisInfoBuilder setJobColumns(Set<Pair<String, String>> jobColumns) {
         this.jobColumns = jobColumns;
         return this;
     }

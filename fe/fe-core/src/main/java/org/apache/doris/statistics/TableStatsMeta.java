@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -130,8 +131,8 @@ public class TableStatsMeta implements Writable {
         for (Pair<String, String> colPair : analyzedJob.jobColumns) {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
-                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime,
-                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
+                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime, analyzedJob.analysisMethod,
+                        analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
                         analyzedJob.updateRows));
             } else {
                 colStatsMeta.updatedTime = updatedTime;
@@ -145,29 +146,24 @@ public class TableStatsMeta implements Writable {
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
-                rowCount = analyzedJob.emptyJob ? 0 : tableIf.getRowCount();
+                rowCount = analyzedJob.rowCount;
             }
-            if (analyzedJob.emptyJob) {
+            if (rowCount == 0 && analyzedJob.analysisMethod.equals(AnalysisMethod.SAMPLE)) {
                 return;
             }
             if (analyzedJob.jobColumns.containsAll(
                     tableIf.getColumnIndexPairs(
-                    tableIf.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet())))) {
-                updatedRows.set(0);
+                    tableIf.getSchemaAllIndexes(false).stream()
+                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                            .map(Column::getName).collect(Collectors.toSet())))) {
                 newPartitionLoaded.set(false);
-            }
-            if (tableIf instanceof OlapTable) {
+                userInjected = false;
+            } else if (tableIf instanceof OlapTable) {
                 PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
                 if (partitionInfo != null && analyzedJob.jobColumns
                         .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
                             .map(Column::getName).collect(Collectors.toSet())))) {
                     newPartitionLoaded.set(false);
-                }
-                if (analyzedJob.rowCount != 0 && analyzedJob.colToPartitions.keySet()
-                        .containsAll(tableIf.getBaseSchema().stream()
-                                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                .map(Column::getName).collect(Collectors.toSet()))) {
-                    userInjected = false;
                 }
             }
         }

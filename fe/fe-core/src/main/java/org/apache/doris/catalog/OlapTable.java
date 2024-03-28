@@ -99,6 +99,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -760,8 +761,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public List<Column> getSchemaAllIndexes(boolean full) {
-        List<Column> columns = Lists.newArrayList();
+    public Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> columns = Sets.newHashSet();
         for (Long indexId : indexIdToMeta.keySet()) {
             columns.addAll(getSchemaByIndexId(indexId, full));
         }
@@ -1291,8 +1292,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-        List<Pair<String, String>> ret = Lists.newArrayList();
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        Set<Pair<String, String>> ret = Sets.newHashSet();
         // Check the schema of all indexes for each given column name,
         // If the column name exists in the index, add the <IndexName, ColumnName> pair to return list.
         for (String column : columns) {
@@ -1301,7 +1302,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
                     continue;
                 }
-                ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column));
+                ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column.toLowerCase(Locale.ROOT)));
             }
         }
         return ret;
