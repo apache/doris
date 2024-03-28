@@ -14,7 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_window_fn", "arrow_flight_sql") {
+suite("test_window_fn") {
+    // "arrow_flight_sql", groovy use flight sql connection to execute query `SUM(MAX(c1) OVER (PARTITION BY))` report error:
+    // `AGGREGATE clause must not contain analytic expressions`, but no problem in Java execute it with `jdbc::arrow-flight-sql`.
     def tbName1 = "empsalary"
     def tbName2 = "tenk1"
     sql """ DROP TABLE IF EXISTS ${tbName1} """
