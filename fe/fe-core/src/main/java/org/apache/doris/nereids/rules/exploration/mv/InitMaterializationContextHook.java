@@ -66,9 +66,9 @@ public class InitMaterializationContextHook implements PlannerHook {
             return;
         }
         Plan rewritePlan = cascadesContext.getRewritePlan();
-        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet());
+        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), true);
         rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
-        List<TableIf> collectedTables = collectorContext.getCollectedTables();
+        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         if (collectedTables.isEmpty()) {
             return;
         }
