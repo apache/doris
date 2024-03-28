@@ -307,13 +307,6 @@ Status PipelineXTask::execute(bool* eos) {
 
 bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes) {
     auto* query_ctx = state->get_query_ctx();
-    bool need_revoke = query_ctx->need_revoke();
-    if (!need_revoke) {
-        return false;
-    }
-
-    const auto min_revocable_mem_bytes = state->min_revocable_mem();
-
     auto wg = query_ctx->workload_group();
     if (!wg) {
         LOG_ONCE(INFO) << "no workload group for query " << print_id(state->query_id());
@@ -328,23 +321,31 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
             return true;
         }
         return false;
-    }
+    } else if (is_wg_mem_low_water_mark) {
+        int64_t query_weighted_limit = 0;
+        int64_t query_weighted_consumption = 0;
+        query_ctx->get_weighted_mem_info(query_weighted_limit, query_weighted_consumption);
+        if (query_weighted_consumption < query_weighted_limit) {
+            return false;
+        }
+        auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
+        DCHECK(big_memory_operator_num >= 0);
+        int64_t mem_limit_of_op;
+        if (0 == big_memory_operator_num) {
+            mem_limit_of_op = (double)query_weighted_limit * 0.8;
+        } else {
+            mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
+        }
 
-    int64_t query_weighted_limit = 0;
-    int64_t query_weighted_consumption = 0;
-    query_ctx->get_weighted_mem_info(query_weighted_limit, query_weighted_consumption);
-    auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
-    DCHECK(big_memory_operator_num >= 0);
-    int64_t mem_limit_of_op;
-    if (0 == big_memory_operator_num) {
-        mem_limit_of_op = (double)query_weighted_limit * 0.8;
+        const auto min_revocable_mem_bytes = state->min_revocable_mem();
+        LOG_EVERY_N(INFO, 5) << "revoke memory, low water mark, revocable_mem_bytes: "
+                             << revocable_mem_bytes << ", mem_limit_of_op: " << mem_limit_of_op
+                             << ", min_revocable_mem_bytes: " << min_revocable_mem_bytes;
+        return (revocable_mem_bytes > mem_limit_of_op ||
+                revocable_mem_bytes > min_revocable_mem_bytes);
     } else {
-        mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
+        return false;
     }
-    LOG_EVERY_N(INFO, 5) << "revoke memory, low water mark, revocable_mem_bytes: "
-                         << revocable_mem_bytes << ", mem_limit_of_op: " << mem_limit_of_op
-                         << ", min_revocable_mem_bytes: " << min_revocable_mem_bytes;
-    return (revocable_mem_bytes > mem_limit_of_op || revocable_mem_bytes > min_revocable_mem_bytes);
 }
 void PipelineXTask::finalize() {
     PipelineTask::finalize();

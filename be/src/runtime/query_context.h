@@ -270,9 +270,6 @@ public:
         weighted_consumption = _weighted_consumption;
     }
 
-    void set_need_revoke(bool b) { _need_revoke.store(b, std::memory_order_relaxed); }
-    bool need_revoke() { return _need_revoke.load(std::memory_order_relaxed); }
-
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -354,7 +351,6 @@ private:
     std::mutex _weighted_mem_lock;
     int64_t _weighted_consumption = 0;
     int64_t _weighted_limit = 0;
-    std::atomic_bool _need_revoke = false;
 };
 
 } // namespace doris

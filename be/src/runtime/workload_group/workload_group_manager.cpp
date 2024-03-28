@@ -161,8 +161,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
         int64_t wg_total_mem_used = 0;
         for (const auto& [query_id, query_ctx_ptr] : wg_queries) {
             if (auto query_ctx = query_ctx_ptr.lock()) {
-                wg_total_mem_used +=
-                        query_ctx->is_cancelled() ? 0 : query_ctx->query_mem_tracker->consumption();
+                wg_total_mem_used += query_ctx->query_mem_tracker->consumption();
             }
         }
         all_queries_mem_used += wg_total_mem_used;
@@ -176,15 +175,6 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
 
     auto process_mem_used = doris::MemInfo::proc_mem_no_allocator_cache();
     auto sys_mem_available = doris::MemInfo::sys_mem_available();
-    std::string debug_msg = fmt::format(
-            "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "
-            "{}, all quries mem: {}",
-            PrettyPrinter::print(proc_vm_rss, TUnit::BYTES),
-            PrettyPrinter::print(process_mem_used, TUnit::BYTES),
-            PrettyPrinter::print(sys_mem_available, TUnit::BYTES),
-            PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
-    LOG_EVERY_N(INFO, 5) << debug_msg;
-
     if (proc_vm_rss < all_queries_mem_used) {
         all_queries_mem_used = proc_vm_rss;
     }
@@ -194,6 +184,16 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
     // in process_mem_used.
     // we count these cache memories equally on workload groups.
     double ratio = (double)proc_vm_rss / (double)all_queries_mem_used;
+    if (ratio >= 1.25) {
+        std::string debug_msg = fmt::format(
+                "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "
+                "{}, all quries mem: {}",
+                PrettyPrinter::print(proc_vm_rss, TUnit::BYTES),
+                PrettyPrinter::print(process_mem_used, TUnit::BYTES),
+                PrettyPrinter::print(sys_mem_available, TUnit::BYTES),
+                PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
+        LOG_EVERY_N(INFO, 10) << debug_msg;
+    }
 
     for (auto& wg : _workload_groups) {
         auto wg_mem_limit = wg.second->memory_limit();
@@ -216,7 +216,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
         int64_t query_weighted_mem_limit =
                 wg_query_count ? (wg_mem_limit + wg_query_count) / wg_query_count : wg_mem_limit;
 
-        debug_msg = "";
+        std::string debug_msg;
         if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
             debug_msg = fmt::format(
                     "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem used: {}, used "
@@ -240,14 +240,6 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
             int64_t query_weighted_consumption = query_consumption * ratio;
             query_ctx->set_weighted_mem(query_weighted_mem_limit, query_weighted_consumption);
 
-            bool need_revoke = false;
-            if (wg_mem_info.is_high_wartermark) {
-                need_revoke = true;
-            } else if (wg_mem_info.is_low_wartermark) {
-                need_revoke = query_weighted_consumption > query_weighted_mem_limit;
-            }
-            query_ctx->set_need_revoke(need_revoke);
-
             if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
                 debug_msg += fmt::format(
                         "\n    MemTracker Label={}, Parent Label={}, Used={}, WeightedUsed={}, "
@@ -261,7 +253,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
             }
         }
         if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
-            LOG_EVERY_N(INFO, 3) << debug_msg;
+            LOG_EVERY_N(INFO, 10) << debug_msg;
         }
     }
 }
