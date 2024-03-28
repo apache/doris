@@ -648,17 +648,13 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
         toThrift(msg);
         container.addToNodes(msg);
-
-        // legacy planner set outputTuple and projections inside join node
-        if (!(this instanceof JoinNodeBase) || !(((JoinNodeBase) this).isUseSpecificProjections())) {
-            if (outputTupleDesc != null) {
-                msg.setOutputTupleId(outputTupleDesc.getId().asInt());
+        if (projectList != null) {
+            for (Expr expr : projectList) {
+                msg.addToProjections(expr.treeToThrift());
             }
-            if (projectList != null) {
-                for (Expr expr : projectList) {
-                    msg.addToProjections(expr.treeToThrift());
-                }
-            }
+        }
+        if (outputTupleDesc != null) {
+            msg.setOutputTupleId(outputTupleDesc.getId().asInt());
         }
         if (this instanceof ExchangeNode) {
             msg.num_children = 0;
