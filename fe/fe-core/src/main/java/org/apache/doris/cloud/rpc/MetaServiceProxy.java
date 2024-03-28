@@ -443,10 +443,10 @@ public class MetaServiceProxy {
         }
     }
 
-    public Cloud.GetObjStoreInfoResponse getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
+    public Cloud.GetDefaultVaultResponse getDefaultVault(Cloud.GetDefaultVaultRequest request) throws RpcException {
         try {
             final MetaServiceClient client = getProxy();
-            return client.getObjStoreInfo(request);
+            return client.getDefaultVault(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

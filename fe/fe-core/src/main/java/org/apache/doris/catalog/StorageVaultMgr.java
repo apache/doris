@@ -24,6 +24,7 @@ import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -33,7 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class StorageVaultMgr {
+public class StorageVaultMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
 
     // <VaultName, VaultId>
@@ -41,9 +42,14 @@ public class StorageVaultMgr {
 
     private ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
+    @Override
+    protected final void runAfterCatalogReady() {
+        refreshDefaultVault();
+    }
 
-
-    public StorageVaultMgr() {}
+    public StorageVaultMgr() {
+        super("StorageVaultMgr", 300000);
+    }
 
     // TODO(ByteYue): The CreateStorageVault should only be handled by master
     // which indicates we can maintains one <VaultName, VaultId> map in FE master
@@ -131,6 +137,17 @@ public class StorageVaultMgr {
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
+        }
+    }
+
+    public void refreshDefaultVault() {
+        Cloud.GetDefaultVaultRequest.Builder builder = Cloud.GetDefaultVaultRequest.newBuilder();
+        try {
+            Cloud.GetDefaultVaultResponse resp =
+                    MetaServiceProxy.getInstance().getDefaultVault(builder.build());
+            setDefaultStorageVault(Pair.of(resp.getVaultName(), resp.getVaultId()));
+        } catch (RpcException e) {
+            LOG.warn("failed to get default storage vault due to RpcException: {}", e);
         }
     }
 }
