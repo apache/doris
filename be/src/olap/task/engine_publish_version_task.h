@@ -110,7 +110,6 @@ private:
     std::map<TTabletId, TVersion>* _succ_tablets;
     std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets = nullptr;
     std::map<TTableId, int64_t>* _table_id_to_num_delta_rows = nullptr;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 class AsyncTabletPublishTask {

@@ -81,9 +81,10 @@ EnginePublishVersionTask::EnginePublishVersionTask(
           _error_tablet_ids(error_tablet_ids),
           _succ_tablets(succ_tablets),
           _discontinuous_version_tablets(discontinuous_version_tablets),
-          _table_id_to_num_delta_rows(table_id_to_num_delta_rows),
-          _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
-                                                        "TabletPublishTxnTask")) {}
+          _table_id_to_num_delta_rows(table_id_to_num_delta_rows) {
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                                                    "TabletPublishTxnTask");
+}
 
 void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
     std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
@@ -91,7 +92,6 @@ void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
 }
 
 Status EnginePublishVersionTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;
