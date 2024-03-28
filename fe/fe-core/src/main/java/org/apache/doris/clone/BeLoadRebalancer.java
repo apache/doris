@@ -288,7 +288,7 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         }
         if (!setSource) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to take src backend slot");
         }
 
         // Select a low load backend as destination.
@@ -331,7 +331,7 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find low backend");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to find low dest backend");
         }
 
         List<BePathLoadStatPair> candFitPaths = Lists.newArrayList();
@@ -368,7 +368,7 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                "unable to find low backend");
+                "beload waiting for dest backend slot");
     }
 
 }
