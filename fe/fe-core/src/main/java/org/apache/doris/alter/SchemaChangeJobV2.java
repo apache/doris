@@ -459,7 +459,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
                             Column newColumn = indexColumnMap
                                     .get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                            if (newColumn.getType() != column.getType()) {
+                            if (!newColumn.getType().equals(column.getType())) {
                                 try {
                                     SlotRef slot = new SlotRef(destSlotDesc);
                                     slot.setCol(column.getName());

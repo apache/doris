@@ -201,6 +201,10 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 "Don't support to add materialized view by linked schema change");
     }
 
+    LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
+              << ", sc_directly: " << sc_directly << ", base_tablet=" << _base_tablet->tablet_id()
+              << ", new_tablet=" << _new_tablet->tablet_id();
+
     // 2. Generate historical data converter
     auto sc_procedure = get_sc_procedure(changer, sc_sorting);
 

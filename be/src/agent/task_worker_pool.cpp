@@ -190,7 +190,8 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
         Status res = Status::OK();
         try {
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
-            SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2);
+            SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
+                                std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
             status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
         } catch (const Exception& e) {
             status = e.to_status();
