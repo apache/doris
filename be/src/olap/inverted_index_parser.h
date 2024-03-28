@@ -99,12 +99,11 @@ std::string get_parser_ignore_above_value_from_properties(
 template <bool ReturnTrue = false>
 std::string get_parser_lowercase_from_properties(
         const std::map<std::string, std::string>& properties) {
+    DBUG_EXECUTE_IF("inverted_index_parser.get_parser_lowercase_from_properties", { return ""; })
+
     if (properties.find(INVERTED_INDEX_PARSER_LOWERCASE_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
     } else {
-        DBUG_EXECUTE_IF("inverted_index_parser.get_parser_lowercase_from_properties",
-                        { return ""; })
-
         if constexpr (ReturnTrue) {
             return INVERTED_INDEX_PARSER_TRUE;
         } else {
