@@ -74,7 +74,7 @@ public class TrinoConnectorSplit extends FileSplit {
                 initHiveSplitInfo();
                 break;
             default:
-                LOG.warn("Unknow connector name: " + connectorName);
+                LOG.debug("Unknow connector name: " + connectorName);
                 return;
         }
     }
