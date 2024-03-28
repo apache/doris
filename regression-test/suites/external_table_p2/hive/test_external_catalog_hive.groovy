@@ -144,7 +144,7 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
                 create catalog if not exists ${tmp_name} properties (
                     'type'='hms',
                     'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
-                    'access_controller.properties.ranger.service.name' = 'hive_wrong',
+                    'access_controller.properties.ranger.service.type' = 'hive_wrong',
                     'access_controller.class' = 'org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory'
                 );
             """
