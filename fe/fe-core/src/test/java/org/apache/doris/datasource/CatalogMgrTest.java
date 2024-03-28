@@ -365,10 +365,6 @@ public class CatalogMgrTest extends TestWithFeService {
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
         env.changeCatalog(user2Ctx, switchHive.getCatalogName());
         Assert.assertEquals(user2Ctx.getDefaultCatalog(), "hive");
-        // user2 can grant select_priv to tpch.customer
-        GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on tpch.customer to 'user2'@'%';", user2Ctx);
-        auth.grant(user2GrantHiveTable);
 
         showCatalogSql = "SHOW CATALOGS";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);

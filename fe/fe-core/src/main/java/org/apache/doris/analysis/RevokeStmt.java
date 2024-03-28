@@ -157,12 +157,12 @@ public class RevokeStmt extends DdlStmt {
 
         // Revoke operation obey the same rule as Grant operation. reuse the same method
         if (tblPattern != null) {
-            GrantStmt.checkTablePrivileges(privileges, role, tblPattern, colPrivileges);
+            GrantStmt.checkTablePrivileges(privileges, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
             privileges = PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
-            GrantStmt.checkResourcePrivileges(privileges, role, resourcePattern);
+            GrantStmt.checkResourcePrivileges(privileges, resourcePattern);
         } else if (workloadGroupPattern != null) {
-            GrantStmt.checkWorkloadGroupPrivileges(privileges, role, workloadGroupPattern);
+            GrantStmt.checkWorkloadGroupPrivileges(privileges, workloadGroupPattern);
         } else if (roles != null) {
             GrantStmt.checkRolePrivileges();
         }
