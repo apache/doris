@@ -148,6 +148,8 @@ private:
     Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                  const std::vector<bool>& use_default_or_null_flag,
                                  bool has_default_or_nullable, const size_t& segment_start_pos);
+    Status _make_full_block(std::shared_ptr<vectorized::Block>& block_ptr,
+                            const vectorized::Block* block, size_t num_rows);
 
 private:
     uint32_t _segment_id;
@@ -195,6 +197,7 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
+    std::vector<std::shared_ptr<vectorized::Block>> _full_blocks;
     std::shared_ptr<vectorized::AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
     vectorized::AutoIncIDAllocator _auto_inc_id_allocator;
 };

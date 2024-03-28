@@ -485,7 +485,7 @@ void MemTable::shrink_memtable_by_agg() {
 
 bool MemTable::need_flush() const {
     auto max_size = config::write_buffer_size;
-    if (_is_partial_update) {
+    if (_is_partial_update && _keys_type == KeysType::UNIQUE_KEYS) {
         auto update_columns_size = _num_columns;
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > 1048576 ? max_size : 1048576;
