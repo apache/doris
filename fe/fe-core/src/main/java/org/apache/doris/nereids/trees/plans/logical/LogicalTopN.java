@@ -22,7 +22,6 @@ import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -170,18 +169,31 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
         if (getLimit() == 1) {
-            Builder builder = new Builder();
-            List<Slot> output = getOutput();
-            output.forEach(builder::addUniformSlot);
-            output.forEach(builder::addUniqueSlot);
-            ImmutableSet<FdItem> fdItems = computeFdItems();
-            builder.addFdItems(fdItems);
-            fd = builder.build();
+            getOutput().forEach(fdBuilder::addUniqueSlot);
+        } else {
+            fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
         }
-        return fd;
+    }
+
+    @Override
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        if (getLimit() == 1) {
+            getOutput().forEach(fdBuilder::addUniformSlot);
+        } else {
+            fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        }
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps() {
+        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
+        fdBuilder.addFdItems(fdItems);
+        return fdBuilder.build();
     }
 
     @Override

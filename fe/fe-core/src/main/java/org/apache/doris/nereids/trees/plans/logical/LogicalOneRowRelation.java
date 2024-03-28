@@ -135,12 +135,20 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        getOutput().forEach(fdBuilder::addUniformSlot);
+    }
+
+    @Override
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        getOutput().forEach(fdBuilder::addUniformSlot);
+    }
+
+    @Override
     public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        getOutput().forEach(s -> {
-            builder.addUniformSlot(s);
-            builder.addUniqueSlot(s);
-        });
+        computeUniform(builder);
+        computeUnique(builder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();

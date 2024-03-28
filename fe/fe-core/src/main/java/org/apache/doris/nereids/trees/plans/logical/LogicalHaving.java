@@ -120,12 +120,23 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public FunctionalDependencies computeFuncDeps() {
-        Builder fdBuilder = new Builder(
-                child().getLogicalProperties().getFunctionalDependencies());
-        getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
+        Builder fdBuilder = new Builder();
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 
     @Override

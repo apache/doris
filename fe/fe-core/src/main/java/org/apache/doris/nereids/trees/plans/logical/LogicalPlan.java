@@ -62,4 +62,8 @@ public interface LogicalPlan extends Plan {
     FunctionalDependencies computeFuncDeps();
 
     ImmutableSet<FdItem> computeFdItems();
+
+    void computeUnique(FunctionalDependencies.Builder fdBuilder);
+
+    void computeUniform(FunctionalDependencies.Builder fdBuilder);
 }

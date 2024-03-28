@@ -165,17 +165,34 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies
+        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies
                 .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
+        computeFdItems();
+        return fdBuilder.build();
+    }
+
+    @Override
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> outputs = getOutput();
         for (int i = 0; i < outputs.size(); i++) {
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
-        builder.replace(replaceMap);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        builder.addFdItems(fdItems);
-        return builder.build();
+        fdBuilder.replace(replaceMap);
+    }
+
+    @Override
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> outputs = getOutput();
+        for (int i = 0; i < outputs.size(); i++) {
+            replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
+        }
+        fdBuilder.replace(replaceMap);
     }
 
     @Override

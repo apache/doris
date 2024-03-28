@@ -129,7 +129,14 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public FunctionalDependencies computeFuncDeps() {
         Builder fdBuilder = new Builder();
-        Set<Slot> outputSet = Utils.fastToImmutableSet(outputSupplier.get());
+        computeUnique(fdBuilder);
+        fdBuilder.addFdItems(computeFdItems(Utils.fastToImmutableSet(getOutputSet())));
+        return fdBuilder.build();
+    }
+
+    @Override
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
@@ -153,13 +160,16 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             Set<Column> columns = c.getUniqueKeys(table);
             fdBuilder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
-        fdBuilder.addFdItems(computeFdItems(outputSet));
-        return fdBuilder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        return computeFdItems(Utils.fastToImmutableSet(outputSupplier.get()));
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        // No uniform slot for catalog relation
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        return computeFdItems(Utils.fastToImmutableSet(getOutputSet()));
     }
 
     private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {

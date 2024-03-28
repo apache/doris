@@ -460,68 +460,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public FunctionalDependencies computeFuncDeps() {
-        if (isMarkJoin()) {
-            // TODO disable function dependence calculation for mark join, but need re-think this in future.
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-        //1. NALAJ and FOJ block functional dependencies
-        if (joinType.isNullAwareLeftAntiJoin() || joinType.isFullOuterJoin()) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        // left/right semi/anti join propagate left/right functional dependencies
-        if (joinType.isLeftAntiJoin() || joinType.isLefSemiJoin()) {
-            return left().getLogicalProperties().getFunctionalDependencies();
-        }
-        if (joinType.isRightSemiJoin() || joinType.isRightAntiJoin()) {
-            return right().getLogicalProperties().getFunctionalDependencies();
-        }
-
-        // if there is non-equal join conditions, block functional dependencies
-        if (!otherJoinConjuncts.isEmpty()) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
-        if (keys == null) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        // Note here we only check whether the left is unique.
-        // So the hash condition can't be null-safe
-        // TODO: consider Null-safe hash condition when left and rigth is not nullable
-        boolean isLeftUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
-        boolean isRightUnique = right().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.second);
-        Builder fdBuilder = new Builder();
-        if (joinType.isInnerJoin()) {
-            // inner join propagate uniforms slots
-            // And if the hash keys is unique, inner join can propagate all functional dependencies
-            if (isLeftUnique && isRightUnique) {
-                fdBuilder.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
-                fdBuilder.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
-            } else {
-                fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-                fdBuilder.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
-            }
-        }
-
-        // left/right outer join propagate left/right uniforms slots
-        // And if the right/left hash keys is unique,
-        // join can propagate left/right functional dependencies
-        if (joinType.isLeftOuterJoin()) {
-            if (isRightUnique) {
-                return left().getLogicalProperties().getFunctionalDependencies();
-            }
-            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-        }
-        if (joinType.isRightOuterJoin()) {
-            if (isLeftUnique) {
-                return left().getLogicalProperties().getFunctionalDependencies();
-            }
-            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-        }
+        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
+        computeUnique(fdBuilder);
+        computeUniform(fdBuilder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
@@ -708,5 +649,62 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
         logicalJoin.put("Properties", properties);
         return logicalJoin;
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return;
+        }
+        if (joinType.isLeftSemiOrAntiJoin()) {
+            fdBuilder.addUniqueSlot(left().getLogicalProperties().getFunctionalDependencies());
+        } else if (joinType.isRightSemiOrAntiJoin()) {
+            fdBuilder.addUniqueSlot(right().getLogicalProperties().getFunctionalDependencies());
+        }
+        // if there is non-equal join conditions, don't propagate unique
+        if (!otherJoinConjuncts.isEmpty()) {
+            return;
+        }
+        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
+        if (keys == null) {
+            return;
+        }
+
+        // Note here we only check whether the left is unique.
+        // So the hash condition can't be null-safe
+        // TODO: consider Null-safe hash condition when left and rigth is not nullable
+        boolean isLeftUnique = left().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.first);
+        boolean isRightUnique = right().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.second);
+
+        // left/right outer join propagate left/right uniforms slots
+        // And if the right/left hash keys is unique,
+        // join can propagate left/right functional dependencies
+        if (joinType.isLeftOuterJoin() && isRightUnique) {
+            fdBuilder.addUniqueSlot(left().getLogicalProperties().getFunctionalDependencies());
+        } else if (joinType.isRightOuterJoin() && isLeftUnique) {
+            fdBuilder.addUniqueSlot(right().getLogicalProperties().getFunctionalDependencies());
+        } else if (joinType.isInnerJoin() && isLeftUnique && isRightUnique) {
+            // inner join propagate uniforms slots
+            // And if the hash keys is unique, inner join can propagate all functional dependencies
+            fdBuilder.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
+            fdBuilder.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
+        }
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return;
+        }
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            fdBuilder.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
+        }
     }
 }
