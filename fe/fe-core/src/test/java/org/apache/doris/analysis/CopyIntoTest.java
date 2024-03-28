@@ -68,6 +68,7 @@ public class CopyIntoTest extends TestWithFeService {
     protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.enableInternalSchemaDb = false;
         Config.cloud_unique_id = "test_cluster";
+        Config.meta_service_endpoint = "127.0.0.1:20121";
         // FeConstants.runningCopyIntoTest = true;
         // FeConstants.disablePreHeat = true;
     }
