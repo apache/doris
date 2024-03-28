@@ -514,24 +514,6 @@ std::string ExecNode::get_name() {
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_projection_timer);
-    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
-            if (_keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
-                null_column.get_nested_column().insert_range_from(*from, 0, rows);
-                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-            } else {
-                to = make_nullable(from, false)->assume_mutable();
-            }
-        } else {
-            if (_keep_origin || !from->is_exclusive()) {
-                to->insert_range_from(*from, 0, rows);
-            } else {
-                to = from->assume_mutable();
-            }
-        }
-    };
-
     using namespace vectorized;
     MutableBlock mutable_block =
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
@@ -553,7 +535,13 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
             //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
-            insert_column_datas(mutable_columns[i], column_ptr, rows);
+            if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
+                DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
+                reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
+                        ->insert_range_from_not_nullable(*column_ptr, 0, rows);
+            } else {
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            }
         }
         DCHECK(mutable_block.rows() == rows);
         output_block->set_columns(std::move(mutable_columns));
