@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -62,10 +63,10 @@ public class PartitionTableInfo {
                 null);
 
     private boolean isAutoPartition;
-    private String partitionType;
+    private final String partitionType;
     private List<String> partitionColumns;
-    private List<PartitionDefinition> partitionDefs;
-    private List<Expression> partitionList;
+    private final List<PartitionDefinition> partitionDefs;
+    private final List<Expression> partitionFields;
 
     /**
      * struct for partition definition
@@ -82,12 +83,28 @@ public class PartitionTableInfo {
         this.isAutoPartition = isAutoPartition;
         this.partitionType = partitionType;
         this.partitionDefs = partitionDefs;
-        this.partitionList = partitionFields;
-        if (this.partitionList != null) {
-            this.partitionColumns = this.partitionList.stream()
-                .filter(UnboundSlot.class::isInstance)
-                .map(partition -> ((UnboundSlot) partition).getName())
-                .collect(Collectors.toList());
+        this.partitionFields = partitionFields;
+        if (this.partitionFields != null) {
+            if (this.partitionFields.stream().anyMatch(UnboundFunction.class::isInstance)) {
+                if (this.partitionFields.size() != 1) {
+                    throw new AnalysisException("auto partition only support one function expression");
+                }
+                UnboundFunction function = (UnboundFunction) this.partitionFields.get(0);
+                if (!RangePartitionDesc.RANGE_PARTITION_FUNCTIONS.contains(function.getName())) {
+                    throw new AnalysisException("auto create partition only support"
+                            + " function call expr is date_trunc. " + function.toSql());
+                }
+                if (!(function.child(0) instanceof UnboundSlot)) {
+                    throw new AnalysisException("auto create partition only support one slotRef in function expr. "
+                            + function.child(0).toSql());
+                }
+                partitionColumns = Lists.newArrayList(((UnboundSlot) function.child(0)).getLastName());
+            } else {
+                this.partitionColumns = this.partitionFields.stream()
+                        .filter(UnboundSlot.class::isInstance)
+                        .map(partition -> ((UnboundSlot) partition).getName())
+                        .collect(Collectors.toList());
+            }
         }
     }
 
@@ -159,7 +176,7 @@ public class PartitionTableInfo {
 
         if (partitionColumns != null) {
 
-            if (partitionColumns.size() != partitionList.size()) {
+            if (partitionColumns.size() != partitionFields.size()) {
                 if (!isExternal && partitionType.equalsIgnoreCase(PartitionType.LIST.name())) {
                     throw new AnalysisException("internal catalog does not support functions in 'LIST' partition");
                 }
@@ -238,7 +255,7 @@ public class PartitionTableInfo {
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
                         partitionDesc = new RangePartitionDesc(
-                            convertToLegacyAutoPartitionExprs(partitionList),
+                            convertToLegacyAutoPartitionExprs(partitionFields),
                             partitionColumns, partitionDescs);
                     } else {
                         partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
@@ -246,7 +263,7 @@ public class PartitionTableInfo {
                 } else {
                     if (isAutoPartition) {
                         partitionDesc = new ListPartitionDesc(
-                            convertToLegacyAutoPartitionExprs(partitionList),
+                            convertToLegacyAutoPartitionExprs(partitionFields),
                             partitionColumns, partitionDescs);
                     } else {
                         partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
@@ -260,7 +277,7 @@ public class PartitionTableInfo {
     }
 
     private static ArrayList<Expr> convertToLegacyAutoPartitionExprs(List<Expression> expressions) {
-        return new ArrayList<>(expressions.stream().map(expression -> {
+        return expressions.stream().map(expression -> {
             if (expression instanceof UnboundSlot) {
                 return new SlotRef(null, ((UnboundSlot) expression).getName());
             } else if (expression instanceof UnboundFunction) {
@@ -270,9 +287,9 @@ public class PartitionTableInfo {
                         new FunctionParams(convertToLegacyArguments(function.children())));
             } else {
                 throw new AnalysisException(
-                    "unsupported auto partition expr " + expression.toString());
+                        "unsupported auto partition expr " + expression.toString());
             }
-        }).collect(Collectors.toList()));
+        }).collect(Collectors.toCollection(ArrayList::new));
     }
 
     private static List<Expr> convertToLegacyArguments(List<Expression> children) {

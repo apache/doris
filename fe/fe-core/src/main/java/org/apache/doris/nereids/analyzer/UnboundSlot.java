@@ -47,6 +47,13 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
         return nameParts;
     }
 
+    public String getLastName() {
+        if (nameParts.isEmpty()) {
+            return "";
+        }
+        return nameParts.get(nameParts.size() - 1);
+    }
+
     @Override
     public String getName() {
         return nameParts.stream().map(n -> {
