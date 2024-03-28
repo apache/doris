@@ -118,7 +118,7 @@ python docker/runtime/doris-compose/doris-compose.py  <command> -h
 ### Generate regression custom conf file
 
 ```
-python docker/runtime/doris-compose/doris-compose.py config <cluster-name>
+python docker/runtime/doris-compose/doris-compose.py config <cluster-name>  <doris-root-path>
 ```
 
 Generate regression-conf-custom.groovy to connect to the specific docker cluster.
@@ -128,6 +128,6 @@ Generate regression-conf-custom.groovy to connect to the specific docker cluster
 steps:
 
 1. Create a new cluster:  `python doris-compose.py up my-cluster  my-image  --add-fe-num 1  --add-be-num 4 --cloud`
-2. Generate regression-conf-custom.groovy: `python doris-compose.py config my-cluster`
+2. Generate regression-conf-custom.groovy: `python doris-compose.py config my-cluster  <doris-root-path>`
 3. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
 
