@@ -923,6 +923,8 @@ public class HiveMetaStoreClientHelper {
             String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
             if (hadoopUserName != null) {
                 ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
+                // make sure to login with the current hadoop.username 
+                UserGroupInformation.setLoginUser(ugi);
             }
         }
         return ugi;
