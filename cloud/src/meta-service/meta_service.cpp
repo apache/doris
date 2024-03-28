@@ -1885,6 +1885,56 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     }
 }
 
+void MetaServiceImpl::get_default_vault(::google::protobuf::RpcController* controller,
+                                        const ::doris::cloud::GetDefaultVaultRequest* request,
+                                        ::doris::cloud::GetDefaultVaultResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_default_vault);
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    if (cloud_unique_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud unique id not set";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        return;
+    }
+
+    RPC_RATE_LIMIT(get_default_vault)
+    InstanceInfoPB instance;
+    std::unique_ptr<Transaction> txn0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to create txn");
+        return;
+    }
+
+    std::shared_ptr<Transaction> txn(txn0.release());
+    auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
+    if (c0 != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get instance, info={}", m0);
+        return;
+    }
+
+    if (!instance.has_default_vault_name()) {
+        return;
+    }
+    auto name_iter = std::find_if(
+            instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+            [&](const auto& vault_name) { return vault_name == instance.default_vault_name(); });
+    auto pos = name_iter - instance.storage_vault_names().begin();
+    const auto& vault_id = instance.resource_ids().at(pos);
+    response->set_vault_name(instance.default_vault_name());
+    response->set_vault_id(vault_id);
+}
+
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
         const std::string& instance_id, const std::string& cloud_unique_id,
         InstanceInfoPB* instance) {

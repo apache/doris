@@ -407,6 +407,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
     } break;
+    case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
+        if (!request->has_hdfs() || !request->hdfs().has_name()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "hdfs info is not found " + proto_to_json(*request);
+            return;
+        }
+        break;
+    }
     case AlterObjStoreInfoRequest::UNKNOWN: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "Unknown alter info " + proto_to_json(*request);
@@ -581,6 +589,20 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             ret != 0) {
             return;
         }
+        break;
+    }
+    case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
+        const auto& name = request->hdfs().name();
+        auto name_itr = std::find_if(instance.storage_vault_names().begin(),
+                                     instance.storage_vault_names().end(),
+                                     [&](const auto& vault_name) { return name == vault_name; });
+        if (name_itr == instance.storage_vault_names().end()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "invalid storage vault name, name =" << name;
+            msg = ss.str();
+            return;
+        }
+        instance.set_default_vault_name(name);
         break;
     }
     default: {

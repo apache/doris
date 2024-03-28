@@ -76,6 +76,7 @@ message InstanceInfoPB {
 
     repeated string resource_ids = 100;
     repeated string storage_vault_names = 101;
+    optional string default_vault_name = 102;
 }
 
 message StagePB {
@@ -188,6 +189,7 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional string vault_name = 16;
 }
 
 message StorageVaultPB {
@@ -749,6 +751,8 @@ message AlterObjStoreInfoRequest {
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
         ADD_BUILT_IN_HDFS_INFO = 102;
+
+        SET_DEFAULT_VAULT = 200;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
@@ -1315,6 +1319,16 @@ message GetRLTaskCommitAttachResponse {
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
 }
 
+message GetDefaultVaultRequest {
+    optional string cloud_unique_id = 1; // For auth
+}
+
+message GetDefaultVaultResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional string vault_id = 2;
+    optional string vault_name = 3;
+}
+
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -1380,6 +1394,8 @@ service MetaService {
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
+
+    rpc get_default_vault(GetDefaultVaultRequest) returns (GetDefaultVaultResponse);
 };
 
 service RecyclerService {
