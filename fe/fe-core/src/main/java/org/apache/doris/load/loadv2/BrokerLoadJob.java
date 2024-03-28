@@ -224,8 +224,16 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        task.init(loadId, attachment.getFileStatusByTable(aggKey),
-                attachment.getFileNumByTable(aggKey), getUserInfo());
+        if (Config.isNotCloudMode()) {
+            task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                    attachment.getFileNumByTable(aggKey), getUserInfo());
+        } else {
+            if (Strings.isNullOrEmpty(clusterId)) {
+                throw new UserException("can not get a valid cluster");
+            }
+            task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                    attachment.getFileNumByTable(aggKey), getUserInfo(), clusterId);
+        }
         task.settWorkloadGroups(tWorkloadGroups);
         return task;
     }
