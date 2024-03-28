@@ -78,6 +78,4 @@ suite("test_multi_level_mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mv1};"""
     sql """drop materialized view if exists ${mv2};"""
-
-
 }
