@@ -54,7 +54,6 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "unique_with_mow_p0/cluster_key," +
     "unique_with_mow_p0/ssb_unique_sql_zstd_cluster," +
     "unique_with_mow_p0/ssb_unique_load_zstd_c," +
-    "nereids_rules_p0/mv," +
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
     "storage_medium_p0," +

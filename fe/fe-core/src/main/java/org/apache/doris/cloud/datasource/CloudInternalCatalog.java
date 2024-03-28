@@ -361,12 +361,13 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     @Override
-    protected void afterCreatePartitions(long tableId, List<Long> partitionIds, List<Long> indexIds)
+    protected void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+                                         boolean isCreateTable)
             throws DdlException {
         if (partitionIds == null) {
-            commitMaterializedIndex(tableId, indexIds);
+            commitMaterializedIndex(dbId, tableId, indexIds, isCreateTable);
         } else {
-            commitPartition(tableId, partitionIds, indexIds);
+            commitPartition(dbId, tableId, partitionIds, indexIds);
         }
     }
 
@@ -406,11 +407,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void commitPartition(long tableId, List<Long> partitionIds, List<Long> indexIds) throws DdlException {
+    private void commitPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+            throws DdlException {
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
         partitionRequestBuilder.addAllIndexIds(indexIds);
+        partitionRequestBuilder.setDbId(dbId);
         partitionRequestBuilder.setTableId(tableId);
         final Cloud.PartitionRequest partitionRequest = partitionRequestBuilder.build();
 
@@ -469,11 +472,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void commitMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    public void commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean isCreateTable)
+            throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
+        indexRequestBuilder.setDbId(dbId);
         indexRequestBuilder.setTableId(tableId);
+        indexRequestBuilder.setIsNewTable(isCreateTable);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;
@@ -562,7 +568,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 if (indexs.isEmpty()) {
                     break;
                 }
-                dropMaterializedIndex(olapTable.getId(), indexs);
+                dropMaterializedIndex(olapTable.getId(), indexs, true);
             } catch (Exception e) {
                 LOG.warn("failed to drop index {} of table {}, try cnt {}, execption {}",
                         indexs, olapTable.getId(), tryCnt, e);
@@ -657,7 +663,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void dropMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    public void dropMaterializedIndex(long tableId, List<Long> indexIds, boolean dropTable) throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
