@@ -251,6 +251,18 @@ public class CreateTableInfo {
                         + "please use `DECIMALV3`.");
             }
         }
+        // check duplicated columns
+        Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        columns.forEach(c -> {
+            if (columnMap.put(c.getName(), c) != null) {
+                try {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME,
+                            c.getName());
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+        });
 
         if (engineName.equalsIgnoreCase("olap")) {
             properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(ctlName, dbName,
@@ -413,19 +425,6 @@ public class CreateTableInfo {
                 }
             }
 
-            // validate partitions
-            Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-            columns.forEach(c -> {
-                if (columnMap.put(c.getName(), c) != null) {
-                    try {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME,
-                                c.getName());
-                    } catch (Exception e) {
-                        throw new AnalysisException(e.getMessage(), e.getCause());
-                    }
-                }
-            });
-
             // validate partition
             partitionTableInfo.extractPartitionColumns();
             partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
@@ -467,9 +466,17 @@ public class CreateTableInfo {
                     "Iceberg doesn't support 'DISTRIBUTE BY', "
                         + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
             }
-
             for (ColumnDefinition columnDef : columns) {
+                if (!columnDef.isNullable()
+                        && engineName.equalsIgnoreCase("hive")) {
+                    throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
+                }
                 columnDef.setIsKey(true);
+                columnDef.setAggType(AggregateType.NONE);
+            }
+            // TODO: support iceberg partition check
+            if (engineName.equalsIgnoreCase("hive")) {
+                partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, false, true);
             }
         }
 
