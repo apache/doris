@@ -127,7 +127,7 @@ public:
     bool has_output_row_descriptor() const { return _output_row_descriptor != nullptr; }
     // If use projection, we should clear `_origin_block`.
     void clear_origin_block() {
-        _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
+        _origin_block.clear_column_data(intermediate_row_desc().num_materialized_slots());
     }
 
     // Emit data, both need impl with method: sink
@@ -326,8 +326,8 @@ protected:
     std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     //_keep_origin is used to avoid copying during projection,
-    // currently set to true only in the nestloop join.
-    bool _keep_origin = false;
+    // currently set to false only in the nestloop join.
+    bool _keep_origin = true;
 
 private:
     static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
