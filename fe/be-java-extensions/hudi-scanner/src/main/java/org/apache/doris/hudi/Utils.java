@@ -20,10 +20,60 @@ package org.apache.doris.hudi;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.lang.management.ManagementFactory;
+import java.util.LinkedList;
+import java.util.List;
+
 public class Utils {
+    public static long getCurrentProcId() {
+        try {
+            return ManagementFactory.getRuntimeMXBean().getPid();
+        } catch (Exception e) {
+            throw new RuntimeException("Couldn't find PID of current JVM process.", e);
+        }
+    }
+
+    public static List<Long> getChildProcessIds(long pid) {
+        try {
+            Process pgrep = (new ProcessBuilder("pgrep", "-P", String.valueOf(pid))).start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(pgrep.getInputStream()));
+            List<Long> result = new LinkedList<>();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                result.add(Long.valueOf(line.trim()));
+            }
+            pgrep.waitFor();
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException("Couldn't get child processes of PID " + pid, e);
+        }
+    }
+
+    public static String getCommandLine(long pid) {
+        try {
+            return FileUtils.readFileToString(new File(String.format("/proc/%d/cmdline", pid))).trim();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    public static void killProcess(long pid) {
+        try {
+            Process kill = (new ProcessBuilder("kill", "-9", String.valueOf(pid))).start();
+            kill.waitFor();
+        } catch (Exception e) {
+            throw new RuntimeException("Couldn't kill process PID " + pid, e);
+        }
+    }
+
     public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
         return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> HoodieTableMetaClient.builder()
                 .setConf(conf).setBasePath(basePath).build());

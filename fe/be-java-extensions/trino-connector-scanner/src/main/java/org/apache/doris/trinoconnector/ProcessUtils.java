@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.preload.common;
+package org.apache.doris.trinoconnector;
 
 import org.apache.commons.io.FileUtils;
 

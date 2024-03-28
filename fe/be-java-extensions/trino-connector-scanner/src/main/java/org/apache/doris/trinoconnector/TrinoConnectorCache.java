@@ -17,8 +17,6 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.preload.common.ProcessUtils;
-
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;

@@ -22,7 +22,6 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
-import org.apache.doris.preload.common.ProcessUtils;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.avro.generic.GenericDatumReader;
@@ -144,12 +143,12 @@ public class HudiJniScanner extends JniScanner {
             executorService.scheduleAtFixedRate(() -> {
                 if (!isKilled.get()) {
                     synchronized (HudiJniScanner.class) {
-                        List<Long> pids = ProcessUtils.getChildProcessIds(
-                                ProcessUtils.getCurrentProcId());
+                        List<Long> pids = Utils.getChildProcessIds(
+                                Utils.getCurrentProcId());
                         for (long pid : pids) {
-                            String cmd = ProcessUtils.getCommandLine(pid);
+                            String cmd = Utils.getCommandLine(pid);
                             if (cmd != null && cmd.contains("org.openjdk.jol.vm.sa.AttachMain")) {
-                                ProcessUtils.killProcess(pid);
+                                Utils.killProcess(pid);
                                 isKilled.set(true);
                                 LOG.info("Kill hotspot debugger process " + pid);
                             }
