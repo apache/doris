@@ -435,6 +435,9 @@ public:
 
     void update_tablet_columns(const TabletSchema& tablet_schema,
                                const std::vector<TColumn>& t_columns);
+    Status make_full_block(std::shared_ptr<vectorized::Block>& full_block_ptr,
+                           const vectorized::Block* block, size_t num_rows,
+                           std::vector<uint32_t>& update_cids, std::vector<uint32_t>& missing_cids);
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
