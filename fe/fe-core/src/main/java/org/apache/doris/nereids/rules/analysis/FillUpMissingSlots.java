@@ -218,7 +218,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 // We couldn't find the equivalent expression in output expressions and group-by expressions,
                 // so we should check whether the expression is valid.
                 if (expression instanceof SlotReference) {
-                    throw new AnalysisException(expression.toSql() + " in having clause should be grouped by.");
+                    throw new AnalysisException(expression.toSql() + " should be grouped by.");
                 } else if (expression instanceof AggregateFunction) {
                     if (checkWhetherNestedAggregateFunctionsExist((AggregateFunction) expression)) {
                         throw new AnalysisException("Aggregate functions in having clause can't be nested: "
