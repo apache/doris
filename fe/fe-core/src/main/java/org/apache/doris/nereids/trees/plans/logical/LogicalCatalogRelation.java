@@ -125,11 +125,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps() {
-        Builder fdBuilder = new Builder();
-        Set<Slot> output = getOutputSet();
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
-            ImmutableSet<Slot> slotSet = output.stream()
+            ImmutableSet<Slot> slotSet = getOutput().stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)
                     .filter(s -> s.getColumn().isPresent()
@@ -139,7 +137,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         }
         table.getPrimaryKeyConstraints().forEach(c -> {
             Set<Column> columns = c.getPrimaryKeys(this.getTable());
-            ImmutableSet<Slot> slotSet = output.stream()
+            ImmutableSet<Slot> slotSet = getOutput().stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)
                     .filter(s -> s.getColumn().isPresent()
@@ -149,7 +147,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         });
         table.getUniqueConstraints().forEach(c -> {
             Set<Column> columns = c.getUniqueKeys(this.getTable());
-            ImmutableSet<Slot> slotSet = output.stream()
+            ImmutableSet<Slot> slotSet = getOutput().stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)
                     .filter(s -> s.getColumn().isPresent()
@@ -157,6 +155,18 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                     .collect(ImmutableSet.toImmutableSet());
             fdBuilder.addUniqueSlot(slotSet);
         });
+    }
+
+    @Override
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        // Nothing can be generated
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps() {
+        Builder fdBuilder = new Builder();
+        computeUnique(fdBuilder);
+        computeUniform(fdBuilder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();

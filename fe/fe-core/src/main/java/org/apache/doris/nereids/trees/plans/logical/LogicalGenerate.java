@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -158,7 +159,8 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     @Override
     public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        builder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        computeUnique(builder);
+        computeUniform(builder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
@@ -167,5 +169,15 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     @Override
     public ImmutableSet<FdItem> computeFdItems() {
         return ImmutableSet.of();
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        // don't generate and propagate unique
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 }

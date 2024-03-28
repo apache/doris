@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -639,7 +638,8 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    public static boolean isInjectiveAgg(AggregateFunction agg) {
+    // if the input is unique,  the output of agg is unique, too
+    public static boolean isInjectiveAgg(Expression agg) {
         return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
     }
 

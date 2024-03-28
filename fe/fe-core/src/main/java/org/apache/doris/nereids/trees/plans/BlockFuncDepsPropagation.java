@@ -36,4 +36,14 @@ public interface BlockFuncDepsPropagation extends LogicalPlan {
     default ImmutableSet<FdItem> computeFdItems() {
         return ImmutableSet.of();
     }
+
+    @Override
+    default void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate
+    }
+
+    @Override
+    default void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate
+    }
 }

@@ -188,13 +188,21 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        // Note uniform does not reject nullable slots
-        getOutput().stream()
-                .filter(child(0).getLogicalProperties().getFunctionalDependencies()::isUniform)
-                .forEach(builder::addUniformSlot);
+        computeUniform(builder);
+        computeUnique(builder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
+    }
+
+    @Override
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate unique slot
+    }
+
+    @Override
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 
     @Override

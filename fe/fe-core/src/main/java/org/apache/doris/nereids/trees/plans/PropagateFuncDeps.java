@@ -56,4 +56,14 @@ public interface PropagateFuncDeps extends LogicalPlan {
                 .forEach(builder::addAll);
         return builder.build();
     }
+
+    @Override
+    default void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    default void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
 }

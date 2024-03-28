@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -120,17 +121,32 @@ public class LogicalIntersect extends LogicalSetOperation {
     @Override
     public FunctionalDependencies computeFuncDeps() {
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        for (Plan child : children) {
-            builder.addFunctionalDependencies(
-                    child.getLogicalProperties().getFunctionalDependencies());
-            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
-        }
-        if (qualifier == Qualifier.DISTINCT) {
-            builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
-        }
+        computeUnique(builder);
+        computeUniform(builder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         builder.addFdItems(fdItems);
         return builder.build();
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        for (Plan child : children) {
+            fdBuilder.addUniqueSlot(
+                    child.getLogicalProperties().getFunctionalDependencies());
+            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+        }
+        if (qualifier == Qualifier.DISTINCT) {
+            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
+        }
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        for (Plan child : children) {
+            fdBuilder.addUniformSlot(
+                    child.getLogicalProperties().getFunctionalDependencies());
+            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+        }
     }
 
     @Override
