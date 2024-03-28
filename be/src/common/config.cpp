@@ -132,6 +132,8 @@ DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
+DEFINE_mBool(enable_memory_orphan_check, "true");
+
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 

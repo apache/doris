@@ -551,8 +551,6 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
 
-    local_state._runtime_state->set_query_mem_tracker(state->query_mem_tracker());
-
     local_state._runtime_state->set_task_execution_context(
             state->get_task_execution_context().lock());
     local_state._runtime_state->set_be_number(state->be_number());

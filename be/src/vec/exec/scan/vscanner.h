@@ -61,7 +61,15 @@ public:
     VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
              RuntimeProfile* profile);
 
-    virtual ~VScanner() = default;
+    virtual ~VScanner() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_state->query_mem_tracker());
+        _input_block.clear();
+        _conjuncts.clear();
+        _projections.clear();
+        _origin_block.clear();
+        _common_expr_ctxs_push_down.clear();
+        _stale_expr_ctxs.clear();
+    }
 
     virtual Status init() { return Status::OK(); }
 

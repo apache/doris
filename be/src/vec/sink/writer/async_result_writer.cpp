@@ -119,6 +119,7 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
+    SCOPED_ATTACH_TASK(state);
     if (auto status = open(state, profile); !status.ok()) {
         force_close(status);
     }

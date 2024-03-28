@@ -46,6 +46,7 @@ class PPublishFilterRequestV2;
 class PMergeFilterRequest;
 class IRuntimeFilter;
 class MemTracker;
+class MemTrackerLimiter;
 class RuntimeState;
 enum class RuntimeFilterRole;
 class RuntimePredicateWrapper;
@@ -73,9 +74,10 @@ struct LocalMergeFilters {
 // RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
 class RuntimeFilterMgr {
 public:
-    RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state);
+    RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state,
+                     const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
-    ~RuntimeFilterMgr() = default;
+    ~RuntimeFilterMgr();
 
     Status get_consume_filters(const int filter_id, std::vector<IRuntimeFilter*>& consumer_filters);
 
@@ -118,6 +120,7 @@ private:
 
     RuntimeFilterParamsContext* _state = nullptr;
     std::unique_ptr<MemTracker> _tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
     ObjectPool _pool;
 
     TNetworkAddress _merge_addr;

@@ -52,8 +52,7 @@ public:
     bool init();
 
     // After attach, the current thread Memory Hook starts to consume/release task mem_tracker
-    void attach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                                const TUniqueId& query_id);
+    void attach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
     void detach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker =
                                         ExecEnv::GetInstance()->orphan_mem_tracker());
 
@@ -64,7 +63,12 @@ public:
         return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack.back()->label();
     }
 
+    void set_query_id(const TUniqueId& query_id) { _query_id = query_id; }
+
+    TUniqueId query_id() { return _query_id; }
+
     void start_count_scope_mem() {
+        CHECK(init());
         _scope_mem = 0;
         _count_scope_mem = true;
     }
@@ -93,6 +97,7 @@ public:
         return _limiter_tracker_raw;
     }
 
+    void enable_wait_gc() { _wait_gc = true; }
     void disable_wait_gc() { _wait_gc = false; }
     [[nodiscard]] bool wait_gc() const { return _wait_gc; }
     void cancel_query(const std::string& exceed_msg);

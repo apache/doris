@@ -34,6 +34,7 @@
 #include "gutil/ref_counted.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
@@ -331,6 +332,24 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+    TUniqueId load_tid = ((UniqueId)load_id).to_thrift();
+#ifndef BE_TEST
+    std::shared_ptr<QueryContext> query_context =
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(load_tid);
+    if (query_context != nullptr) {
+        _query_thread_context = {load_tid, query_context->query_mem_tracker};
+    } else {
+        _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
+                                                   MemTrackerLimiter::Type::LOAD,
+                                                   fmt::format("(FromLoadStream)Load#Id={}",
+                                                               ((UniqueId)load_id).to_string()))};
+    }
+#else
+    _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
+                                               MemTrackerLimiter::Type::LOAD,
+                                               fmt::format("(FromLoadStream)Load#Id={}",
+                                                           ((UniqueId)load_id).to_string()))};
+#endif
 }
 
 LoadStream::~LoadStream() {
@@ -523,6 +542,7 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
+    SCOPED_ATTACH_TASK(_query_thread_context);
     // CLOSE_LOAD message should not be fault injected,
     // otherwise the message will be ignored and causing close wait timeout
     if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {

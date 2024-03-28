@@ -29,8 +29,8 @@ static int kNumShards = StoragePageCache::kDefaultNumShards;
 class StoragePageCacheTest : public testing::Test {
 public:
     StoragePageCacheTest() {
-        mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL,
-                                                          "StoragePageCacheTest");
+        mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL,
+                                                       "StoragePageCacheTest");
     }
     ~StoragePageCacheTest() override = default;
 
@@ -39,6 +39,7 @@ public:
 
 // All cache space is allocated to data pages
 TEST_F(StoragePageCacheTest, data_page_only) {
+    std::cout << "44444" << std::endl;
     StoragePageCache cache(kNumShards * 2048, 0, 0, kNumShards);
 
     StoragePageCache::CacheKey key("abc", 0, 0);
@@ -105,6 +106,7 @@ TEST_F(StoragePageCacheTest, data_page_only) {
 
 // All cache space is allocated to index pages
 TEST_F(StoragePageCacheTest, index_page_only) {
+    std::cout << "33333" << std::endl;
     StoragePageCache cache(kNumShards * 2048, 100, 0, kNumShards);
 
     StoragePageCache::CacheKey key("abc", 0, 0);

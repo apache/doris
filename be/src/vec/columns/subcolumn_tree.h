@@ -21,6 +21,8 @@
 #pragma once
 #include <memory>
 
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "vec/columns/column.h"
 #include "vec/common/hash_table/hash_map.h"
 #include "vec/common/string_ref.h"
@@ -36,18 +38,28 @@ public:
     struct Node {
         enum Kind { TUPLE, NESTED, SCALAR };
 
-        explicit Node(Kind kind_) : kind(kind_) {}
-        Node(Kind kind_, const NodeData& data_) : kind(kind_), data(data_) {}
+        explicit Node(Kind kind_) : kind(kind_) { init_memory(); }
+        Node(Kind kind_, const NodeData& data_) : kind(kind_), data(data_) { init_memory(); }
         Node(Kind kind_, const NodeData& data_, const PathInData& path_)
-                : kind(kind_), data(data_), path(path_) {}
-        Node(Kind kind_, NodeData&& data_) : kind(kind_), data(std::move(data_)) {}
+                : kind(kind_), data(data_), path(path_) {
+            init_memory();
+        }
+        Node(Kind kind_, NodeData&& data_) : kind(kind_), data(std::move(data_)) { init_memory(); }
         Node(Kind kind_, NodeData&& data_, const PathInData& path_)
-                : kind(kind_), data(std::move(data_)), path(path_) {}
+                : kind(kind_), data(std::move(data_)), path(path_) {
+            init_memory();
+        }
+
+        ~Node() {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->subcolumns_tree_tracker());
+            strings_pool.reset();
+        }
 
         Kind kind = TUPLE;
         const Node* parent = nullptr;
 
-        Arena strings_pool;
+        std::unique_ptr<Arena> strings_pool;
         std::unordered_map<StringRef, std::shared_ptr<Node>, StringRefHash> children;
 
         NodeData data;
@@ -57,6 +69,12 @@ public:
         bool is_scalar() const { return kind == SCALAR; }
 
         bool is_leaf_node() const { return kind == SCALAR && children.empty(); }
+
+        void init_memory() {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->subcolumns_tree_tracker());
+            strings_pool = std::make_unique<Arena>();
+        }
 
         // Only modify data and kind
         void modify(std::shared_ptr<Node>&& other) {
@@ -73,7 +91,12 @@ public:
 
         void add_child(std::string_view key, std::shared_ptr<Node> next_node) {
             next_node->parent = this;
-            StringRef key_ref {strings_pool.insert(key.data(), key.length()), key.length()};
+            StringRef key_ref;
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->subcolumns_tree_tracker());
+                key_ref = {strings_pool->insert(key.data(), key.length()), key.length()};
+            }
             children[key_ref] = std::move(next_node);
         }
 

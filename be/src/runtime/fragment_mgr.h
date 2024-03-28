@@ -138,6 +138,8 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
+    std::shared_ptr<QueryContext> get_query_context(const TUniqueId& query_id);
+
     int32_t running_query_num() {
         std::unique_lock<std::mutex> ctx_lock(_lock);
         return _query_ctx_map.size();

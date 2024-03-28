@@ -178,6 +178,9 @@ DECLARE_mBool(disable_memory_gc);
 // If is -1, disable large memory check.
 DECLARE_mInt64(large_memory_check_bytes);
 
+// default is true. if any memory tracking in Orphan mem tracker will report error.
+DECLARE_mBool(enable_memory_orphan_check);
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
 

@@ -87,6 +87,7 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
         (_local_state && _local_state->should_run_serial())) {
         _max_thread_num = 1;
     }
+    _query_thread_context = {_query_id, _state->query_mem_tracker()};
 }
 
 ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VScanNode* parent,

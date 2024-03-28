@@ -281,6 +281,9 @@ void StorageEngine::_cache_clean_callback() {
                          << "], force set to 3600 ";
             interval = 3600;
         }
+        if (config::disable_memory_gc) {
+            continue;
+        }
 
         CacheManager::instance()->for_each_cache_prune_stale();
 
