@@ -36,6 +36,8 @@ public class ResultSink extends DataSink {
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
+    private boolean isBinaryRow = false;
+
     public ResultSink(PlanNodeId exchNodeId) {
         this.exchNodeId = exchNodeId;
     }
@@ -73,6 +75,7 @@ public class ResultSink extends DataSink {
             tResultSink.setFetchOption(fetchOption);
         }
         tResultSink.setType(resultSinkType);
+        tResultSink.setIsBinaryRow(isBinaryRow);
         result.setResultSink(tResultSink);
         return result;
     }
@@ -85,5 +88,9 @@ public class ResultSink extends DataSink {
     @Override
     public DataPartition getOutputPartition() {
         return null;
+    }
+
+    public void setBinaryRow(boolean isBinaryRow) {
+        this.isBinaryRow = isBinaryRow;
     }
 }

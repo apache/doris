@@ -140,6 +140,8 @@ public:
     // hosts. Further send() calls are illegal after calling close().
     Status close(RuntimeState* state, Status exec_status) override;
 
+    bool isBinaryFormat() const { return _binary_row_format; }
+
 private:
     Status prepare_exprs(RuntimeState* state);
     Status second_phase_fetch_data(RuntimeState* state, Block* final_block);
@@ -157,6 +159,7 @@ private:
 
     // for fetch data by rowids
     TFetchOption _fetch_option;
+    bool _binary_row_format;
 };
 } // namespace vectorized
 

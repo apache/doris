@@ -77,6 +77,8 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
+    bool isBinaryFormat() const { return _binary_row_format; }
+
 private:
     friend class ResultSinkLocalState;
 
@@ -94,6 +96,7 @@ private:
 
     // for fetch data by rowids
     TFetchOption _fetch_option;
+    bool _binary_row_format;
 };
 
 } // namespace pipeline

@@ -199,6 +199,7 @@ struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
     3: optional TFetchOption fetch_option;
+    4: optional bool is_binary_row;
 }
 
 struct TResultFileSink {

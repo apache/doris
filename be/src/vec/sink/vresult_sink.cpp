@@ -57,6 +57,7 @@ VResultSink::VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>
     }
     _fetch_option = sink.fetch_option;
     _name = "ResultSink";
+    _binary_row_format = sink.is_binary_row;
 }
 
 VResultSink::~VResultSink() = default;
@@ -93,8 +94,13 @@ Status VResultSink::prepare(RuntimeState* state) {
     // create writer based on sink type
     switch (_sink_type) {
     case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow)
-                              VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
+        if (_binary_row_format) {
+            _writer.reset(new (std::nothrow)
+                                  VMysqlResultWriter<true>(_sender.get(), _output_vexpr_ctxs, _profile));
+        } else {
+            _writer.reset(new (std::nothrow)
+                                  VMysqlResultWriter<false>(_sender.get(), _output_vexpr_ctxs, _profile));
+        }
         break;
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;

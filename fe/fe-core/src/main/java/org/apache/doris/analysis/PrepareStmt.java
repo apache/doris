@@ -54,6 +54,7 @@ public class PrepareStmt extends StatementBase {
     private UUID id;
     // whether return binary protocol mysql row or not
     private boolean binaryRowFormat;
+    private boolean isPointQuery = false;
     int schemaVersion = -1;
     OlapTable tbl;
     ConnectContext context;
@@ -83,7 +84,7 @@ public class PrepareStmt extends StatementBase {
     }
 
     public boolean needReAnalyze() {
-        if (preparedType == PreparedType.FULL_PREPARED && schemaVersion == tbl.getBaseSchemaVersion()) {
+        if (isPointQuery && preparedType == PreparedType.FULL_PREPARED && schemaVersion == tbl.getBaseSchemaVersion()) {
             return false;
         }
         reset();
@@ -165,11 +166,11 @@ public class PrepareStmt extends StatementBase {
             Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
             SelectStmt selectStmt = (SelectStmt) inner;
             inner.analyze(tmpAnalyzer);
-            if (!selectStmt.checkAndSetPointQuery()) {
-                throw new UserException("Only support prepare SelectStmt point query now");
+            isPointQuery = selectStmt.checkAndSetPointQuery();
+            if (isPointQuery) {
+                tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
+                schemaVersion = tbl.getBaseSchemaVersion();
             }
-            tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
-            schemaVersion = tbl.getBaseSchemaVersion();
             // reset will be reAnalyzed
             selectStmt.reset();
             analyzer.setPrepareStmt(this);
@@ -242,6 +243,10 @@ public class PrepareStmt extends StatementBase {
 
     public PreparedType getPreparedType() {
         return preparedType;
+    }
+
+    public boolean isPointQuery() {
+        return isPointQuery;
     }
 
     @Override
