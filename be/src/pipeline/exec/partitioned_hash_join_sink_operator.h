@@ -46,6 +46,7 @@ public:
     ~PartitionedHashJoinSinkLocalState() override = default;
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     Status revoke_memory(RuntimeState* state);
 
 protected:

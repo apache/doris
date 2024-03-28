@@ -380,6 +380,14 @@ void Daemon::je_purge_dirty_pages_thread() const {
     } while (true);
 }
 
+void Daemon::wg_mem_used_refresh_thread() {
+    // Refresh memory usage and limit of workload groups
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::wg_mem_refresh_interval_ms))) {
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_memory_info();
+    }
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -412,6 +420,11 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "query_runtime_statistics_thread",
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+
+    st = Thread::create(
+            "Daemon", "wg_mem_refresh_thread", [this]() { this->wg_mem_used_refresh_thread(); },
+            &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }
 

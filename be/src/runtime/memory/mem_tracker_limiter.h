@@ -27,6 +27,7 @@
 #include <cmath> // IWYU pragma: keep
 #include <list>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <queue>
 #include <string>
