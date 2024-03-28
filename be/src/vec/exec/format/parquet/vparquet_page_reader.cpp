@@ -44,15 +44,13 @@ PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, 
                        uint64_t length)
         : _reader(reader), _io_ctx(io_ctx), _start_offset(offset), _end_offset(offset + length) {}
 
-Status PageReader::next_page_header() {
-    if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
-        return Status::IOError("Out-of-bounds Access");
-    }
-    if (UNLIKELY(_offset != _next_header_offset)) {
-        return Status::IOError("Wrong header position, should seek to a page header first");
-    }
+Status PageReader::parse_page_header() {
     if (UNLIKELY(_state != INITIALIZED)) {
         return Status::IOError("Should skip or load current page to get next page");
+    }
+
+    if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
+        return Status::IOError("Out-of-bounds Access");
     }
 
     const uint8_t* page_header_buf = nullptr;
@@ -85,15 +83,6 @@ Status PageReader::next_page_header() {
     _offset += real_header_size;
     _next_header_offset = _offset + _cur_page_header.compressed_page_size;
     _state = HEADER_PARSED;
-    return Status::OK();
-}
-
-Status PageReader::skip_page() {
-    if (UNLIKELY(_state != HEADER_PARSED)) {
-        return Status::IOError("Should generate page header first to skip current page");
-    }
-    _offset = _next_header_offset;
-    _state = INITIALIZED;
     return Status::OK();
 }
 

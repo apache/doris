@@ -45,36 +45,41 @@ public:
                uint64_t length);
     ~PageReader() = default;
 
-    // Deprecated
-    // Parquet file may not be standardized,
-    // _end_offset may exceed the actual data area.
-    // ColumnChunkReader::has_next_page() use the number of parsed values for judgment
-    // [[deprecated]]
-    bool has_next_page() const { return _offset < _end_offset; }
-
-    Status next_page_header();
-
-    Status skip_page();
-
-    const tparquet::PageHeader* get_page_header() const { return &_cur_page_header; }
+    Status parse_page_header();
 
     Status get_page_data(Slice& slice);
 
-    Statistics& statistics() { return _statistics; }
+    bool has_header_parsed() const { return _state == HEADER_PARSED; }
 
-    void seek_to_page(int64_t page_header_offset) {
+    const tparquet::PageHeader* get_page_header() const {
+        DCHECK_EQ(_state, HEADER_PARSED);
+        return &_cur_page_header;
+    }
+
+    Status skip_page() {
+        if (UNLIKELY(_state != HEADER_PARSED)) {
+            return Status::IOError("Should generate page header first to skip current page");
+        }
+        _offset = _next_header_offset;
+        _state = INITIALIZED;
+        return Status::OK();
+    }
+
+    void seek_page(int64_t page_header_offset) {
         _offset = page_header_offset;
         _next_header_offset = page_header_offset;
         _state = INITIALIZED;
     }
+
+    Statistics& statistics() { return _statistics; }
 
 private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
 
     io::BufferedStreamReader* _reader = nullptr;
     io::IOContext* _io_ctx = nullptr;
-    tparquet::PageHeader _cur_page_header;
-    Statistics _statistics;
+    tparquet::PageHeader _cur_page_header {};
+    Statistics _statistics {};
     PageReaderState _state = INITIALIZED;
 
     uint64_t _offset = 0;

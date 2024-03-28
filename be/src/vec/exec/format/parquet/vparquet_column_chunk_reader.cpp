@@ -47,12 +47,14 @@ namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
+                                     const tparquet::OffsetIndex* offset_index,
                                      cctz::time_zone* ctz, io::IOContext* io_ctx)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
           _metadata(column_chunk->meta_data),
+          _offset_index(offset_index),
           //          _ctz(ctz),
           _io_ctx(io_ctx) {}
 
@@ -66,44 +68,48 @@ Status ColumnChunkReader::init() {
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     if (_metadata.__isset.dictionary_page_offset) {
         // seek to the directory page
-        _page_reader->seek_to_page(_metadata.dictionary_page_offset);
-        // Parse dictionary data when reading
-        // RETURN_IF_ERROR(_page_reader->next_page_header());
-        // RETURN_IF_ERROR(_decode_dict_page());
+        _page_reader->seek_page(_metadata.dictionary_page_offset);
     } else {
         // seek to the first data page
-        _page_reader->seek_to_page(_metadata.data_page_offset);
+        _page_reader->seek_page(_metadata.data_page_offset);
     }
     _state = INITIALIZED;
+
+    // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false
+    RETURN_IF_ERROR(_page_reader->parse_page_header());
+    if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
+        // Parse dictionary data when reading
+        RETURN_IF_ERROR(_decode_dict_page());
+    }
     return Status::OK();
 }
 
 Status ColumnChunkReader::next_page() {
-    if (_state == HEADER_PARSED) {
-        return Status::OK();
-    }
     if (UNLIKELY(_state == NOT_INIT)) {
         return Status::Corruption("Should initialize chunk reader");
     }
     if (UNLIKELY(_remaining_num_values != 0)) {
         return Status::Corruption("Should skip current page");
     }
-    RETURN_IF_ERROR(_page_reader->next_page_header());
-    if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
-        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
-        // so we should parse the directory page in next_page()
-        RETURN_IF_ERROR(_decode_dict_page());
-        // parse the real first data page
-        return next_page();
-    } else if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
+
+    if (_offset_index) {
+        _remaining_num_values = _get_page_num_values();
+        _chunk_parsed_values += _remaining_num_values;
+        return Status::OK();
+    }
+
+    // mabe the header has been parsed in init
+    if (UNLIKELY(!_page_reader->has_header_parsed())) {
+        RETURN_IF_ERROR(_page_reader->parse_page_header());
+    }
+
+    if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header_v2.num_values;
         _chunk_parsed_values += _remaining_num_values;
-        _state = HEADER_PARSED;
         return Status::OK();
     } else {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
         _chunk_parsed_values += _remaining_num_values;
-        _state = HEADER_PARSED;
         return Status::OK();
     }
 }
@@ -119,9 +125,18 @@ void ColumnChunkReader::_get_uncompressed_levels(const tparquet::DataPageHeaderV
 }
 
 Status ColumnChunkReader::load_page_data() {
-    if (UNLIKELY(_state != HEADER_PARSED)) {
+    if (_offset_index) {
+        // mabe the header has been parsed in init
+        if (UNLIKELY(!_page_reader->has_header_parsed())) {
+            RETURN_IF_ERROR(_page_reader->parse_page_header());
+        }
+        _page_index++;
+    }
+
+    if (UNLIKELY(!_page_reader->has_header_parsed())) {
         return Status::Corruption("Should parse page header");
     }
+
     const auto& header = *_page_reader->get_page_header();
     int32_t uncompressed_size = header.uncompressed_page_size;
 

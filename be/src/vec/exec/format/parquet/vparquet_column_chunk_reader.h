@@ -84,29 +84,15 @@ public:
     };
 
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* field_schema, cctz::time_zone* ctz, io::IOContext* io_ctx);
+                      FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
+                      cctz::time_zone* ctz, io::IOContext* io_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
     Status init();
 
     // Whether the chunk reader has a more page to read.
-    bool has_next_page() { return _chunk_parsed_values < _metadata.num_values; }
-
-    // Deprecated
-    // Seek to the specific page, page_header_offset must be the start offset of the page header.
-    // _end_offset may exceed the actual data area, so we can only use the number of parsed values
-    // to determine whether there are remaining pages to read. That's to say we can't use the
-    // PageLocation in parquet metadata to seek to the specified page. We should call next_page()
-    // and skip_page() to skip pages one by one.
-    // todo: change this interface to seek_to_page(int64_t page_header_offset, size_t num_parsed_values)
-    // and set _chunk_parsed_values = num_parsed_values
-    // [[deprecated]]
-    void seek_to_page(int64_t page_header_offset) {
-        _remaining_num_values = 0;
-        _page_reader->seek_to_page(page_header_offset);
-        _state = INITIALIZED;
-    }
+    bool has_next_page() const { return _chunk_parsed_values < _metadata.num_values; }
 
     // Seek to next page. Only read and parse the page header.
     Status next_page();
@@ -114,11 +100,18 @@ public:
     // Skip current page(will not read and parse) if the page is filtered by predicates.
     Status skip_page() {
         Status res = Status::OK();
-        _remaining_num_values = 0;
-        if (_state == HEADER_PARSED) {
-            res = _page_reader->skip_page();
+        if (_offset_index) {
+            _page_index++;
+            if (_page_index == _offset_index->page_locations.size()) {
+                return Status::EndOfFile("End of file");
+            }
+            _page_reader->seek_page(_offset_index->page_locations[_page_index].offset);
+        } else {
+            if (_page_reader->has_header_parsed()) {
+                res = _page_reader->skip_page();
+            }
         }
-        _state = PAGE_SKIPPED;
+        _remaining_num_values = 0;
         return res;
     }
     // Skip some values(will not read and parse) in current page if the values are filtered by predicates.
@@ -135,6 +128,7 @@ public:
         }
         return load_page_data();
     }
+
     // The remaining number of values in current page(including null values). Decreased when reading or skipping.
     uint32_t remaining_num_values() const { return _remaining_num_values; }
     // null values are generated from definition levels
@@ -186,12 +180,22 @@ public:
     }
 
 private:
-    enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
+    enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, DATA_LOADED };
 
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
+
+    //Returns the number of values in the current page.
+    int64_t _get_page_num_values() const {
+        DCHECK(_offset_index);
+        return _page_index + 1 < _offset_index->page_locations.size()
+                       ? _offset_index->page_locations[_page_index + 1].first_row_index -
+                                 _offset_index->page_locations[_page_index].first_row_index
+                       : _metadata.num_values -
+                                 _offset_index->page_locations[_page_index].first_row_index;
+    }
 
     ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema = nullptr;
@@ -201,6 +205,8 @@ private:
 
     io::BufferedStreamReader* _stream_reader = nullptr;
     tparquet::ColumnMetaData _metadata;
+    size_t _page_index = 0;
+    const tparquet::OffsetIndex* _offset_index = nullptr;
     //    cctz::time_zone* _ctz;
     io::IOContext* _io_ctx = nullptr;
 
