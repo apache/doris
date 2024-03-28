@@ -156,7 +156,6 @@ cp -R "${ORI_OUTPUT}"/fe/* "${OUTPUT_FE}"/
 
 # EXT
 cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_EXT}"/apache_hdfs_broker
-cp -R "${ORI_OUTPUT}"/audit_loader "${OUTPUT_EXT}"/audit_loader
 
 # BE
 cp -R "${ORI_OUTPUT}"/be/* "${OUTPUT_BE}"/
