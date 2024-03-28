@@ -746,7 +746,12 @@ class GenConfCommand(Command):
             help="Generate regression-conf-custom.groovy for regression test.")
         parser.add_argument("NAME", default="", help="Specific cluster name.")
         parser.add_argument("DORIS_ROOT_PATH", default="", help="Specify doris or selectdb root path, "\
-                "i.e. the parent directory of regression-test")
+                "i.e. the parent directory of regression-test.")
+        parser.add_argument("-q",
+                            "--quiet",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="write config quiet, no need confirm.")
 
         return parser
 
@@ -780,10 +785,12 @@ cloudUniqueId= "{fe_cloud_unique_id}"
         relative_custom_file_path = "regression-test/conf/regression-conf-custom.groovy"
         regression_conf_custom = os.path.join(args.DORIS_ROOT_PATH,
                                               relative_custom_file_path)
-        ans = input("\nwrite file {} ?  y/n: ".format(regression_conf_custom))
-        if ans != 'y':
-            print("\nNo write regression custom file.")
-            return
+        if not args.quiet:
+            ans = input(
+                "\nwrite file {} ?  y/n: ".format(regression_conf_custom))
+            if ans != 'y':
+                print("\nNo write regression custom file.")
+                return
 
         with open(regression_conf_custom, "w") as f:
             fe_ip = master_fe_ip[:master_fe_ip.find(':')]
