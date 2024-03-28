@@ -237,7 +237,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             // 3. Init Row
-            std::unique_ptr<uint8_t[]> tuple_buf(new uint8_t[schema->schema_size()]);
+            std::unique_ptr<uint8_t[]> tuple_buf(new uint8_t[schema->schema_size()]());
             ContiguousRow row(schema.get(), tuple_buf.get());
 
             // 4. Read data from broker and write into SegmentGroup of cur_tablet
