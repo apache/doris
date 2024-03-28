@@ -21,7 +21,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -106,17 +105,6 @@ public class LogicalExcept extends LogicalSetOperation {
     public LogicalExcept withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalExcept(qualifier, newOutputs, regularChildrenOutputs,
                 Optional.empty(), Optional.empty(), children);
-    }
-
-    @Override
-    public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies
-                .Builder();
-        computeUniform(builder);
-        computeUnique(builder);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        builder.addFdItems(fdItems);
-        return builder.build();
     }
 
     @Override

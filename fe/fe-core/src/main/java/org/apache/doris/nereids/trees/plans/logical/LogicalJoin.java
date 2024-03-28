@@ -24,7 +24,6 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
@@ -456,16 +455,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             }
         }
         return Pair.of(leftKeys, rightKeys);
-    }
-
-    @Override
-    public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
-        computeUnique(fdBuilder);
-        computeUniform(fdBuilder);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        fdBuilder.addFdItems(fdItems);
-        return fdBuilder.build();
     }
 
     @Override

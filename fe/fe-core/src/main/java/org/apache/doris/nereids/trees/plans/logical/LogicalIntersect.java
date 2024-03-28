@@ -119,16 +119,6 @@ public class LogicalIntersect extends LogicalSetOperation {
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        computeUnique(builder);
-        computeUniform(builder);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        builder.addFdItems(fdItems);
-        return builder.build();
-    }
-
-    @Override
     public void computeUnique(Builder fdBuilder) {
         for (Plan child : children) {
             fdBuilder.addUniqueSlot(

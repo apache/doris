@@ -366,16 +366,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
-        computeUniform(fdBuilder);
-        computeUnique(fdBuilder);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        fdBuilder.addFdItems(fdItems);
-        return fdBuilder.build();
-    }
-
-    @Override
     public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
