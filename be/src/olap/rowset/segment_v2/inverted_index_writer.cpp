@@ -222,7 +222,7 @@ public:
     }
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
-        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+        auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
         if (lowercase == "true") {
             analyzer->set_lowercase(true);
         } else if (lowercase == "false") {
