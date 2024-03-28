@@ -54,9 +54,7 @@ suite("test_unique_backup_restore", "backup_restore") {
         PROPERTIES ("type" = "full")
         """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -73,9 +71,7 @@ suite("test_unique_backup_restore", "backup_restore") {
         )
         """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 2)
@@ -95,9 +91,7 @@ suite("test_unique_backup_restore", "backup_restore") {
         PROPERTIES ("type" = "full")
         """
     
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -112,9 +106,7 @@ suite("test_unique_backup_restore", "backup_restore") {
             "reserve_replica" = "true"
         )
         """
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 1)
     sql "DROP TABLE ${dbName}.${tableName} FORCE"

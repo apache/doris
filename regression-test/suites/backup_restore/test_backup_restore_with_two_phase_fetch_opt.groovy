@@ -80,9 +80,7 @@ suite("test_backup_restore_with_two_phase_fetch_opt", "backup_restore") {
         ON (${tableName})
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -101,9 +99,7 @@ suite("test_backup_restore_with_two_phase_fetch_opt", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     result = sql "SELECT * FROM ${dbName}.${tableName} ORDER BY dt DESC LIMIT 5"
     assertEquals(result.size(), 5)
