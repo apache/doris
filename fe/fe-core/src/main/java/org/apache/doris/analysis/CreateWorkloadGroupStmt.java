@@ -26,6 +26,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import java.util.Map;
 
@@ -68,6 +69,11 @@ public class CreateWorkloadGroupStmt extends DdlStmt {
 
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Resource group properties can't be null");
+        }
+
+        String wgTag = properties.get(WorkloadGroup.TAG);
+        if (wgTag != null) {
+            FeNameFormat.checkCommonName("workload group tag", wgTag);
         }
     }
 
