@@ -526,7 +526,8 @@ public class SparkLoadJob extends BulkLoadJob {
                                         PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(),
                                                 partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
                                                 TPushType.LOAD_V2, TPriority.NORMAL, transactionId, taskSignature,
-                                                tBrokerScanRange, params.tDescriptorTable, columnsDesc);
+                                                tBrokerScanRange, params.tDescriptorTable, columnsDesc,
+                                                olapTable.getTableProperty().getStorageVaultId());
                                         if (AgentTaskQueue.addTask(pushTask)) {
                                             batchTask.addTask(pushTask);
                                             if (!tabletToSentReplicaPushTask.containsKey(tabletId)) {

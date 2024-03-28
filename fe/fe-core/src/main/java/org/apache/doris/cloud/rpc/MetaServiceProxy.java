@@ -443,6 +443,15 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.GetDefaultVaultResponse getDefaultVault(Cloud.GetDefaultVaultRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getDefaultVault(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.GetRLTaskCommitAttachResponse
             getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
             throws RpcException {

@@ -325,4 +325,14 @@ public class MetaServiceClient {
         }
         return blockingStub.getRlTaskCommitAttach(request);
     }
+
+    public Cloud.GetDefaultVaultResponse getDefaultVault(Cloud.GetDefaultVaultRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetDefaultVaultRequest.Builder builder =
+                    Cloud.GetDefaultVaultRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.getDefaultVault(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.getDefaultVault(request);
+    }
 }

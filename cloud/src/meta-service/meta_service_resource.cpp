@@ -259,7 +259,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
             while (it->has_next()) {
                 auto [k, v] = it->next();
-                auto *vault = response->add_storage_vault();
+                auto* vault = response->add_storage_vault();
                 if (!vault->ParseFromArray(v.data(), v.size())) {
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                     msg = fmt::format("malformed storage vault, unable to deserialize key={}",
@@ -399,6 +399,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         };
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_HDFS_INFO:
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (!request->has_hdfs() || !request->hdfs().has_name()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -406,6 +407,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
     } break;
+    case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
+        if (!request->has_hdfs() || !request->hdfs().has_name()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "hdfs info is not found " + proto_to_json(*request);
+            return;
+        }
+        break;
+    }
     case AlterObjStoreInfoRequest::UNKNOWN: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "Unknown alter info " + proto_to_json(*request);
@@ -559,11 +568,41 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         break;
     }
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_HDFS_INFO: {
+        std::string vault_id = "0";
+        std::string key = storage_vault_key({instance_id, vault_id});
+        auto* hdfs = request->hdfs().New();
+        hdfs->set_id(std::move(vault_id));
+        hdfs->set_name("built_in_storage_vault");
+        std::string val = hdfs->SerializeAsString();
+        txn->put(key, val);
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            msg = fmt::format("failed to commit kv txn, err={}", err);
+            LOG(WARNING) << msg;
+        }
+        return;
+    }
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
             ret != 0) {
             return;
         }
+        break;
+    }
+    case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
+        const auto& name = request->hdfs().name();
+        auto name_itr = std::find_if(instance.storage_vault_names().begin(),
+                                     instance.storage_vault_names().end(),
+                                     [&](const auto& vault_name) { return name == vault_name; });
+        if (name_itr == instance.storage_vault_names().end()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "invalid storage vault name, name =" << name;
+            msg = ss.str();
+            return;
+        }
+        instance.set_default_vault_name(name);
         break;
     }
     default: {
