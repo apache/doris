@@ -116,7 +116,7 @@ suite("test_auto_partition_behavior") {
         ) ENGINE=OLAP
         AGGREGATE KEY(`k0`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`k0`, 'year')
+        auto partition by range (date_trunc(`k0`, 'year'))
         (
         )
         DISTRIBUTED BY HASH(`k0`) BUCKETS 10
@@ -192,7 +192,7 @@ suite("test_auto_partition_behavior") {
             `k0` int not null,
             `k1` datetime(6) not null
         )
-        AUTO PARTITION BY RANGE date_trunc(`k1`, 'year')
+        auto partition by range (date_trunc(`k1`, 'year'))
         (
         )
         DISTRIBUTED BY HASH(`k0`) BUCKETS 10
@@ -234,7 +234,7 @@ suite("test_auto_partition_behavior") {
                 k1 DATETIME NOT NULL,
                 col1 int 
             )
-            auto PARTITION BY RANGE date_trunc(`k1`, 'year') ()
+            auto partition by range (date_trunc(`k1`, 'year')) ()
             DISTRIBUTED BY HASH(k1)
             PROPERTIES
             (
@@ -259,7 +259,7 @@ suite("test_auto_partition_behavior") {
                 k1 DATETIME NOT NULL,
                 col1 int 
             )
-            auto PARTITION BY RANGE date_trunc(`k1`, 'year') ()
+            auto partition by range (date_trunc(`k1`, 'year')) ()
             DISTRIBUTED BY HASH(k1)
             PROPERTIES
             (
@@ -304,7 +304,7 @@ suite("test_auto_partition_behavior") {
                 k0 datetime(6) NOT null,
                 k1 datetime(6) NOT null
             )
-            auto partition by range date_trunc(k0, k1, 'hour')
+            auto partition by range (date_trunc(k0, k1, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2

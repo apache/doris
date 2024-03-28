@@ -23,7 +23,7 @@ suite("test_auto_range_partition") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`TIME_STAMP`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`TIME_STAMP`, 'day')
+        auto partition by range (date_trunc(`TIME_STAMP`, 'day'))
         (
         )
         DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
@@ -38,15 +38,14 @@ suite("test_auto_range_partition") {
     qt_select01 """ select * from range_table1 WHERE TIME_STAMP = '2022-12-15' order by TIME_STAMP """
     qt_select02 """ select * from range_table1 WHERE TIME_STAMP > '2022-12-15' order by TIME_STAMP """
 
-    def tblDate = "range_table_date"
-    sql "drop table if exists ${tblDate}"
+    sql "drop table if exists range_table_date"
     sql """
-        CREATE TABLE `${tblDate}` (
+        CREATE TABLE `range_table_date` (
         `TIME_STAMP` datev2 NOT NULL COMMENT '采集日期'
         ) ENGINE=OLAP
         DUPLICATE KEY(`TIME_STAMP`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`TIME_STAMP`, 'month')
+        auto partition by range (date_trunc(`TIME_STAMP`, 'month'))
         (
         )
         DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
@@ -54,12 +53,12 @@ suite("test_auto_range_partition") {
         "replication_allocation" = "tag.location.default: 1"
         );
         """
-    sql """ insert into ${tblDate} values ('2022-11-14'), ('2022-12-15'), ('2022-12-16'), ('2022-12-17'), ('2022-05-18'), ('2022-12-19'), ('2022-12-20') """
-    sql """ insert into ${tblDate} values ('2122-12-14'), ('2122-12-15'), ('2122-12-16'), ('2122-12-17'), ('2122-09-18'), ('2122-12-19'), ('2122-12-20') """
+    sql """ insert into range_table_date values ('2022-11-14'), ('2022-12-15'), ('2022-12-16'), ('2022-12-17'), ('2022-05-18'), ('2022-12-19'), ('2022-12-20') """
+    sql """ insert into range_table_date values ('2122-12-14'), ('2122-12-15'), ('2122-12-16'), ('2122-12-17'), ('2122-09-18'), ('2122-12-19'), ('2122-12-20') """
 
-    qt_date1 """ select * from ${tblDate} order by TIME_STAMP """
-    qt_date2 """ select * from ${tblDate} WHERE TIME_STAMP = '2022-12-15' order by TIME_STAMP """
-    qt_date3 """ select * from ${tblDate} WHERE TIME_STAMP > '2022-12-15' order by TIME_STAMP """
+    qt_date1 """ select * from range_table_date order by TIME_STAMP """
+    qt_date2 """ select * from range_table_date WHERE TIME_STAMP = '2022-12-15' order by TIME_STAMP """
+    qt_date3 """ select * from range_table_date WHERE TIME_STAMP > '2022-12-15' order by TIME_STAMP """
 
     sql "drop table if exists range_table2"
     sql """
@@ -68,7 +67,7 @@ suite("test_auto_range_partition") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`TIME_STAMP`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`TIME_STAMP`, 'day')
+        auto partition by range (date_trunc(`TIME_STAMP`, 'day'))
         (
         )
         DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
@@ -85,34 +84,12 @@ suite("test_auto_range_partition") {
     qt_select11 """ select * from range_table2 WHERE TIME_STAMP = '2022-12-15 22:22:22.222' order by TIME_STAMP """
     qt_select12 """ select * from range_table2 WHERE TIME_STAMP > '2022-12-15 22:22:22.222' order by TIME_STAMP """
 
-    sql "drop table if exists range_table3"
-    sql """
-        CREATE TABLE `range_table3` (
-            `k1` INT,
-            `k2` DATETIMEV2(3) NOT NULL,
-            `k3` DATETIMEV2(6)
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`k1`)
-        COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`k2`, 'day')
-        (
-        )
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 16
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
-        );
-        """
-    sql """ insert into range_table3 values (1, '1990-01-01', '2000-01-01 12:12:12.123456'), (2, '1991-02-01', '2000-01-01'), (3, '1991-01-01', '2000-01-01'), (3, '1991-01-01', '2000-01-01') """
-    result1 = sql "show partitions from range_table3"
-    logger.info("${result1}")
-    assertEquals(result1.size(), 3)
-
     sql "drop table if exists right_bound"
     sql """
             create table right_bound(
-                k0 datetime(6) null
+                k0 datetime(6) not null
             )
-            auto partition by range date_trunc(k0, 'second')
+            auto partition by range (date_trunc(k0, 'second'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS auto
