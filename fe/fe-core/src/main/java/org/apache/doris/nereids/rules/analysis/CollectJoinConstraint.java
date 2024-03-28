@@ -44,6 +44,15 @@ import java.util.Set;
  */
 public class CollectJoinConstraint implements RewriteRuleFactory {
 
+    private static final ImmutableList<JoinType> PUSH_DOWN_RIGHT_VALID_TYPE = ImmutableList.of(
+            JoinType.LEFT_OUTER_JOIN,
+            JoinType.LEFT_ANTI_JOIN,
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
+            JoinType.LEFT_SEMI_JOIN,
+            JoinType.RIGHT_SEMI_JOIN,
+            JoinType.CROSS_JOIN
+    );
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -81,8 +90,10 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     nonNullableSlotBitMap = LongBitmap.or(nonNullableSlotBitMap, nonNullable);
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
-                    if (join.getJoinType().isLeftJoin()) {
-                        filterBitMap = LongBitmap.or(filterBitMap, rightHand);
+                    if (PUSH_DOWN_RIGHT_VALID_TYPE.contains(join.getJoinType())) {
+                        if (!LongBitmap.isSubset(filterBitMap, rightHand)) {
+                            filterBitMap = LongBitmap.or(filterBitMap, rightHand);
+                        }
                     }
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
                     leading.putConditionJoinType(expression, join.getJoinType());
