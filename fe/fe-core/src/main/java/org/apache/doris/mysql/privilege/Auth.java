@@ -1159,8 +1159,6 @@ public class Auth implements Writable {
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
-            // ============== Comment ==============
-            userAuthInfo.add(FeConstants.null_string);
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(userIdent.getQualifiedUser());
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
@@ -1172,10 +1170,7 @@ public class Auth implements Writable {
             if (user == null) {
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
-                userAuthInfo.add(FeConstants.null_string);
             } else {
-                // ============== Comment ==============
-                userAuthInfo.add(user.getComment());
                 // ============== Password ==============
                 userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
                 // ============== Roles ==============
