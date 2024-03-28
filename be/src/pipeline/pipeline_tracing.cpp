@@ -95,7 +95,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         return;
     }
 
-    std::filesystem::path log_dir = getenv("LOG_DIR");
+    std::filesystem::path log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
     //TODO: when dump, now could append records but can't add new query. try use better grained locks.
     std::unique_lock<std::mutex> l(_data_lock); // can't rehash
     if (_dump_type == RecordType::PerQuery) {

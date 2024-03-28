@@ -52,6 +52,7 @@ struct ScheduleRecord {
 using OneQueryTraces = moodycamel::ConcurrentQueue<ScheduleRecord>;
 
 // belongs to exec_env, for all query, if enable
+// curl http://{host}:{web_server_port}/api/running_pipeline_tasks
 class PipelineTracerContext {
 public:
     enum class RecordType {
