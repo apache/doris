@@ -652,7 +652,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             fdBuilder.addUniqueSlot(right().getLogicalProperties().getFunctionalDependencies());
         }
         // if there is non-equal join conditions, don't propagate unique
-        if (!otherJoinConjuncts.isEmpty()) {
+        if (hashJoinConjuncts.isEmpty()) {
             return;
         }
         Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();

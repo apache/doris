@@ -294,12 +294,18 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     private boolean isUniqueGroupByUnique(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1) {
+            return false;
+        }
         Expression agg = namedExpression.child(0);
         return ExpressionUtils.isInjectiveAgg(agg)
                 && child().getLogicalProperties().getFunctionalDependencies().isUniqueAndNotNull(agg.getInputSlots());
     }
 
     private boolean isUniformGroupByUnique(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1) {
+            return false;
+        }
         Expression agg = namedExpression.child(0);
         return agg instanceof Count || agg instanceof Ndv;
     }
