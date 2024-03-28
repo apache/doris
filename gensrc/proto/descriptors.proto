@@ -70,5 +70,7 @@ message POlapTableSchemaParam {
     repeated string partial_update_input_columns = 8;
     optional bool is_strict_mode = 9 [default = false];
     optional string auto_increment_column = 10;
+    optional int64 timestamp_ms = 11 [default = 0];
+    optional string timezone = 12;
 };
 
