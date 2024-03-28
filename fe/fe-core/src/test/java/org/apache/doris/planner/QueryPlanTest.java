@@ -1126,7 +1126,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + " and t1.k1 = t2.k2";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
-        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED(CRC32): `t1`.`k1`, `t1`.`k1`"));
 
         // not bucket shuffle join do not support different type
         queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.jointest t1, test.bucket_shuffle1 t2 where cast (t1.k1 as tinyint)"
@@ -1157,24 +1157,24 @@ public class QueryPlanTest extends TestWithFeService {
                 + " on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3"
                 + " on t2.k1 = t3.k1 and t2.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        // Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
-        //  Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
+        // Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED(CRC32): `t1`.`k1`, `t1`.`k1`"));
+        //  Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED(CRC32): `t3`.`k1`, `t3`.`k2`"));
 
         // support recurse of bucket shuffle because t4 join t2 and join column name is same as t2 distribute column name
         queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and"
                 + " t1.k1 = t2.k2 join test.colocate1 t3 on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t2.k1 and"
                 + " t4.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        //Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
-        //Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
+        //Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED(CRC32): `t1`.`k1`, `t1`.`k1`"));
+        //Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED(CRC32): `t4`.`k1`, `t4`.`k1`"));
 
         // some column name in join expr t3 join t4 and t1 distribute column name, so should not be bucket shuffle join
         queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 ="
                 + " t2.k2 join test.colocate1 t3 on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t3.k1 and"
                 + " t4.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
-        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED(CRC32): `t1`.`k1`, `t1`.`k1`"));
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED(CRC32): `t4`.`k1`, `t4`.`k1`"));
 
         // here only a bucket shuffle + broadcast jost join
         queryStr = "explain SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM test.bucket_shuffle1 T LEFT JOIN test.bucket_shuffle1 T1 ON T1.k2 = T.k1 and T.k2 = T1.k3 LEFT JOIN"

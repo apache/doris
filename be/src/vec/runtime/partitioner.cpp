@@ -72,6 +72,13 @@ void XXHashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column, uint64_t* 
 }
 
 template <typename ChannelIds>
+void Murmur32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
+                                                   int32_t* __restrict result, int idx) const {
+    column->update_murmurs_with_value(result, Base::_partition_expr_ctxs[idx]->root()->type().type,
+                                      column->size());
+}
+
+template <typename ChannelIds>
 Status XXHashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                             std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new XXHashPartitioner(Base::_partition_count);
@@ -97,6 +104,19 @@ Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
     return Status::OK();
 }
 
+template <typename ChannelIds>
+Status Murmur32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
+                                                  std::unique_ptr<PartitionerBase>& partitioner) {
+    auto* new_partitioner = new Murmur32HashPartitioner(Base::_partition_count);
+    partitioner.reset(new_partitioner);
+    new_partitioner->_partition_expr_ctxs.resize(Base::_partition_expr_ctxs.size());
+    for (size_t i = 0; i < Base::_partition_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(Base::_partition_expr_ctxs[i]->clone(
+                state, new_partitioner->_partition_expr_ctxs[i]));
+    }
+    return Status::OK();
+}
+
 template class Partitioner<size_t, pipeline::LocalExchangeChannelIds>;
 template class XXHashPartitioner<pipeline::LocalExchangeChannelIds>;
 template class Partitioner<size_t, ShuffleChannelIds>;
@@ -104,5 +124,7 @@ template class XXHashPartitioner<ShuffleChannelIds>;
 template class Partitioner<uint32_t, ShuffleChannelIds>;
 template class Crc32HashPartitioner<ShuffleChannelIds>;
 template class Crc32HashPartitioner<pipeline::LocalExchangeChannelIds>;
+template class Murmur32HashPartitioner<ShufflePModChannelIds>;
+template class Murmur32HashPartitioner<pipeline::LocalExchangeChannelIds>;
 
 } // namespace doris::vectorized

@@ -126,6 +126,24 @@ void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
+void ColumnConst::update_murmurs_with_value(int32_t* __restrict hashes, doris::PrimitiveType type,
+                                            int32_t rows, uint32_t offset,
+                                            const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    DCHECK(rows == size());
+    auto real_data = data->get_data_at(0);
+    if (real_data.data == nullptr) {
+        for (int i = 0; i < rows; ++i) {
+            hashes[i] = HashUtil::murmur_hash3_32_null(HashUtil::SPARK_MURMUR_32_SEED);
+        }
+    } else {
+        for (int i = 0; i < rows; ++i) {
+            hashes[i] = HashUtil::murmur_hash3_32(real_data.data, real_data.size,
+                                                  HashUtil::SPARK_MURMUR_32_SEED);
+        }
+    }
+}
+
 MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& selector) const {
     if (s != selector.size()) {
         LOG(FATAL) << fmt::format("Size of selector ({}) doesn't match size of column ({})",
