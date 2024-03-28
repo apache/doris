@@ -19,12 +19,16 @@
 
 package org.apache.doris.service.arrowflight.tokens;
 
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.auth2.FlightAuthResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,17 +43,32 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
     private static final Logger LOG = LogManager.getLogger(FlightTokenManagerImpl.class);
 
     private final SecureRandom generator = new SecureRandom();
+    private final int cacheSize;
     private final int cacheExpiration;
 
     private LoadingCache<String, FlightTokenDetails> tokenCache;
 
     public FlightTokenManagerImpl(final int cacheSize, final int cacheExpiration) {
+        this.cacheSize = cacheSize;
         this.cacheExpiration = cacheExpiration;
 
-        this.tokenCache = CacheBuilder.newBuilder()
-                .maximumSize(cacheSize)
+        this.tokenCache = CacheBuilder.newBuilder().maximumSize(cacheSize)
                 .expireAfterWrite(cacheExpiration, TimeUnit.MINUTES)
-                .build(new CacheLoader<String, FlightTokenDetails>() {
+                .removalListener(new RemovalListener<String, FlightTokenDetails>() {
+                    @Override
+                    public void onRemoval(RemovalNotification<String, FlightTokenDetails> notification) {
+                        // TODO: broadcast this message to other FE
+                        LOG.info("evict bearer token: " + notification.getKey() + ", reason: "
+                                + notification.getCause());
+                        ConnectContext context = ExecuteEnv.getInstance().getScheduler()
+                                .getContext(notification.getKey());
+                        if (context != null) {
+                            ExecuteEnv.getInstance().getScheduler().unregisterConnection(context);
+                            LOG.info("unregister flight connect context after evict bearer token: "
+                                    + notification.getKey());
+                        }
+                    }
+                }).build(new CacheLoader<String, FlightTokenDetails>() {
                     @Override
                     public FlightTokenDetails load(String key) {
                         return new FlightTokenDetails();
@@ -77,26 +96,32 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                 flightAuthResult.getUserIdentity(), flightAuthResult.getRemoteIp());
 
         tokenCache.put(token, flightTokenDetails);
-        LOG.trace("Created flight token for user: {}", username);
+        LOG.info("Created flight token for user: {}, token: {}", username, token);
         return flightTokenDetails;
     }
 
     @Override
     public FlightTokenDetails validateToken(final String token) throws IllegalArgumentException {
         final FlightTokenDetails value = getTokenDetails(token);
-        if (System.currentTimeMillis() >= value.getExpiresAt()) {
-            tokenCache.invalidate(token); // removes from the store as well
-            throw new IllegalArgumentException("token expired");
+        if (value.getToken().equals("")) {
+            throw new IllegalArgumentException("invalid bearer token: " + token
+                    + ", try reconnect, bearer token may not be created, or may have been evict, search for this "
+                    + "token in fe.log to see the evict reason. currently in fe.conf, `arrow_flight_token_cache_size`="
+                    + this.cacheSize + ", `arrow_flight_token_alive_time`=" + this.cacheExpiration);
         }
-
-        LOG.trace("Validated flight token for user: {}", value.getUsername());
+        if (System.currentTimeMillis() >= value.getExpiresAt()) {
+            tokenCache.invalidate(token);
+            throw new IllegalArgumentException("bearer token expired: " + token + ", try reconnect, "
+                    + "currently in fe.conf, `arrow_flight_token_alive_time`=" + this.cacheExpiration);
+        }
+        LOG.info("Validated bearer token for user: {}", value.getUsername());
         return value;
     }
 
     @Override
     public void invalidateToken(final String token) {
-        LOG.trace("Invalidate flight token, {}", token);
-        tokenCache.invalidate(token); // removes from the store as well
+        LOG.info("Invalidate bearer token, {}", token);
+        tokenCache.invalidate(token);
     }
 
     private FlightTokenDetails getTokenDetails(final String token) {
@@ -105,7 +130,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
         try {
             value = tokenCache.getUnchecked(token);
         } catch (CacheLoader.InvalidCacheLoadException ignored) {
-            throw new IllegalArgumentException("invalid token");
+            throw new IllegalArgumentException("InvalidCacheLoadException, invalid bearer token: " + token);
         }
 
         return value;

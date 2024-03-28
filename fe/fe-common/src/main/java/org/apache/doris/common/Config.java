@@ -2330,10 +2330,16 @@ public class Config extends ConfigBase {
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为2000",
+    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为512, "
+            + "并强制限制小于 qe_max_connection/2, 避免`Reach limit of connections`, "
+            + "因为arrow flight sql是无状态的协议，连接通常不会主动断开，"
+            + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
             "The cache limit of all user tokens in Arrow Flight Server. which will be eliminated by"
-            + "LRU rules after exceeding the limit, the default value is 2000."})
-    public static int arrow_flight_token_cache_size = 2000;
+            + "LRU rules after exceeding the limit, the default value is 512, the mandatory limit is "
+            + "less than qe_max_connection/2 to avoid `Reach limit of connections`, "
+            + "because arrow flight sql is a stateless protocol, the connection is usually not actively "
+            + "disconnected, bearer token is evict from the cache will unregister ConnectContext."})
+    public static int arrow_flight_token_cache_size = 512;
 
     @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为4320，即3天",
             "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
