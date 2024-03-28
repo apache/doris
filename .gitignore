@@ -133,3 +133,5 @@ lru_cache_test
 
 # other
 compile_commands.json
+.github
+docker/runtime/be/resource/apache-doris/
