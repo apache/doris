@@ -48,4 +48,8 @@ public class BrokerPendingTaskAttachment extends TaskAttachment {
     public int getFileNumByTable(FileGroupAggKey aggKey) {
         return fileNumMap.get(aggKey);
     }
+
+    public Map<FileGroupAggKey, List<List<TBrokerFileStatus>>> getFileStatusMap() {
+        return fileStatusMap;
+    }
 }

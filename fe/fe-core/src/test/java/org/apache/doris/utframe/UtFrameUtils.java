@@ -52,6 +52,7 @@ import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
+import org.apache.doris.utframe.MockedMetaServerFactory.DefaultPMetaServiceImpl;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -461,5 +462,15 @@ public class UtFrameUtils {
                 }
             }
         }
+    }
+
+    public static int createMetaServer(String metaHost) throws IOException {
+        int metaBrpcPort = findValidPort();
+
+        // start metaServer
+        MockedMetaServer metaServer = MockedMetaServerFactory.createMetaServer(metaHost,
+                metaBrpcPort, new DefaultPMetaServiceImpl());
+        metaServer.start();
+        return metaServer.getBrpcPort();
     }
 }

@@ -51,6 +51,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
+import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -600,6 +601,8 @@ terminal String
     KW_SPLIT,
     KW_SQL,
     KW_SQL_BLOCK_RULE,
+    KW_STAGE,
+    KW_STAGES,
     KW_START,
     KW_STARTS,    
     KW_STATS,
@@ -707,7 +710,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt, copy_stmt;
 
 nonterminal FromClause opt_using_clause;
 
@@ -725,7 +728,7 @@ nonterminal ValueList value_clause;
 // No return.
 nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_or_index, opt_storage, opt_wild_where,
             charset, equal, transaction_characteristics, isolation_level,
-            transaction_access_mode, isolation_types;
+            transaction_access_mode, isolation_types, opt_where;
 
 // String
 nonterminal String user, opt_user, opt_using_charset;
@@ -984,6 +987,12 @@ nonterminal Long opt_auto_inc_init_value;
 
 // workload policy/group
 nonterminal String policy_condition_op, policy_condition_value;
+
+// copy into
+nonterminal CopyFromParam copy_from_param;
+nonterminal String stage_name;
+nonterminal StageAndPattern stage_and_pattern;
+nonterminal List<Expr> copy_select_expr_list;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1251,6 +1260,8 @@ stmt ::=
     {:
         RESULT = new EmptyStmt();
     :}
+    | copy_stmt:stmt
+    {: RESULT = stmt; :}
     ;
 
 refresh_stmt ::=
@@ -1977,6 +1988,11 @@ create_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, new IndexDef(indexName, partitionNames, true), false)));
     :}
+    /* stage */
+    | KW_CREATE KW_STAGE opt_if_not_exists:ifNotExists ident:stageName KW_PROPERTIES opt_key_value_map:properties
+    {:
+        RESULT = new CreateStageStmt(ifNotExists, stageName, properties);
+    :}
     ;
 
 channel_desc_list ::=
@@ -2324,6 +2340,62 @@ job_label ::=
         RESULT = new LabelName(db, label);
     :}
     ;
+
+// Copy Statement
+copy_stmt ::=
+    KW_COPY KW_INTO opt_select_hints:hints table_name:name opt_col_list:cols KW_FROM copy_from_param:copyFromParam KW_PROPERTIES opt_key_value_map:properties
+    {:
+        RESULT = new CopyStmt(name, cols, copyFromParam, properties, hints);
+    :}
+    | KW_COPY KW_INTO opt_select_hints:hints table_name:name opt_col_list:cols KW_FROM copy_from_param:copyFromParam
+    {:
+        RESULT = new CopyStmt(name, cols, copyFromParam, new HashMap(), hints);
+    :}
+    ;
+
+copy_from_param ::=
+    stage_and_pattern:stage
+    {:
+        RESULT = new CopyFromParam(stage);
+    :}
+    | LPAREN KW_SELECT copy_select_expr_list:exprList KW_FROM stage_and_pattern:stage where_clause:whereExpr RPAREN
+    {:
+        RESULT = new CopyFromParam(stage, exprList, whereExpr);
+    :}
+    ;
+
+stage_name ::=
+    AT ident:stage
+    {:
+        RESULT = stage;
+    :}
+    | AT BITNOT
+    {:
+        RESULT = "~";
+    :}
+    ;
+
+stage_and_pattern ::=
+    stage_name:name
+    {:
+        RESULT = new StageAndPattern(name, null);
+    :}
+    | stage_name:name LPAREN STRING_LITERAL:pattern RPAREN
+    {:
+        RESULT = new StageAndPattern(name, pattern);
+    :}
+    ;
+
+copy_select_expr_list ::=
+    {:
+        RESULT = null;
+    :}
+    | STAR {:
+        RESULT = null;
+    :}
+    | expr_list:exprList {:
+        RESULT = exprList;
+    :};
 
 data_desc_list ::=
     data_desc:desc
@@ -2921,6 +2993,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(roles, userId);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
     ;
 
 tbl_pattern ::=
@@ -3008,6 +3088,14 @@ revoke_stmt ::=
     | KW_REVOKE string_list:roles KW_FROM user_identity:userId
     {:
         RESULT = new RevokeStmt(roles, userId);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
     :}
     ;
 
@@ -3115,6 +3203,10 @@ drop_stmt ::=
     | KW_DROP KW_ANALYZE KW_JOB INTEGER_LITERAL:job_id
     {:
         RESULT = new DropAnalyzeJobStmt(job_id);
+    :}
+    | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
+    {:
+        RESULT = new DropStageStmt(ifExists, stageName);
     :}
     ;
 
@@ -3957,6 +4049,11 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
+    /* show stage */
+    | KW_SHOW KW_STAGES
+    {:
+        RESULT = new ShowStageStmt();
+    :}
     ;
 
 show_param ::=
@@ -4468,6 +4565,11 @@ show_param ::=
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
     :}
+    /* Show copy statement */
+    | KW_COPY opt_db:db opt_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowCopyStmt(db, parser.where, orderByClause, limitClause);
+    :}
     ;
 
 opt_tmp ::=
@@ -4584,6 +4686,14 @@ opt_wild_where ::=
     {:
         parser.wild = wild;
     :}
+    | KW_WHERE expr:where
+    {:
+        parser.where = where;
+    :}
+    ;
+
+opt_where ::=
+    /* empty */
     | KW_WHERE expr:where
     {:
         parser.where = where;
@@ -8193,6 +8303,8 @@ keyword ::=
     | KW_UNSET:id
     {: RESULT = id; :}
     | KW_BELONG:id
+    {: RESULT = id; :}
+    | KW_STAGE:id
     {: RESULT = id; :}
     ;
 
