@@ -41,7 +41,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -95,30 +94,8 @@ public class PublishVersionDaemon extends MasterDaemon {
             if (transactionState.hasSendTask()) {
                 continue;
             }
-            List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
-            for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
-                partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
-
-                try {
-                    beIdToBaseTabletIds.putAll(getBaseTabletIdsForEachBe(transactionState, tableCommitInfo));
-                } catch (MetaNotFoundException e) {
-                    LOG.warn("exception occur when trying to get rollup tablets info", e);
-                }
-            }
-
-            List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
-            for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
-                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(),
-                        commitInfo.getVersion(), 0);
-                partitionVersionInfos.add(versionInfo);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to publish version info partitionid [{}], version [{}]",
-                            commitInfo.getPartitionId(),
-                            commitInfo.getVersion());
-                }
-            }
-
-            Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
+            Set<Long> publishBackends = Sets.newHashSet(transactionState.getPublishVersionTasks().keySet());
+            publishBackends.addAll(transactionState.getInvolvedBackends());
             // public version tasks are not persisted in catalog, so publishBackends may be empty.
             // so we have to try publish to all backends;
             if (publishBackends.isEmpty()) {
@@ -127,18 +104,21 @@ public class PublishVersionDaemon extends MasterDaemon {
                 publishBackends.addAll(allBackends);
             }
 
-            for (long backendId : publishBackends) {
-                PublishVersionTask task = new PublishVersionTask(backendId,
-                        transactionState.getTransactionId(),
-                        transactionState.getDbId(),
-                        partitionVersionInfos,
-                        createPublishVersionTaskTime);
-                task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
-                // add to AgentTaskQueue for handling finish report.
-                // not check return value, because the add will success
-                AgentTaskQueue.addTask(task);
-                batchTask.addTask(task);
-                transactionState.addPublishVersionTask(backendId, task);
+            if (transactionState.getSubTransactionStates() != null) {
+                for (Entry<Long, TableCommitInfo> entry : transactionState.getSubTxnIdToTableCommitInfo().entrySet()) {
+                    long subTxnId = entry.getKey();
+                    List<TPartitionVersionInfo> partitionVersionInfos = generatePartitionVersionInfos(entry.getValue(),
+                            transactionState, beIdToBaseTabletIds);
+                    LOG.debug("add publish task, txnId={}, subTxnId={}, backends={}, partitionVersionInfos={}",
+                            transactionState.getTransactionId(), subTxnId, publishBackends, partitionVersionInfos);
+                    addPublishVersionTask(publishBackends, subTxnId, transactionState, partitionVersionInfos,
+                            beIdToBaseTabletIds, createPublishVersionTaskTime, batchTask);
+                }
+            } else {
+                List<TPartitionVersionInfo> partitionVersionInfos = generatePartitionVersionInfos(
+                        transactionState.getIdToTableCommitInfos().values(), transactionState, beIdToBaseTabletIds);
+                addPublishVersionTask(publishBackends, transactionState.getTransactionId(), transactionState,
+                        partitionVersionInfos, beIdToBaseTabletIds, createPublishVersionTaskTime, batchTask);
             }
             transactionState.setSendedTask();
             LOG.info("send publish tasks for transaction: {}, db: {}", transactionState.getTransactionId(),
@@ -152,9 +132,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
             Stream<PublishVersionTask> publishVersionTaskStream = transactionState
-                    .getPublishVersionTasks()
-                    .values()
-                    .stream()
+                    .getPublishVersionTasks().values().stream().flatMap(List::stream)
                     .peek(task -> {
                         if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
                             Map<Long, Long> tableIdToDeltaNumRows =
@@ -191,9 +169,11 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
 
             if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
-                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
-                }
+                transactionState.getPublishVersionTasks().values().forEach(tasks -> {
+                    for (PublishVersionTask task : tasks) {
+                        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
+                    }
+                });
                 transactionState.pruneAfterVisible();
                 if (MetricRepo.isInit) {
                     long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
@@ -228,5 +208,50 @@ public class PublishVersionDaemon extends MasterDaemon {
                                 .stream().map(backendId -> Pair.of(backendId, tablet.getId())))
                 .collect(Collectors.groupingBy(p -> p.first,
                         Collectors.mapping(p -> p.second, Collectors.toSet())));
+    }
+
+    private List<TPartitionVersionInfo> generatePartitionVersionInfos(Collection<TableCommitInfo> tableCommitInfos,
+            TransactionState transactionState, Map<Long, Set<Long>> beIdToBaseTabletIds) {
+        return tableCommitInfos.stream()
+                .map(c -> generatePartitionVersionInfos(c, transactionState, beIdToBaseTabletIds)).flatMap(List::stream)
+                .collect(Collectors.toList());
+    }
+
+    private List<TPartitionVersionInfo> generatePartitionVersionInfos(TableCommitInfo tableCommitInfo,
+            TransactionState transactionState, Map<Long, Set<Long>> beIdToBaseTabletIds) {
+        try {
+            beIdToBaseTabletIds.putAll(getBaseTabletIdsForEachBe(transactionState, tableCommitInfo));
+        } catch (MetaNotFoundException e) {
+            LOG.warn("exception occur when trying to get rollup tablets info", e);
+        }
+        return tableCommitInfo.getIdToPartitionCommitInfo()
+                .values().stream()
+                .map(commitInfo -> {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("try to publish version info partitionid [{}], version [{}]",
+                                commitInfo.getPartitionId(), commitInfo.getVersion());
+                    }
+                    return new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                            commitInfo.getVersion(), 0);
+                }).collect(Collectors.toList());
+    }
+
+    private void addPublishVersionTask(Set<Long> publishBackends, long transactionId, TransactionState transactionState,
+            List<TPartitionVersionInfo> partitionVersionInfos, Map<Long, Set<Long>> beIdToBaseTabletIds,
+            long createPublishVersionTaskTime,
+            AgentBatchTask batchTask) {
+        for (Long backendId : publishBackends) {
+            PublishVersionTask task = new PublishVersionTask(backendId,
+                    transactionId,
+                    transactionState.getDbId(),
+                    partitionVersionInfos,
+                    createPublishVersionTaskTime);
+            task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
+            // add to AgentTaskQueue for handling finish report.
+            // not check return value, because the add will success
+            AgentTaskQueue.addTask(task);
+            batchTask.addTask(task);
+            transactionState.addPublishVersionTask(backendId, task);
+        }
     }
 }

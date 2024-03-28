@@ -21,6 +21,20 @@
 
 suite("txn_insert") {
     def table = "txn_insert_tbl"
+
+    def get_observer_fe_url = {
+        def fes = sql_return_maparray "show frontends"
+        logger.info("frontends: ${fes}")
+        if (fes.size() > 1) {
+            for (def fe : fes) {
+                if (fe.IsMaster == "false") {
+                    return "jdbc:mysql://${fe.Host}:${fe.QueryPort}/"
+                }
+            }
+        }
+        return null
+    }
+
     for (def use_nereids_planner : [false, true]) {
         sql " SET enable_nereids_planner = $use_nereids_planner; "
         sql " SET enable_fallback_to_original_planner = false; "
@@ -213,5 +227,143 @@ suite("txn_insert") {
             order_qt_select23 """select * from ${table}_1"""
             order_qt_select24 """select * from ${table}_2"""
         }
+
+        // 7. insert into select to same table
+        if (use_nereids_planner) {
+            sql """ begin; """
+            sql """ insert into ${table}_0 select * from ${table}_1; """
+            sql """ insert into ${table}_0 select * from ${table}_2; """
+            sql """ insert into ${table}_0 select * from ${table}_1; """
+            sql """ insert into ${table}_0 select * from ${table}_2; """
+            sql """ commit; """
+            sql "sync"
+            order_qt_select25 """select * from ${table}_0"""
+
+            sql """ insert into ${table}_0 select * from ${table}_1; """
+            sql "sync"
+            order_qt_select26 """select * from ${table}_0"""
+
+            sql """ insert into ${table}_0 values(1001, 2.2, "abc", [], []) """
+            sql "sync"
+            order_qt_select27 """select * from ${table}_0"""
+
+            // select from observer fe
+            def observer_fe_url = get_observer_fe_url()
+            if (observer_fe_url != null) {
+                logger.info("observer url: $observer_fe_url")
+                connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = observer_fe_url) {
+                    result = sql """ select count() from regression_test_insert_p0.${table}_0 """
+                    logger.info("select from observer result: $result")
+                    assertEquals(79, result[0][0])
+                }
+            }
+        }
+
+        // 8. insert into tables in different database
+        if (use_nereids_planner) {
+            def db2 = "regression_test_insert_p0_1"
+            sql """ create database if not exists $db2 """
+
+            try {
+                sql """ create table ${db2}.${table} like ${table} """
+                sql """ begin; """
+                sql """ insert into ${table} select * from ${table}_0; """
+                test {
+                    sql """ insert into $db2.${table} select * from ${table}_0; """
+                    exception """Transaction insert must be in the same database, expect db_id"""
+                }
+            } finally {
+                sql """rollback"""
+                sql """ drop database if exists $db2 """
+            }
+        }
+
+        // 9. insert into mow tables
+        if (use_nereids_planner) {
+            def unique_table = "ut"
+            for (def i in 0..2) {
+                sql """ drop table if exists ${unique_table}_${i} """
+                sql """
+                    CREATE TABLE ${unique_table}_${i} (
+                        `id` int(11) NOT NULL,
+                        `name` varchar(50) NULL,
+                        `score` int(11) NULL default "-1"
+                    ) ENGINE=OLAP
+                    UNIQUE KEY(`id`, `name`)
+                    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                    PROPERTIES (
+                """ + (i == 2 ? "\"function_column.sequence_col\"='score', " : "") +
+                """
+                        "replication_num" = "1"
+                    );
+                """
+            }
+            sql """ insert into ${unique_table}_0 values(1, "a", 10), (2, "b", 20), (3, "c", 30); """
+            sql """ insert into ${unique_table}_1 values(1, "a", 11), (2, "b", 19), (4, "d", 40); """
+            sql """ begin """
+            sql """ insert into ${unique_table}_2 select * from ${unique_table}_0; """
+            sql """ insert into ${unique_table}_1 select * from ${unique_table}_0; """
+            sql """ insert into ${unique_table}_2 select * from ${unique_table}_1; """
+            sql """ commit; """
+            sql "sync"
+            order_qt_select28 """select * from ${unique_table}_0"""
+            order_qt_select29 """select * from ${unique_table}_1"""
+            order_qt_select30 """select * from ${unique_table}_2"""
+        }
+
+        // 10. insert into table with multi partitions and tablets
+        if (use_nereids_planner) {
+            def pt = "multi_partition_t"
+            for (def i in 0..3) {
+                sql """ drop table if exists ${pt}_${i} """
+                sql """
+                    CREATE TABLE ${pt}_${i} (
+                        `id` int(11) NOT NULL,
+                        `name` varchar(50) NULL,
+                        `score` int(11) NULL default "-1"
+                    ) ENGINE=OLAP
+                    DUPLICATE KEY(`id`)
+                    PARTITION BY RANGE(id)
+                    (
+                        FROM (1) TO (50) INTERVAL 10
+                    )
+                    DISTRIBUTED BY HASH(`id`) BUCKETS 2
+                    PROPERTIES (
+                        "replication_num" = "1"
+                    );
+                """
+            }
+            def insert_sql = """ insert into ${pt}_0 values(1, "a", 10) """
+            for (def i in 2..49) {
+                insert_sql += """ , ($i, "a", 10) """
+            }
+            sql """ $insert_sql """
+            sql """ set enable_insert_strict = false """
+            sql """ begin """
+            sql """ insert into ${pt}_1 select * from ${pt}_0; """
+            sql """ insert into ${pt}_2 PARTITION (p_1_11, p_11_21) select * from ${pt}_0; """
+            sql """ insert into ${pt}_2 PARTITION (p_31_41) select * from ${pt}_0; """
+            sql """ insert into ${pt}_3 PARTITION (p_1_11, p_11_21) select * from ${pt}_0; """
+            sql """ insert into ${pt}_3 PARTITION (p_31_41, p_11_21) select * from ${pt}_0; """
+            sql """ commit; """
+            sql "sync"
+            order_qt_select31 """select * from ${pt}_0"""
+            order_qt_select32 """select * from ${pt}_1"""
+            order_qt_select33 """select * from ${pt}_2"""
+            order_qt_select34 """select * from ${pt}_3"""
+            sql """ begin """
+            sql """ insert into ${pt}_1 select * from ${pt}_0; """
+            sql """ insert into ${pt}_2 PARTITION (p_1_11, p_11_21) select * from ${pt}_0; """
+            sql """ insert into ${pt}_2 PARTITION (p_31_41) select * from ${pt}_0; """
+            sql """ insert into ${pt}_3 PARTITION (p_1_11, p_11_21) select * from ${pt}_0; """
+            sql """ insert into ${pt}_3 PARTITION (p_31_41, p_11_21) select * from ${pt}_0; """
+            sql """ commit; """
+            sql "sync"
+            order_qt_select35 """select * from ${pt}_1"""
+            order_qt_select36 """select * from ${pt}_2"""
+            order_qt_select37 """select * from ${pt}_3"""
+        }
+
+        sql """ set enable_insert_strict = true """
     }
 }

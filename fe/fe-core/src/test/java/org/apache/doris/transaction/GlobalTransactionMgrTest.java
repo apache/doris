@@ -468,7 +468,7 @@ public class GlobalTransactionMgrTest {
                 Lists.newArrayList(CatalogTestUtil.testBackendId1,
                         CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
         transactionState.getPublishVersionTasks()
-                .get(CatalogTestUtil.testBackendId1).getErrorTablets().add(CatalogTestUtil.testTabletId1);
+                .get(CatalogTestUtil.testBackendId1).get(0).getErrorTablets().add(CatalogTestUtil.testTabletId1);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
         transactionState = fakeEditLog.getTransaction(transactionId);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
@@ -529,7 +529,7 @@ public class GlobalTransactionMgrTest {
 
         // backend2 publish failed
         transactionState.getPublishVersionTasks()
-                .get(CatalogTestUtil.testBackendId2).getErrorTablets().add(CatalogTestUtil.testTabletId1);
+                .get(CatalogTestUtil.testBackendId2).get(0).getErrorTablets().add(CatalogTestUtil.testTabletId1);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         Replica replica1 = tablet.getReplicaById(CatalogTestUtil.testReplicaId1);
@@ -548,7 +548,7 @@ public class GlobalTransactionMgrTest {
         Map<Long, Long> backend2SuccTablets = Maps.newHashMap();
         backend2SuccTablets.put(CatalogTestUtil.testTabletId1, 0L);
         transactionState.getPublishVersionTasks()
-                .get(CatalogTestUtil.testBackendId2).setSuccTablets(backend2SuccTablets);
+                .get(CatalogTestUtil.testBackendId2).get(0).setSuccTablets(backend2SuccTablets);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 1, replica1.getVersion());
