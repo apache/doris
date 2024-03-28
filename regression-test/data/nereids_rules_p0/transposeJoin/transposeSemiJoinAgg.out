@@ -79,3 +79,11 @@ PhysicalResultSink
 ----filter((T2.__DORIS_DELETE_SIGN__ = 0))
 ------PhysicalOlapScan[T2]
 
+-- !groupby_negative_case3 --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=() otherCondition=() markCondition=((T3.len = T3.len))
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[T3]
+----PhysicalOlapScan[T3]
+
