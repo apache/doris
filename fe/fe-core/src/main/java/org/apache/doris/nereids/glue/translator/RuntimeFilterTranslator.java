@@ -147,13 +147,7 @@ public class RuntimeFilterTranslator {
                 origFilter.setIsBroadcast(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
             } else {
                 // nest loop join
-                if (filter.getType() == TRuntimeFilterType.BITMAP) {
-                    //bitmap rf requires isBroadCast=false, it always requires merge filter
-                    origFilter.setIsBroadcast(false);
-                } else {
-                    // min-max rf
-                    origFilter.setIsBroadcast(true);
-                }
+                origFilter.setIsBroadcast(true);
             }
             boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
                     !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
