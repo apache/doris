@@ -628,6 +628,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
 
+    if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
+        request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
+    }
+
 #ifndef BE_TEST
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
