@@ -214,8 +214,7 @@ suite("test_hive_write_partitions", "p0,external,hive,external_docker,external_d
                 q01(format_compression, catalog_name)
                 q02(format_compression, catalog_name)
                 q03(format_compression, catalog_name)
-//                disable it temporarily
-//                q04(format_compression, catalog_name)
+                q04(format_compression, catalog_name)
             }
             sql """drop catalog if exists ${catalog_name}"""
         } finally {

@@ -70,8 +70,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
-    "test_hive_write_insert," +
-    "test_hive_write_partitions," +
     "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
