@@ -234,19 +234,17 @@ public class PartitionTableInfo {
             }
 
             try {
+                ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
+                // if auto partition, use createXXX to auto get partition cols from exprs
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
-                        partitionDesc = new RangePartitionDesc(
-                            convertToLegacyAutoPartitionExprs(partitionList),
-                            partitionColumns, partitionDescs);
+                        partitionDesc = RangePartitionDesc.createRangePartitionDesc(exprs, partitionDescs);
                     } else {
                         partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
                     }
                 } else {
                     if (isAutoPartition) {
-                        partitionDesc = new ListPartitionDesc(
-                            convertToLegacyAutoPartitionExprs(partitionList),
-                            partitionColumns, partitionDescs);
+                        partitionDesc = ListPartitionDesc.createListPartitionDesc(exprs, partitionDescs);
                     } else {
                         partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
                     }
