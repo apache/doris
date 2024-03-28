@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
@@ -619,11 +620,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-        return Collections.emptyMap();
-    }
-
-    @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
     }
@@ -631,5 +627,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public long fetchRowCount() {
         return 0;
+    }
+
+    @Override
+    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        return Lists.newArrayList();
     }
 }
