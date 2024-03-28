@@ -76,7 +76,6 @@ Status VHiveTableWriter::write(vectorized::Block& block) {
                     writer = _create_partition_writer(block, -1);
                     _partitions_to_writers.insert({"", writer});
                     RETURN_IF_ERROR(writer->open(_state, _profile));
-                    RETURN_IF_ERROR(writer->write(block));
                 } catch (doris::Exception& e) {
                     return e.to_status();
                 }
