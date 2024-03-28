@@ -1122,10 +1122,10 @@ PARTITION `p599` VALUES IN (599)
         System.out.println(actual_result)
         return expected_result.containsAll(actual_result) && actual_result.containsAll(expected_result)
     }
-    assert check_column(afterDropped, "[col2, col3]")
+    assert check_column(afterDropped, "[test_meta_management:col2, test_meta_management:col3]")
     sql """ANALYZE TABLE test_meta_management WITH SYNC"""
     afterDropped = sql """SHOW TABLE STATS test_meta_management"""
-    assert check_column(afterDropped, "[col1, col2, col3]")
+    assert check_column(afterDropped, "[test_meta_management:col1, test_meta_management:col2, test_meta_management:col3]")
 
     sql """ DROP TABLE IF EXISTS test_updated_rows """
     sql """
