@@ -296,7 +296,7 @@ mysql> SELECT
     ->     cast(repo['name'] as text) as repo_name, count() AS stars
     -> FROM github_events
     -> WHERE type = 'WatchEvent'
-    -> GROUP BY stars 
+    -> GROUP BY repo_name 
     -> ORDER BY stars DESC LIMIT 5;
 +--------------------------+-------+
 | repo_name                | stars |
