@@ -119,6 +119,13 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;
 }
+Status VExprContext::eval_inverted_indexs(
+        const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+                                                     segment_v2::InvertedIndexIterator*>>&
+                colId_invertedIndexIter_mapping,
+        uint32_t num_rows, roaring::Roaring* bitmap) {
+    return _root->eval_inverted_index(this, colId_invertedIndexIter_mapping, num_rows, bitmap);
+}
 
 Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {
     if (vexpr_ctx == nullptr || block->rows() == 0) {

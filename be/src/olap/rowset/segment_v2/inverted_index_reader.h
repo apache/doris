@@ -72,6 +72,75 @@ class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
 
+struct PrimitiveTypeConvertorHelper {
+    static const void* convert_to_primitive_type(const PrimitiveType& primitiveType,
+                                                 const void* value) {
+        switch (primitiveType) {
+        case PrimitiveType::TYPE_BOOLEAN:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_BOOLEAN>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_TINYINT:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_TINYINT>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_SMALLINT:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_SMALLINT>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_INT:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_INT>::StorageFieldType*>(value);
+        case PrimitiveType::TYPE_BIGINT:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_BIGINT>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_LARGEINT:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_LARGEINT>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_FLOAT:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_FLOAT>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_DOUBLE:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_DOUBLE>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_DECIMALV2:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_DECIMALV2>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_DECIMAL32:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_DECIMAL32>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_DECIMAL64:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_DECIMAL64>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_DECIMAL128I>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_DECIMAL256:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_DECIMAL256>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_DATE:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType*>(value);
+        case PrimitiveType::TYPE_DATETIME:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_DATETIME>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_CHAR:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_CHAR>::StorageFieldType*>(value);
+        case PrimitiveType::TYPE_VARCHAR:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_VARCHAR>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_HLL:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_HLL>::StorageFieldType*>(value);
+        case PrimitiveType::TYPE_STRING:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_STRING>::StorageFieldType*>(
+                    value);
+        case PrimitiveType::TYPE_IPV4:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_IPV4>::StorageFieldType*>(value);
+        case PrimitiveType::TYPE_IPV6:
+            return reinterpret_cast<const PrimitiveTypeTraits<TYPE_IPV6>::StorageFieldType*>(value);
+        default:
+            LOG(FATAL) << "Unsupported primitive type for inverted index reader : "
+                       << primitiveType;
+            return nullptr;
+        }
+    };
+};
+
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
@@ -86,7 +155,7 @@ public:
                                 std::unique_ptr<InvertedIndexIterator>* iterator) = 0;
     virtual Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                          const std::string& column_name, const void* query_value,
-                         InvertedIndexQueryType query_type,
+                         PrimitiveType primitiveType, InvertedIndexQueryType query_type,
                          std::shared_ptr<roaring::Roaring>& bit_map) = 0;
     virtual Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
@@ -160,7 +229,7 @@ public:
                         std::unique_ptr<InvertedIndexIterator>* iterator) override;
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type,
+                 PrimitiveType primitiveType, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
@@ -193,7 +262,7 @@ public:
                         std::unique_ptr<InvertedIndexIterator>* iterator) override;
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type,
+                 PrimitiveType primitiveType, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
@@ -253,7 +322,7 @@ public:
 
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type,
+                 PrimitiveType primitiveType, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
@@ -285,7 +354,8 @@ public:
             : _stats(stats), _runtime_state(runtime_state), _reader(std::move(reader)) {}
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
-                                    InvertedIndexQueryType query_type, uint32_t segment_num_rows,
+                                    PrimitiveType primitiveType, InvertedIndexQueryType query_type,
+                                    uint32_t segment_num_rows,
                                     std::shared_ptr<roaring::Roaring>& bit_map,
                                     bool skip_try = false);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
