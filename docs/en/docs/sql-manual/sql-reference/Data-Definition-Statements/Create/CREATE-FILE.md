@@ -91,7 +91,7 @@ CREATE, FILE
 
 ### Best Practice
 
-1. This command can only be executed by users with amdin privileges. A certain file belongs to a certain database. This file can be used by any user with access rights to database.
+1. This command can only be executed by users with admin privileges. A certain file belongs to a certain database. This file can be used by any user with access rights to database.
 
 2. File size and quantity restrictions.
 

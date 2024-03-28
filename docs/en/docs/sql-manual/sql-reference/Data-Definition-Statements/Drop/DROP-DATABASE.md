@@ -28,7 +28,7 @@ under the License.
 
 ### Name
 
-DOPR DATABASE
+DROP DATABASE
 
 ### Description
 

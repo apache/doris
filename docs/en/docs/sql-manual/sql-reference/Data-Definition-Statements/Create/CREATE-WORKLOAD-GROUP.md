@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CREATE-WORKLOAD-GORUP",
+    "title": "CREATE-WORKLOAD-GROUP",
     "language": "en"
 }
 ---
