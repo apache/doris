@@ -4489,6 +4489,8 @@ TEST(MetaServiceTest, PartitionRequest) {
     auto partition_key = recycle_partition_key({instance_id, partition_id});
     int64_t val_int = 0;
     auto tbl_version_key = table_version_key({instance_id, 1, table_id});
+    VersionPB version_pb;
+    auto part_version_key = partition_version_key({instance_id, 1, table_id, partition_id});
     std::string val;
     // ------------Test prepare partition------------
     brpc::Controller ctrl;
@@ -4685,6 +4687,11 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->atomic_add(tbl_version_key, 1);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    version_pb.set_version(100);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(part_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     meta_service->drop_partition(&ctrl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -4700,6 +4707,11 @@ TEST(MetaServiceTest, PartitionRequest) {
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    version_pb.set_version(100);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(part_version_key, val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::PREPARED);
     val = partition_pb.SerializeAsString();
@@ -4717,10 +4729,41 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
     val_int = *reinterpret_cast<const int64_t*>(val.data());
     ASSERT_EQ(val_int, 2);
+    // Last state PREPARED but drop an empty partition
+    reset_meta_service();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    version_pb.set_version(1);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(part_version_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    partition_pb.set_state(RecyclePartitionPB::PREPARED);
+    val = partition_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(partition_key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    res.Clear();
+    meta_service->drop_partition(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(partition_pb.ParseFromString(val));
+    ASSERT_EQ(partition_pb.state(), RecyclePartitionPB::DROPPED);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
+    val_int = *reinterpret_cast<const int64_t*>(val.data());
+    ASSERT_EQ(val_int, 1);
     // Last state DROPPED
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    version_pb.set_version(100);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(part_version_key, val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::DROPPED);
     val = partition_pb.SerializeAsString();
@@ -4742,6 +4785,11 @@ TEST(MetaServiceTest, PartitionRequest) {
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    version_pb.set_version(100);
+    val = version_pb.SerializeAsString();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(part_version_key, val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     partition_pb.set_state(RecyclePartitionPB::RECYCLING);
     val = partition_pb.SerializeAsString();
