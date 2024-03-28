@@ -47,8 +47,8 @@ public class RangerDorisAccessController extends RangerAccessController {
     //        "ranger-doris-audit-log-flusher-timer", true);
     // private RangerHiveAuditHandler auditHandler;
 
-    public RangerDorisAccessController(String serviceName) {
-        dorisPlugin = new RangerDorisPlugin(serviceName);
+    public RangerDorisAccessController(String serviceType) {
+        dorisPlugin = new RangerDorisPlugin(serviceType);
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);

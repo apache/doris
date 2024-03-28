@@ -20,8 +20,8 @@ package org.apache.doris.catalog.authorizer.ranger.hive;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 public class RangerHivePlugin extends RangerBasePlugin {
-    public RangerHivePlugin(String serviceName) {
-        super(serviceName, null, null);
+    public RangerHivePlugin(String serviceType) {
+        super(serviceType, null, null);
         super.init();
     }
 }
