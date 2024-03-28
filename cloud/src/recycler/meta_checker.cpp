@@ -171,7 +171,7 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 int num_row = mysql_num_rows(result);
                 for (int i = 0; i < num_row; ++i) {
                     MYSQL_ROW row = mysql_fetch_row(result);
-                    TabletInfo tablet_info;
+                    TabletInfo tablet_info = { 0 };
                     tablet_info.tablet_id = atoll(row[0]);
                     tablet_info.schema_version = atoll(row[4]);
                     tablets.push_back(std::move(tablet_info));
@@ -197,7 +197,7 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 tablet_info.partition_id = atoll(row[6]);
                 tablet_info.index_id = atoll(row[7]);
 
-                PartitionInfo partition_info;
+                PartitionInfo partition_info = { 0 };
                 partition_info.db_id = atoll(row[4]);
                 partition_info.table_id = atoll(row[5]);
                 partition_info.partition_id = atoll(row[6]);
