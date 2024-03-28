@@ -57,8 +57,8 @@ public class RangerHiveAccessController extends RangerAccessController {
     private RangerHiveAuditHandler auditHandler;
 
     public RangerHiveAccessController(Map<String, String> properties) {
-        String serviceName = properties.get("ranger.service.name");
-        hivePlugin = new RangerHivePlugin(serviceName);
+        String serviceType = properties.get("ranger.service.type");
+        hivePlugin = new RangerHivePlugin(serviceType);
         auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         // start a timed log flusher
         logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
@@ -219,7 +219,6 @@ public class RangerHiveAccessController extends RangerAccessController {
     // For test only
     public static void main(String[] args) {
         Map<String, String> properties = Maps.newHashMap();
-        properties.put("ranger.service.name", "hive");
         RangerHiveAccessController ac = new RangerHiveAccessController(properties);
         UserIdentity user = new UserIdentity("user1", "127.0.0.1");
         user.setIsAnalyzed();
