@@ -38,7 +38,7 @@ import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.qe.SnapshotProxy;
+import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -2775,7 +2775,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             throws RpcException {
         long startAt = System.nanoTime();
         try {
-            return SnapshotProxy.getVisibleVersion(req);
+            return VersionHelper.getVisibleVersion(req);
         } finally {
             SummaryProfile profile = getSummaryProfile();
             if (profile != null) {
