@@ -43,6 +43,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 public class LocationPath {
     private static final Logger LOG = LogManager.getLogger(LocationPath.class);
@@ -396,6 +397,12 @@ public class LocationPath {
 
     public Path getPath() {
         return new Path(location);
+    }
+
+    public static String getTempWritePath(String loc, String prefix) {
+        Path tempRoot = new Path(loc, prefix);
+        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
+        return tempPath.toString();
     }
 
     @Override

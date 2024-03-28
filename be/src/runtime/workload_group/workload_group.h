@@ -149,6 +149,8 @@ private:
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;
     std::atomic<int> _min_remote_scan_thread_num;
+    std::atomic<int> _spill_low_watermark;
+    std::atomic<int> _spill_high_watermark;
 
     // means workload group is mark dropped
     // new query can not submit
@@ -178,6 +180,8 @@ struct WorkloadGroupInfo {
     int scan_thread_num;
     int max_remote_scan_thread_num;
     int min_remote_scan_thread_num;
+    int spill_low_watermark;
+    int spill_high_watermark;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

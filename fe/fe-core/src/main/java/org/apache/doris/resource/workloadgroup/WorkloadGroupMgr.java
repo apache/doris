@@ -72,6 +72,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
             .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
             .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
+            .add(WorkloadGroup.SPILL_THRESHOLD_LOW_WATERMARK).add(WorkloadGroup.SPILL_THRESHOLD_HIGH_WATERMARK)
             .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
@@ -87,15 +88,14 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public void startUpdateThread() {
         WorkloadGroupMgr wgMgr = this;
-        updatePropThread = new Thread(new Runnable() {
-            public void run() {
-                while (true) {
-                    try {
-                        wgMgr.resetQueryQueueProp();
-                        Thread.sleep(Config.query_queue_update_interval_ms);
-                    } catch (Throwable e) {
-                        LOG.warn("reset query queue failed ", e);
-                    }
+        updatePropThread = new Thread(() -> {
+            Thread.currentThread().setName("reset-query-queue-prop");
+            while (true) {
+                try {
+                    wgMgr.resetQueryQueueProp();
+                    Thread.sleep(Config.query_queue_update_interval_ms);
+                } catch (Throwable e) {
+                    LOG.warn("reset query queue failed ", e);
                 }
             }
         });

@@ -502,9 +502,11 @@ Status CompactionMixin::do_inverted_index_compaction() {
     // src index files
     // format: rowsetId_segmentId
     std::vector<std::string> src_index_files(src_segment_num);
+    std::vector<RowsetId> src_rowset_ids;
     for (const auto& m : src_seg_to_id_map) {
         std::pair<RowsetId, uint32_t> p = m.first;
         src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
+        src_rowset_ids.push_back(p.first);
     }
 
     // dest index files
@@ -615,7 +617,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
 
     // we choose the first destination segment name as the temporary index writer path
     // Used to distinguish between different index compaction
-    auto index_tmp_path = tablet_path + "/" + dest_rowset_id.to_string() + "_" + "tmp";
+    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
+    auto index_tmp_path = tmp_file_dir / dest_rowset_id.to_string();
     LOG(INFO) << "start index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", source index size=" << src_segment_num
               << ", destination index size=" << dest_segment_num << ".";
@@ -632,9 +635,35 @@ Status CompactionMixin::do_inverted_index_compaction() {
         }
     };
 
+    Status status = Status::OK();
     for (auto&& column_uniq_id : ctx.skip_inverted_index) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
         const auto* index_meta = _cur_tablet_schema->get_inverted_index(col);
+
+        // if index properties are different, index compaction maybe needs to be skipped.
+        bool is_continue = false;
+        std::optional<std::map<std::string, std::string>> first_properties;
+        for (const auto& rowset_id : src_rowset_ids) {
+            auto rowset_ptr = _tablet->get_rowset(rowset_id);
+            const auto* tablet_index = rowset_ptr->tablet_schema()->get_inverted_index(col);
+            const auto& properties = tablet_index->properties();
+            if (!first_properties.has_value()) {
+                first_properties = properties;
+            } else {
+                if (properties != first_properties.value()) {
+                    error_handler(index_meta->index_id(), column_uniq_id);
+                    status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
+                            "if index properties are different, index compaction needs to be "
+                            "skipped.");
+                    is_continue = true;
+                    break;
+                }
+            }
+        }
+        if (is_continue) {
+            continue;
+        }
+
         std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
         std::vector<lucene::store::Directory*> src_index_dirs(src_segment_num);
         try {
@@ -652,15 +681,21 @@ Status CompactionMixin::do_inverted_index_compaction() {
                                      index_tmp_path, trans_vec, dest_segment_num_rows);
             if (!st.ok()) {
                 error_handler(index_meta->index_id(), column_uniq_id);
-                return Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+                status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
             }
         } catch (CLuceneError& e) {
             error_handler(index_meta->index_id(), column_uniq_id);
-            return Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
+            status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }
     }
     for (auto& inverted_index_file_writer : inverted_index_file_writers) {
-        RETURN_IF_ERROR(inverted_index_file_writer->close());
+        if (Status st = inverted_index_file_writer->close(); !st.ok()) {
+            status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+        }
+    }
+    // check index compaction status. If status is not ok, we should return error and end this compaction round.
+    if (!status.ok()) {
+        return status;
     }
 
     LOG(INFO) << "succeed to do index compaction"

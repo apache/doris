@@ -172,9 +172,28 @@ void PipelineXLocalStateBase::clear_origin_block() {
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
-    auto local_state = state->get_local_state(operator_id());
+    auto* local_state = state->get_local_state(operator_id());
     SCOPED_TIMER(local_state->exec_time_counter());
     SCOPED_TIMER(local_state->_projection_timer);
+
+    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
+        if (to->is_nullable() && !from->is_nullable()) {
+            if (_keep_origin || !from->is_exclusive()) {
+                auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
+                null_column.get_nested_column().insert_range_from(*from, 0, rows);
+                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+            } else {
+                to = make_nullable(from, false)->assume_mutable();
+            }
+        } else {
+            if (_keep_origin || !from->is_exclusive()) {
+                to->insert_range_from(*from, 0, rows);
+            } else {
+                to = from->assume_mutable();
+            }
+        }
+    };
+
     using namespace vectorized;
     vectorized::MutableBlock mutable_block =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
@@ -189,14 +208,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             RETURN_IF_ERROR(local_state->_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
-            //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
-            if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
-                DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
-                reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
-                        ->insert_range_from_not_nullable(*column_ptr, 0, rows);
-            } else {
-                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
-            }
+            insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
         output_block->set_columns(std::move(mutable_columns));
@@ -287,7 +299,7 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
         return nullptr;
     } else {
         std::shared_ptr<BasicSharedState> ss = nullptr;
-        ss.reset(new typename LocalStateType::SharedStateType());
+        ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();
         for (auto& dest : dests_id()) {
             ss->related_op_ids.insert(dest);
@@ -508,15 +520,6 @@ template <typename Writer, typename Parent>
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              bool eos) {
     return _writer->sink(block, eos);
-}
-
-template <typename Writer, typename Parent>
-    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
-std::string AsyncWriterSink<Writer, Parent>::debug_string(int indentation_level) const {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, writer : {}", Base::debug_string(indentation_level),
-                   _writer->debug_string());
-    return fmt::to_string(debug_string_buffer);
 }
 
 template <typename Writer, typename Parent>

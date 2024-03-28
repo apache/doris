@@ -208,7 +208,6 @@ private:
     io::FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
-    std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _reader_eof;

@@ -35,7 +35,6 @@ import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.DomainResolver;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -152,7 +151,6 @@ public class AuthTest {
         };
 
         resolver = new MockDomainResolver(auth);
-        Config.enable_col_auth = true;
     }
 
     @Test
@@ -891,7 +889,7 @@ public class AuthTest {
         }
 
         // 24.1 create role again with IF NOT EXISTS
-        roleStmt = new CreateRoleStmt(true, "role1");
+        roleStmt = new CreateRoleStmt(true, "role1", "");
         try {
             roleStmt.analyze(analyzer);
         } catch (UserException e1) {
@@ -907,7 +905,7 @@ public class AuthTest {
         }
 
         // 24.2 create role again without IF NOT EXISTS
-        roleStmt = new CreateRoleStmt(false, "role1");
+        roleStmt = new CreateRoleStmt(false, "role1", "");
         try {
             roleStmt.analyze(analyzer);
         } catch (UserException e1) {
@@ -1702,7 +1700,8 @@ public class AuthTest {
         }
 
         // 2. grant usage_priv on resource 'spark0' to 'testUser'@'%'
-        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges,
+                ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1714,7 +1713,8 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource 'spark0' from 'testUser'@'%'
-        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
+        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges,
+                ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1729,7 +1729,8 @@ public class AuthTest {
             List<AccessPrivilegeWithCols> notAllowedPrivileges = Lists
                     .newArrayList(new AccessPrivilegeWithCols(
                             AccessPrivilege.fromName(Privilege.notBelongToResourcePrivileges[i].getName())));
-            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges, ResourceTypeEnum.GENERAL);
+            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges,
+                    ResourceTypeEnum.GENERAL);
             try {
                 grantStmt.analyze(analyzer);
                 Assert.fail(String.format("Can not grant/revoke %s to/from any other users or roles",

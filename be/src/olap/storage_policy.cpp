@@ -41,12 +41,11 @@ Status get_remote_file_system(int64_t storage_policy_id,
                                        storage_policy_id);
     }
     auto resource = get_storage_resource(storage_policy->resource_id);
-    *fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
+    *fs = resource.fs;
     if (*fs == nullptr) {
-        return Status::NotFound<false>("could not find resource, resouce_id={}",
+        return Status::NotFound<false>("could not find resource, resource_id={}",
                                        storage_policy->resource_id);
     }
-    DCHECK((*fs)->type() != io::FileSystemType::LOCAL);
     return Status::OK();
 }
 
@@ -80,41 +79,47 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids() {
 
 struct StorageResourceMgr {
     std::mutex mtx;
-    std::unordered_map<int64_t, StorageResource> map;
+    std::unordered_map<std::string, StorageResource> map;
 };
 
 static StorageResourceMgr s_storage_resource_mgr;
 
-io::FileSystemSPtr get_filesystem(const std::string& resource_id) {
-    int64_t id = std::atol(resource_id.c_str());
+io::RemoteFileSystemSPtr get_filesystem(const std::string& resource_id) {
     std::lock_guard lock(s_storage_resource_mgr.mtx);
-    if (auto it = s_storage_resource_mgr.map.find(id); it != s_storage_resource_mgr.map.end()) {
+    if (auto it = s_storage_resource_mgr.map.find(resource_id);
+        it != s_storage_resource_mgr.map.end()) {
         return it->second.fs;
     }
     return nullptr;
 }
 
 StorageResource get_storage_resource(int64_t resource_id) {
+    auto id_str = std::to_string(resource_id);
     std::lock_guard lock(s_storage_resource_mgr.mtx);
-    if (auto it = s_storage_resource_mgr.map.find(resource_id);
-        it != s_storage_resource_mgr.map.end()) {
+    if (auto it = s_storage_resource_mgr.map.find(id_str); it != s_storage_resource_mgr.map.end()) {
         return it->second;
     }
     return StorageResource {nullptr, -1};
 }
 
-void put_storage_resource(int64_t resource_id, StorageResource resource) {
+void put_storage_resource(std::string resource_id, StorageResource resource) {
     std::lock_guard lock(s_storage_resource_mgr.mtx);
     s_storage_resource_mgr.map[resource_id] = std::move(resource);
 }
 
-void delete_storage_resource(int64_t resource_id) {
-    std::lock_guard lock(s_storage_resource_mgr.mtx);
-    s_storage_resource_mgr.map.erase(resource_id);
+void put_storage_resource(int64_t resource_id, StorageResource resource) {
+    auto id_str = std::to_string(resource_id);
+    put_storage_resource(id_str, std::move(resource));
 }
 
-std::vector<std::pair<int64_t, int64_t>> get_storage_resource_ids() {
-    std::vector<std::pair<int64_t, int64_t>> res;
+void delete_storage_resource(int64_t resource_id) {
+    auto id_str = std::to_string(resource_id);
+    std::lock_guard lock(s_storage_resource_mgr.mtx);
+    s_storage_resource_mgr.map.erase(id_str);
+}
+
+std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids() {
+    std::vector<std::pair<std::string, int64_t>> res;
     res.reserve(s_storage_resource_mgr.map.size());
     std::lock_guard lock(s_storage_resource_mgr.mtx);
     for (auto& [id, resource] : s_storage_resource_mgr.map) {
