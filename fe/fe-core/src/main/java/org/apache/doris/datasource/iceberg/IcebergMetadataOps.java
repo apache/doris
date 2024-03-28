@@ -24,11 +24,8 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -71,16 +68,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         return nsCatalog.listNamespaces().stream()
-                .map(e -> {
-                    String dbName = e.toString();
-                    try {
-                        FeNameFormat.checkDbName(dbName);
-                    } catch (AnalysisException ex) {
-                        Util.logAndThrowRuntimeException(LOG,
-                                String.format("Not a supported namespace name format: %s", dbName), ex);
-                    }
-                    return dbName;
-                })
+                .map(e -> e.toString())
                 .collect(Collectors.toList());
     }
 
