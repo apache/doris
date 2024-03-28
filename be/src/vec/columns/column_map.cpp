@@ -28,6 +28,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "vec/common/arena.h"
 #include "vec/common/typeid_cast.h"
@@ -55,13 +56,17 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
     if (!offsets_concrete->empty() && keys_column && values_column) {
         auto last_offset = offsets_concrete->get_data().back();
-
-        /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with key_column";
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "offsets_column has data inconsistent with key_colum "
+                            "keys_column->size() {}  values_column->size() {} last_offset {}",
+                            keys_column->size(), values_column->size(), last_offset);
         }
         if (values_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with value_column";
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "offsets_column has data inconsistent with key_colum "
+                            "keys_column->size() {}  values_column->size() {} last_offset {}",
+                            keys_column->size(), values_column->size(), last_offset);
         }
     }
 }
