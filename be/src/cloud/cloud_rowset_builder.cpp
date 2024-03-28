@@ -70,6 +70,9 @@ Status CloudRowsetBuilder::init() {
     // TODO(AlexYue): use the passed resource id to retrive the corresponding
     // fs to pass to the RowsetWriterContext
     if (_req.storage_vault_id.empty()) {
+        if (_engine.latest_fs() == nullptr) [[unlikely]] {
+            return Status::IOError("Invalid latest fs");
+        }
         context.fs = _engine.latest_fs();
     } else {
         // TODO(ByteYue): What if the corresponding fs does not exists temporarily?
