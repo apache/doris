@@ -91,17 +91,19 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     _function_name = _fn.name.function_name;
-
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
     if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
         context->fn_context(_fn_context_index)->set_function_state(scope, _inverted_index_ctx);
     }
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -111,6 +113,7 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 }
 
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     // TODO: not execute const expr again, but use the const column in function context
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {

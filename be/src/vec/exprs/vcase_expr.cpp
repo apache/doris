@@ -74,22 +74,27 @@ Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprC
     }
 
     VExpr::register_function_context(state, context);
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    _open_finished = true;
     return Status::OK();
 }
 
 void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(context, scope);
 }
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished);
     ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); i++) {
         int column_id = -1;

@@ -21,8 +21,6 @@
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Types_types.h>
 
-#include <algorithm>
-#include <memory>
 #include <ostream>
 #include <string_view>
 #include <utility>
@@ -115,14 +113,16 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
     _can_fast_execute = _function->can_fast_execute();
-
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -133,6 +133,7 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
                                  int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col) << debug_string();
     // TODO: not execute const expr again, but use the const column in function context
     vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
@@ -179,9 +180,9 @@ bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
             block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
     auto& result_info = block.get_by_position(result);
     if (result_info.type->is_nullable()) {
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(result_column),
-                                                         ColumnUInt8::create(input_rows_count, 0)));
+        block.replace_by_position(
+                result,
+                ColumnNullable::create(result_column, ColumnUInt8::create(input_rows_count, 0)));
     } else {
         block.replace_by_position(result, std::move(result_column));
     }
@@ -199,7 +200,7 @@ std::string VectorizedFnCall::debug_string() const {
     out << _expr_name;
     out << "]{";
     bool first = true;
-    for (auto& input_expr : children()) {
+    for (const auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {

@@ -73,13 +73,16 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
 
     VExpr::register_function_context(state, context);
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VInPredicate::open(RuntimeState* state, VExprContext* context,
                           FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -89,6 +92,7 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
 }
 
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     // TODO: not execute const expr again, but use the const column in function context
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {

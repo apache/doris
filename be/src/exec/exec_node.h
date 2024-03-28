@@ -21,10 +21,10 @@
 #pragma once
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -79,6 +79,17 @@ public:
     // If overridden in subclass, must first call superclass's prepare().
     [[nodiscard]] virtual Status prepare(RuntimeState* state);
 
+    /*
+     * For open and alloc_resource:
+     *  Base class ExecNode's `open` only calls `alloc_resource`, which opens some public projections.
+     *  If was overrided, `open` must call corresponding `alloc_resource` since it's a (early) part of opening.
+     *  Or just call `ExecNode::open` is alternative way.
+     *  Then `alloc_resource` call father's after it's own business to make the progress completed, including the projections.
+     *  In Pipeline engine: 
+     *      PipeContext::prepare -> node::prepare
+     *      Task::open -> StreamingOp::open -> node::alloc_resource, for sink+source splits, only open in SinkOperator.
+     *  So in pipeline, the things directly done by open(like call child's) wouldn't be done in `open`.
+    */
     // Performs any preparatory work prior to calling get_next().
     // Can be called repeatedly (after calls to close()).
     // Caller must not be holding any io buffers. This will cause deadlock.
@@ -266,7 +277,7 @@ protected:
     const TBackendResourceProfile _resource_profile;
 
     int64_t _limit; // -1: no limit
-    int64_t _num_rows_returned;
+    int64_t _num_rows_returned = 0;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -333,9 +344,9 @@ protected:
 
 private:
     friend class pipeline::OperatorBase;
-    bool _is_closed;
+    bool _is_closed = false;
     bool _is_resource_released = false;
-    std::atomic_int _ref; // used by pipeline operator to release resource.
+    std::atomic_int _ref = 0; // used by pipeline operator to release resource.
 };
 
 } // namespace doris
