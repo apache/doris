@@ -42,9 +42,9 @@ public class EsRepository extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(EsRepository.class);
 
-    private Map<Long, EsTable> esTables;
+    private transient Map<Long, EsTable> esTables;
 
-    private Map<Long, EsRestClient> esClients;
+    private transient Map<Long, EsRestClient> esClients;
 
     public EsRepository() {
         super("es repository", Config.es_state_sync_interval_second * 1000);

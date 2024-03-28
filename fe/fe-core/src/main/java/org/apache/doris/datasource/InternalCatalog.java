@@ -210,7 +210,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Getter
     private transient EsRepository esRepository = new EsRepository();
     @Getter
-    private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
+    private transient IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
 
     public InternalCatalog() {
         // create internal databases
