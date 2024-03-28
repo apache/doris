@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -35,15 +36,17 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
-import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PConstantExprResult;
 import org.apache.doris.proto.Types.PScalarType;
+import org.apache.doris.proto.Types.PStructField;
+import org.apache.doris.proto.Types.PTypeDesc;
+import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
@@ -54,7 +57,6 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,7 +68,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -216,43 +217,11 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             if (result.getStatus().getStatusCode() == 0) {
                 for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMapMap().entrySet()) {
                     for (Entry<String, InternalService.PExprResult> e1 : e.getValue().getMapMap().entrySet()) {
-                        PScalarType pScalarType = e1.getValue().getType();
-                        TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(pScalarType.getType());
-                        PrimitiveType primitiveType = PrimitiveType.fromThrift(Objects.requireNonNull(tPrimitiveType));
                         Expression ret;
                         if (e1.getValue().getSuccess()) {
-                            DataType type;
-                            if (PrimitiveType.ARRAY == primitiveType
-                                    || PrimitiveType.MAP == primitiveType
-                                    || PrimitiveType.STRUCT == primitiveType
-                                    || PrimitiveType.AGG_STATE == primitiveType) {
-                                ret = constMap.get(e1.getKey());
-                            } else {
-                                if (primitiveType == PrimitiveType.CHAR) {
-                                    Preconditions.checkState(pScalarType.hasLen(),
-                                            "be return char type without len");
-                                    type = CharType.createCharType(pScalarType.getLen());
-                                } else if (primitiveType == PrimitiveType.VARCHAR) {
-                                    Preconditions.checkState(pScalarType.hasLen(),
-                                            "be return varchar type without len");
-                                    type = VarcharType.createVarcharType(pScalarType.getLen());
-                                } else if (primitiveType == PrimitiveType.DECIMALV2) {
-                                    type = DecimalV2Type.createDecimalV2Type(
-                                            pScalarType.getPrecision(), pScalarType.getScale());
-                                } else if (primitiveType == PrimitiveType.DATETIMEV2) {
-                                    type = DateTimeV2Type.of(pScalarType.getScale());
-                                } else if (primitiveType == PrimitiveType.DECIMAL32
-                                        || primitiveType == PrimitiveType.DECIMAL64
-                                        || primitiveType == PrimitiveType.DECIMAL128
-                                        || primitiveType == PrimitiveType.DECIMAL256) {
-                                    type = DecimalV3Type.createDecimalV3TypeLooseCheck(
-                                            pScalarType.getPrecision(), pScalarType.getScale());
-                                } else {
-                                    type = DataType.fromCatalogType(ScalarType.createType(
-                                            PrimitiveType.fromThrift(tPrimitiveType)));
-                                }
-                                ret = Literal.of(e1.getValue().getContent()).castTo(type);
-                            }
+                            PTypeDesc pTypeDesc = e1.getValue().getPType();
+                            DataType type = convertToNereidsType(pTypeDesc.getTypesList(), 0).key();
+                            ret = Literal.of(e1.getValue().getContent()).castTo(type);
                         } else {
                             ret = constMap.get(e1.getKey());
                         }
@@ -262,7 +231,6 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                         resultMap.put(e1.getKey(), ret);
                     }
                 }
-
             } else {
                 LOG.warn("query {} failed to get const expr value from be: {}",
                         DebugUtil.printId(context.queryId()), result.getStatus().getErrorMsgsList());
@@ -272,5 +240,39 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                     DebugUtil.printId(context.queryId()), e.getMessage());
         }
         return resultMap;
+    }
+
+    private Pair<DataType, Integer> convertToNereidsType(List<PTypeNode> typeNodes, int start) {
+        PScalarType pScalarType = typeNodes.get(start).getScalarType();
+        TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(pScalarType.getType());
+        DataType type;
+        int parsedNodes;
+        if (tPrimitiveType == TPrimitiveType.ARRAY) {
+            Pair<DataType, Integer> itemType = convertToNereidsType(typeNodes, start + 1);
+            type = ArrayType.of(itemType.key(), true);
+            parsedNodes = 1 + itemType.value();
+        } else if (tPrimitiveType == TPrimitiveType.MAP) {
+            Pair<DataType, Integer> keyType = convertToNereidsType(typeNodes, start + 1);
+            Pair<DataType, Integer> valueType = convertToNereidsType(typeNodes, start + 1 + keyType.value());
+            type = MapType.of(keyType.key(), valueType.key());
+            parsedNodes = 1 + keyType.value() + valueType.value();
+        } else if (tPrimitiveType == TPrimitiveType.STRUCT) {
+            parsedNodes = 1;
+            ArrayList<StructField> fields = new ArrayList<>();
+            for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
+                Pair<DataType, Integer> fieldType = convertToNereidsType(typeNodes, start + parsedNodes);
+                PStructField structField = typeNodes.get(start).getStructFields(i);
+                fields.add(new StructField(structField.getName(), fieldType.key(),
+                        structField.getContainsNull(),
+                        structField.getComment() == null ? "" : structField.getComment()));
+                parsedNodes += fieldType.value();
+            }
+            type = new StructType(fields);
+        } else {
+            type = DataType.fromCatalogType(ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
+                    pScalarType.getLen(), pScalarType.getPrecision(), pScalarType.getScale()));
+            parsedNodes = 1;
+        }
+        return Pair.of(type, parsedNodes);
     }
 }

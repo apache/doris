@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.StructType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -47,6 +48,26 @@ public class StructLiteral extends Literal {
 
     public StructLiteral(List<Literal> fields) {
         this(fields, computeDataType(fields));
+    }
+
+    /**
+     * eg: {1, a, abc} int, string, string
+     */
+    public StructLiteral(String str, DataType dataType) {
+        super(dataType);
+        Preconditions.checkArgument(dataType instanceof StructType,
+                "dataType should be StructType, but we meet %s", dataType);
+        this.fields = new ArrayList<>();
+        StructType structType = (StructType) dataType;
+        String[] parts = str.substring(1, str.length() - 1).split(", ");
+        Preconditions.checkArgument(parts.length == structType.getFields().size(),
+                "parts length is not same with structType size. %s vs %s",
+                parts.length, structType.getFields().size());
+        for (int i = 0; i < parts.length; i++) {
+            DataType fieldDataType = structType.getFields().get(i).getDataType();
+            StringLiteral strLiteral = new StringLiteral(parts[i]);
+            this.fields.add((Literal) strLiteral.uncheckedCastTo(fieldDataType));
+        }
     }
 
     private StructLiteral(List<Literal> fields, DataType dataType) {

@@ -29,6 +29,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.springframework.util.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -55,6 +56,27 @@ public class ArrayLiteral extends Literal {
         Preconditions.checkArgument(dataType instanceof ArrayType,
                 "dataType should be ArrayType, but we meet %s", dataType);
         this.items = ImmutableList.copyOf(Objects.requireNonNull(items, "items should not null"));
+    }
+
+    /**
+     * eg: "[10, 11, 12, 13, 14, 15, 16]" array_int
+     * eg: "['world', 'c++']" array_string
+     */
+    public ArrayLiteral(String str, DataType dataType) {
+        super(dataType);
+        Preconditions.checkArgument(dataType instanceof ArrayType,
+                "dataType should be ArrayType, but we meet %s, and str is %s", dataType, str);
+        DataType nestedType = ((ArrayType) dataType).getItemType();
+        this.items = new ArrayList<>();
+        //str maybe empty need handle
+        String[] parts = str.substring(1, str.length() - 1).split(", ");
+        for (String s : parts) {
+            if (nestedType.isStringLikeType()) {
+                s = s.substring(1, s.length() - 1); // 'world'----> world
+            }
+            StringLiteral strLiteral = new StringLiteral(s);
+            this.items.add((Literal) strLiteral.uncheckedCastTo(nestedType));
+        }
     }
 
     @Override
