@@ -1839,10 +1839,10 @@ public class SessionVariable implements Serializable, Writable {
             if (Config.pull_request_id > 0) {
                 if (Config.pull_request_id % 2 == 1) {
                     this.batchSize = 4064;
-                    // this.enableFoldConstantByBe = true;
+                    this.enableFoldConstantByBe = true;
                 } else {
                     this.batchSize = 50;
-                    // this.enableFoldConstantByBe = false;
+                    this.enableFoldConstantByBe = false;
                 }
             }
         }
