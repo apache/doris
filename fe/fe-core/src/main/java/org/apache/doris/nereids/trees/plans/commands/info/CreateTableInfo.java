@@ -90,7 +90,7 @@ public class CreateTableInfo {
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private List<Integer> clusterKeysColumnIds = null;
-    private PartitionTableInfo partitionTableInfo;
+    private PartitionTableInfo partitionTableInfo; // get when validate
 
     /**
      * constructor for create table
@@ -426,6 +426,7 @@ public class CreateTableInfo {
             });
 
             // validate partition
+            partitionTableInfo.extractPartitionColumns();
             partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
             // validate distribution descriptor

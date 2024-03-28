@@ -204,6 +204,9 @@ public class PartitionDesc {
                         throw new AnalysisException(
                                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
                     }
+                    if (this instanceof RangePartitionDesc && isAutoCreatePartitions && columnDef.isAllowNull()) {
+                        throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
+                    }
                     if (this instanceof RangePartitionDesc && partitionExprs != null) {
                         if (partitionExprs.get(0) instanceof FunctionCallExpr) {
                             if (!columnDef.getType().isDateType()) {
