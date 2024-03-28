@@ -41,6 +41,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
+#include "util/mem_info.h"
 #include "util/string_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -930,7 +931,14 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
 }
 
 DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {
-    _agg_cache.reset(new AggCache(config::delete_bitmap_agg_cache_capacity));
+    // The default delete bitmap cache is set to 100MB,
+    // which can be insufficient and cause performance issues when the amount of user data is large.
+    // To mitigate the problem of an inadequate cache,
+    // we will take the larger of 5% of the total memory and 100MB as the delete bitmap cache size.
+    int64_t mem = 0.05 * MemInfo::physical_mem();
+    _agg_cache.reset(new AggCache(mem > config::delete_bitmap_agg_cache_capacity
+                                          ? mem
+                                          : config::delete_bitmap_agg_cache_capacity));
 }
 
 DeleteBitmap::DeleteBitmap(const DeleteBitmap& o) {
