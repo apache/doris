@@ -65,9 +65,7 @@ suite("test_backup_restore_partition", "backup_restore") {
         )
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -87,9 +85,7 @@ suite("test_backup_restore_partition", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY id ASC"
 
@@ -106,9 +102,7 @@ suite("test_backup_restore_partition", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY id ASC"
 
