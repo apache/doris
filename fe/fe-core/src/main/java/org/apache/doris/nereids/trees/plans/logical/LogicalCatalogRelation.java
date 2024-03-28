@@ -163,16 +163,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps() {
-        Builder fdBuilder = new Builder();
-        computeUnique(fdBuilder);
-        computeUniform(fdBuilder);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        fdBuilder.addFdItems(fdItems);
-        return fdBuilder.build();
-    }
-
-    @Override
     public ImmutableSet<FdItem> computeFdItems() {
         Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();

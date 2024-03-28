@@ -41,7 +41,6 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import org.json.JSONObject;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -231,17 +230,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        computeUnique(builder);
-        computeUniform(builder);
-        builder.pruneSlots(new HashSet<>(getOutput()));
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        builder.addFdItems(fdItems);
-        return builder.build();
-    }
-
-    @Override
     public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
@@ -267,6 +255,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 }
             }
         }
+        fdBuilder.pruneSlots(getOutputSet());
     }
 
     @Override
@@ -285,5 +274,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 }
             }
         }
+        fdBuilder.pruneSlots(getOutputSet());
     }
 }

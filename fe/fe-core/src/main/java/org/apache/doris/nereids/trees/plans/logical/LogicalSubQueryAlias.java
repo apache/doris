@@ -164,16 +164,6 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies
-                .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
-        computeUniform(fdBuilder);
-        computeUnique(fdBuilder);
-        computeFdItems();
-        return fdBuilder.build();
-    }
-
-    @Override
     public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
         fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
         Map<Slot, Slot> replaceMap = new HashMap<>();

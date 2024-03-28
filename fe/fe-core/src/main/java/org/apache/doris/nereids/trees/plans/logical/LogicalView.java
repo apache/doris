@@ -21,7 +21,6 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -126,11 +125,6 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
-    }
-
-    @Override
-    public FunctionalDependencies computeFuncDeps() {
-        return ((LogicalPlan) child()).computeFuncDeps();
     }
 
     @Override

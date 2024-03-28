@@ -186,16 +186,6 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        computeUniform(builder);
-        computeUnique(builder);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        builder.addFdItems(fdItems);
-        return builder.build();
-    }
-
-    @Override
     public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
         // don't generate unique slot
     }

@@ -59,7 +59,14 @@ public interface LogicalPlan extends Plan {
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    FunctionalDependencies computeFuncDeps();
+    default FunctionalDependencies computeFuncDeps() {
+        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
+        fdBuilder.addFdItems(fdItems);
+        return fdBuilder.build();
+    }
 
     ImmutableSet<FdItem> computeFdItems();
 
