@@ -2656,6 +2656,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @Override
     public boolean isPartitionColumnAllowNull() {
-        return false;
+        return true;
     }
 }
