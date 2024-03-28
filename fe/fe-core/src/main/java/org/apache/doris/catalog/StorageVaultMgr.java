@@ -20,8 +20,10 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -34,7 +36,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
 
-    private String defaultStorageVaultName;
+    // <VaultName, VaultId>
+    private Pair<String, String> defaultVaultInfo;
 
     private ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
@@ -60,41 +63,47 @@ public class StorageVaultMgr {
 
     @VisibleForTesting
     public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
-        Cloud.GetObjStoreInfoRequest.Builder builder = Cloud.GetObjStoreInfoRequest.newBuilder();
-        String newDefaultStorageVaultName;
+        Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
+        Cloud.StorageVaultPB.Builder vaultBuilder = Cloud.StorageVaultPB.newBuilder();
+        vaultBuilder.setName(stmt.getStorageVaultName());
+        builder.setHdfs(vaultBuilder.build());
+        builder.setOp(Operation.SET_DEFAULT_VAULT);
+        String vaultId;
         try {
-            Cloud.GetObjStoreInfoResponse resp =
-                    MetaServiceProxy.getInstance().getObjStoreInfo(builder.build());
-            newDefaultStorageVaultName = resp.getStorageVaultList().stream()
-                    .filter(vault -> vault.getName().equals(stmt.getStorageVaultName()))
-                    .findAny().orElseThrow(() -> new DdlException("There is no such vault")).getName();
+            Cloud.AlterObjStoreInfoResponse resp =
+                    MetaServiceProxy.getInstance().alterObjStoreInfo(builder.build());
+            if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to alter storage vault response: {} ", resp);
+                throw new DdlException(resp.getStatus().getMsg());
+            }
+            vaultId = resp.getStorageVaultId();
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
-        setDefaultStorageVaultName(newDefaultStorageVaultName);
+        setDefaultStorageVault(Pair.of(stmt.getStorageVaultName(), vaultId));
     }
 
-    public void setDefaultStorageVaultName(String vaultName) {
+    public void setDefaultStorageVault(Pair<String, String> vaultInfo) {
         try {
             rwLock.writeLock().lock();
-            defaultStorageVaultName = vaultName;
+            defaultVaultInfo = vaultInfo;
         } finally {
             rwLock.writeLock().unlock();
         }
     }
 
-    public String getDefaultStorageVaultName() {
-        String vaultName = "";
+    public Pair getDefaultStorageVaultInfo() {
+        Pair vault = null;
         try {
             rwLock.readLock().lock();
-            if (defaultStorageVaultName != null) {
-                vaultName = defaultStorageVaultName;
+            if (defaultVaultInfo != null) {
+                vault = defaultVaultInfo;
             }
         } finally {
             rwLock.readLock().unlock();
         }
-        return vaultName;
+        return vault;
     }
 
     @VisibleForTesting

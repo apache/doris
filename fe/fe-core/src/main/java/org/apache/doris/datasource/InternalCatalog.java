@@ -2350,12 +2350,20 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // set storage vault
         String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
+        String storageVaultId = null;
         // If user does not specify one storage vault then FE would use the default vault
-        if (storageVaultName != null && !storageVaultName.isEmpty()) {
-            storageVaultName = env.getStorageVaultMgr().getDefaultStorageVaultName();
+        if (storageVaultName == null || !storageVaultName.isEmpty()) {
+            Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
+            if (info != null) {
+                storageVaultName = info.first;
+                storageVaultId = info.second;
+            }
         }
         // If the storage vault is null or empty then it would throw DdlException
-        olapTable.setStorageVault(storageVaultName);
+        olapTable.setStorageVaultName(storageVaultName);
+        if (storageVaultId != null) {
+            olapTable.setStorageVaultId(storageVaultId);
+        }
 
         // check `update on current_timestamp`
         if (!enableUniqueKeyMergeOnWrite) {
