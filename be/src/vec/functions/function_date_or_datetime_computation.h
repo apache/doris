@@ -289,15 +289,25 @@ struct TimeDiffImpl {
 
     static constexpr auto name = "timediff";
     static constexpr auto is_nullable = false;
+    static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
     static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,
                                                 bool& is_null) {
         const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
         const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
         if constexpr (UsingTimev2) {
-            return ts0.microsecond_diff(ts1);
+            // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+            // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
+            int64_t diff_m = ts0.microsecond_diff(ts1);
+            if (diff_m > limit_value) {
+                return (double)limit_value;
+            } else if (diff_m < -1 * limit_value) {
+                return (double)(-1 * limit_value);
+            } else {
+                return (double)diff_m;
+            }
         } else {
-            return (1000 * 1000) * ts0.second_diff(ts1);
+            return (double)((1000 * 1000) * ts0.second_diff(ts1));
         }
     }
     static DataTypes get_variadic_argument_types() {
