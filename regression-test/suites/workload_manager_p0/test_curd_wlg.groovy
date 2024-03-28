@@ -24,6 +24,14 @@ suite("test_crud_wlg") {
     sql "drop table if exists ${table_name2}"
     sql "drop table if exists ${table_name3}"
 
+    sql "drop workload group if exists tag1_wg1;"
+    sql "drop workload group if exists tag1_wg2;"
+    sql "drop workload group if exists tag2_wg1;"
+    sql "drop workload group if exists tag1_wg3;"
+    sql "drop workload group if exists tag1_mem_wg1;"
+    sql "drop workload group if exists tag1_mem_wg2;"
+    sql "drop workload group if exists tag1_mem_wg3;"
+
     sql """
         CREATE TABLE IF NOT EXISTS `${table_name}` (
           `siteid` int(11) NOT NULL COMMENT "",
@@ -117,7 +125,7 @@ suite("test_crud_wlg") {
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test memory_limit
     test {
@@ -147,7 +155,7 @@ suite("test_crud_wlg") {
     test {
         sql "alter workload group test_group properties ( 'cpu_hard_limit'='101%' );"
 
-        exception "can not be greater than 100%"
+        exception "must be a positive integer"
     }
 
     sql "alter workload group test_group properties ( 'cpu_hard_limit'='99%' );"
@@ -245,7 +253,7 @@ suite("test_crud_wlg") {
                 " 'cpu_hard_limit'='120%' " +
                 ");"
 
-        exception "can not be greater than"
+        exception "must be a positive integer"
     }
 
     test {
@@ -257,7 +265,7 @@ suite("test_crud_wlg") {
                 " 'cpu_hard_limit'='99%' " +
                 ");"
 
-        exception "can not be greater than"
+        exception "can not be greater than 100%"
     }
 
     // test show workload groups
@@ -402,4 +410,80 @@ suite("test_crud_wlg") {
 
     sql "drop workload group test_group;"
     sql "drop workload group spill_group_test;"
+
+
+    // test workload group's tag property, cpu_hard_limit
+    test {
+        sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='101%', 'tag'='tag1')"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='-2%', 'tag'='tag1')"
+        exception "must be a positive integer"
+    }
+
+    test {
+        sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='-1%', 'tag'='tag1')"
+        exception "must be a positive integer"
+    }
+
+    sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='10%', 'tag'='tag1');"
+
+    test {
+        sql "create workload group if not exists tag1_wg2 properties (  'cpu_hard_limit'='91%', 'tag'='tag1');"
+        exception "can not be greater than 100%"
+    }
+
+    sql "create workload group if not exists tag1_wg2 properties (  'cpu_hard_limit'='10%', 'tag'='tag1');"
+
+    sql "create workload group if not exists tag2_wg1 properties (  'cpu_hard_limit'='91%', 'tag'='tag2');"
+
+    test {
+        sql "alter workload group tag2_wg1 properties ( 'tag'='tag1' );"
+        exception "can not be greater than 100% "
+    }
+
+    sql "alter workload group tag2_wg1 properties ( 'cpu_hard_limit'='10%' );"
+    sql "alter workload group tag2_wg1 properties ( 'tag'='tag1' );"
+
+    test {
+        sql "create workload group if not exists tag1_wg3 properties (  'cpu_hard_limit'='80%', 'tag'='tag1');"
+        exception "can not be greater than 100% "
+    }
+
+    sql "drop workload group tag2_wg1;"
+    sql "create workload group if not exists tag1_wg3 properties (  'cpu_hard_limit'='80%', 'tag'='tag1');"
+
+    // test workload group's tag property, memory_limit
+    sql "create workload group if not exists tag1_mem_wg1 properties (  'memory_limit'='50%', 'tag'='mem_tag1');"
+
+    test {
+        sql "create workload group if not exists tag1_mem_wg2 properties (  'memory_limit'='60%', 'tag'='mem_tag1');"
+        exception "cannot be greater than 100.0%"
+    }
+
+    sql "create workload group if not exists tag1_mem_wg2 properties ('memory_limit'='49%', 'tag'='mem_tag1');"
+
+    sql "create workload group if not exists tag1_mem_wg3 properties (  'memory_limit'='2%');"
+
+    test {
+        sql "alter workload group tag1_mem_wg3 properties ( 'tag'='mem_tag1' );"
+        exception "cannot be greater than 100.0%"
+    }
+
+    sql "alter workload group tag1_mem_wg3 properties ( 'memory_limit'='1%' );"
+
+    sql "alter workload group tag1_mem_wg3 properties ( 'tag'='mem_tag1' );"
+
+    qt_show_wg_tag "select name,MEMORY_LIMIT,CPU_HARD_LIMIT,TAG from information_schema.workload_groups where name in('tag1_wg1','tag1_wg2','tag2_wg1','tag1_wg3','tag1_mem_wg1','tag1_mem_wg2','tag1_mem_wg3') order by tag,name;"
+
+    sql "drop workload group tag1_wg1;"
+    sql "drop workload group tag1_wg2;"
+    sql "drop workload group if exists tag2_wg1;"
+    sql "drop workload group tag1_wg3;"
+    sql "drop workload group tag1_mem_wg1;"
+    sql "drop workload group tag1_mem_wg2;"
+    sql "drop workload group tag1_mem_wg3;"
+
 }
