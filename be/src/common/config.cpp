@@ -1146,6 +1146,10 @@ DEFINE_mString(ca_cert_file_paths,
                "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
                "/etc/ssl/ca-bundle.pem");
 
+// Number of open tries, default 1 means only try to open once.
+// Retry the Open num_retries time waiting 100 milliseconds between retries.
+DEFINE_mInt32(thrift_client_open_num_tries, "1");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

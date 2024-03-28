@@ -73,6 +73,7 @@
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
+#include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -169,6 +170,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _block_spill_mgr = new BlockSpillManager(_store_paths);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
 
+    _dns_cache = new DNSCache();
+    _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
@@ -384,6 +387,8 @@ void ExecEnv::_destroy() {
     if (!_is_init) {
         return;
     }
+    SAFE_DELETE(_dns_cache);
+
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);
