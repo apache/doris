@@ -466,6 +466,11 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public boolean hasAutoInc() {
+        return desc.getColumn().isAutoInc();
+    }
+
+    @Override
     public boolean isRelativedByTupleIds(List<TupleId> tids) {
         return isBoundByTupleIds(tids);
     }

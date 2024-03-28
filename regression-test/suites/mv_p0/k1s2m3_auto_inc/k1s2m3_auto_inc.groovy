@@ -17,12 +17,13 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("multi_slot_k1a2p2ap3p") {
+suite ("k1s2m3_auto_inc") {
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
             create table d_table(
-                k1 int null,
+                k1 bigint not null AUTO_INCREMENT,
                 k2 int not null,
                 k3 bigint null,
                 k4 varchar(100) null
@@ -32,21 +33,26 @@ suite ("multi_slot_k1a2p2ap3p") {
             properties("replication_num" = "1");
         """
 
-    sql "insert into d_table select 1,1,1,'a';"
-    sql "insert into d_table select 2,2,2,'b';"
-    sql "insert into d_table select 3,-3,null,'c';"
+    test {
+        sql """create materialized view k1ap2spa as select k1,sum(abs(k2+1)) from d_table group by k1;"""
+        exception "The materialized view can not involved auto increment column"
+    }
 
-    sql "insert into d_table values(1,1,1,'a'),(2,2,2,'b'),(3,-3,null,'c');"
+    test {
+        sql """create materialized view k1ap2spa as select abs(k1),sum(abs(k2+1)) from d_table group by abs(k1);"""
+        exception "The materialized view can not involved auto increment column"
+    }
 
-    createMV ("create materialized view k1a2p2ap3p as select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table;")
+    createMV("create materialized view k3ap2spa as select k3,sum(abs(k2+1)) from d_table group by k3;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table(k4,k2) values('d',4);"
 
     qt_select_star "select * from d_table order by k1;"
 
     explain {
-        sql("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3")
-        contains "(k1a2p2ap3p)"
+        sql("select k3,sum(abs(k2+1)) from d_table group by k3;")
+        contains "(k3ap2spa)"
     }
-    qt_select_mv "select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3;"
+    qt_select_mv "select k3,sum(abs(k2+1)) from d_table group by k3;"
 }
