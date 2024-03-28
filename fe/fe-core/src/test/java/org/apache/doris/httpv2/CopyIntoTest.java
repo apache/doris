@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cloud.http;
+package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -153,9 +153,9 @@ public class CopyIntoTest extends DorisHttpTestCase {
         om.put("result", im);
         ExecutionResultSet e = new ExecutionResultSet(om);
 
-        new Expectations(CloudLoadAction.getStmtSubmitter(), ret) {
+        new Expectations(CopyIntoAction.getStmtSubmitter(), ret) {
             {
-                CloudLoadAction.getStmtSubmitter().submitBlock((StmtContext) any);
+                CopyIntoAction.getStmtSubmitter().submitBlock((StmtContext) any);
                 minTimes = 0;
                 result = ret;
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cloud.http;
+package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.StatementBase;
@@ -32,7 +32,6 @@ import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
-import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
@@ -64,12 +63,12 @@ import javax.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping(path = "/copy")
-public class CloudLoadAction extends RestBaseController {
+public class CopyIntoAction extends RestBaseController {
     static final String pattern =
             "^((2(5[0-5]|[0-4]\\d))|[0-1]?\\d{1,2})(\\.((2(5[0-5]|[0-4]\\d))|[0-1]?\\d{1,2})){3}$";
     static Pattern pat = Pattern.compile(pattern);
 
-    private static final Logger LOG = LogManager.getLogger(CloudLoadAction.class);
+    private static final Logger LOG = LogManager.getLogger(CopyIntoAction.class);
     private static StatementSubmitter stmtSubmitter = new StatementSubmitter();
 
     private final String endpointHeader = "__USE_ENDPOINT__";
