@@ -776,9 +776,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         const FieldSchema* col_schema = schema_desc.get_column(read_col);
         static_cast<void>(page_index.collect_skipped_page_range(
                 &column_index, conjuncts, col_schema, skipped_page_range, *_ctz));
-        if (skipped_page_range.empty()) {
-            continue;
-        }
         tparquet::OffsetIndex offset_index;
         RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff, &offset_index));
         for (int page_id : skipped_page_range) {

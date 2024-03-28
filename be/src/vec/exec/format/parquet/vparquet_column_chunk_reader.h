@@ -107,12 +107,11 @@ public:
             }
             _page_reader->seek_page(_offset_index->page_locations[_page_index].offset);
         } else {
-            if (_state == HEADER_PARSED) {
+            if (_page_reader->has_header_parsed()) {
                 res = _page_reader->skip_page();
             }
         }
         _remaining_num_values = 0;
-        _state = PAGE_SKIPPED;
         return res;
     }
     // Skip some values(will not read and parse) in current page if the values are filtered by predicates.
@@ -181,7 +180,7 @@ public:
     }
 
 private:
-    enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
+    enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, DATA_LOADED };
 
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);

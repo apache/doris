@@ -49,6 +49,8 @@ public:
 
     Status get_page_data(Slice& slice);
 
+    bool has_header_parsed() const { return _state == HEADER_PARSED; }
+
     const tparquet::PageHeader* get_page_header() const {
         DCHECK_EQ(_state, HEADER_PARSED);
         return &_cur_page_header;
