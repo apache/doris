@@ -66,7 +66,7 @@ suite("test_multi_level_mtmv") {
         REFRESH MATERIALIZED VIEW ${mv2} AUTO
     """
     waitingMTMVTaskFinished(jobName2)
-    order_qt_mv1 "select * from ${mv2}"
+    order_qt_mv2 "select * from ${mv2}"
 
     // drop table
     sql """
