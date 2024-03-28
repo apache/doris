@@ -23,7 +23,7 @@ suite("test_auto_range_partition") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`TIME_STAMP`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`TIME_STAMP`, 'day')
+        AUTO PARTITION BY RANGE (date_trunc(`TIME_STAMP`, 'day'))
         (
         )
         DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
@@ -46,7 +46,7 @@ suite("test_auto_range_partition") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`TIME_STAMP`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`TIME_STAMP`, 'month')
+        AUTO PARTITION BY RANGE (date_trunc(`TIME_STAMP`, 'month'))
         (
         )
         DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
@@ -68,7 +68,7 @@ suite("test_auto_range_partition") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`TIME_STAMP`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`TIME_STAMP`, 'day')
+        AUTO PARTITION BY RANGE (date_trunc(`TIME_STAMP`, 'day'))
         (
         )
         DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
@@ -94,7 +94,7 @@ suite("test_auto_range_partition") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`k2`, 'day')
+        AUTO PARTITION BY RANGE (date_trunc(`k2`, 'day'))
         (
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 16
@@ -112,7 +112,7 @@ suite("test_auto_range_partition") {
             create table right_bound(
                 k0 datetime(6) null
             )
-            auto partition by range date_trunc(k0, 'second')
+            auto partition by range (date_trunc(k0, 'second'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS auto

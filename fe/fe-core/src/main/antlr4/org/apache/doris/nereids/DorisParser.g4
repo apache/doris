@@ -130,8 +130,9 @@ partitionSpec
     ;
 
 partitionTable
-    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST)? partitionList=identityOrFunctionList
-       (LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN))
+    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST)?
+        partitionList=identityOrFunctionList
+        (LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN))
     ;
 
 identityOrFunctionList

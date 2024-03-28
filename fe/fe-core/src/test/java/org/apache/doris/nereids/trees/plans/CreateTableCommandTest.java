@@ -59,7 +59,7 @@ public class CreateTableCommandTest extends TestWithFeService {
     @Override
     public void createTable(String sql) throws Exception {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        Assertions.assertInstanceOf(CreateTableCommand.class, plan);
         ((CreateTableCommand) plan).run(connectContext, null);
     }
 
@@ -827,7 +827,7 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     private PartitionDesc getCreateTableStmt(String sql) {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        Assertions.assertInstanceOf(CreateTableCommand.class, plan);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.validate(connectContext);
         return createTableInfo.translateToLegacyStmt().getPartitionDesc();

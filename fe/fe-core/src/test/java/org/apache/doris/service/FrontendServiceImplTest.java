@@ -51,7 +51,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
@@ -99,7 +98,7 @@ public class FrontendServiceImplTest {
                 + "    city_code VARCHAR(100)\n"
                 + ")\n"
                 + "DUPLICATE KEY(event_day, site_id, city_code)\n"
-                + "AUTO PARTITION BY range date_trunc( event_day,'day') (\n"
+                + "AUTO PARTITION BY range (date_trunc( event_day,'day')) (\n"
                 + "\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
@@ -183,7 +182,8 @@ public class FrontendServiceImplTest {
         TGetDbsResult dbNames = impl.getDbNames(params);
 
         Assert.assertEquals(dbNames.getDbs().size(), 2);
-        Assert.assertEquals(dbNames.getDbs(), Arrays.asList("test", "test_"));
+        Assert.assertTrue(dbNames.getDbs().contains("test"));
+        Assert.assertTrue(dbNames.getDbs().contains("test_"));
     }
 
     @Test

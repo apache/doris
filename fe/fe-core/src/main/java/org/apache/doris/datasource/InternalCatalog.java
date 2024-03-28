@@ -2125,10 +2125,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                         fn = func.getBuiltinFunction(func.getFnName().getFunction(), childTypes,
                                 Function.CompareMode.IS_INDISTINGUISHABLE); // only for test
                     } catch (Exception e) {
-                        throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
+                        throw new AnalysisException("partition expr " + func.getExprName() + " is illegal");
                     }
                     if (fn == null) {
-                        throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
+                        throw new AnalysisException("partition expr " + func.getExprName() + " is illegal");
                     }
                 }
             }
