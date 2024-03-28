@@ -78,7 +78,9 @@ suite("test_outfile_csv_with_names") {
             `double_col` double COMMENT "",
             `char_col` CHAR(10) COMMENT "",
             `decimal_col` decimal COMMENT "",
-            `json_col` json COMMENT ""
+            `json_col` json COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -86,11 +88,11 @@ suite("test_outfile_csv_with_names") {
         int i = 1
         for (; i < 10; i ++) {
             sb.append("""
-                (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}, '{"a": ${i}, "b": "str${i}"}'),
+                (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}, '{"a": ${i}, "b": "str${i}"}', '0.0.0.${i}', '::${i}'),
             """)
         }
         sb.append("""
-                (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+                (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
             """)
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}
@@ -112,7 +114,7 @@ suite("test_outfile_csv_with_names") {
         File[] files = path.listFiles()
         assert files.length == 1
         // check column names
-        String columnNames = """user_id|date|datetime|date_1|datetime_1|datetime_2|datetime_3|city|age|sex|bool_col|int_col|bigint_col|largeint_col|float_col|double_col|char_col|decimal_col|json_col"""
+        String columnNames = """user_id|date|datetime|date_1|datetime_1|datetime_2|datetime_3|city|age|sex|bool_col|int_col|bigint_col|largeint_col|float_col|double_col|char_col|decimal_col|json_col|ipv4_col|ipv6_col"""
 
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
         assertEquals(columnNames, outLines.get(0))
@@ -139,7 +141,9 @@ suite("test_outfile_csv_with_names") {
             `double_col` double COMMENT "",
             `char_col` CHAR(10) COMMENT "",
             `decimal_col` decimal COMMENT "",
-            `json_col` json COMMENT ""
+            `json_col` json COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """

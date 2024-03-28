@@ -75,7 +75,9 @@ suite("test_export_empty_table", "p0") {
         `float_col` float COMMENT "",
         `double_col` double COMMENT "",
         `char_col` CHAR(10) COMMENT "",
-        `decimal_col` decimal COMMENT ""
+        `decimal_col` decimal COMMENT "",
+        `ipv4_col` ipv4 COMMENT "",
+        `ipv6_col` ipv6 COMMENT ""
         )
         DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
     """
@@ -159,7 +161,9 @@ suite("test_export_empty_table", "p0") {
             `float_col` float COMMENT "",
             `double_col` double COMMENT "",
             `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
+            `decimal_col` decimal COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -236,7 +240,9 @@ suite("test_export_empty_table", "p0") {
             `float_col` float COMMENT "",
             `double_col` double COMMENT "",
             `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
+            `decimal_col` decimal COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -309,7 +315,9 @@ suite("test_export_empty_table", "p0") {
             `float_col` float COMMENT "",
             `double_col` double COMMENT "",
             `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
+            `decimal_col` decimal COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -383,7 +391,9 @@ suite("test_export_empty_table", "p0") {
             `float_col` float COMMENT "",
             `double_col` double COMMENT "",
             `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
+            `decimal_col` decimal COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -459,7 +469,9 @@ suite("test_export_empty_table", "p0") {
             `float_col` float COMMENT "",
             `double_col` double COMMENT "",
             `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
+            `decimal_col` decimal COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """

@@ -312,6 +312,8 @@ public class OutFileClause {
             case LARGEINT:
             case DATE:
             case DATETIME:
+            case IPV4:
+            case IPV6:
                 orcType = "string";
                 break;
             case DECIMALV2:
@@ -426,6 +428,8 @@ public class OutFileClause {
                 case LARGEINT:
                 case DATE:
                 case DATETIME:
+                case IPV4:
+                case IPV6:
                     checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
                     break;
                 case DECIMAL32:

@@ -54,7 +54,9 @@ suite("test_export_orc", "p0") {
         `float_col` float COMMENT "",
         `double_col` double COMMENT "",
         `char_col` CHAR(10) COMMENT "",
-        `decimal_col` decimal COMMENT ""
+        `decimal_col` decimal COMMENT "",
+        `ipv4_col` ipv4 COMMENT "",
+        `ipv6_col` ipv6 COMMENT ""
         )
         DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
     """
@@ -62,11 +64,11 @@ suite("test_export_orc", "p0") {
     int i = 1
     for (; i < 100; i ++) {
         sb.append("""
-            (${i}, '2017-10-01', '2017-10-01 00:00:00', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}),
+            (${i}, '2017-10-01', '2017-10-01 00:00:00', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}, '0.0.0.${i}', '::${i}'),
         """)
     }
     sb.append("""
-            (${i}, '2017-10-01', '2017-10-01 00:00:00', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+            (${i}, '2017-10-01', '2017-10-01 00:00:00', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
         """)
     sql """ INSERT INTO ${table_export_name} VALUES
             ${sb.toString()}
