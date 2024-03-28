@@ -138,7 +138,7 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc& desc) {
     }
     case TPrimitiveType::JSONB: {
         return "json";
-    }    
+    }
     case TPrimitiveType::MAP: {
         return "map";
     }
