@@ -289,7 +289,7 @@ struct TimeDiffImpl {
 
     static constexpr auto name = "timediff";
     static constexpr auto is_nullable = false;
-    static constexpr int64_t limit_value = 3020399000000;
+    static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
     static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,
                                                 bool& is_null) {
         const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
