@@ -25,7 +25,6 @@ import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -41,7 +40,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * Logical Union.
@@ -187,20 +185,20 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        if (qualifier != Qualifier.DISTINCT) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        if (qualifier == Qualifier.DISTINCT) {
+            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        // don't propagate uniform slots
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<SlotReference> exprs = output.stream()
