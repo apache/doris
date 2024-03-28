@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cloud.qe;
+package org.apache.doris.cloud.rpc;
 
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.rpc.RpcException;
 
@@ -30,8 +29,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class SnapshotProxy {
-    private static final Logger LOG = LogManager.getLogger(SnapshotProxy.class);
+public class VersionHelper {
+    private static final Logger LOG = LogManager.getLogger(VersionHelper.class);
 
     public static Cloud.GetVersionResponse getVisibleVersion(Cloud.GetVersionRequest request) throws RpcException {
         int tryTimes = 0;

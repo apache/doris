@@ -49,7 +49,7 @@ suite("test_table_version") {
     assertEquals(2, visibleVersion);
 
     sql """
-        alter table ${tableNameNum} drop partition p201703_all;
+        alter table ${tableNameNum} drop partition p201703_all force;
         """
     visibleVersion = getTableVersion(dbId,tableNameNum);
     assertEquals(3, visibleVersion);
