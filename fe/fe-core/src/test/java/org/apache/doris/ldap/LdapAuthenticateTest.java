@@ -18,6 +18,9 @@
 package org.apache.doris.ldap;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticate;
+import org.apache.doris.mysql.authenticate.ldap.LdapManager;
+import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;

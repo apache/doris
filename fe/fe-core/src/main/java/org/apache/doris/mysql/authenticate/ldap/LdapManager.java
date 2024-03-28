@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.ldap;
+package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
@@ -25,16 +25,17 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.mysql.authenticate.MysqlAuthType;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.mysql.privilege.Role;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
@@ -102,7 +103,7 @@ public class LdapManager {
 
     public boolean checkUserPasswd(String fullName, String passwd) {
         String userName = ClusterNamespace.getNameFromFullName(fullName);
-        if (!LdapConfig.ldap_authentication_enabled || Strings.isNullOrEmpty(userName) || Objects.isNull(passwd)) {
+        if (MysqlAuthType.getAuthTypeConfig() != MysqlAuthType.LDAP || Strings.isNullOrEmpty(userName) || Objects.isNull(passwd)) {
             return false;
         }
         LdapUserInfo ldapUserInfo = getUserInfo(fullName);
@@ -135,8 +136,9 @@ public class LdapManager {
     }
 
     private boolean checkParam(String fullName) {
-        return LdapConfig.ldap_authentication_enabled && !Strings.isNullOrEmpty(fullName) && !fullName.equalsIgnoreCase(
-                Auth.ROOT_USER) && !fullName.equalsIgnoreCase(Auth.ADMIN_USER);
+        return MysqlAuthType.getAuthTypeConfig() == MysqlAuthType.LDAP
+            && !Strings.isNullOrEmpty(fullName)
+            && !fullName.equalsIgnoreCase(Auth.ROOT_USER) && !fullName.equalsIgnoreCase(Auth.ADMIN_USER);
     }
 
     private LdapUserInfo getUserInfoAndUpdateCache(String fulName) throws DdlException {
@@ -207,7 +209,7 @@ public class LdapManager {
      * Step3: generate default role;
      */
     private Set<Role> getLdapGroupsRoles(String userName) throws DdlException {
-        //get user ldap group. the ldap group name should be the same as the doris role name
+        // get user ldap group. the ldap group name should be the same as the doris role name
         List<String> ldapGroups = ldapClient.getGroups(userName);
         Set<Role> roles = Sets.newHashSet();
         for (String group : ldapGroups) {

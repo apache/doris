@@ -17,15 +17,18 @@
 
 package org.apache.doris.ldap;
 
-import org.apache.doris.common.LdapConfig;
-
-import mockit.Expectations;
-import mockit.Mocked;
+import org.apache.doris.common.Config;
+import org.apache.doris.mysql.authenticate.ldap.LdapClient;
+import org.apache.doris.mysql.authenticate.ldap.LdapManager;
+import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class LdapManagerTest {
 
@@ -37,7 +40,7 @@ public class LdapManagerTest {
 
     @Before
     public void setUp() {
-        LdapConfig.ldap_authentication_enabled = true;
+        Config.authentication_type = "ldap";
     }
 
     private void mockClient(boolean userExist, boolean passwd) {
