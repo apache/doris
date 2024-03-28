@@ -98,6 +98,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
+import org.apache.doris.common.DNSCache;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -526,6 +527,8 @@ public class Env {
 
     private InsertOverwriteManager insertOverwriteManager;
 
+    private DNSCache dnsCache;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -760,6 +763,7 @@ public class Env {
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
+        this.dnsCache = new DNSCache();
     }
 
     public static void destroyCheckpoint() {
@@ -913,6 +917,10 @@ public class Env {
 
     public static HiveTransactionMgr getCurrentHiveTransactionMgr() {
         return getCurrentEnv().getHiveTransactionMgr();
+    }
+
+    public DNSCache getDnsCache() {
+        return dnsCache;
     }
 
     // Use tryLock to avoid potential dead lock
@@ -1685,6 +1693,8 @@ public class Env {
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
         }
+
+        dnsCache.start();
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {

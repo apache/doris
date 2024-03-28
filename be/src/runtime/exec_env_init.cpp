@@ -87,6 +87,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
+#include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -232,6 +233,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
+    _dns_cache = new DNSCache();
     _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
 
     _backend_client_cache->init_metrics("backend");
@@ -554,6 +556,7 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
     SAFE_STOP(_storage_engine);
+    SAFE_DELETE(_dns_cache);
     SAFE_STOP(_spill_stream_mgr);
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
