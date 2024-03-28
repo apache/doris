@@ -129,7 +129,7 @@ public class DatabaseTest {
         Assert.assertEquals(2, tableList.size());
         Assert.assertEquals(2000L, tableList.get(0).getId());
         Assert.assertEquals(2001L, tableList.get(1).getId());
-        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableId=3000",
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableId=3000",
                 () -> db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(3000L)));
     }
 
@@ -143,9 +143,9 @@ public class DatabaseTest {
         Table resultTable2 = db.getTableOrMetaException("baseTable", Table.TableType.OLAP);
         Assert.assertEquals(table, resultTable1);
         Assert.assertEquals(table, resultTable2);
-        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableId=3000",
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableId=3000",
                 () -> db.getTableOrMetaException(3000L, Table.TableType.OLAP));
-        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableName=baseTable1",
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableName=baseTable1",
                 () -> db.getTableOrMetaException("baseTable1", Table.TableType.OLAP));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
                 "table type is not BROKER, tableId=2000, type=OLAP",
