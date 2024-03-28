@@ -70,8 +70,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
-    "test_trino_hive_orc," +
-    "test_trino_hive_other," +
     "test_hive_write_insert," +
     "test_hive_write_partitions," +
     "test_broker_load_func," +

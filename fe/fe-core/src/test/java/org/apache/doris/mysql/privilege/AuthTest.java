@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
@@ -1677,15 +1678,17 @@ public class AuthTest {
     }
 
     @Test
-    public void testResource() {
+    public void testResource() throws UserException {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
         String role = "role0";
         String resourceName = "spark0";
         ResourcePattern resourcePattern = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
-        String anyResource = "*";
+        String anyResource = "%";
         ResourcePattern anyResourcePattern = new ResourcePattern(anyResource, ResourceTypeEnum.GENERAL);
         List<AccessPrivilegeWithCols> usagePrivileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
+        List<AccessPrivilegeWithCols> grantPrivileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.GRANT_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
 
         // ------ grant|revoke resource to|from user ------
@@ -1833,8 +1836,9 @@ public class AuthTest {
             Assert.fail();
         }
         Assert.assertTrue(accessManager.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
-        Assert.assertTrue(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
-        Assert.assertTrue(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
+        // anyResource not belong to global auth
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 3. revoke usage_priv on resource '*' from 'testUser'@'%'
@@ -1891,7 +1895,7 @@ public class AuthTest {
             Assert.fail();
         }
         Assert.assertTrue(accessManager.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
-        Assert.assertTrue(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource '*' from role 'role0'
         revokeStmt = new RevokeStmt(null, role, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
@@ -1962,10 +1966,26 @@ public class AuthTest {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "Can not grant/revoke Usage_priv to/from any other users or roles",
                 () -> grantStmt3.analyze(analyzer));
+
+        // 4.drop user
+        dropUser(userIdentity);
+
+        // -------- test anyPattern has usage_priv and g1 has grant_priv  ----------
+        // 1. create user with no role
+        createUser(userIdentity);
+        // 2. grant usage_priv on workload group '%' to user
+        grant(new GrantStmt(userIdentity, null, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL));
+        // 3.grant grant_priv on workload group g1
+        grant(new GrantStmt(userIdentity, null, resourcePattern, grantPrivileges, ResourceTypeEnum.GENERAL));
+        Assert.assertTrue(accessManager.checkResourcePriv(userIdentity, resourceName,
+                PrivPredicate.of(PrivBitSet.of(Privilege.USAGE_PRIV, Privilege.GRANT_PRIV),
+                        Operator.AND)));
+        // 4. drop user
+        dropUser(userIdentity);
     }
 
     @Test
-    public void testWorkloadGroupPriv() {
+    public void testWorkloadGroupPriv() throws UserException {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
         String role = "role0";
         String workloadGroupName = "g1";
@@ -1974,6 +1994,8 @@ public class AuthTest {
         WorkloadGroupPattern anyWorkloadGroupPattern = new WorkloadGroupPattern(anyWorkloadGroup);
         List<AccessPrivilegeWithCols> usagePrivileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
+        List<AccessPrivilegeWithCols> grantPrivileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.GRANT_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
 
         // ------ grant|revoke workload group to|from user ------
@@ -2246,6 +2268,28 @@ public class AuthTest {
         GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "Can not grant/revoke Usage_priv to/from any other users or roles", () -> grantStmt3.analyze(analyzer));
+
+        // 4.drop user
+        dropUser(userIdentity);
+
+        // -------- test anyPattern has usage_priv and g1 has grant_priv  ----------
+        // 1. create user with no role
+        createUser(userIdentity);
+        // 2. grant usage_priv on workload group '%' to user
+        grant(new GrantStmt(userIdentity, null, anyWorkloadGroupPattern, usagePrivileges));
+        // 3.grant grant_priv on workload group g1
+        grant(new GrantStmt(userIdentity, null, workloadGroupPattern, grantPrivileges));
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName,
+                PrivPredicate.of(PrivBitSet.of(Privilege.USAGE_PRIV, Privilege.GRANT_PRIV),
+                        Operator.AND)));
+        // 4. drop user
+        dropUser(userIdentity);
+    }
+
+    private void dropUser(UserIdentity userIdentity) throws UserException {
+        DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
+        dropUserStmt.analyze(analyzer);
+        auth.dropUser(dropUserStmt);
     }
 
     private void createUser(UserIdentity userIdentity) throws UserException {
