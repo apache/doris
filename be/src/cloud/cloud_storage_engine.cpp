@@ -119,6 +119,7 @@ struct RefreshFSVaultVisitor {
                                                      vault.has_prefix() ? vault.prefix() : ""));
         auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
         put_storage_resource(id, {std::move(hdfs), 0});
+        return Status::OK();
     }
 
     const std::string& id;
