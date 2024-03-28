@@ -157,9 +157,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
-                if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    // return;
-                    throw new AnalysisException("group commit is not supported in Nereids now");
+                if (GroupCommitInsertExecutor.groupCommit(ctx, sink, physicalSink)) {
+                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx);
+                    return insertExecutor;
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode

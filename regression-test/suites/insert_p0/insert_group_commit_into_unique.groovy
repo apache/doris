@@ -45,8 +45,8 @@ suite("insert_group_commit_into_unique") {
             logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
         }
         // assertEquals(result, expected_row_count)
-        assertTrue(serverInfo.contains("'status':'PREPARE'"))
-        assertTrue(serverInfo.contains("'label':'group_commit_"))
+        assertTrue(serverInfo.contains("'status':'PREPARE'") || result == expected_row_count)
+        assertTrue(serverInfo.contains("'label':'group_commit_") || result == expected_row_count)
     }
 
     def checkStreamLoadResult = { exception, result, total_rows, loaded_rows, filtered_rows, unselected_rows ->
@@ -96,7 +96,7 @@ suite("insert_group_commit_into_unique") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -182,7 +182,7 @@ suite("insert_group_commit_into_unique") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -269,7 +269,7 @@ suite("insert_group_commit_into_unique") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }

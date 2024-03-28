@@ -17,60 +17,71 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
-import org.apache.doris.planner.UnionNode;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 /**
  * Handle group commit
  */
-public class GroupCommitInserter {
-    public static final Logger LOG = LogManager.getLogger(GroupCommitInserter.class);
+public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
+    public static final Logger LOG = LogManager.getLogger(GroupCommitInsertExecutor.class);
+
+    protected final NereidsPlanner planner;
+
+    public GroupCommitInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
+                                     Optional<InsertCommandContext> insertCtx) {
+        super(ctx, table, labelName, planner, insertCtx);
+        this.planner = planner;
+    }
 
     /**
      * Handle group commit
      */
-    public static boolean groupCommit(ConnectContext ctx, DataSink sink, PhysicalSink physicalSink) {
+    public static boolean groupCommit(ConnectContext ctx, DataSink sink, PhysicalSink physicalSink)
+                throws TException, RpcException, UserException, ExecutionException, InterruptedException {
         PhysicalOlapTableSink<?> olapSink = (PhysicalOlapTableSink<?>) physicalSink;
-        // TODO: implement group commit
-        if (canGroupCommit(ctx, sink, olapSink)) {
-            // handleGroupCommit(ctx, sink, physicalOlapTableSink);
-            // return;
-            throw new AnalysisException("group commit is not supported in Nereids now");
-        }
-        return false;
+        boolean can = canGroupCommit(ctx, sink, olapSink);
+        ctx.setGroupCommit(can);
+        return can;
     }
 
     private static boolean canGroupCommit(ConnectContext ctx, DataSink sink,
@@ -95,26 +106,34 @@ public class GroupCommitInserter {
         return child instanceof OneRowRelation || (child instanceof PhysicalUnion && child.arity() == 0);
     }
 
-    private void handleGroupCommit(ConnectContext ctx, DataSink sink,
-            PhysicalOlapTableSink<?> physicalOlapTableSink)
-            throws UserException, RpcException, TException, ExecutionException, InterruptedException {
+    private static void handleGroupCommit(ConnectContext ctx, DataSink sink,
+            PhysicalOlapTableSink<?> physicalOlapTableSink, NereidsPlanner planner)
+                throws UserException, TException, RpcException, ExecutionException, InterruptedException {
         // TODO we should refactor this to remove rely on UnionNode
         List<InternalService.PDataRow> rows = new ArrayList<>();
-        List<List<Expr>> materializedConstExprLists = ((UnionNode) sink.getFragment()
-                .getPlanRoot()).getMaterializedConstExprLists();
-        int filterSize = 0;
-        for (Slot slot : physicalOlapTableSink.getOutput()) {
-            if (slot.getName().contains(Column.DELETE_SIGN)
-                    || slot.getName().contains(Column.VERSION_COL)) {
-                filterSize += 1;
-            }
+
+        Optional<PhysicalUnion> union = planner.getPhysicalPlan()
+                .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+        List<List<NamedExpression>> constantExprsList = null;
+        if (union.isPresent()) {
+            constantExprsList = union.get().getConstantExprsList();
         }
-        for (List<Expr> list : materializedConstExprLists) {
-            rows.add(GroupCommitPlanner.getRowStringValue(list, filterSize));
+        Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
+                .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+        if (oneRowRelation.isPresent()) {
+            constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
+        }
+        List<String> columnNames = physicalOlapTableSink.getTargetTable().getFullSchema().stream()
+                .map(Column::getName)
+                .map(n -> n.replace("`", "``"))
+                .map(n -> "`" + n + "`")
+                .collect(Collectors.toList());
+        for (List<NamedExpression> row : constantExprsList) {
+            rows.add(InsertUtils.getRowStringValue(row));
         }
         GroupCommitPlanner groupCommitPlanner = EnvFactory.getInstance().createGroupCommitPlanner(
                 physicalOlapTableSink.getDatabase(),
-                physicalOlapTableSink.getTargetTable(), null, ctx.queryId(),
+                physicalOlapTableSink.getTargetTable(), columnNames, ctx.queryId(),
                 ConnectContext.get().getSessionVariable().getGroupCommit());
         PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
@@ -140,5 +159,44 @@ public class GroupCommitInserter {
                 txnStatus, response.getLoadedRows(), (int) response.getFilteredRows());
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) response.getLoadedRows());
+    }
+
+    @Override
+    public void beginTransaction() {
+
+    }
+
+    @Override
+    protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
+
+    }
+
+    @Override
+    protected void beforeExec() {
+
+    }
+
+    @Override
+    protected void onComplete() throws UserException {
+        Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
+                .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+                .findAny();
+        PhysicalOlapTableSink<?> olapSink = plan.get();
+        DataSink sink = planner.getFragments().get(0).getSink();
+        try {
+            handleGroupCommit(ctx, sink, olapSink, planner);
+        } catch (TException | RpcException | ExecutionException | InterruptedException e) {
+            LOG.warn("errors when group commit insert. {}", e);
+        }
+    }
+
+    @Override
+    protected void onFail(Throwable t) {
+
+    }
+
+    @Override
+    protected void afterExec(StmtExecutor executor) {
+
     }
 }
