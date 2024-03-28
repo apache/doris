@@ -283,8 +283,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         || (pair != null && pair.first instanceof PhysicalCTEConsumer)) {
                     continue;
                 }
-                join.pushDownRuntimeFilter(context, generator, join, equalTo.right(),
-                        equalTo.left(), type, buildSideNdv, i);
+                if (equalTo.left().getInputSlots().size() == 1) {
+                    join.pushDownRuntimeFilter(context, generator, join, equalTo.right(),
+                            equalTo.left(), type, buildSideNdv, i);
+                }
             }
         }
         return join;
@@ -336,7 +338,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             TRuntimeFilterType type = TRuntimeFilterType.BITMAP;
             Set<Slot> targetSlots = bitmapContains.child(1).getInputSlots();
             for (Slot targetSlot : targetSlots) {
-                if (!checkPushDownPreconditionsForJoin(join, ctx, targetSlot)) {
+                if (!checkProbeSlot(ctx, targetSlot)) {
                     continue;
                 }
                 Slot scanSlot = ctx.getAliasTransferPair(targetSlot).second;
@@ -520,7 +522,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Slot unwrappedSlot = checkTargetChild(targetExpression);
         // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!checkPushDownPreconditionsForJoin(rf.getBuilderNode(), ctx, unwrappedSlot)) {
+        if (!checkProbeSlot(ctx, unwrappedSlot)) {
             return false;
         }
         Slot cteSlot = ctx.getAliasTransferPair(unwrappedSlot).second;
@@ -605,17 +607,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     /**
-     * Check runtime filter push down pre-conditions, such as builder side join type, etc.
+     * check if slot is in ctx.aliasTransferMap
      */
-    public static boolean checkPushDownPreconditionsForJoin(AbstractPhysicalJoin physicalJoin,
-                                                       RuntimeFilterContext ctx, Slot slot) {
+    public static boolean checkProbeSlot(RuntimeFilterContext ctx, Slot slot) {
         if (slot == null || !ctx.aliasTransferMapContains(slot)) {
             return false;
-        } else if (DENIED_JOIN_TYPES.contains(physicalJoin.getJoinType()) || physicalJoin.isMarkJoin()) {
-            return false;
-        } else {
-            return true;
         }
+        return true;
     }
 
     /**
