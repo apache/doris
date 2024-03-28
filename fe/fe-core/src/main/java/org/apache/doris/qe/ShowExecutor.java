@@ -44,6 +44,7 @@ import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowConfigStmt;
 import org.apache.doris.analysis.ShowConvertLSCStmt;
+import org.apache.doris.analysis.ShowCopyStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
@@ -324,6 +325,8 @@ public class ShowExecutor {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
             handleShowColumn();
+        } else if (stmt instanceof ShowCopyStmt) {
+            handleShowCopy();
         } else if (stmt instanceof ShowLoadStmt) {
             handleShowLoad();
         } else if (stmt instanceof ShowStreamLoadStmt) {
