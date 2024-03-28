@@ -225,7 +225,7 @@ public class IcebergUtils {
                 ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
                 return expression;
             } catch (Exception e) {
-                LOG.warn("Failed to check expression.", e);
+                LOG.warn("Failed to check expression: " + e.getMessage());
                 return null;
             }
         }
@@ -247,7 +247,6 @@ public class IcebergUtils {
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
             switch (icebergTypeID) {
-                // TODO 这里要不要 DATE ??
                 case STRING:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
@@ -269,13 +268,23 @@ public class IcebergUtils {
             }
         } else if (expr instanceof FloatLiteral) {
             FloatLiteral floatLiteral = (FloatLiteral) expr;
-            switch (icebergTypeID) {
-                case FLOAT:
-                case DOUBLE:
-                case DECIMAL:
-                    return floatLiteral.getValue();
-                default:
-                    return null;
+            if (floatLiteral.getType() == Type.FLOAT) {
+                switch (icebergTypeID) {
+                    case FLOAT:
+                    case DOUBLE:
+                    case DECIMAL:
+                        return floatLiteral.getValue();
+                    default:
+                        return null;
+                }
+            } else {
+                switch (icebergTypeID) {
+                    case DOUBLE:
+                    case DECIMAL:
+                        return floatLiteral.getValue();
+                    default:
+                        return null;
+                }
             }
         } else if (expr instanceof IntLiteral) {
             IntLiteral intLiteral = (IntLiteral) expr;
@@ -319,9 +328,17 @@ public class IcebergUtils {
                 case DECIMAL:
                     return value;
                 case INTEGER:
-                    return Integer.parseInt(value);
+                    try {
+                        return Integer.parseInt(value);
+                    } catch (Exception e) {
+                        return null;
+                    }
                 case LONG:
-                    return Long.parseLong(value);
+                    try {
+                        return Long.parseLong(value);
+                    } catch (Exception e) {
+                        return null;
+                    }
                 default:
                     return null;
             }
