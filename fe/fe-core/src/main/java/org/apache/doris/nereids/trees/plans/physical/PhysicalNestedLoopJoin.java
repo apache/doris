@@ -21,7 +21,6 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
@@ -38,11 +37,11 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import java.util.List;
 import java.util.Optional;
