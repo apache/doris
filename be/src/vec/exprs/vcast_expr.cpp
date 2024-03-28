@@ -76,13 +76,16 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("(CAST {}({}) TO {})", child_name, child->data_type()->get_name(),
                              _target_data_type_name);
+    _prepare_finished = true;
     return Status::OK();
 }
 
 doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -93,6 +96,7 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 
 doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block* block,
                                  int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     // for each child call execute
     int column_id = 0;
     RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));

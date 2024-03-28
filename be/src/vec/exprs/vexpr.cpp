@@ -17,6 +17,7 @@
 
 #include "vec/exprs/vexpr.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -27,7 +28,6 @@
 
 #include "common/config.h"
 #include "common/exception.h"
-#include "common/object_pool.h"
 #include "common/status.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -40,6 +40,7 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
@@ -393,7 +394,11 @@ Status VExpr::get_const_col(VExprContext* context,
     // If block is empty, some functions will produce no result. So we insert a column with
     // single value here.
     block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
+
+    _getting_const_col = true;
     RETURN_IF_ERROR(execute(context, &block, &result));
+    _getting_const_col = false;
+
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);

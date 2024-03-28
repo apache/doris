@@ -46,7 +46,8 @@ public:
                           int* result_column_id) override;
     doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                           VExprContext* context) override;
-
+    doris::Status open(RuntimeState* state, VExprContext* context,
+                       FunctionContext::FunctionStateScope scope) override;
     VExprSPtr clone() const override { return VTupleIsNullPredicate::create_shared(*this); }
 
     [[nodiscard]] bool is_constant() const override { return false; }
