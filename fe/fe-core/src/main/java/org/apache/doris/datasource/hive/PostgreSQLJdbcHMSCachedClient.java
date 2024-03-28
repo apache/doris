@@ -30,7 +30,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient.NotificationFilter;
@@ -50,7 +49,6 @@ import org.apache.logging.log4j.Logger;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -81,7 +79,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                 ResultSet rs = stmt.executeQuery()) {
             Builder<String> builder = ImmutableList.builder();
             while (rs.next()) {
-                String hiveDatabaseName = rs.getString("NAME");
+                String hiveDatabaseName = getStringResult(rs, "NAME");
                 builder.add(hiveDatabaseName);
             }
             return builder.build();
@@ -103,8 +101,8 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                 ResultSet rs = stmt.executeQuery()) {
             Builder<String> builder = ImmutableList.builder();
             while (rs.next()) {
-                String hiveDatabaseName = rs.getString("TBL_NAME");
-                builder.add(hiveDatabaseName);
+                String tableName = getStringResult(rs, "TBL_NAME");
+                builder.add(tableName);
             }
             return builder.build();
         } catch (Exception e) {
@@ -141,7 +139,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                 ResultSet rs = stmt.executeQuery()) {
             Builder<String> builder = ImmutableList.builder();
             while (rs.next()) {
-                String hivePartitionName = rs.getString("PART_NAME");
+                String hivePartitionName = getStringResult(rs, "PART_NAME");
                 builder.add(hivePartitionName);
             }
             return builder.build();
@@ -239,7 +237,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                 ResultSet rs = stmt.executeQuery()) {
             Builder<String> builder = ImmutableList.builder();
             while (rs.next()) {
-                builder.add(rs.getString("PART_KEY_VAL"));
+                builder.add(getStringResult(rs, "PART_KEY_VAL"));
             }
             return builder.build();
         } catch (Exception e) {
@@ -348,7 +346,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                 ResultSet rs = stmt.executeQuery()) {
             ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
             while (rs.next()) {
-                builder.put(rs.getString("PARAM_KEY"), rs.getString("PARAM_VALUE"));
+                builder.put(rs.getString("PARAM_KEY"), getStringResult(rs, "PARAM_VALUE"));
             }
             return builder.build();
         } catch (Exception e) {
@@ -374,10 +372,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
             }
 
             List<FieldSchema> fieldSchemas = builder.build();
-            // must reverse fields
-            List<FieldSchema> reversedFieldSchemas = Lists.newArrayList(fieldSchemas);
-            Collections.reverse(reversedFieldSchemas);
-            return reversedFieldSchemas;
+            return fieldSchemas;
         } catch (Exception e) {
             throw new HMSClientException("failed to get TablePartitionKeys in tableId %s", e, tableId);
         }
