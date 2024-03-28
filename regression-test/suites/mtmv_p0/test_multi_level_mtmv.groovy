@@ -68,7 +68,16 @@ suite("test_multi_level_mtmv") {
     waitingMTMVTaskFinished(jobName2)
     order_qt_mv1 "select * from ${mv2}"
 
+    // drop table
+    sql """
+        drop table ${tableName}
+    """
+    order_qt_status1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mv1}'"
+    order_qt_status2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mv2}'"
+
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mv1};"""
     sql """drop materialized view if exists ${mv2};"""
+
+
 }
