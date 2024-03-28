@@ -274,7 +274,8 @@ struct SchemaChangeParams {
 
 class SchemaChangeJob {
 public:
-    SchemaChangeJob(StorageEngine& local_storage_engine, const TAlterTabletReqV2& request);
+    SchemaChangeJob(StorageEngine& local_storage_engine, const TAlterTabletReqV2& request,
+                    const std::string& job_id);
     Status process_alter_tablet(const TAlterTabletReqV2& request);
 
     bool tablet_in_converting(int64_t tablet_id);
@@ -323,5 +324,6 @@ private:
     std::shared_mutex _mutex;
     std::unordered_set<int64_t> _tablet_ids_in_converting;
     std::set<std::string> _supported_functions;
+    std::string _job_id;
 };
 } // namespace doris

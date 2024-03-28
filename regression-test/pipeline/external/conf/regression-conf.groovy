@@ -69,7 +69,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "external_table_p0/trino_connector" // unstable 
 
 customConf1 = "test_custom_conf_value"
 

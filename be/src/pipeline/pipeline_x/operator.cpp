@@ -167,7 +167,7 @@ Status OperatorXBase::close(RuntimeState* state) {
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
-    _origin_block.clear_column_data(_parent->_row_descriptor.num_materialized_slots());
+    _origin_block.clear_column_data(_parent->intermediate_row_desc().num_materialized_slots());
 }
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
@@ -299,7 +299,7 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
         return nullptr;
     } else {
         std::shared_ptr<BasicSharedState> ss = nullptr;
-        ss.reset(new typename LocalStateType::SharedStateType());
+        ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();
         for (auto& dest : dests_id()) {
             ss->related_op_ids.insert(dest);
