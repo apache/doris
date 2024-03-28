@@ -74,6 +74,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -176,7 +177,7 @@ public class LoadManager implements Writable {
             if (context != null) {
                 String cloudCluster = context.getCloudCluster();
                 if (!Strings.isNullOrEmpty(cloudCluster)) {
-                    CloudSystemInfoService.waitForAutoStart(cloudCluster);
+                    ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cloudCluster);
                 }
             }
         }
@@ -629,6 +630,11 @@ public class LoadManager implements Writable {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             return loadJobInfos;
+        }
+
+        if (jobTypes == null || jobTypes.isEmpty()) {
+            jobTypes = new HashSet<>();
+            jobTypes.addAll(EnumSet.allOf(EtlJobType.class));
         }
 
         Set<JobState> states = Sets.newHashSet();

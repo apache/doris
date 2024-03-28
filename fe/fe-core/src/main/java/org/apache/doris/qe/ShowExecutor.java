@@ -3073,11 +3073,12 @@ public class ShowExecutor {
             }
             List<List<String>> results = new ArrayList<>();
             for (Cloud.StagePB stage : stages) {
-                if (!Env.getCurrentEnv().getAuth()
-                        .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), stage.getName(),
-                                PrivPredicate.USAGE, ResourceTypeEnum.STAGE)) {
-                    continue;
-                }
+                // todo(copy into): check priv
+                // if (!Env.getCurrentEnv().getAuth()
+                //         .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), stage.getName(),
+                //                 PrivPredicate.USAGE, ResourceTypeEnum.STAGE)) {
+                //     continue;
+                // }
                 List<String> result = new ArrayList<>();
                 result.add(stage.getName());
                 result.add(stage.getStageId());

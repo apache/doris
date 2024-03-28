@@ -17,11 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -43,14 +39,14 @@ public class DropStageStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        // check drop stage permission
-        if (!Env.getCurrentEnv().getAuth()
-                .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), stageName, PrivPredicate.ADMIN,
-                        ResourceTypeEnum.STAGE)) {
-            throw new AnalysisException(
-                    "ADMIN denied to user '" + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get()
-                            .getRemoteIP() + "' for cloud stage '" + stageName + "'");
-        }
+        // todo(copy into): check drop stage permission
+        // if (!Env.getCurrentEnv().getAuth()
+        //         .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), stageName, PrivPredicate.ADMIN,
+        //                 ResourceTypeEnum.STAGE)) {
+        //     throw new AnalysisException(
+        //             "ADMIN denied to user '" + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get()
+        //                     .getRemoteIP() + "' for cloud stage '" + stageName + "'");
+        // }
     }
 
     @Override

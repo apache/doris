@@ -4049,6 +4049,11 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
+    /* show stage */
+    | KW_SHOW KW_STAGES
+    {:
+        RESULT = new ShowStageStmt();
+    :}
     ;
 
 show_param ::=
@@ -4559,11 +4564,6 @@ show_param ::=
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
-    /* show stage */
-    | KW_SHOW KW_STAGES
-    {:
-        RESULT = new ShowStageStmt();
     :}
     /* Show copy statement */
     | KW_COPY opt_db:db opt_where order_by_clause:orderByClause limit_clause:limitClause
@@ -8303,6 +8303,8 @@ keyword ::=
     | KW_UNSET:id
     {: RESULT = id; :}
     | KW_BELONG:id
+    {: RESULT = id; :}
+    | KW_STAGE:id
     {: RESULT = id; :}
     ;
 

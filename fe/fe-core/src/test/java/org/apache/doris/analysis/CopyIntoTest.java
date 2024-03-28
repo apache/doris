@@ -27,6 +27,7 @@ import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -66,6 +67,7 @@ public class CopyIntoTest extends TestWithFeService {
     @Override
     protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.enableInternalSchemaDb = false;
+        Config.cloud_unique_id = "test_cluster";
         // FeConstants.runningCopyIntoTest = true;
         // FeConstants.disablePreHeat = true;
     }
