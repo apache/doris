@@ -98,7 +98,8 @@ struct VaultCreateFSVisitor {
 };
 
 struct RefreshFSVaultVisitor {
-    RefreshFSVaultVisitor(std::string_view id, io::FileSystemSPtr fs) : id(id), fs(std::move(fs)) {}
+    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs)
+            : id(id), fs(std::move(fs)) {}
 
     Status operator()(const S3Conf& s3_conf) const {
         DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
@@ -111,12 +112,17 @@ struct RefreshFSVaultVisitor {
         return st;
     }
 
-    Status operator()(const cloud::HdfsVaultInfo& vault_info) const {
-        // TODO(ByteYue): Implmente the hdfs fs refresh logic
+    Status operator()(const cloud::HdfsVaultInfo& vault) const {
+        auto hdfs_params = io::to_hdfs_params(vault);
+        auto hdfs_fs =
+                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
+                                                     vault.has_prefix() ? vault.prefix() : ""));
+        auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
+        put_storage_resource(id, {std::move(hdfs), 0});
         return Status::OK();
     }
 
-    std::string_view id;
+    const std::string& id;
     io::FileSystemSPtr fs;
 };
 
@@ -260,7 +266,8 @@ void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
             }
         }
 
-        if (auto& id = std::get<0>(vault_infos.back()); latest_fs()->id() != id) {
+        if (auto& id = std::get<0>(vault_infos.back());
+            latest_fs() == nullptr || latest_fs()->id() != id) {
             set_latest_fs(get_filesystem(id));
         }
     }
@@ -289,8 +296,14 @@ void CloudStorageEngine::get_cumu_compaction(
     }
 }
 
-void CloudStorageEngine::_adjust_compaction_thread_num() {
+Status CloudStorageEngine::_adjust_compaction_thread_num() {
     int base_thread_num = get_base_thread_num();
+
+    if (!_base_compaction_thread_pool || !_cumu_compaction_thread_pool) {
+        LOG(WARNING) << "base or cumu compaction thread pool is not created";
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("");
+    }
+
     if (_base_compaction_thread_pool->max_threads() != base_thread_num) {
         int old_max_threads = _base_compaction_thread_pool->max_threads();
         Status status = _base_compaction_thread_pool->set_max_threads(base_thread_num);
@@ -325,6 +338,7 @@ void CloudStorageEngine::_adjust_compaction_thread_num() {
                         << " to " << cumu_thread_num;
         }
     }
+    return Status::OK();
 }
 
 void CloudStorageEngine::_compaction_tasks_producer_callback() {
@@ -345,7 +359,10 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
-            _adjust_compaction_thread_num();
+            Status st = _adjust_compaction_thread_num();
+            if (!st.ok()) {
+                break;
+            }
 
             bool check_score = false;
             int64_t cur_time = UnixMillis();

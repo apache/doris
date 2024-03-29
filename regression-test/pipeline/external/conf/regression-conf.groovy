@@ -63,15 +63,8 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_cast_string_to_array," +
     "test_refresh_mtmv," +
     "test_spark_load," +
-    "test_trino_hive_orc," +
-    "test_trino_hive_other," +
-    "test_hive_write_insert," +
     "test_broker_load_func," +
-    "test_hive_write_partitions," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
-
-// this directories will not be executed
-excludeDirectories = "external_table_p0/trino_connector" // unstable 
 
 customConf1 = "test_custom_conf_value"
 

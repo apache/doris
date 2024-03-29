@@ -62,6 +62,9 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     load_id.set_hi(0);
     load_id.set_lo(0);
     RowsetWriterContext context;
+    if (engine.latest_fs() == nullptr) [[unlikely]] {
+        return Status::IOError("Invalid latest fs");
+    }
     context.fs = engine.latest_fs();
     context.txn_id = request.transaction_id;
     context.load_id = load_id;
