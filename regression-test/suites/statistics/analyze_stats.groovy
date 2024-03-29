@@ -2774,7 +2774,7 @@ PARTITION `p599` VALUES IN (599)
 
     // Test auto analyze with job type SYSTEM
     sql """drop stats trigger_test"""
-    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+    sql """analyze table trigger_test PROPERTIES("use.auto.analyzer"="true")"""
     int i = 0;
     for (0; i < 10; i++) {
         result = sql """show column stats trigger_test"""
