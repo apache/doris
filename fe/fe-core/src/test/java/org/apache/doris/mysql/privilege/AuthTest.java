@@ -1957,13 +1957,15 @@ public class AuthTest {
         TablePattern tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt2 = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt2.analyze(analyzer));
+                "Can not grant/revoke Usage_priv to/from any other users or roles",
+                () -> grantStmt2.analyze(analyzer));
 
         // 3. grant resource prov to role on db.table
         tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
+                "Can not grant/revoke Usage_priv to/from any other users or roles",
+                () -> grantStmt3.analyze(analyzer));
 
         // 4.drop user
         dropUser(userIdentity);
@@ -2259,13 +2261,14 @@ public class AuthTest {
         TablePattern tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt2 = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt2.analyze(analyzer));
+                "Can not grant/revoke Usage_priv to/from any other users or roles", () -> grantStmt2.analyze(analyzer));
 
         // 3. grant workload group prov to role on db.table
         tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
+                "Can not grant/revoke Usage_priv to/from any other users or roles", () -> grantStmt3.analyze(analyzer));
+
         // 4.drop user
         dropUser(userIdentity);
 
