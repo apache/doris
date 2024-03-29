@@ -188,6 +188,7 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put("replication_num", String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
+                put("storage_vault", FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
             }
         };
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
@@ -212,6 +213,7 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put("replication_num", String.valueOf(Math.max(1,
                         Config.min_replication_num_per_tablet)));
+                put("storage_vault", FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
             }
         };
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
@@ -245,6 +247,7 @@ public class InternalSchemaInitializer extends Thread {
                 put("dynamic_partition.enable", "true");
                 put("replication_num", String.valueOf(Math.max(1,
                         Config.min_replication_num_per_tablet)));
+                put("storage_vault", FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
             }
         };
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);

@@ -547,6 +547,8 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
 
         std::string_view name = request->storage_vault_name();
 
+        // Try to use the default vault name if user doesn't specify the vault name
+        // for correspoding table
         if (name.empty()) {
             if (!instance.has_default_storage_vault_name()) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
