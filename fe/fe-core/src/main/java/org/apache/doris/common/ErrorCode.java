@@ -74,6 +74,8 @@ public enum ErrorCode {
             + "(current value: %d)"),
     ERR_SPECIFIC_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
             + "one of) the %s privilege(s) for this operation"),
+    ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR(1227, new byte[] {'4', '2', '0', '0', '0'}, "Access denied; you need all "
+            + " %s privilege(s) for this operation"),
     ERR_LOCAL_VARIABLE(1228, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a SESSION variable and can't be "
             + "used with SET GLOBAL"),
     ERR_GLOBAL_VARIABLE(1229, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a GLOBAL variable and should be "
