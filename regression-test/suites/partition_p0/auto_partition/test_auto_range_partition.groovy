@@ -91,6 +91,7 @@ suite("test_auto_range_partition") {
             )
             auto partition by range (date_trunc(k0, 'second'))
             (
+                partition pX values less than ("1970-01-01")
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS auto
             properties("replication_num" = "1");
@@ -100,5 +101,5 @@ suite("test_auto_range_partition") {
     qt_right_bound " select * from right_bound order by k0; "
     result2 = sql "show partitions from right_bound"
     logger.info("${result2}")
-    assertEquals(result2.size(), 1)
+    assertEquals(result2.size(), 2)
 }

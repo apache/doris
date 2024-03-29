@@ -339,7 +339,8 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
         for (int i = 0; i < part_col_num; ++i) {
             auto return_type = part_exprs[i]->data_type();
             // expose the data column. the return type would be nullable
-            auto& range_left_col = block->get_by_position(partition_cols_idx[i]).column;
+            const auto& [range_left_col, col_const] =
+                    unpack_if_const(block->get_by_position(partition_cols_idx[i]).column);
             if (range_left_col->is_nullable()) {
                 col_null_maps.push_back(&(assert_cast<const ColumnNullable*>(range_left_col.get())
                                                   ->get_null_map_data()));
@@ -347,7 +348,8 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
                 col_null_maps.push_back(nullptr);
             }
             for (auto row : _missing_map) {
-                col_strs[i].push_back(return_type->to_string(*range_left_col, row));
+                col_strs[i].push_back(
+                        return_type->to_string(*range_left_col, index_check_const(row, col_const)));
             }
         }
 
@@ -441,10 +443,8 @@ Status VRowDistribution::generate_rows_distribution(
             // we just calc left range here. leave right to FE to avoid dup calc.
             RETURN_IF_ERROR(part_funcs[i]->execute(part_ctxs[i].get(), block.get(), &result_idx));
 
-            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
+            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data(0, 1);
             DCHECK(result_idx != -1);
-            auto& result_col = block->get_by_position(result_idx).column;
-            result_col = result_col->convert_to_full_column_if_const();
 
             partition_cols_idx.push_back(result_idx);
         }

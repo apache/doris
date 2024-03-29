@@ -291,10 +291,13 @@ public class PartitionTableInfo {
      *  Get column names and put in partitionColumns
      */
     public void extractPartitionColumns() throws AnalysisException {
+        if (partitionList == null) {
+            return;
+        }
         ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
         try {
             partitionColumns = PartitionDesc.getColNamesFromExpr(exprs,
-                    partitionType.equalsIgnoreCase(PartitionType.LIST.name()));
+                    partitionType.equalsIgnoreCase(PartitionType.LIST.name()), isAutoPartition);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
