@@ -1809,12 +1809,6 @@ public class SessionVariable implements Serializable, Writable {
                 default:
                     break;
             }
-            randomInt = random.nextInt(2);
-            if (randomInt % 2 == 0) {
-                this.enableFoldConstantByBe = false;
-            } else {
-                this.enableFoldConstantByBe = true;
-            }
 
             switch (Config.pull_request_id % 3) {
                 case 0:
@@ -1852,8 +1846,10 @@ public class SessionVariable implements Serializable, Writable {
             if (Config.pull_request_id > 0) {
                 if (Config.pull_request_id % 2 == 1) {
                     this.batchSize = 4064;
+                    this.enableFoldConstantByBe = true;
                 } else {
                     this.batchSize = 50;
+                    this.enableFoldConstantByBe = false;
                 }
             }
         }
