@@ -59,37 +59,8 @@ Status SingleReplicaCompaction::prepare_compact() {
         return Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
     }
 
-    std::unique_lock<std::mutex> lock_cumu(tablet()->get_cumulative_compaction_lock(),
-                                           std::try_to_lock);
-    if (!lock_cumu.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
-                "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
-    }
-    std::unique_lock<std::mutex> lock_base(tablet()->get_base_compaction_lock(), std::try_to_lock);
-    if (!lock_base.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
-                "another base compaction is running. tablet={}", _tablet->tablet_id());
-    }
-
-    // 1. pick rowsets to compact
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
-    if (_input_rowsets.size() == 1) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("_input_rowsets.size() is 1");
-    }
-
-    return Status::OK();
-}
-
-Status SingleReplicaCompaction::pick_rowsets_to_compact() {
-    auto candidate_rowsets = tablet()->pick_candidate_rowsets_to_single_replica_compaction();
-    if (candidate_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("candidate_rowsets is empty");
-    }
-    _input_rowsets.clear();
-    for (const auto& rowset : candidate_rowsets) {
-        _input_rowsets.emplace_back(rowset);
-    }
-
+    // Single replica compaction does not require picking _input_rowsets
+    // _input_rowsets depends on the fetched _output_version
     return Status::OK();
 }
 
@@ -109,10 +80,9 @@ Status SingleReplicaCompaction::execute_compact() {
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    // 2. do single replica compaction
+    // do single replica compaction
     RETURN_IF_ERROR(_do_single_replica_compaction());
 
-    // 3. set state to success
     _state = CompactionState::SUCCESS;
 
     return Status::OK();
@@ -270,14 +240,19 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
     }
     if (find) {
         //  4. reset input rowsets
-        auto rs_iter = _input_rowsets.begin();
-        while (rs_iter != _input_rowsets.end()) {
-            if ((*proper_version).contains((*rs_iter)->version())) {
-                ++rs_iter;
-                continue;
+        _input_rowsets.clear();
+        Tablet* tablet = static_cast<Tablet*>(_tablet.get());
+        std::vector<RowsetSharedPtr> candidate_rowsets;
+        tablet->traverse_rowsets([&candidate_rowsets, &proper_version](const auto& rs) {
+            // only need rowset in proper_version
+            if (rs->is_local() && rs->end_version() >= proper_version->first &&
+                rs->start_version() <= proper_version->second) {
+                candidate_rowsets.emplace_back(rs);
             }
-            rs_iter = _input_rowsets.erase(rs_iter);
-        }
+        });
+        _input_rowsets.insert(_input_rowsets.begin(), candidate_rowsets.begin(),
+                              candidate_rowsets.end());
+        std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
         for (auto& rowset : _input_rowsets) {
             _input_rowsets_size += rowset->data_disk_size();
             _input_row_num += rowset->num_rows();

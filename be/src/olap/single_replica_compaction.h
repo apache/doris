@@ -38,7 +38,6 @@ public:
     Status execute_compact() override;
 
 protected:
-    Status pick_rowsets_to_compact();
     std::string_view compaction_name() const override { return "single replica compaction"; }
     ReaderType compaction_type() const override {
         return (_compaction_type == CompactionType::CUMULATIVE_COMPACTION)
