@@ -218,6 +218,8 @@ suite("insert_group_commit_into_unique_sync_mode") {
 
             // 1. insert into
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+                // TODO: pipeline need to be implemented
+            sql """ set experimental_enable_nereids_dml_with_pipeline = false; """
                 sql """ set group_commit = sync_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
