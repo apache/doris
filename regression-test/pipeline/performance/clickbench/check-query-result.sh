@@ -24,7 +24,7 @@ for i in {1..43}; do
             echo "**** actual result **********************************************"
             cat "query-result-actual/doris-q${i}.result"
             echo "*****************************************************************"
-            break
+            # break
         fi
     fi
 done
