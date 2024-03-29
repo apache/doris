@@ -215,6 +215,8 @@ private:
 
     RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
 
+    QueryThreadContext _query_thread_context;
+
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
 

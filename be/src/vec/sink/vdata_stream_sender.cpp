@@ -215,7 +215,6 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
     }
 
     {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         auto send_remote_block_closure =
                 AutoReleaseClosure<PTransmitDataParams, DummyBrpcCallback<PTransmitDataResult>>::
                         create_unique(_brpc_request, _send_remote_block_callback);

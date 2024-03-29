@@ -158,7 +158,6 @@ Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    _runtime_state->set_query_mem_tracker(state->query_mem_tracker());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
 
@@ -196,9 +195,18 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
     RETURN_IF_ERROR(Base::_shared_state->in_mem_shared_state->reset_hash_table());
     _dependency->Dependency::block();
 
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-                    [this, state] {
+                    [this, state, execution_context] {
+                        auto execution_context_lock = execution_context.lock();
+                        if (!execution_context_lock) {
+                            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                            // FIXME: return status is meaningless?
+                            return Status::Cancelled("Cancelled");
+                        }
+
                         SCOPED_ATTACH_TASK(state);
                         Defer defer {[&]() {
                             if (!_status.ok()) {

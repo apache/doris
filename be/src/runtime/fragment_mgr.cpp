@@ -461,10 +461,6 @@ static void empty_function(RuntimeState*, Status*) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                                const FinishCallback& cb) {
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
-#endif
-
     VLOG_DEBUG << fmt::format("Instance {}|{} executing", print_id(fragment_executor->query_id()),
                               print_id(fragment_executor->fragment_instance_id()));
 
@@ -650,6 +646,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
                                                 params.query_options, params.coord, pipeline,
                                                 params.is_nereids);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
         // set file scan range params
@@ -727,6 +724,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 
     RETURN_IF_ERROR(
             _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
     {
         // Need lock here, because it will modify fragment ids and std::vector may resize and reallocate
         // memory, but query_is_canncelled will traverse the vector, it will core.
@@ -775,8 +773,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     if (!current_thread_pool) {
         current_thread_pool = _thread_pool.get();
     }
-    auto st = current_thread_pool->submit_func(
-            [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
+    auto st = current_thread_pool->submit_func([this, fragment_executor, cb]() {
+#ifndef BE_TEST
+        SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
+#endif
+        _exec_actual(fragment_executor, cb);
+    });
     if (!st.ok()) {
         {
             // Remove the exec state added
@@ -829,6 +831,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
+    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
     if (enable_pipeline_x) {
@@ -1015,6 +1018,16 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
         query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
     }
 #endif
+}
+
+std::shared_ptr<QueryContext> FragmentMgr::get_query_context(const TUniqueId& query_id) {
+    std::lock_guard<std::mutex> state_lock(_lock);
+    auto ctx = _query_ctx_map.find(query_id);
+    if (ctx != _query_ctx_map.end()) {
+        return ctx->second;
+    } else {
+        return nullptr;
+    }
 }
 
 void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
@@ -1412,6 +1425,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
         std::shared_ptr<PlanFragmentExecutor> fragment_executor;
         std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
+        QueryThreadContext query_thread_context;
 
         RuntimeFilterMgr* runtime_filter_mgr = nullptr;
         ObjectPool* pool = nullptr;
@@ -1427,6 +1441,8 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             DCHECK(pip_context != nullptr);
             runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
             pool = &pip_context->get_query_ctx()->obj_pool;
+            query_thread_context = {pip_context->get_query_ctx()->query_id(),
+                                    pip_context->get_query_ctx()->query_mem_tracker};
         } else {
             std::unique_lock<std::mutex> lock(_lock);
             auto iter = _fragment_instance_map.find(tfragment_instance_id);
@@ -1441,7 +1457,11 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             DCHECK(fragment_executor != nullptr);
             runtime_filter_mgr = fragment_executor->get_query_ctx()->runtime_filter_mgr();
             pool = &fragment_executor->get_query_ctx()->obj_pool;
+            query_thread_context = {fragment_executor->get_query_ctx()->query_id(),
+                                    fragment_executor->get_query_ctx()->query_mem_tracker};
         }
+
+        SCOPED_ATTACH_TASK(query_thread_context);
 
         // 1. get the target filters
         std::vector<IRuntimeFilter*> filters;
@@ -1492,6 +1512,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         // when filter_controller->merge is still in progress
         query_ctx = iter->second;
     }
+    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
     auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
     DCHECK(merge_status.ok());
     return merge_status;

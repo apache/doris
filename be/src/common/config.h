@@ -178,6 +178,9 @@ DECLARE_mBool(disable_memory_gc);
 // If is -1, disable large memory check.
 DECLARE_mInt64(large_memory_check_bytes);
 
+// default is true. if any memory tracking in Orphan mem tracker will report error.
+DECLARE_mBool(enable_memory_orphan_check);
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
 
@@ -248,10 +251,10 @@ DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
 
-// log dir
+// deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
+// for udf
 DECLARE_String(user_function_dir);
-DECLARE_String(pipeline_tracing_log_dir);
 // INFO, WARNING, ERROR, FATAL
 DECLARE_String(sys_log_level);
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -1027,6 +1030,7 @@ DECLARE_String(inverted_index_searcher_cache_limit);
 DECLARE_Bool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
+DECLARE_Int32(inverted_index_query_cache_shards);
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
@@ -1268,6 +1272,10 @@ DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
 
 /** Hive sink configurations **/
 DECLARE_mInt64(hive_sink_max_file_size); // 1GB
+
+// Number of open tries, default 1 means only try to open once.
+// Retry the Open num_retries time waiting 100 milliseconds between retries.
+DECLARE_mInt32(thrift_client_open_num_tries);
 
 #ifdef BE_TEST
 // test s3

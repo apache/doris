@@ -179,7 +179,7 @@ public class StatisticsCache {
                 }
                 putCache(k, c);
             } catch (Throwable t) {
-                LOG.warn("Error when preheating stats cache", t);
+                LOG.warn("Error when preheating stats cache. Row:[{}]", r, t);
             }
         }
     }

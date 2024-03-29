@@ -17,8 +17,6 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.hudi.Utils;
-
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -115,12 +113,12 @@ public class TrinoConnectorCache {
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
             executorService.scheduleAtFixedRate(() -> {
                 if (!isKilled.get()) {
-                    List<Long> pids = Utils.getChildProcessIds(
-                            Utils.getCurrentProcId());
+                    List<Long> pids = ProcessUtils.getChildProcessIds(
+                            ProcessUtils.getCurrentProcId());
                     for (long pid : pids) {
-                        String cmd = Utils.getCommandLine(pid);
+                        String cmd = ProcessUtils.getCommandLine(pid);
                         if (cmd != null && cmd.contains("org.openjdk.jol.vm.sa.AttachMain")) {
-                            Utils.killProcess(pid);
+                            ProcessUtils.killProcess(pid);
                             isKilled.set(true);
                         }
                     }

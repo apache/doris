@@ -47,7 +47,11 @@ public class DorisFlightSqlService {
     public DorisFlightSqlService(int port) {
         BufferAllocator allocator = new RootAllocator();
         Location location = Location.forGrpcInsecure(FrontendOptions.getLocalHostAddress(), port);
-        this.flightTokenManager = new FlightTokenManagerImpl(Config.arrow_flight_token_cache_size,
+        // arrow_flight_token_cache_size less than qe_max_connection to avoid `Reach limit of connections`.
+        // arrow flight sql is a stateless protocol, connection is usually not actively disconnected.
+        // bearer token is evict from the cache will unregister ConnectContext.
+        this.flightTokenManager = new FlightTokenManagerImpl(
+                Math.min(Config.arrow_flight_token_cache_size, Config.qe_max_connection / 2),
                 Config.arrow_flight_token_alive_time);
         this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);
 

@@ -201,6 +201,10 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 "Don't support to add materialized view by linked schema change");
     }
 
+    LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
+              << ", sc_directly: " << sc_directly << ", base_tablet=" << _base_tablet->tablet_id()
+              << ", new_tablet=" << _new_tablet->tablet_id();
+
     // 2. Generate historical data converter
     auto sc_procedure = get_sc_procedure(changer, sc_sorting);
 
@@ -247,6 +251,9 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
+        if (_cloud_storage_engine.latest_fs() == nullptr) [[unlikely]] {
+            return Status::IOError("Invalid latest fs");
+        }
         context.fs = _cloud_storage_engine.latest_fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));

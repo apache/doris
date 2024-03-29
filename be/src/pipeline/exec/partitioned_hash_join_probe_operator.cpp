@@ -174,29 +174,37 @@ Status PartitionedHashJoinProbeLocalState::spill_build_block(RuntimeState* state
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool(
             build_spilling_stream->get_spill_root_dir());
-    return spill_io_pool->submit_func([state, &build_spilling_stream, &mutable_block, this] {
-        (void)state; // avoid ut compile error
-        SCOPED_ATTACH_TASK(state);
-        if (_spill_status_ok) {
-            auto build_block = mutable_block->to_block();
-            DCHECK_EQ(mutable_block->rows(), 0);
-            auto st = build_spilling_stream->spill_block(build_block, false);
-            if (!st.ok()) {
-                std::unique_lock<std::mutex> lock(_spill_lock);
-                _spill_status_ok = false;
-                _spill_status = std::move(st);
-            } else {
-                COUNTER_UPDATE(_spill_build_rows, build_block.rows());
-                COUNTER_UPDATE(_spill_build_blocks, 1);
-            }
-        }
-        --_spilling_task_count;
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
+    return spill_io_pool->submit_func(
+            [execution_context, state, &build_spilling_stream, &mutable_block, this] {
+                auto execution_context_lock = execution_context.lock();
+                if (!execution_context_lock) {
+                    LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                    return;
+                }
+                (void)state; // avoid ut compile error
+                SCOPED_ATTACH_TASK(state);
+                if (_spill_status_ok) {
+                    auto build_block = mutable_block->to_block();
+                    DCHECK_EQ(mutable_block->rows(), 0);
+                    auto st = build_spilling_stream->spill_block(build_block, false);
+                    if (!st.ok()) {
+                        std::unique_lock<std::mutex> lock(_spill_lock);
+                        _spill_status_ok = false;
+                        _spill_status = std::move(st);
+                    } else {
+                        COUNTER_UPDATE(_spill_build_rows, build_block.rows());
+                        COUNTER_UPDATE(_spill_build_blocks, 1);
+                    }
+                }
+                --_spilling_task_count;
 
-        if (_spilling_task_count == 0) {
-            std::unique_lock<std::mutex> lock(_spill_lock);
-            _dependency->set_ready();
-        }
-    });
+                if (_spilling_task_count == 0) {
+                    std::unique_lock<std::mutex> lock(_spill_lock);
+                    _dependency->set_ready();
+                }
+            });
 }
 
 Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* state,
@@ -223,34 +231,42 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
     }
 
     if (!blocks.empty()) {
-        return spill_io_pool->submit_func([state, &blocks, &spilling_stream, this] {
-            (void)state; // avoid ut compile error
-            SCOPED_ATTACH_TASK(state);
-            COUNTER_UPDATE(_spill_probe_blocks, blocks.size());
-            while (!blocks.empty()) {
-                auto block = std::move(blocks.back());
-                blocks.pop_back();
-                if (_spill_status_ok) {
-                    auto st = spilling_stream->spill_block(block, false);
-                    if (!st.ok()) {
-                        std::unique_lock<std::mutex> lock(_spill_lock);
-                        _spill_status_ok = false;
-                        _spill_status = std::move(st);
-                        break;
+        auto execution_context = state->get_task_execution_context();
+        _shared_state_holder = _shared_state->shared_from_this();
+        return spill_io_pool->submit_func(
+                [execution_context, state, &blocks, spilling_stream, this] {
+                    auto execution_context_lock = execution_context.lock();
+                    if (!execution_context_lock) {
+                        LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                        _dependency->set_ready();
+                        return;
                     }
-                    COUNTER_UPDATE(_spill_probe_rows, block.rows());
-                } else {
-                    break;
-                }
-            }
+                    SCOPED_ATTACH_TASK(state);
+                    COUNTER_UPDATE(_spill_probe_blocks, blocks.size());
+                    while (!blocks.empty() && !state->is_cancelled()) {
+                        auto block = std::move(blocks.back());
+                        blocks.pop_back();
+                        if (_spill_status_ok) {
+                            auto st = spilling_stream->spill_block(block, false);
+                            if (!st.ok()) {
+                                std::unique_lock<std::mutex> lock(_spill_lock);
+                                _spill_status_ok = false;
+                                _spill_status = std::move(st);
+                                break;
+                            }
+                            COUNTER_UPDATE(_spill_probe_rows, block.rows());
+                        } else {
+                            break;
+                        }
+                    }
 
-            --_spilling_task_count;
+                    --_spilling_task_count;
 
-            if (_spilling_task_count == 0) {
-                std::unique_lock<std::mutex> lock(_spill_lock);
-                _dependency->set_ready();
-            }
-        });
+                    if (_spilling_task_count == 0) {
+                        std::unique_lock<std::mutex> lock(_spill_lock);
+                        _dependency->set_ready();
+                    }
+                });
     } else {
         --_spilling_task_count;
         if (_spilling_task_count == 0) {
@@ -296,7 +312,14 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     auto& mutable_block = _shared_state->partitioned_build_blocks[partition_index];
     DCHECK(mutable_block != nullptr);
 
-    auto read_func = [this, state, &spilled_stream, &mutable_block] {
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
+    auto read_func = [this, state, &spilled_stream, &mutable_block, execution_context] {
+        auto execution_context_lock = execution_context.lock();
+        if (!execution_context_lock) {
+            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+            return;
+        }
         Defer defer([this] { --_spilling_task_count; });
         (void)state; // avoid ut compile error
         SCOPED_ATTACH_TASK(state);
@@ -363,7 +386,14 @@ Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(Runti
     auto& blocks = _probe_blocks[partition_index];
 
     /// TODO: maybe recovery more blocks each time.
-    auto read_func = [this, state, &spilled_stream, &blocks] {
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
+    auto read_func = [this, execution_context, state, &spilled_stream, &blocks] {
+        auto execution_context_lock = execution_context.lock();
+        if (!execution_context_lock) {
+            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+            return;
+        }
         Defer defer([this] { --_spilling_task_count; });
         (void)state; // avoid ut compile error
         SCOPED_ATTACH_TASK(state);
@@ -520,8 +550,6 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
     local_state._runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-
-    local_state._runtime_state->set_query_mem_tracker(state->query_mem_tracker());
 
     local_state._runtime_state->set_task_execution_context(
             state->get_task_execution_context().lock());
