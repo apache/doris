@@ -101,6 +101,11 @@ public class CloudPartition extends Partition {
     }
 
     @Override
+    public long getCachedVisibleVersion() {
+        return super.getVisibleVersion();
+    }
+
+    @Override
     public long getVisibleVersion() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersion use CloudPartition {}", super.getName());
