@@ -27,85 +27,52 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.AnalysisState;
+import org.apache.doris.statistics.JobPriority;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 /**
- * ShowAnalyzeStmt is used to show statistics job info.
+ * ShowAutoAnalyzeJobsStmt is used to show pending auto analysis jobs.
  * syntax:
- *    SHOW ANALYZE
- *        [TABLE | ID]
+ *    SHOW AUTO ANALYZE JOBS
+ *        [TABLE]
  *        [
  *            WHERE
- *            [STATE = ["PENDING"|"RUNNING"|"FINISHED"|"FAILED"]]
+ *            [PRIORITY = ["HIGH"|"MID"|"LOW"]]
  *        ]
- *        [ORDER BY ...]
- *        [LIMIT limit];
  */
-public class ShowAnalyzeStmt extends ShowStmt {
-    private static final String STATE_NAME = "state";
+public class ShowAutoAnalyzeJobsStmt extends ShowStmt {
+    private static final String PRIORITY = "priority";
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("job_id")
             .add("catalog_name")
             .add("db_name")
             .add("tbl_name")
-            .add("col_name")
-            .add("job_type")
-            .add("analysis_type")
-            .add("message")
-            .add("last_exec_time_in_ms")
-            .add("state")
-            .add("progress")
-            .add("schedule_type")
-            .add("start_time")
-            .add("end_time")
+            .add("col_list")
             .add("priority")
             .build();
 
-    private long jobId;
-    private final TableName dbTableName;
+    private final TableName tableName;
     private final Expr whereClause;
 
+    public ShowAutoAnalyzeJobsStmt(TableName tableName, Expr whereClause) {
+        this.tableName = tableName;
+        this.whereClause = whereClause;
+    }
+
     // extract from predicate
-    private String stateValue;
+    private String jobPriority;
 
-    private final boolean auto;
-
-
-    public ShowAnalyzeStmt(TableName dbTableName,
-                           Expr whereClause, boolean auto) {
-        this.dbTableName = dbTableName;
-        this.whereClause = whereClause;
-        this.auto = auto;
-
-    }
-
-    public ShowAnalyzeStmt(long jobId,
-            Expr whereClause) {
-        Preconditions.checkArgument(jobId > 0, "JobId must greater than 0.");
-        this.jobId = jobId;
-        this.dbTableName = null;
-        this.whereClause = whereClause;
-        this.auto = false;
-    }
-
-    public long getJobId() {
-        return jobId;
-    }
-
-    public String getStateValue() {
+    public String getPriority() {
         Preconditions.checkArgument(isAnalyzed(),
                 "The stateValue must be obtained after the parsing is complete");
-        return stateValue;
+        return jobPriority;
     }
 
     public Expr getWhereClause() {
         Preconditions.checkArgument(isAnalyzed(),
                 "The whereClause must be obtained after the parsing is complete");
-
         return whereClause;
     }
 
@@ -116,11 +83,12 @@ public class ShowAnalyzeStmt extends ShowStmt {
                     + "in your FE conf file");
         }
         super.analyze(analyzer);
-        if (dbTableName != null) {
-            dbTableName.analyze(analyzer);
-            String dbName = dbTableName.getDb();
-            String tblName = dbTableName.getTbl();
-            checkShowAnalyzePriv(dbName, tblName);
+        if (tableName != null) {
+            tableName.analyze(analyzer);
+            String catalogName = tableName.getCtl();
+            String dbName = tableName.getDb();
+            String tblName = tableName.getTbl();
+            checkShowAnalyzePriv(catalogName, dbName, tblName);
         }
 
         // analyze where clause if not null
@@ -143,9 +111,9 @@ public class ShowAnalyzeStmt extends ShowStmt {
         return RedirectStatus.FORWARD_NO_SYNC;
     }
 
-    private void checkShowAnalyzePriv(String dbName, String tblName) throws AnalysisException {
+    private void checkShowAnalyzePriv(String catalogName, String dbName, String tblName) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
+                .checkTblPriv(ConnectContext.get(), catalogName, dbName, tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "SHOW ANALYZE",
@@ -180,7 +148,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
                 break CHECK;
             }
             String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
-            if (!STATE_NAME.equalsIgnoreCase(leftKey)) {
+            if (!PRIORITY.equalsIgnoreCase(leftKey)) {
                 valid = false;
                 break CHECK;
             }
@@ -197,9 +165,9 @@ public class ShowAnalyzeStmt extends ShowStmt {
                 break CHECK;
             }
 
-            stateValue = value.toUpperCase();
+            jobPriority = value.toUpperCase();
             try {
-                AnalysisState.valueOf(stateValue);
+                JobPriority.valueOf(jobPriority);
             } catch (Exception e) {
                 valid = false;
             }
@@ -207,23 +175,18 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: "
-                    + "STATE = \"PENDING|RUNNING|FINISHED|FAILED");
+                    + "PRIORITY = \"HIGH|MID|LOW\"");
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("SHOW ANALYZE");
+        sb.append("SHOW AUTO ANALYZE");
 
-        if (jobId != 0) {
+        if (tableName != null) {
             sb.append(" ");
-            sb.append(jobId);
-        }
-
-        if (dbTableName != null) {
-            sb.append(" ");
-            sb.append(dbTableName.toSql());
+            sb.append(tableName.toSql());
         }
 
         if (whereClause != null) {
@@ -241,11 +204,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
         return toSql();
     }
 
-    public TableName getDbTableName() {
-        return dbTableName;
-    }
-
-    public boolean isAuto() {
-        return auto;
+    public TableName getTableName() {
+        return tableName;
     }
 }

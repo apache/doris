@@ -4407,6 +4407,10 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
+    | KW_AUTO KW_JOBS opt_table_name:tbl opt_wild_where
+    {:
+        RESULT = new ShowAutoAnalyzeJobsStmt(tbl, parser.where);
+    :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:
         RESULT = new ShowAnalyzeTaskStatus(jobId);

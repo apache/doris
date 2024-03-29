@@ -65,7 +65,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-        List<Pair<String, String>> columnList = info.jobColumns;
+        Set<Pair<String, String>> columnList = info.jobColumns;
         if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod) || columnList == null || columnList.isEmpty()) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
@@ -228,7 +228,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String collectColStats = stringSubstitutor.replace(COLLECT_COL_STATISTICS);
+        String collectColStats = stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE);
         runQuery(collectColStats);
     }
 

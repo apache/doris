@@ -95,7 +95,7 @@ public class StatisticConstants {
 
     public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
 
-    public static final int TASK_QUEUE_CAP = 10;
+    public static final int TASK_QUEUE_CAP = 1;
 
     public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 100;
 
