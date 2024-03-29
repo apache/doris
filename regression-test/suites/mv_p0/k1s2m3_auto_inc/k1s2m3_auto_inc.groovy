@@ -51,8 +51,8 @@ suite ("k1s2m3_auto_inc") {
     qt_select_star "select * from d_table order by k1;"
 
     explain {
-        sql("select k3,sum(abs(k2+1)) from d_table group by k3;")
+        sql("select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;")
         contains "(k3ap2spa)"
     }
-    qt_select_mv "select k3,sum(abs(k2+1)) from d_table group by k3;"
+    qt_select_mv "select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;"
 }
