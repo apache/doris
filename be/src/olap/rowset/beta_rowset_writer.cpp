@@ -416,8 +416,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     // otherwise _segcompacting_cond will never get notified
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_context.tablet_schema->cluster_key_idxes().empty() ||
-        !_check_and_set_is_doing_segcompaction() ||
-        _context.tablet_schema->num_variant_columns() > 0) {
+        _context.tablet_schema->num_variant_columns() > 0 ||
+        !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
     if (_segcompaction_status.load() != OK) {
