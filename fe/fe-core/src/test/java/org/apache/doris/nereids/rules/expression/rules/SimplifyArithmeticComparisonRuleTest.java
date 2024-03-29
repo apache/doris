@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -37,7 +38,9 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
     public void testProcess() {
         Map<String, Slot> nameToSlot = new HashMap<>();
         nameToSlot.put("a", new SlotReference("a", IntegerType.INSTANCE));
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyArithmeticComparisonRule.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(SimplifyArithmeticComparisonRule.INSTANCE)
+        ));
         assertRewriteAfterSimplify("a + 1 > 1", "a > cast((1 - 1) as INT)", nameToSlot);
         assertRewriteAfterSimplify("a - 1 > 1", "a > cast((1 + 1) as INT)", nameToSlot);
         assertRewriteAfterSimplify("a / -2 > 1", "cast((1 * -2) as INT) > a", nameToSlot);
@@ -82,7 +85,7 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         if (slotNameToSlot != null) {
             needRewriteExpression = replaceUnboundSlot(needRewriteExpression, slotNameToSlot);
         }
-        Expression rewritten = SimplifyArithmeticComparisonRule.INSTANCE.rewrite(needRewriteExpression, context);
+        Expression rewritten = executor.rewrite(needRewriteExpression, context);
         Expression expectedExpression = PARSER.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewritten.toSql());
     }

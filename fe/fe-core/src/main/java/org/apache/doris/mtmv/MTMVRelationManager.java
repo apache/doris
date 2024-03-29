@@ -67,7 +67,7 @@ public class MTMVRelationManager implements MTMVHookService {
      * @return
      */
     public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx) {
-        Set<MTMV> res = Sets.newHashSet();
+        Set<MTMV> res = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
@@ -90,7 +90,7 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     private Set<BaseTableInfo> getMTMVInfos(List<BaseTableInfo> tableInfos) {
-        Set<BaseTableInfo> mvInfos = Sets.newHashSet();
+        Set<BaseTableInfo> mvInfos = Sets.newLinkedHashSet();
         for (BaseTableInfo tableInfo : tableInfos) {
             mvInfos.addAll(getMtmvsByBaseTable(tableInfo));
         }

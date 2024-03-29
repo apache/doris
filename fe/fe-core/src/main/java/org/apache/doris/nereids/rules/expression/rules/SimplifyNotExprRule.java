@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,6 +27,10 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Rewrite rule of NOT expression.
@@ -42,12 +46,19 @@ import org.apache.doris.nereids.trees.expressions.Not;
  * not and(a >= b, a <= c) -> or(a < b, a > c)
  * not or(a >= b, a <= c) -> and(a < b, a > c)
  */
-public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
+public class SimplifyNotExprRule implements ExpressionPatternRuleFactory {
 
     public static SimplifyNotExprRule INSTANCE = new SimplifyNotExprRule();
 
     @Override
-    public Expression visitNot(Not not, ExpressionRewriteContext context) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(Not.class).then(SimplifyNotExprRule::simplify)
+        );
+    }
+
+    /** simplifyNot */
+    public static Expression simplify(Not not) {
         Expression child = not.child();
         if (child instanceof ComparisonPredicate) {
             ComparisonPredicate cp = (ComparisonPredicate) not.child();
@@ -55,23 +66,22 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
             Expression right = cp.right();
 
             if (child instanceof GreaterThan) {
-                return new LessThanEqual(left, right).accept(this, context);
+                return new LessThanEqual(left, right);
             } else if (child instanceof GreaterThanEqual) {
-                return new LessThan(left, right).accept(this, context);
+                return new LessThan(left, right);
             } else if (child instanceof LessThan) {
-                return new GreaterThanEqual(left, right).accept(this, context);
+                return new GreaterThanEqual(left, right);
             } else if (child instanceof LessThanEqual) {
-                return new GreaterThan(left, right).accept(this, context);
+                return new GreaterThan(left, right);
             }
         } else if (child instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) child;
             Not left = new Not(cp.left());
             Not right = new Not(cp.right());
-            return cp.flip(left, right).accept(this, context);
+            return cp.flip(left, right);
         } else if (child instanceof Not) {
-            return child.child(0).accept(this, context);
+            return child.child(0);
         }
-
-        return super.visitNot(not, context);
+        return not;
     }
 }

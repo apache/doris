@@ -874,7 +874,12 @@ class Suite implements GroovyInterceptable {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${arg}", t)
             }
             if (errorMsg != null) {
-                logger.warn("expect results: " + expectCsvResults + "\nrealResults: " + realResults)
+                String csvRealResult = realResults.stream()
+                    .map {row -> OutputUtils.toCsvString(row)}
+                    .collect(Collectors.joining("\n"))
+                def outputFilePath = context.outputFile.getCanonicalPath().substring(context.config.dataPath.length() + 1)
+                def line = expectCsvResults.currentLine()
+                logger.warn("expect results in file: ${outputFilePath}, line: ${line}\nrealResults:\n" + csvRealResult)
                 throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}")
             }
         }

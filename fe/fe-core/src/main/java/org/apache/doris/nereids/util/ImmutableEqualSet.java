@@ -21,7 +21,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,8 +44,8 @@ public class ImmutableEqualSet<T> {
      * Builder for ImmutableEqualSet.
      */
     public static class Builder<T> {
-        private final Map<T, T> parent = new HashMap<>();
-        private final Map<T, Integer> size = new HashMap<>();
+        private final Map<T, T> parent = new LinkedHashMap<>();
+        private final Map<T, Integer> size = new LinkedHashMap<>();
 
         /**
          * Add a equal pair

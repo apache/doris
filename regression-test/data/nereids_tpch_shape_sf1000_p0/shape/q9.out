@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF4 ps_suppkey->[l_suppkey,s_suppkey];RF5 ps_partkey->[p_partkey,l_partkey]
+----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF4 ps_suppkey->[l_suppkey,s_suppkey];RF5 ps_partkey->[l_partkey,p_partkey]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[l_suppkey]
 ----------------------PhysicalDistribute[DistributionSpecHash]

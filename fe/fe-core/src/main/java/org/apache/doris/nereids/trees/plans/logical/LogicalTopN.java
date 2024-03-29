@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -51,6 +52,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     private final List<OrderKey> orderKeys;
     private final long limit;
     private final long offset;
+    private final Supplier<List<Expression>> expressions;
 
     public LogicalTopN(List<OrderKey> orderKeys, long limit, long offset, CHILD_TYPE child) {
         this(orderKeys, limit, offset, Optional.empty(), Optional.empty(), child);
@@ -65,6 +67,13 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.limit = limit;
         this.offset = offset;
+        this.expressions = Suppliers.memoize(() -> {
+            ImmutableList.Builder<Expression> exprs = ImmutableList.builderWithExpectedSize(orderKeys.size());
+            for (OrderKey orderKey : orderKeys) {
+                exprs.add(orderKey.getExpr());
+            }
+            return exprs.build();
+        });
     }
 
     @Override
@@ -120,9 +129,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return orderKeys.stream()
-                .map(OrderKey::getExpr)
-                .collect(ImmutableList.toImmutableList());
+        return expressions.get();
     }
 
     public LogicalTopN<Plan> withOrderKeys(List<OrderKey> orderKeys) {

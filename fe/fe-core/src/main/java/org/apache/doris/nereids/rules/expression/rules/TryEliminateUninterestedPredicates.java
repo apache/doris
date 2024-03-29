@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.TryEliminateUninterestedPredicates.Context;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -51,10 +52,17 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
         this.expressionRewriteContext = new ExpressionRewriteContext(cascadesContext);
     }
 
+    /** rewrite */
     public static Expression rewrite(Expression expression, Set<Slot> interestedSlots,
             CascadesContext cascadesContext) {
         // before eliminate uninterested predicate, we must push down `Not` under CompoundPredicate
-        expression = expression.accept(new SimplifyNotExprRule(), null);
+        expression = expression.rewriteUp(expr -> {
+            if (expr instanceof Not) {
+                return SimplifyNotExprRule.simplify((Not) expr);
+            } else {
+                return expr;
+            }
+        });
         TryEliminateUninterestedPredicates rewriter = new TryEliminateUninterestedPredicates(
                 interestedSlots, cascadesContext);
         return expression.accept(rewriter, new Context());
@@ -89,7 +97,7 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
                 // -> ((interested slot a) and true) or true
                 // -> (interested slot a) or true
                 // -> true
-                expr = expr.accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
+                expr = FoldConstantRuleOnFE.evaluate(expr, expressionRewriteContext);
             }
         } else {
             //    ((uninterested slot b > 0) + 1) > 1
@@ -122,7 +130,7 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
         if (rightContext.childrenContainsNonInterestedSlots) {
             newRight = BooleanLiteral.TRUE;
         }
-        Expression expr = new And(newLeft, newRight).accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
+        Expression expr = FoldConstantRuleOnFE.evaluate(new And(newLeft, newRight), expressionRewriteContext);
         parentContext.childrenContainsInterestedSlots =
                 rightContext.childrenContainsInterestedSlots || leftContext.childrenContainsInterestedSlots;
         return expr;

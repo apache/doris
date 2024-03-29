@@ -58,6 +58,7 @@ import java.security.SecureRandom;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -302,6 +303,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
     public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
+    public static final String ENABLE_EXPR_TRACE = "enable_expr_trace";
 
     public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
 
@@ -1144,6 +1146,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_EXPR_TRACE)
+    private boolean enableExprTrace = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_TRACE, needForward = true)
     public boolean enableDpHypTrace = false;
@@ -2774,15 +2779,20 @@ public class SessionVariable implements Serializable, Writable {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
-    public Set<Integer> getDisableNereidsRules() {
-        return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
-                .filter(rule -> !rule.isEmpty())
-                .map(rule -> rule.toUpperCase(Locale.ROOT))
-                .map(rule -> RuleType.valueOf(rule))
-                .filter(ruleType -> ruleType != RuleType.CHECK_PRIVILEGES
-                        && ruleType != RuleType.CHECK_ROW_POLICY)
-                .map(RuleType::type)
-                .collect(ImmutableSet.toImmutableSet());
+    public BitSet getDisableNereidsRules() {
+        BitSet bitSet = new BitSet();
+        for (String ruleName : disableNereidsRules.split(",[\\s]*")) {
+            if (ruleName.isEmpty()) {
+                continue;
+            }
+            ruleName = ruleName.toUpperCase(Locale.ROOT);
+            RuleType ruleType = RuleType.valueOf(ruleName);
+            if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
+                continue;
+            }
+            bitSet.set(ruleType.type());
+        }
+        return bitSet;
     }
 
     public Set<Integer> getEnableNereidsRules() {
@@ -2816,6 +2826,16 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isEnableNereidsTrace() {
         return isEnableNereidsPlanner() && enableNereidsTrace;
     }
+
+    public void setEnableExprTrace(boolean enableExprTrace) {
+        this.enableExprTrace = enableExprTrace;
+    }
+
+    public boolean isEnableExprTrace() {
+        return enableExprTrace;
+    }
+
+
 
     public boolean isEnableSingleReplicaInsert() {
         return enableSingleReplicaInsert;

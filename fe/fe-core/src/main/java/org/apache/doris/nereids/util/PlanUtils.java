@@ -155,6 +155,30 @@ public class PlanUtils {
         return output.build();
     }
 
+    /** fastGetInputSlots */
+    public static Set<Slot> fastGetInputSlots(List<? extends Expression> expressions) {
+        switch (expressions.size()) {
+            case 1: return expressions.get(0).getInputSlots();
+            case 0: return ImmutableSet.of();
+            default: {
+            }
+        }
+
+        int inputSlotsNum = 0;
+        // child.inputSlots is cached by Expression.inputSlots,
+        // we can compute output num without the overhead of re-compute output
+        for (Expression expr : expressions) {
+            Set<Slot> output = expr.getInputSlots();
+            inputSlotsNum += output.size();
+        }
+        // generate output list only copy once and without resize the list
+        ImmutableSet.Builder<Slot> inputSlots = ImmutableSet.builderWithExpectedSize(inputSlotsNum);
+        for (Expression expr : expressions) {
+            inputSlots.addAll(expr.getInputSlots());
+        }
+        return inputSlots.build();
+    }
+
     /**
      * Check if slot is from the plan.
      */

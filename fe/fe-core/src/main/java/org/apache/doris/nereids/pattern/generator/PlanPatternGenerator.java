@@ -43,8 +43,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /** used to generate pattern by plan. */
-public abstract class PatternGenerator {
-    protected final PatternGeneratorAnalyzer analyzer;
+public abstract class PlanPatternGenerator {
+    protected final JavaAstAnalyzer analyzer;
     protected final ClassDeclaration opType;
     protected final Set<String> parentClass;
     protected final List<EnumFieldPatternInfo> enumFieldPatternInfos;
@@ -52,9 +52,9 @@ public abstract class PatternGenerator {
     protected final boolean isMemoPattern;
 
     /** constructor. */
-    public PatternGenerator(PatternGeneratorAnalyzer analyzer, ClassDeclaration opType,
+    public PlanPatternGenerator(PlanPatternGeneratorAnalyzer analyzer, ClassDeclaration opType,
             Set<String> parentClass, boolean isMemoPattern) {
-        this.analyzer = analyzer;
+        this.analyzer = analyzer.getAnalyzer();
         this.opType = opType;
         this.parentClass = parentClass;
         this.enumFieldPatternInfos = getEnumFieldPatternInfos();
@@ -76,8 +76,8 @@ public abstract class PatternGenerator {
     }
 
     /** generate code by generators and analyzer. */
-    public static String generateCode(String className, String parentClassName, List<PatternGenerator> generators,
-            PatternGeneratorAnalyzer analyzer, boolean isMemoPattern) {
+    public static String generateCode(String className, String parentClassName, List<PlanPatternGenerator> generators,
+            PlanPatternGeneratorAnalyzer analyzer, boolean isMemoPattern) {
         String generateCode
                 = "// Licensed to the Apache Software Foundation (ASF) under one\n"
                 + "// or more contributor license agreements.  See the NOTICE file\n"
@@ -206,7 +206,7 @@ public abstract class PatternGenerator {
     }
 
     /** create generator by plan's type. */
-    public static Optional<PatternGenerator> create(PatternGeneratorAnalyzer analyzer,
+    public static Optional<PlanPatternGenerator> create(PlanPatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
         if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalLeaf")) {
             return Optional.of(new LogicalLeafPatternGenerator(analyzer, opType, parentClass, isMemoPattern));
@@ -225,9 +225,9 @@ public abstract class PatternGenerator {
         }
     }
 
-    private static String generateImports(List<PatternGenerator> generators) {
+    private static String generateImports(List<PlanPatternGenerator> generators) {
         Set<String> imports = new HashSet<>();
-        for (PatternGenerator generator : generators) {
+        for (PlanPatternGenerator generator : generators) {
             imports.addAll(generator.getImports());
         }
         List<String> sortedImports = new ArrayList<>(imports);

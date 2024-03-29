@@ -19,7 +19,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------hashAgg[GLOBAL]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF12 ws_order_number->[ws_order_number,wr_order_number];RF13 ws_order_number->[ws_order_number,wr_order_number]
+--------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF12 ws_order_number->[wr_order_number,ws_order_number];RF13 ws_order_number->[wr_order_number,ws_order_number]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_order_number = ws_wh.ws_order_number)) otherCondition=() build RFs:RF10 wr_order_number->[ws_order_number];RF11 wr_order_number->[ws_order_number]
 --------------------------PhysicalDistribute[DistributionSpecHash]
