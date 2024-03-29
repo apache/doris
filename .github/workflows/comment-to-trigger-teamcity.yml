@@ -156,8 +156,13 @@ jobs:
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
+        if [[ "${{ steps.changes.outputs.changed_p0 }}" == "true" ]] || [[ "${{ steps.changes.outputs.changed_cloud_p0 }}" == "true" ]]; then
+          changed="true"
+        else
+          changed="false"
+        fi
         trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_p0 }}" \
+          "${changed}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "compile" \
