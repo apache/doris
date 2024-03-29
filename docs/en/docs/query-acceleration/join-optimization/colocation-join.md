@@ -356,7 +356,7 @@ Whether to close Doris's automatic Colocation replica repair. The default is fal
 
 Whether to turn off automatic Colocation replica balancing for Doris. The default is false, i.e. not closed. This parameter only affects the replica balance of the Collocation table, but does not affect the common table.
 
-User can set these configurations at runtime. See `HELP ADMIN SHOW CONFIG;` and `HELP ADMIN SET CONFIG;`.
+User can set these configurations at runtime. See `HELP SHOW CONFIG;` and `HELP ADMIN SET CONFIG;`.
 
 * disable\_colocate\_join
 

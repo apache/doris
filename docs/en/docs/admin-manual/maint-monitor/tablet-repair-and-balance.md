@@ -300,7 +300,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	Users can view the status of a copy of a specified table or partition through the following commands and filter the status through a WHERE statement. If you look at table tbl1, the state on partitions P1 and P2 is a copy of OK:
 
-	`ADMIN SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2) WHERE STATUS = "OK";`
+	`SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2) WHERE STATUS = "OK";`
 
 	```
 	+----------+-----------+-----------+---------+-------------------+--------------------+------------------+------------+------------+-------+--------+--------+
@@ -315,9 +315,9 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 	+----------+-----------+-----------+---------+-------------------+--------------------+------------------+------------+------------+-------+--------+--------+
    ```
 
-	The status of all copies is shown here. Where `IsBad` is listed as `true`, the copy is damaged. The `Status` column displays other states. Specific status description, you can see help through `HELP ADMIN SHOW REPLICA STATUS`.
+	The status of all copies is shown here. Where `IsBad` is listed as `true`, the copy is damaged. The `Status` column displays other states. Specific status description, you can see help through `HELP SHOW REPLICA STATUS`.
 
-	` The ADMIN SHOW REPLICA STATUS `command is mainly used to view the health status of copies. Users can also view additional information about copies of a specified table by using the following commands:
+	` The SHOW REPLICA STATUS `command is mainly used to view the health status of copies. Users can also view additional information about copies of a specified table by using the following commands:
 
 	`SHOW TABLETS FROM tbl1;`
 
@@ -337,7 +337,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	In addition, users can check the distribution of replicas in a specified table or partition by following commands.
 
-	`ADMIN SHOW REPLICA DISTRIBUTION FROM tbl1;`
+	`SHOW REPLICA DISTRIBUTION FROM tbl1;`
 
     ```
 	+-----------+------------+-------+---------+

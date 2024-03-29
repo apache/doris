@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN-SHOW-CONFIG",
+    "title": "SHOW-CONFIG",
     "language": "zh-CN"
 }
 ---
@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ADMIN-SHOW-CONFIG
+## SHOW-CONFIG
 
 ### Name
 
-ADMIN SHOW CONFIG
+SHOW CONFIG
 
 ### Description
 
@@ -37,7 +37,7 @@ ADMIN SHOW CONFIG
 语法：
 
 ```sql
- ADMIN SHOW FRONTEND CONFIG [LIKE "pattern"];
+SHOW FRONTEND CONFIG [LIKE "pattern"];
 ```
 
 结果中的各列含义如下：
@@ -54,13 +54,13 @@ ADMIN SHOW CONFIG
 1. 查看当前FE节点的配置
 
    ```sql
-   ADMIN SHOW FRONTEND CONFIG;
+   SHOW FRONTEND CONFIG;
    ```
 
 2. 使用like谓词搜索当前Fe节点的配置
 
     ```
-    mysql> ADMIN SHOW FRONTEND CONFIG LIKE '%check_java_version%';
+    mysql> SHOW FRONTEND CONFIG LIKE '%check_java_version%';
     +--------------------+-------+---------+-----------+------------+---------+
     | Key                | Value | Type    | IsMutable | MasterOnly | Comment |
     +--------------------+-------+---------+-----------+------------+---------+
@@ -71,7 +71,7 @@ ADMIN SHOW CONFIG
 
 ### Keywords
 
-    ADMIN, SHOW, CONFIG, ADMIN SHOW
+    SHOW, CONFIG
 
 ### Best Practice
 

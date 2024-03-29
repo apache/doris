@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN DIAGNOSE TABLET",
+    "title": "SHOW TABLET DIAGNOSIS",
     "language": "en"
 }
 ---
@@ -22,14 +22,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ADMIN DIAGNOSE TABLET
+## SHOW TABLET DIAGNOSIS
 ### Description
 
     This statement is used to diagnose the specified tablet. The results will show information about the tablet and some potential problems.
 
     grammar:
 
-        ADMIN DIAGNOSE TABLET tblet_id
+        SHOW TABLET DIAGNOSE TABLET tablet_id
 
     illustrate:
 
@@ -51,7 +51,8 @@ under the License.
 
     1. Diagnose tablet 10001
 
-        ADMIN DIAGNOSE TABLET 10001;
+        SHOW TABLET DIAGNOSE TABLET 10001;
 
 ### Keywords
-    ADMIN,DIAGNOSE,TABLET
+
+    SHOW, DIAGNOSIS, TABLET
