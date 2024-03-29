@@ -132,3 +132,9 @@ s3Region = "ap-hongkong"
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
+
+// for arrow flight case
+extArrowFlightSqlHost = "127.0.0.1"
+extArrowFlightSqlPort = 10010
+extArrowFlightSqlUser = "root"
+extArrowFlightSqlPassword= ""
