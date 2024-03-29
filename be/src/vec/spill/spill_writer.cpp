@@ -18,6 +18,7 @@
 #include "vec/spill/spill_writer.h"
 
 #include "agent/be_exec_version_manager.h"
+#include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
@@ -35,13 +36,17 @@ Status SpillWriter::open() {
     return Status::OK();
 }
 
+SpillWriter::~SpillWriter() {
+    if (!closed_) {
+        (void)Status::Error<ErrorCode::INTERNAL_ERROR>("spill writer not closed correctly");
+    }
+}
+
 Status SpillWriter::close() {
     if (closed_ || !file_writer_) {
         return Status::OK();
     }
     closed_ = true;
-
-    tmp_block_.clear_column_data();
 
     meta_.append((const char*)&max_sub_block_size_, sizeof(max_sub_block_size_));
     meta_.append((const char*)&written_blocks_, sizeof(written_blocks_));
@@ -71,17 +76,13 @@ Status SpillWriter::write(const Block& block, size_t& written_bytes) {
     if (rows <= batch_size_) {
         return _write_internal(block, written_bytes);
     } else {
-        if (is_first_write_) {
-            is_first_write_ = false;
-            tmp_block_ = block.clone_empty();
-        }
-
+        auto tmp_block = block.clone_empty();
         const auto& src_data = block.get_columns_with_type_and_name();
 
         for (size_t row_idx = 0; row_idx < rows;) {
-            tmp_block_.clear_column_data();
+            tmp_block.clear_column_data();
 
-            auto& dst_data = tmp_block_.get_columns_with_type_and_name();
+            auto& dst_data = tmp_block.get_columns_with_type_and_name();
 
             size_t block_rows = std::min(rows - row_idx, batch_size_);
             RETURN_IF_CATCH_EXCEPTION({
@@ -91,7 +92,7 @@ Status SpillWriter::write(const Block& block, size_t& written_bytes) {
                 }
             });
 
-            RETURN_IF_ERROR(_write_internal(tmp_block_, written_bytes));
+            RETURN_IF_ERROR(_write_internal(tmp_block, written_bytes));
 
             row_idx += block_rows;
         }
@@ -106,8 +107,8 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
     std::string buff;
 
     if (block.rows() > 0) {
-        PBlock pblock;
         {
+            PBlock pblock;
             SCOPED_TIMER(serialize_timer_);
             status = block.serialize(BeExecVersionManager::get_newest_version(), &pblock,
                                      &uncompressed_bytes, &compressed_bytes,

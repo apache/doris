@@ -154,6 +154,8 @@ public:
         return false;
     }
 
+    static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
+
 private:
     friend class RuntimeFilterDependency;
     Dependency* _write_blocked_dependency() {

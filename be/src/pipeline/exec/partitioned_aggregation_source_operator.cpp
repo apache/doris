@@ -88,6 +88,7 @@ Status PartitionedAggLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
+    dec_running_big_mem_op_num(state);
     {
         std::unique_lock<std::mutex> lk(_merge_spill_lock);
         if (_is_merging) {
@@ -128,6 +129,7 @@ Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
