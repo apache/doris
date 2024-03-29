@@ -185,11 +185,17 @@ using StorageVaultKeyInfo = BasicKeyInfo<26, std::tuple<std::string, std::string
 //                                                      0:instance_id 1:db_id 2:table_id
 using TableVersionKeyInfo = BasicKeyInfo<27, std::tuple<std::string, int64_t, int64_t>>;
 
+//                                                      0:instance_id
+using DefaultStorageVaultKeyInfo = BasicKeyInfo<26, std::tuple<std::string>>;
+
 void instance_key(const InstanceKeyInfo& in, std::string* out);
 static inline std::string instance_key(const InstanceKeyInfo& in) { std::string s; instance_key(in, &s); return s; }
 
 void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out);
 static inline std::string storage_vault_key(const StorageVaultKeyInfo& in) { std::string s; storage_vault_key(in, &s); return s; }
+
+void default_storage_vault_key(const DefaultStorageVaultKeyInfo& in, std::string* out);
+static inline std::string default_storage_vault_key(const DefaultStorageVaultKeyInfo& in) { std::string s; default_storage_vault_key(in, &s); return s; }
 
 std::string txn_key_prefix(std::string_view instance_id);
 void txn_label_key(const TxnLabelKeyInfo& in, std::string* out);

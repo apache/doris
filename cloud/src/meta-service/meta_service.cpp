@@ -1916,23 +1916,24 @@ void MetaServiceImpl::get_default_vault(::google::protobuf::RpcController* contr
     }
 
     std::shared_ptr<Transaction> txn(txn0.release());
-    auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
-    if (c0 != TxnErrorCode::TXN_OK) {
+    auto default_key = default_storage_vault_key({instance_id});
+    std::string val;
+    if (err = txn->get(default_key, &val); err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get instance, info={}", m0);
+        msg = fmt::format("failed to get default vault for instance {}", instance_id);
         return;
     }
 
-    if (!instance.has_default_vault_name()) {
+    DefaultStorageVaultInfo info;
+    if (!info.ParseFromString(val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "malformed rowset meta, unable to deserialize";
+        LOG(WARNING) << msg << " key=" << hex(default_key);
         return;
     }
-    auto name_iter = std::find_if(
-            instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
-            [&](const auto& vault_name) { return vault_name == instance.default_vault_name(); });
-    auto pos = name_iter - instance.storage_vault_names().begin();
-    const auto& vault_id = instance.resource_ids().at(pos);
-    response->set_vault_name(instance.default_vault_name());
-    response->set_vault_id(vault_id);
+    
+    response->set_vault_id(info.id());
+    response->set_vault_name(info.name());
 }
 
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(

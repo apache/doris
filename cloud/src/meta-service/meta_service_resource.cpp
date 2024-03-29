@@ -39,6 +39,9 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
+const static char* BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
+const static char* BUILT_IN_STORAGE_VAULT_ID = "1";
+
 static void* run_bthread_work(void* arg) {
     auto f = reinterpret_cast<std::function<void()>*>(arg);
     (*f)();
@@ -323,6 +326,9 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     std::string vault_id = next_available_vault_id(instance);
     storage_vault_key({instance.instance_id(), vault_id}, &key);
     hdfs_param.set_id(vault_id);
+    if (vault_id == BUILT_IN_STORAGE_VAULT_ID) {
+        hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME);
+    }
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
     LOG_INFO("try to put storage vault_id={}, vault_name={}", vault_id, hdfs_param.name());
@@ -569,18 +575,17 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         break;
     }
     case AlterObjStoreInfoRequest::ADD_BUILT_IN_HDFS_INFO: {
-        std::string vault_id = "0";
-        std::string key = storage_vault_key({instance_id, vault_id});
-        auto* hdfs = request->hdfs().New();
-        hdfs->set_id(std::move(vault_id));
-        hdfs->set_name("built_in_storage_vault");
-        std::string val = hdfs->SerializeAsString();
-        txn->put(key, val);
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::COMMIT>(err);
-            msg = fmt::format("failed to commit kv txn, err={}", err);
-            LOG(WARNING) << msg;
+        // If the resource ids is empty then it would be the first vault
+        if (!instance.resource_ids().empty()) {
+            std::stringstream ss;
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "Default vault can not be modified";
+            msg = ss.str();
+            return;
+        }
+        if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
+            ret != 0) {
+            return;
         }
         return;
     }
@@ -604,7 +609,27 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         auto pos = name_itr - instance.storage_vault_names().begin();
         auto id_itr = instance.resource_ids().begin() + pos;
-        break;
+        auto default_key = default_storage_vault_key({instance_id});
+        DefaultStorageVaultInfo info;
+        info.set_id(*id_itr);
+        info.set_name(name);
+        auto val = info.SerializeAsString();
+        if (val.empty()) {
+            msg = "failed to serialize";
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            return;
+        }
+
+        txn->put(key, val);
+        LOG(INFO) << "set default vault " << name << " id " << *id_itr
+                  << "instance_id=" << instance_id << " instance_key=" << hex(key);
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            msg = fmt::format("failed to commit kv txn, err={}", err);
+            LOG(WARNING) << msg;
+        }
+        return;
     }
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;

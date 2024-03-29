@@ -197,6 +197,11 @@ message StorageVaultPB {
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
 }
 
+message DefaultStorageVaultInfo {
+    optional string id = 1;
+    optional string name = 2;
+}
+
 message HdfsBuildConf {
     message HdfsConfKVPair {
         required string key = 1;
