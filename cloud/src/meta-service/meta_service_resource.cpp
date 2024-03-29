@@ -602,7 +602,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             msg = ss.str();
             return;
         }
-        instance.set_default_vault_name(name);
+        auto pos = name_itr - instance.storage_vault_names().begin();
+        auto id_itr = instance.resource_ids().begin() + pos;
         break;
     }
     default: {

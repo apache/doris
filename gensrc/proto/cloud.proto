@@ -76,7 +76,6 @@ message InstanceInfoPB {
 
     repeated string resource_ids = 100;
     repeated string storage_vault_names = 101;
-    optional string default_vault_name = 102;
 }
 
 message StagePB {
