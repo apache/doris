@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -153,9 +152,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         Map<Boolean, ImmutableSet<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
                 .filter(aggFunc -> !aggFunc.isDistinct())
                 .flatMap(agg -> agg.children().stream())
-                // should not push down literal under aggregate
-                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                .filter(arg -> !(arg instanceof Literal))
                 .collect(Collectors.groupingBy(
                         child -> child.containsType(SubqueryExpr.class, WindowExpression.class),
                         ImmutableSet.toImmutableSet()));
@@ -166,9 +162,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         Map<Object, ImmutableSet<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
                 .filter(AggregateFunction::isDistinct)
                 .flatMap(agg -> agg.children().stream())
-                // should not push down literal under aggregate
-                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                .filter(arg -> !(arg instanceof Literal))
                 .collect(
                         Collectors.groupingBy(
                                 child -> !(child instanceof SlotReference),

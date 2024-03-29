@@ -133,7 +133,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 
 Hint log:
-Used: leading(catalog_sales catalog_returns ) leading({ store_sales { { customer d2 } cd2 } } cd1 d3 item { hd1 ib1 } store_returns ad1 hd2 ad2 ib2 d1 store promotion cs_ui ) leading(cs1 cs2 )
+Used:  leading(catalog_sales shuffle catalog_returns ) leading({ store_sales { { customer d2 } cd2 } } cd1 d3 item { hd1 ib1 } store_returns ad1 hd2 ad2 ib2 d1 store promotion cs_ui ) leading(cs1 shuffle cs2 )
 UnUsed: 
 SyntaxError:
 
