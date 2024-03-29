@@ -45,8 +45,8 @@ Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_statu
         return Status::OK();
     }
     RETURN_IF_ERROR(Base::close(state, exec_status));
-    if (!_release_count) {
-        _shared_state->sub_running_sink_operators();
+    if (exec_status.ok()) {
+        DCHECK(_release_count) << "Do not finish correctly! " << debug_string(0);
     }
     return Status::OK();
 }
