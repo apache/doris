@@ -126,7 +126,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 Expression slot = expr.child(0).child(0);
                 String countColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
                         CreateMaterializedViewStmt.mvColumnBuilder(slotToCaseWhen(slot).toSql())));
-                if(sumSlots.contains(countColumn)){
+                if (sumSlots.contains(countColumn)) {
                     prunedExpr.add(expr);
                 }
             }
