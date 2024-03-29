@@ -170,4 +170,16 @@ suite("fix_leading") {
     qt_select4_1 """select count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
     qt_select4_2 """select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
     qt_select4_3 """explain shape plan select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+
+    // fix inner join + left join with null rejection derive
+    qt_select5_1 """select count(*) from t1 join t2 on t1.c1 = t1.c11 left join t3 on t3.c3 < 0;"""
+    qt_select5_2 """select /*+ leading(t1 t2 t3) */ count(*) from t1 join t2 on t1.c1 = t1.c11 left join t3 on t3.c3 < 0;"""
+    qt_select5_3 """explain shape plan select count(*) from t1 join t2 on t1.c1 = t1.c11 left join t3 on t3.c3 < 0;"""
+    qt_select5_4 """explain shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 join t2 on t1.c1 = t1.c11 left join t3 on t3.c3 < 0;"""
+    qt_select5_5 """select count(*) from t1 join t2 on t1.c1 = t1.c11 right join t3 on t3.c3 < 0;"""
+    qt_select5_6 """select /*+ leading(t1 t2 t3) */ count(*) from t1 join t2 on t1.c1 = t1.c11 right join t3 on t3.c3 < 0;"""
+    qt_select5_7 """explain shape plan select count(*) from t1 join t2 on t1.c1 = t1.c11 right join t3 on t3.c3 < 0;"""
+    qt_select5_8 """explain shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 join t2 on t1.c1 = t1.c11 right join t3 on t3.c3 < 0;"""
+
+
 }
