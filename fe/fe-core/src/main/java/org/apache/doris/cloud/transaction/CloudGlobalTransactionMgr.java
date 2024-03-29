@@ -559,10 +559,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         });
         try {
-             List<Long> visibleVersion = CloudPartition.getSnapshotVisibleVersion(cloudPartitions);
-             for (int i = 0; i < visibleVersion.size(); i++) {
-                 long newVersion = visibleVersion.get(i) <= 0 ? 2 : visibleVersion.get(i) + 1;
-                 partitionToVersions.put(cloudPartitions.get(i).getId(), newVersion);
+            List<Long> visibleVersion = CloudPartition.getSnapshotVisibleVersion(cloudPartitions);
+            for (int i = 0; i < visibleVersion.size(); i++) {
+                long newVersion = visibleVersion.get(i) <= 0 ? 2 : visibleVersion.get(i) + 1;
+                partitionToVersions.put(cloudPartitions.get(i).getId(), newVersion);
             }
         } catch (RpcException e) {
             throw new RuntimeException("get version from meta service failed");
