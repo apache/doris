@@ -286,7 +286,6 @@ public:
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
             const std::set<int32_t>& alter_index_uids, bool is_drop_op);
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
     // used for single compaction to get the local versions
     // Single compaction does not require remote rowsets and cannot violate the cooldown semantics
     std::vector<Version> get_all_local_versions();
