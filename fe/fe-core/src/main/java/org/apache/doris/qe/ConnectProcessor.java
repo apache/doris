@@ -232,6 +232,7 @@ public abstract class ConnectProcessor {
                 // Parse sql failed, audit it and return
                 handleQueryException(e, convertedStmt, null, null);
                 return;
+            } catch (ParseEx)
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 if (LOG.isDebugEnabled()) {
