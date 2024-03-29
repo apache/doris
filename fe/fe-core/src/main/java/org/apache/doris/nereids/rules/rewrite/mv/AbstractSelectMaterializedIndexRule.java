@@ -218,8 +218,10 @@ public abstract class AbstractSelectMaterializedIndexRule {
             Set<Expression> predicates,
             Map<ExprId, String> exprIdToName) {
         Map<Boolean, Set<String>> split = filterCanUsePrefixIndexAndSplitByEquality(predicates, exprIdToName);
-        Set<String> equalColNames = split.getOrDefault(true, ImmutableSet.of());
-        Set<String> nonEqualColNames = split.getOrDefault(false, ImmutableSet.of());
+        Set<String> equalColNames = split.getOrDefault(true, ImmutableSet.of()).stream()
+                .map(String::toLowerCase).collect(Collectors.toSet());
+        Set<String> nonEqualColNames = split.getOrDefault(false, ImmutableSet.of()).stream()
+                .map(String::toLowerCase).collect(Collectors.toSet());
 
         if (!(equalColNames.isEmpty() && nonEqualColNames.isEmpty())) {
             List<MaterializedIndex> matchingResult = matchKeyPrefixMost(scan.getTable(), candidate,
@@ -357,9 +359,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
             Set<String> nonEqualColNames) {
         int matchCount = 0;
         for (Column column : table.getSchemaByIndexId(index.getId())) {
-            if (equalColNames.contains(normalizeName(column.getNameWithoutMvPrefix()))) {
+            if (equalColNames.contains(normalizeName(column.getNameWithoutMvPrefix().toLowerCase()))) {
                 matchCount++;
-            } else if (nonEqualColNames.contains(normalizeName(column.getNameWithoutMvPrefix()))) {
+            } else if (nonEqualColNames.contains(normalizeName(column.getNameWithoutMvPrefix().toLowerCase()))) {
                 // un-equivalence predicate's columns can match only first column in index.
                 matchCount++;
                 break;
