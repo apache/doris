@@ -268,6 +268,12 @@ bool Compaction::handle_ordered_data_compaction() {
         _tablet->enable_unique_key_merge_on_write()) {
         return false;
     }
+
+    if (_tablet->tablet_meta()->tablet_schema()->skip_write_index_on_load()) {
+        // Expected to create index through normal compaction
+        return false;
+    }
+
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
@@ -296,9 +302,11 @@ bool Compaction::handle_ordered_data_compaction() {
     // just handle nonoverlappint rowsets
     auto st = do_compact_ordered_rowsets();
     if (!st.ok()) {
-        return false;
+        LOG(WARNING) << "failed to compact ordered rowsets: " << st;
+        _pending_rs_guard.drop();
     }
-    return true;
+
+    return st.ok();
 }
 
 Status Compaction::do_compaction_impl(int64_t permits) {
