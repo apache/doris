@@ -137,6 +137,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                   << ", rows: " << memtable->stat().raw_rows;
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
+    SCOPED_ATTACH_TASK(memtable->query_thread_context());
     signal::set_signal_task_id(_rowset_writer->load_id());
     {
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());

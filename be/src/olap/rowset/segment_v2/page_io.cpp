@@ -147,11 +147,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     if (opts.use_page_cache && cache) {
         page_mem_tracker = cache->mem_tracker(opts.type);
     } else {
-        if (is_thread_context_init()) {
-            page_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-        } else {
-            page_mem_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
-        }
+        page_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
     }
 
     // hold compressed page at first, reset to decompressed page later

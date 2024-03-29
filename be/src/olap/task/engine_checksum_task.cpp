@@ -48,7 +48,7 @@ EngineChecksumTask::EngineChecksumTask(StorageEngine& engine, TTabletId tablet_i
           _schema_hash(schema_hash),
           _version(version),
           _checksum(checksum) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
+    _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::LOAD,
             "EngineChecksumTask#tabletId=" + std::to_string(tablet_id));
 }
