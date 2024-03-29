@@ -188,7 +188,8 @@ public class SlotReference extends Slot {
 
     @Override
     public String toSql() {
-        return getQualifiedNameWithBacktick();
+        // return getQualifiedNameWithBacktick();
+        return name.get();
     }
 
     @Override

@@ -51,6 +51,11 @@ public class LogicalProperties {
         this(outputSupplier, fdSupplier, outputExpressionSupplier, ImmutableList::of);
     }
 
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
+            Supplier<FunctionalDependencies> fdSupplier) {
+        this(outputSupplier, fdSupplier, null, ImmutableList::of);
+    }
+
     /**
      * constructor of LogicalProperties.
      *

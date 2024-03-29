@@ -86,7 +86,7 @@ test_view_with_as	CREATE VIEW `test_view_with_as` COMMENT 'VIEW' AS (\n         
 6	7	1
 
 -- !test_union_sql --
-test_view_union	CREATE VIEW `test_view_union` COMMENT 'VIEW' AS (\nselect `regression_test_ddl_p0`.`mal_test_view`.`pk` AS `c1`, `regression_test_ddl_p0`.`mal_test_view`.`a` AS `c2`, `regression_test_ddl_p0`.`mal_test_view`.`b` AS `c3` from mal_test_view Union all SELECT `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` FROM mal_test_view);	utf8mb4	utf8mb4_0900_bin
+test_view_union	CREATE VIEW `test_view_union` COMMENT 'VIEW' AS (select `regression_test_ddl_p0`.`mal_test_view`.`pk` AS `c1`, `regression_test_ddl_p0`.`mal_test_view`.`a` AS `c2`, `regression_test_ddl_p0`.`mal_test_view`.`b` AS `c3` from mal_test_view Union all SELECT `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` FROM mal_test_view);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_count_star --
 17

@@ -389,6 +389,7 @@ public class JoinUtils {
         }
     }
 
+    /** getJoinOutputExpression */
     public static List<NamedExpression> getJoinOutputExpression(JoinType joinType, Plan left, Plan right) {
         switch (joinType) {
             case LEFT_SEMI_JOIN:
@@ -405,7 +406,6 @@ public class JoinUtils {
                         .build();
         }
     }
-
 
     public static boolean hasMarkConjuncts(Join join) {
         return !join.getMarkJoinConjuncts().isEmpty();
