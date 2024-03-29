@@ -317,8 +317,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             return;
         }
         FunctionalDependencies childFd = child(0).getLogicalProperties().getFunctionalDependencies();
+        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
+                .map(s -> (Slot) s)
+                .collect(ImmutableSet.toImmutableSet());
         // when group by all tuples, the result only have one row
-        if (groupByExpressions.isEmpty()) {
+        if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
             getOutput().forEach(fdBuilder::addUniqueSlot);
             return;
         }
@@ -326,9 +329,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         // propagate all unique slots
         fdBuilder.addUniqueSlot(childFd);
 
-        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
-                .map(s -> (Slot) s)
-                .collect(ImmutableSet.toImmutableSet());
         // group by keys is unique
         fdBuilder.addUniqueSlot(groupByKeys);
 
@@ -344,23 +344,22 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     @Override
     public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        // always propagate uniform
+        FunctionalDependencies childFd = child(0).getLogicalProperties().getFunctionalDependencies();
+        fdBuilder.addUniformSlot(childFd);
+
         if (this.sourceRepeat.isPresent()) {
             // roll up may generate new data
             return;
         }
-        FunctionalDependencies childFd = child(0).getLogicalProperties().getFunctionalDependencies();
-        // when group by all tuples, the result only have one row
-        if (groupByExpressions.isEmpty()) {
-            getOutput().forEach(fdBuilder::addUniformSlot);
-            return;
-        }
-
-        // propagate all uniform slots
-        fdBuilder.addUniformSlot(childFd);
-
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
+        // when group by all tuples, the result only have one row
+        if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
+            getOutput().forEach(fdBuilder::addUniformSlot);
+            return;
+        }
 
         if (childFd.isUniqueAndNotNull(groupByKeys)) {
             for (NamedExpression namedExpression : getOutputExpressions()) {

@@ -263,7 +263,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(1)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select row_number() over(partition by name) from agg where name = '1'")
