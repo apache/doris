@@ -495,6 +495,11 @@ struct TFeResult {
     1001: optional bool noAuth
 }
 
+struct TTypeAndLiteral {
+    1: required Types.TPrimitiveType type
+    2: required string value
+}
+
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -530,11 +535,6 @@ struct TMasterOpRequest {
     // selectdb cloud
     1000: optional string cloud_cluster
     1001: optional bool noAuth;
-}
-
-struct TTypeAndLiteral {
-    1: required Types.TPrimitiveType type
-    2: required string value
 }
 
 struct TColumnDefinition {
