@@ -56,6 +56,7 @@ class WorkloadGroupMgr;
 namespace io {
 class FileCacheFactory;
 class FDCache;
+struct FileCacheProfile;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -419,6 +420,7 @@ private:
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
+    io::FileCacheProfile* file_cache_profile;
 
     // used for query with group cpu hard limit
     std::shared_ptr<pipeline::BlockedTaskScheduler> _global_block_scheduler;
