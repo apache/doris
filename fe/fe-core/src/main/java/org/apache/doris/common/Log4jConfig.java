@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
@@ -136,7 +137,9 @@ public class Log4jConfig extends XmlConfiguration {
         String newXmlConfTemplate = xmlConfTemplate;
 
         // sys log config
-        String sysLogDir = Config.sys_log_dir;
+        // ATTN, sys_log_dir is deprecated, use LOG_DIR instead
+        String sysLogDir = Strings.isNullOrEmpty(Config.sys_log_dir) ? System.getenv("LOG_DIR") :
+                Config.sys_log_dir;
         String sysRollNum = String.valueOf(Config.sys_log_roll_num);
         String sysDeleteAge = String.valueOf(Config.sys_log_delete_age);
         boolean compressSysLog = Config.sys_log_enable_compress;

@@ -62,9 +62,10 @@ public class Config extends ConfigBase {
      * sys_log_enable_compress:
      *      default is false. if true, will compress fe.log & fe.warn.log by gzip
      */
+    @Deprecated // use env var LOG_DIR instead
     @ConfField(description = {"FE 日志文件的存放路径，用于存放 fe.log。",
             "The path of the FE log file, used to store fe.log"})
-    public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
+    public static String sys_log_dir = "";
 
     @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
@@ -101,7 +102,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"FE 审计日志文件的存放路径，用于存放 fe.audit.log。",
             "The path of the FE audit log file, used to store fe.audit.log"})
-    public static String audit_log_dir = System.getenv("DORIS_HOME") + "/log";
+    public static String audit_log_dir = System.getenv("LOG_DIR");
     @ConfField(description = {"FE 审计日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
             "The maximum number of FE audit log files. "
                     + "After exceeding this number, the oldest log file will be deleted"})
@@ -570,7 +571,7 @@ public class Config extends ConfigBase {
     public static String spark_resource_path = "";
 
     @ConfField(description = {"Spark launcher 日志路径", "Spark launcher log dir"})
-    public static String spark_launcher_log_dir = sys_log_dir + "/spark_launcher_log";
+    public static String spark_launcher_log_dir = System.getenv("LOG_DIR") + "/spark_launcher_log";
 
     @ConfField(description = {"Yarn client 的路径", "Yarn client path"})
     public static String yarn_client_path = System.getenv("DORIS_HOME") + "/lib/yarn-client/hadoop/bin/yarn";
@@ -2469,7 +2470,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"nereids trace文件的存放路径。",
             "The path of the nereids trace file."})
-    public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
+    public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
