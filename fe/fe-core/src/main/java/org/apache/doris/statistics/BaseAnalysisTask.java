@@ -48,7 +48,7 @@ public abstract class BaseAnalysisTask {
     public static final long LIMIT_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final double LIMIT_FACTOR = 1.2;
 
-    protected static final String COLLECT_COL_STATISTICS =
+    protected static final String FULL_ANALYZE_TEMPLATE =
             "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
             + "         ${catalogId} AS `catalog_id`, "
             + "         ${dbId} AS `db_id`, "
