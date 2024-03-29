@@ -73,6 +73,8 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
      */
     private void getTableStats() {
         Map<String, String> params = buildStatsParams(null);
+        Pair<Double, Long> sampleInfo = getSampleInfo();
+        params.put("scaleFactor", String.valueOf(sampleInfo.first));
         List<ResultRow> columnResult =
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
                         .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
@@ -98,7 +100,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Will do full collection for column {}", col.getName());
             }
-            sb.append(COLLECT_COL_STATISTICS);
+            sb.append(FULL_ANALYZE_TEMPLATE);
         } else {
             // Do sample analyze
             if (LOG.isDebugEnabled()) {
