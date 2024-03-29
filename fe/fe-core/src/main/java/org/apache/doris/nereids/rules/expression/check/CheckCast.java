@@ -52,6 +52,9 @@ public class CheckCast extends AbstractExpressionRewriteRule {
         } else if (originalType.isStructType()) {
             // TODO support struct cast check when we support struct
             return false;
+        } else if ((originalType.isJsonType() && targetType.isStringLikeType())
+                || (originalType.isStringLikeType() && targetType.isJsonType())) {
+            return true;
         } else {
             return checkPrimitiveType(originalType, targetType);
         }
