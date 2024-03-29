@@ -72,6 +72,7 @@ class ClientCache;
 class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
+class DNSCache;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -182,6 +183,7 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
+    DNSCache* dns_cache() { return _dns_cache; }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -266,6 +268,8 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
+    DNSCache* _dns_cache = nullptr;
+
     RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
 };
 
