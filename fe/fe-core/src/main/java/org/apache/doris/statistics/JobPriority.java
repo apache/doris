@@ -17,22 +17,9 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.OlapTable;
-
-import mockit.Mocked;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
-import java.util.HashSet;
-
-class TableStatsMetaTest {
-
-    @Test
-    void update(@Mocked OlapTable table) {
-        TableStatsMeta tableStatsMeta = new TableStatsMeta();
-        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setRowCount(4)
-                .setJobColumns(new HashSet<>()).setColName("col1").build();
-        tableStatsMeta.update(jobInfo, table);
-        Assertions.assertEquals(4, tableStatsMeta.rowCount);
-    }
+public enum JobPriority {
+    HIGH,
+    MID,
+    LOW,
+    MANUAL;
 }
