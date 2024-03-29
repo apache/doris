@@ -52,7 +52,8 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
             if (writer->_is_init || writer->_is_cancelled) {
                 return Status::OK();
             }
-            return writer->init();
+            Status st = writer->init(); // included in SCOPED_ATTACH_TASK
+            return st;
         });
     }
 
