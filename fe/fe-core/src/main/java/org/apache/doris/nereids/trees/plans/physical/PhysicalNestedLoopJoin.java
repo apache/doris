@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -31,7 +33,9 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -237,5 +241,25 @@ public class PhysicalNestedLoopJoin<
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
                 null, physicalProperties, statistics, left(), right());
+    }
+
+    @Override
+    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
+                                         AbstractPhysicalJoin<?, ?> builderNode,
+                                         Expression src, Expression probeExpr,
+                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+        boolean pushedDown = false;
+
+        pushedDown |= ((AbstractPhysicalPlan) child(0)).pushDownRuntimeFilter(context, generator, builderNode,
+                src, probeExpr, type, buildSideNdv, exprOrder);
+
+        boolean originPassReduciableOperator = context.getRuntimeFilterContext().isPassedReducibleOperator();
+        context.getRuntimeFilterContext().setPassedReducibleOperator(true);
+        pushedDown |= ((AbstractPhysicalPlan) child(1)).pushDownRuntimeFilter(context, generator, builderNode,
+                    src, probeExpr, type, buildSideNdv, exprOrder);
+
+        context.getRuntimeFilterContext().setPassedReducibleOperator(originPassReduciableOperator);
+
+        return pushedDown;
     }
 }

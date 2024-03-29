@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -28,7 +30,9 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -183,5 +187,20 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     public PhysicalLimit<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalLimit<>(limit, offset, phase, groupExpression, null, physicalProperties,
                 statistics, child());
+    }
+
+    @Override
+    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
+                                         AbstractPhysicalJoin<?, ?> builderNode,
+                                         Expression src, Expression probeExpr,
+                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+        long originLimit = context.getRuntimeFilterContext().getLimit();
+        boolean originPassReducibleOperator = context.getRuntimeFilterContext().isPassedReducibleOperator();
+        context.getRuntimeFilterContext().setLimit(getLimit() + getOffset());
+        boolean pushed = ((AbstractPhysicalPlan) child()).pushDownRuntimeFilter(context, generator,
+                builderNode, src, probeExpr, type, buildSideNdv, exprOrder);
+        context.getRuntimeFilterContext().setLimit(originLimit);
+        context.getRuntimeFilterContext().setPassedReducibleOperator(originPassReducibleOperator);
+        return pushed;
     }
 }

@@ -132,6 +132,14 @@ public class RuntimeFilterContext {
 
     private final List<ExpandRF> expandedRF = Lists.newArrayList();
 
+    private long limit = -1;
+
+    // when RuntimeFilterGenerator pass through Limit operator, record the limit+offset
+    // if there are reducible operator (agg / join-right-side) between limit node and scan node.
+    // if passedReducibleOperator false, limit operator does not block rf generating.
+    // select * from (select * from lineitem limit 1) join orders on l_orderkey=o_orderkey
+    private boolean passedReducibleOperator = false;
+
     /**
      * info about expand rf by inner join
      */
@@ -380,5 +388,21 @@ public class RuntimeFilterContext {
 
     public List<ExpandRF> getExpandedRF() {
         return expandedRF;
+    }
+
+    public long getLimit() {
+        return limit;
+    }
+
+    public void setLimit(long limit) {
+        this.limit = limit;
+    }
+
+    public boolean isPassedReducibleOperator() {
+        return passedReducibleOperator;
+    }
+
+    public void setPassedReducibleOperator(boolean passedReducibleOperator) {
+        this.passedReducibleOperator = passedReducibleOperator;
     }
 }

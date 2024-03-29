@@ -118,6 +118,10 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter =
                 ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
         Preconditions.checkState(scanSlot != null, "scan slot is null");
+        if (ctx.getLimit() != -1 && !ctx.isPassedReducibleOperator()
+                && statistics != null && ctx.getLimit() < statistics.getRowCount()) {
+            return false;
+        }
         if (filter != null) {
             if (!filter.hasTargetScan(scan)) {
                 // A join B on A.a1=B.b and A.a1 = A.a2

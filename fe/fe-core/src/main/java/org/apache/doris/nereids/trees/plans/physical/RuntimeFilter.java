@@ -170,7 +170,8 @@ public class RuntimeFilter {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
                 .append(" ").append(getSrcExpr().toSql()).append("->[").append(
-                        targetExpressions.stream().map(expr -> expr.toSql()).collect(Collectors.joining(",")))
+                        targetExpressions.stream().sorted()
+                                .map(expr -> expr.toSql()).collect(Collectors.joining(",")))
                 .append("]");
         return sb.toString();
     }

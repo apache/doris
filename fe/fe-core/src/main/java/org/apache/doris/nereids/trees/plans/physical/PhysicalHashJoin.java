@@ -267,9 +267,14 @@ public class PhysicalHashJoin<
         for (Expression prob : probExprList) {
             pushedDown |= leftNode.pushDownRuntimeFilter(context, generator, builderNode,
                     srcExpr, prob, type, buildSideNdv, exprOrder);
+        }
+        boolean originPassReduciableOperator = context.getRuntimeFilterContext().isPassedReducibleOperator();
+        context.getRuntimeFilterContext().setPassedReducibleOperator(true);
+        for (Expression prob : probExprList) {
             pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
                     srcExpr, prob, type, buildSideNdv, exprOrder);
         }
+        context.getRuntimeFilterContext().setPassedReducibleOperator(originPassReduciableOperator);
 
         return pushedDown;
     }

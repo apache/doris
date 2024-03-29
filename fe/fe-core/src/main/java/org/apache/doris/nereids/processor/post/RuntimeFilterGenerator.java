@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -495,6 +496,28 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         relation.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(relation, slot)));
         return relation;
+    }
+
+    // @Override
+    // public PhysicalLimit visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, CascadesContext context) {
+    //     long originLimit = context.getRuntimeFilterContext().getLimit();
+    //     boolean originPassReducibleOperator = context.getRuntimeFilterContext().isPassedReducibleOperator();
+    //     context.getRuntimeFilterContext().setLimit(limit.getLimit() + limit.getOffset());
+    //     limit.child().accept(this, context);
+    //     context.getRuntimeFilterContext().setLimit(originLimit);
+    //     context.getRuntimeFilterContext().setPassedReducibleOperator(originPassReducibleOperator);
+    //     return limit;
+    // }
+
+    @Override
+    public PhysicalHashAggregate visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg,
+                                                            CascadesContext context) {
+        RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
+        if (rfCtx.getLimit() != -1) {
+            rfCtx.setPassedReducibleOperator(true);
+        }
+        agg.child().accept(this, context);
+        return agg;
     }
 
     // runtime filter build side ndv

@@ -311,8 +311,12 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         }
 
         AbstractPhysicalPlan child = (AbstractPhysicalPlan) child(0);
-        return child.pushDownRuntimeFilter(context, generator, builderNode,
+        boolean originPassedReducibleOperator = ctx.isPassedReducibleOperator();
+        ctx.setPassedReducibleOperator(true);
+        boolean pushed = child.pushDownRuntimeFilter(context, generator, builderNode,
                 src, probeExpr, type, buildSideNdv, exprOrder);
+        ctx.setPassedReducibleOperator(originPassedReducibleOperator);
+        return pushed;
     }
 
     @Override
