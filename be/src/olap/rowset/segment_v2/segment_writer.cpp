@@ -777,7 +777,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     std::shared_ptr<vectorized::Block> full_block_ptr = nullptr;
     if (is_agg_partial_update) {
         if (block->columns() <= _tablet_schema->num_key_columns() ||
-            block->columns() >= _tablet_schema->num_columns()) {
+            block->columns() > _tablet_schema->num_columns()) {
             return Status::InternalError(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
                     "schema columns: {}",

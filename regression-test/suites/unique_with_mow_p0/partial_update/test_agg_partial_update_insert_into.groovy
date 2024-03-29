@@ -56,12 +56,8 @@ suite("test_agg_partial_update_insert_into", "p0") {
                 v3 int replace_if_not_null null
             ) aggregate key (k) distributed by hash(k) buckets 1
             properties("replication_num" = "1"); """
-        sql "set enable_agg_key_partial_update=false;"
-        sql "sync;"
         sql "insert into ${tableName2} values(1,1,3,4),(2,2,4,5),(3,3,2,3),(4,4,1,2);"
         qt_3 "select * from ${tableName2} order by k;"
-        sql "set enable_agg_key_partial_update=true;"
-        sql "sync;"
         sql "insert into ${tableName2}(k,v) select v2,v3 from ${tableName2};"
         qt_4 "select * from ${tableName2} order by k;"
         sql """ DROP TABLE IF EXISTS ${tableName2}; """
@@ -76,12 +72,8 @@ suite("test_agg_partial_update_insert_into", "p0") {
                 v2 int replace_if_not_null null
             ) aggregate key (k1,k2,k3) distributed by hash(k1,k2) buckets 4
             properties("replication_num" = "1"); """
-        sql "set enable_agg_key_partial_update=false;"
-        sql "sync;"
         sql "insert into ${tableName3} values(1,1,1,3,4),(2,2,2,4,5),(3,3,3,2,3),(4,4,4,1,2);"
         qt_5 "select * from ${tableName3} order by k1;"
-        sql "set enable_agg_key_partial_update=true;"
-        sql "sync;"
         test {
             sql "insert into ${tableName3}(k1,k2,v2) select k2,k3,v1 from ${tableName3};"
             exception "illegal partial update"

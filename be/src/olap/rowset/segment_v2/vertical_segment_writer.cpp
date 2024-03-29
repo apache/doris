@@ -698,8 +698,19 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
             return Status::InternalError(fmt::format("illegal partial update key type: {}",
                                                      _tablet_schema->keys_type()));
         }
-        if (block->columns() <= _tablet_schema->num_key_columns() ||
-            block->columns() >= _tablet_schema->num_columns()) {
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+            (block->columns() <= _tablet_schema->num_key_columns() ||
+             block->columns() >= _tablet_schema->num_columns())) {
+            return Status::InternalError(
+                    fmt::format("illegal partial update key type {}, block columns: {}, num key "
+                                "columns: {}, total "
+                                "schema columns: {}",
+                                _tablet_schema->keys_type(), block->columns(),
+                                _tablet_schema->num_key_columns(), _tablet_schema->num_columns()));
+        }
+        if (_tablet_schema->keys_type() == AGG_KEYS &&
+            (block->columns() <= _tablet_schema->num_key_columns() ||
+             block->columns() > _tablet_schema->num_columns())) {
             return Status::InternalError(
                     fmt::format("illegal partial update key type {}, block columns: {}, num key "
                                 "columns: {}, total "
