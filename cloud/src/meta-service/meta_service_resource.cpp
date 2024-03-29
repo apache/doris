@@ -565,6 +565,9 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_region(region);
         last_item.set_provider(request->obj().provider());
         last_item.set_sse_enabled(instance.sse_enabled());
+        if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
+            last_item.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        }
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
@@ -885,6 +888,9 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     obj_info.set_ctime(time);
     obj_info.set_mtime(time);
     obj_info.set_sse_enabled(sse_enabled);
+    if (obj_info.id() == BUILT_IN_STORAGE_VAULT_ID) {
+        obj_info.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+    }
     instance.mutable_obj_info()->Add(std::move(obj_info));
     return 0;
 }

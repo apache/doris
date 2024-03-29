@@ -28,6 +28,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/schema.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -528,7 +529,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
-    if (request->has_storage_vault_name()) {
+    for (; request->has_storage_vault_name();) {
         InstanceInfoPB instance;
         std::unique_ptr<Transaction> txn0;
         TxnErrorCode err = txn_kv_->create_txn(&txn0);
@@ -565,12 +566,27 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             auto idx = vault_name - instance.storage_vault_names().begin();
             response->set_storage_vault_id(instance.resource_ids().at(idx));
             response->set_storage_vault_name(std::string(name.data(), name.size()));
-        } else {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get vault id, vault name={}",
-                              request->storage_vault_name());
-            return;
+            break;
         }
+
+        // The S3 vault would be stored inside the instance.obj_info
+        auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
+                                   [&](const ObjectStoreInfoPB& obj) {
+                                       if (!obj.has_vault_name()) {
+                                           return false;
+                                       }
+                                       return obj.vault_name() == name;
+                                   });
+
+        if (s3_obj != instance.obj_info().end()) {
+            response->set_storage_vault_id(s3_obj->id());
+            response->set_storage_vault_name(s3_obj->vault_name());
+            break;
+        }
+
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get vault id, vault name={}", request->storage_vault_name());
+        return;
     }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
@@ -1052,8 +1068,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         std::string schema_key;
         if (rowset_meta.has_variant_type_in_schema()) {
             // encodes schema in a seperate kv, since variant schema is volatile
-            schema_key = meta_rowset_schema_key({instance_id,
-                    rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+            schema_key = meta_rowset_schema_key(
+                    {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
         } else {
             schema_key = meta_schema_key(
                     {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
