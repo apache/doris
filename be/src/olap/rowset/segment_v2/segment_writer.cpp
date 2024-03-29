@@ -773,7 +773,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     }
     bool is_agg_partial_update = _opts.rowset_ctx->partial_update_info &&
                                  _opts.rowset_ctx->partial_update_info->is_partial_update &&
-                                 _tablet_schema->keys_type() == AGG_KEYS;
+                                 _tablet_schema->keys_type() == AGG_KEYS &&
+                                 _opts.write_type == DataWriteType::TYPE_DIRECT;
     std::shared_ptr<vectorized::Block> full_block_ptr = nullptr;
     if (is_agg_partial_update) {
         if (block->columns() <= _tablet_schema->num_key_columns() ||
