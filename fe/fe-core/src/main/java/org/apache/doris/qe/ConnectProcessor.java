@@ -49,6 +49,7 @@ import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.Dialect;
@@ -232,11 +233,19 @@ public abstract class ConnectProcessor {
                 // Parse sql failed, audit it and return
                 handleQueryException(e, convertedStmt, null, null);
                 return;
-            } catch (ParseEx)
+            } catch (ParseException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                            e.getMessage(), convertedStmt);
+                }
+                // ATTN: Do not set nereidsParseException in this case.
+                // Because ParseException means the sql is not supported by Nereids.
+                // It should be parsed by old parser, so not setting nereidsParseException to avoid
+                // suppressing the exception thrown by old parser.
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                    LOG.debug("Nereids parse sql failed with other exception. Reason: {}. Statement: \"{}\".",
                             e.getMessage(), convertedStmt);
                 }
                 nereidsParseException = e;
