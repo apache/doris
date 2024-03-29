@@ -276,15 +276,14 @@ suite("test_crud_wlg") {
     sql "CREATE USER 'test_wlg_user'@'%' IDENTIFIED BY '12345';"
     sql """grant SELECT_PRIV on *.*.* to test_wlg_user;"""
     connect(user = 'test_wlg_user', password = '12345', url = context.config.jdbcUrl) {
-            sql """ select 1; """
+            sql """ select count(1) from information_schema.backend_active_tasks; """
     }
 
     connect(user = 'test_wlg_user', password = '12345', url = context.config.jdbcUrl) {
         sql """ set workload_group = test_group; """
-        try {
-            sql """ select 1; """
-        } catch (Exception e) {
-            e.getMessage().contains("Access denied")
+        test {
+            sql """ select count(1) from information_schema.backend_active_tasks; """
+            exception "Access denied"
         }
     }
 
@@ -292,7 +291,7 @@ suite("test_crud_wlg") {
 
     connect(user = 'test_wlg_user', password = '12345', url = context.config.jdbcUrl) {
         sql """ set workload_group = test_group; """
-        sql """ select 1; """
+        sql """ select count(1) from information_schema.backend_active_tasks; """
     }
 
     // test query queue limit
@@ -329,10 +328,49 @@ suite("test_crud_wlg") {
         exception "query wait timeout"
     }
 
+    // test query queue running query/waiting num
+    sql "drop workload group if exists test_query_num_wg;"
+    sql "create workload group if not exists test_query_num_wg properties ('max_concurrency'='1');"
+    sql "set workload_group=test_query_num_wg;"
+
+    sql """insert into ${table_name} values
+        (9,10,11,12),
+        (1,2,3,4)
+    """
+
+    sql """insert into ${table_name} values
+        (9,10,11,12),
+        (1,2,3,4)
+    """
+
+    sql """insert into ${table_name} values
+        (9,10,11,12),
+        (1,2,3,4)
+    """
+
+    sql "select count(1) from ${table_name};"
+
+    def ret = sql "show workload groups;"
+    assertTrue(ret.size() != 0)
+    boolean is_checked = false;
+    for (int i = 0; i < ret.size(); i++) {
+        def row = ret[i]
+        if (row[1] == 'test_query_num_wg') {
+            int running_query_num = Integer.parseInt(row[row.size() - 2])
+            int wait_query_num = Integer.parseInt(row[row.size() - 1])
+            assertTrue(running_query_num == 0)
+            assertTrue(wait_query_num == 0)
+            is_checked = true;
+        }
+    }
+    assertTrue(is_checked)
+
+    sql "drop workload group test_query_num_wg;"
+
+    sql "set workload_group=normal;"
     sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
     Thread.sleep(10000)
     sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
-    sql "set workload_group=normal;"
 
     // test workload spill property
     // 1 create group
