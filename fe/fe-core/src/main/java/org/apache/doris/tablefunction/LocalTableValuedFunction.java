@@ -83,8 +83,6 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         // Otherwise, if shared storage is true, we may use multi BE nodes.
         if (backendId == -1 && !sharedStorage) {
             throw new AnalysisException("'backend_id' is required when 'shared_storage' is false.");
-        } else if (backendId != -1 && sharedStorage) {
-            throw new AnalysisException("'shared_storage' should be false when 'backend_id' is set.");
         }
 
         // 3. parse file
