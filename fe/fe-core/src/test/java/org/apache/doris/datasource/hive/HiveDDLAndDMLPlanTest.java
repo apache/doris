@@ -64,7 +64,6 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         connectContext.getSessionVariable().enableNereidsTimeout = false;
         connectContext.getSessionVariable().enableNereidsDML = true;
         Config.enable_query_hive_views = false;
-        Config.enable_external_ddl = true;
         // create test internal table
         createDatabase(mockedDbName);
         useDatabase(mockedDbName);

@@ -2212,11 +2212,6 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "启用外表DDL",
-            "Enable external table DDL"})
-    public static boolean enable_external_ddl = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
             "Enable external hive bucket table"})
     public static boolean enable_create_hive_bucket_table = false;
