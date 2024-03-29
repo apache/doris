@@ -64,6 +64,9 @@ Status SpillSortLocalState::close(RuntimeState* state) {
             _merge_spill_cv.wait(lk);
         }
     }
+    if (Base::_shared_state->enable_spill) {
+        dec_running_big_mem_op_num(state);
+    }
     RETURN_IF_ERROR(Base::close(state));
     for (auto& stream : _current_merging_streams) {
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
@@ -249,6 +252,9 @@ Status SpillSortSourceOperatorX::close(RuntimeState* state) {
 Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) {
     auto& local_state = get_local_state(state);
+    if (local_state.Base::_shared_state->enable_spill) {
+        local_state.inc_running_big_mem_op_num(state);
+    }
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 

@@ -17,6 +17,7 @@
 
 #include "partitioned_hash_join_probe_operator.h"
 
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "util/mem_info.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -148,6 +149,10 @@ Status PartitionedHashJoinProbeLocalState::open(RuntimeState* state) {
     return _partitioner->open(state);
 }
 Status PartitionedHashJoinProbeLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    dec_running_big_mem_op_num(state);
     RETURN_IF_ERROR(JoinProbeLocalState::close(state));
     return Status::OK();
 }
@@ -156,7 +161,8 @@ Status PartitionedHashJoinProbeLocalState::spill_build_block(RuntimeState* state
                                                              uint32_t partition_index) {
     auto& partitioned_build_blocks = _shared_state->partitioned_build_blocks;
     auto& mutable_block = partitioned_build_blocks[partition_index];
-    if (!mutable_block || mutable_block->rows() < state->batch_size()) {
+    if (!mutable_block ||
+        mutable_block->allocated_bytes() < vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         --_spilling_task_count;
         return Status::OK();
     }
@@ -201,6 +207,8 @@ Status PartitionedHashJoinProbeLocalState::spill_build_block(RuntimeState* state
                 --_spilling_task_count;
 
                 if (_spilling_task_count == 0) {
+                    LOG(INFO) << "hash probe " << _parent->id()
+                              << " revoke memory spill_build_block finish";
                     std::unique_lock<std::mutex> lock(_spill_lock);
                     _dependency->set_ready();
                 }
@@ -225,7 +233,8 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
 
     auto& blocks = _probe_blocks[partition_index];
     auto& partitioned_block = _partitioned_blocks[partition_index];
-    if (partitioned_block && partitioned_block->rows() >= state->batch_size()) {
+    if (partitioned_block && partitioned_block->allocated_bytes() >=
+                                     vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         blocks.emplace_back(partitioned_block->to_block());
         partitioned_block.reset();
     }
@@ -263,6 +272,8 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
                     --_spilling_task_count;
 
                     if (_spilling_task_count == 0) {
+                        LOG(INFO) << "hash probe " << _parent->id()
+                                  << " revoke memory spill_probe_blocks finish";
                         std::unique_lock<std::mutex> lock(_spill_lock);
                         _dependency->set_ready();
                     }
@@ -304,8 +315,6 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     auto& spilled_stream = _shared_state->spilled_streams[partition_index];
     has_data = false;
     if (!spilled_stream) {
-        LOG(INFO) << "no data need to recovery for partition: " << partition_index
-                  << ", node id: " << _parent->id() << ", task id: " << state->task_id();
         return Status::OK();
     }
 
@@ -492,6 +501,7 @@ Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
 Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
                                                bool eos) const {
     auto& local_state = get_local_state(state);
+    local_state.inc_running_big_mem_op_num(state);
     const auto rows = input_block->rows();
     auto& partitioned_blocks = local_state._partitioned_blocks;
     if (rows == 0) {
@@ -694,8 +704,11 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
     auto& probe_blocks = local_state._probe_blocks;
     for (uint32_t i = spilling_start; i < _partition_count; ++i) {
         auto& build_block = partitioned_build_blocks[i];
-        if (build_block && build_block->rows() >= state->batch_size()) {
-            mem_size += build_block->allocated_bytes();
+        if (build_block) {
+            auto block_bytes = build_block->allocated_bytes();
+            if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                mem_size += build_block->allocated_bytes();
+            }
         }
 
         for (auto& block : probe_blocks[i]) {
@@ -703,8 +716,11 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
         }
 
         auto& partitioned_block = local_state._partitioned_blocks[i];
-        if (partitioned_block && partitioned_block->rows() >= state->batch_size()) {
-            mem_size += partitioned_block->allocated_bytes();
+        if (partitioned_block) {
+            auto block_bytes = partitioned_block->allocated_bytes();
+            if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                mem_size += block_bytes;
+            }
         }
     }
     return mem_size;
@@ -722,6 +738,8 @@ Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state, bo
         return Status::OK();
     }
 
+    LOG(INFO) << "hash probe " << id()
+              << " revoke memory, spill task count: " << local_state._spilling_task_count;
     for (uint32_t i = spilling_start; i < _partition_count; ++i) {
         RETURN_IF_ERROR(local_state.spill_build_block(state, i));
         RETURN_IF_ERROR(local_state.spill_probe_blocks(state, i));
@@ -739,21 +757,13 @@ Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state, bo
 
 bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-
+    const auto revocable_size = revocable_mem_size(state);
+    if (PipelineXTask::should_revoke_memory(state, revocable_size)) {
+        return true;
+    }
     if (local_state._shared_state->need_to_spill) {
-        const auto revocable_size = revocable_mem_size(state);
         const auto min_revocable_size = state->min_revocable_mem();
         return revocable_size > min_revocable_size;
-    }
-
-    auto sys_mem_available = MemInfo::sys_mem_available();
-    auto sys_mem_warning_water_mark = doris::MemInfo::sys_mem_available_warning_water_mark();
-
-    if (sys_mem_available <
-        sys_mem_warning_water_mark * config::spill_mem_warning_water_mark_multiplier) {
-        const auto revocable_size = revocable_mem_size(state);
-        const auto min_revocable_size = state->min_revocable_mem();
-        return min_revocable_size > 0 && revocable_size > min_revocable_size;
     }
     return false;
 }
