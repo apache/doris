@@ -114,31 +114,42 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
     }
 
-    protected static boolean canPrunePredicate(Expression predicateExpr, Set<String> sumSlots) {
-        if (predicateExpr instanceof Not && predicateExpr.child(0) instanceof IsNull) {
-            Expression slot = predicateExpr.child(0).child(0);
-            String countColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
-                    CreateMaterializedViewStmt.mvColumnBuilder(slotToCaseWhen(slot).toSql())));
-            return sumSlots.contains(countColumn);
-        }
-        return false;
-    }
-
-    protected static List<Expression> getPrunePredicate(List<Expression> aggExpressions,
+    // get the predicates that can be ignored when all aggregate functions are sum
+    protected static List<Expression> getPrunedPredicatesWithAllSumAgg(List<Expression> aggExpressions,
             Set<Expression> predicateExpr) {
         List<Expression> prunedExpr = new ArrayList<>();
-        for (Expression expr : aggExpressions) {
-            if (!(expr instanceof Sum)) {
-                return prunedExpr;
-            }
-        }
+
         Set<String> sumSlots = aggExpressions.stream().map(e -> e.child(0).toSql())
                 .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
         for (Expression expr : predicateExpr) {
-            if (canPrunePredicate(expr, sumSlots)) {
-                prunedExpr.add(expr);
+            if (expr instanceof Not && expr.child(0) instanceof IsNull) {
+                Expression slot = expr.child(0).child(0);
+                String countColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
+                        CreateMaterializedViewStmt.mvColumnBuilder(slotToCaseWhen(slot).toSql())));
+                if(sumSlots.contains(countColumn)){
+                    prunedExpr.add(expr);
+                }
             }
         }
+        return prunedExpr;
+    }
+
+    // we can prune some predicates when there is no group-by column
+    protected static List<Expression> getPrunedPredicates(List<Expression> aggExpressions,
+            Set<Expression> predicateExpr) {
+        List<Expression> prunedExpr = new ArrayList<>();
+
+        boolean isAllSumAgg = true;
+        for (Expression expr : aggExpressions) {
+            if (!(expr instanceof Sum)) {
+                isAllSumAgg = false;
+                break;
+            }
+        }
+        if (isAllSumAgg) {
+            prunedExpr.addAll(getPrunedPredicatesWithAllSumAgg(aggExpressions, predicateExpr));
+        }
+
         return prunedExpr;
     }
 
@@ -184,7 +195,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
 
         if (!scan.getGroupExpression().isPresent()) {
-            Set<Expression> prunedExpr = getPrunePredicate(
+            Set<Expression> prunedExpr = getPrunedPredicates(
                     requiredExpr.stream().filter(e -> e instanceof AggregateFunction).collect(Collectors.toList()),
                     predicateExpr).stream().collect(Collectors.toSet());
             remained = remained.stream().filter(e -> !prunedExpr.contains(e)).collect(Collectors.toSet());
@@ -475,13 +486,14 @@ public abstract class AbstractSelectMaterializedIndexRule {
                         .collect(Collectors.toSet()));
     }
 
+    // Call this generateBaseScanExprToMvExpr only when we have both agg and filter
     protected SlotContext generateBaseScanExprToMvExpr(LogicalOlapScan mvPlan, Set<Expression> requiredExpr,
             Set<Expression> predicateExpr) {
         SlotContext context = generateBaseScanExprToMvExpr(mvPlan);
         if (mvPlan.getGroupExpression().isPresent()) {
             return context;
         }
-        Set<Expression> pruned = getPrunePredicate(
+        Set<Expression> pruned = getPrunedPredicates(
                 requiredExpr.stream().filter(e -> e instanceof AggregateFunction).collect(Collectors.toList()),
                 predicateExpr).stream().collect(Collectors.toSet());
 
