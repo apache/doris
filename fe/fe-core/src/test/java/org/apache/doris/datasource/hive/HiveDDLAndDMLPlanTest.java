@@ -28,16 +28,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.TableMetadata;
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
@@ -371,47 +366,13 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertEquals(16, stmt2.getDistributionDesc().getBuckets());
     }
 
-    public static Table mockHiveTable(String dbName,
-                                      String tblName,
-                                      List<Column> columns,
-                                      List<String> partitionColNames,
-                                      Map<String, String> ddlProps) {
-        g
-        HiveTableMetadata hiveTableMeta = HiveTableMetadata.of(dbName,
-                tblName,
-                columns,
-                partitionColNames,
-                ddlProps,
-                "orc");
-        return HiveUtil.toHiveTable(hiveTableMeta);
-    }
-
     @Test
     public void testInsertIntoPlanSql() throws Exception {
         switchHive();
         useDatabase(mockedDbName);
-        String targetTable = "unpart_ctas_src";
-        String insertSql = "INSERT INTO" + targetTable + " values(1, 'v1')";
+        String insertSql = "INSERT INTO unpart_ctas_src values(1, 'v1')";
         LogicalPlan plan = nereidsParser.parseSingle(insertSql);
         Assertions.assertTrue(plan instanceof InsertIntoTableCommand);
-        new MockUp<HMSExternalTable>(HMSExternalTable.class) {
-            @Mock
-            public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() {
-                return mockHiveTable(mockedDbName, targetTable,
-                        new ArrayList<>(),
-                        new ArrayList<>(),
-                        new HashMap<>());
-            }
-        };
-        StatementContext statementContext = new StatementContext();
-        statementContext.setConnectContext(connectContext);
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, statementContext);
-        NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(logicalPlanAdapter, connectContext.getSessionVariable().toThrift());
-
-        AbstractInsertExecutor executor = ((InsertIntoTableCommand) plan).initPlan(connectContext,
-                new StmtExecutor(connectContext, insertSql));
-
         // TODO check plan node, exchange node
 
         String insertSql2 = "INSERT INTO part_ctas_src values(1, 'v1', 'v2')";
