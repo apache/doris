@@ -103,6 +103,11 @@ suite("test_nereids_row_policy") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
 
+    dropPolciy "policy0"
+    dropPolciy "policy1"
+    dropPolciy "policy2"
+    dropPolciy "policy3"
+
     // no policy
     assertQueryResult 3
 
@@ -126,4 +131,8 @@ suite("test_nereids_row_policy") {
     createPolicy"policy3", "k = 2", "PERMISSIVE"
     assertQueryResult 2
 
+    dropPolciy "policy0"
+    dropPolciy "policy1"
+    dropPolciy "policy2"
+    dropPolciy "policy3"
 }

@@ -60,6 +60,7 @@ suite("test_pk_uk_index_change", "inverted_index") {
                 }
             }
             if (finished_num == expected_finished_num) {
+                sleep(10000) // wait change table state to normal
                 logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
                 break
             }

@@ -17,6 +17,8 @@
 
 #include "io/hdfs_util.h"
 
+#include <gen_cpp/cloud.pb.h>
+
 #include <ostream>
 
 #include "common/logging.h"
@@ -138,6 +140,30 @@ Path convert_path(const Path& path, const std::string& namenode) {
 
 bool is_hdfs(const std::string& path_or_fs) {
     return path_or_fs.rfind("hdfs://") == 0;
+}
+
+THdfsParams to_hdfs_params(const cloud::HdfsVaultInfo& vault) {
+    THdfsParams params;
+    auto build_conf = vault.build_conf();
+    params.__set_fs_name(build_conf.fs_name());
+    if (build_conf.has_user()) {
+        params.__set_user(build_conf.user());
+    }
+    if (build_conf.has_hdfs_kerberos_principal()) {
+        params.__set_hdfs_kerberos_keytab(build_conf.hdfs_kerberos_principal());
+    }
+    if (build_conf.has_hdfs_kerberos_keytab()) {
+        params.__set_hdfs_kerberos_principal(build_conf.hdfs_kerberos_keytab());
+    }
+    std::vector<THdfsConf> tconfs;
+    for (const auto& confs : vault.build_conf().hdfs_confs()) {
+        THdfsConf conf;
+        conf.__set_key(confs.key());
+        conf.__set_value(confs.value());
+        tconfs.emplace_back(conf);
+    }
+    params.__set_hdfs_conf(tconfs);
+    return params;
 }
 
 } // namespace doris::io

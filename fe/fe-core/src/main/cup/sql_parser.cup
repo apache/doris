@@ -45,6 +45,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -533,6 +534,7 @@ terminal String
     KW_PRECEDING,
     KW_PERCENT,
     KW_RECYCLE,
+    KW_PRIVILEGES,
     KW_PROC,
     KW_PROCEDURE,
     KW_PROCESSLIST,
@@ -659,6 +661,7 @@ terminal String
     KW_VERBOSE,
     KW_VERSION,
     KW_VIEW,
+    KW_VIEWS,
     KW_WARNINGS,
     KW_WEEK,
     KW_WHEN,
@@ -955,7 +958,7 @@ nonterminal JobName job_name;
 nonterminal Map<String, String> with_analysis_properties;
 nonterminal List<Map<String, String>> opt_with_analysis_properties;
 
-nonterminal String opt_db, procedure_or_function, opt_comment, opt_engine;
+nonterminal String opt_db, procedure_or_function, opt_comment, opt_comment_null, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
@@ -1431,8 +1434,9 @@ alter_stmt ::=
       opt_if_exists:ifExists
       grant_user:user
       opt_password_option:passwdOptions
+      opt_comment_null:comment
     {:
-        RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions);
+        RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions, comment);
     :}
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
@@ -1881,8 +1885,9 @@ create_stmt ::=
       grant_user:user
       opt_user_role:userRole
       opt_password_option:passwdOptions
+      opt_comment:comment
     {:
-        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions);
+        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment);
     :}
     | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
@@ -1893,9 +1898,13 @@ create_stmt ::=
     {:
         RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
     :}
-    | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role
+    | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role opt_comment:comment
     {:
-        RESULT = new CreateRoleStmt(ifNotExists, role);
+        RESULT = new CreateRoleStmt(ifNotExists, role, comment);
+    :}
+    | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = new AlterRoleStmt(role, comment);
     :}
     | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
@@ -3428,6 +3437,10 @@ partition_value_list ::=
     {:
         RESULT = l;
     :}
+    | KW_NULL
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue("", true));
+    :}
     ;
 
 /* List<PartitionValue> */
@@ -3449,6 +3462,10 @@ partition_key_item_list ::=
     {:
         l.add(new PartitionValue(item));
         RESULT = l;
+    :}
+    | KW_NULL
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue("", true));
     :}
     ;
 
@@ -3484,6 +3501,10 @@ partition_key_list ::=
     | KW_MAX_VALUE
     {:
         RESULT = Lists.newArrayList(PartitionValue.MAX_VALUE);
+    :}
+    | KW_NULL
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue("", true));
     :}
     ;
 
@@ -3825,6 +3846,17 @@ opt_comment ::=
     :}
     ;
 
+opt_comment_null ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = comment;
+    :}
+    ;
+
 opt_index_type ::=
     {:
         RESULT = null;
@@ -3962,6 +3994,16 @@ show_param ::=
     | opt_full KW_TABLES from_or_in ident:ctl DOT ident:db opt_wild_where
     {:
         RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, parser.wild, parser.where);
+    :}
+    /* show views */
+    | opt_full KW_VIEWS opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, null, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
+    :}
+    /* show views */
+    | opt_full KW_VIEWS from_or_in ident:ctl DOT ident:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
     :}
     /* show table id */
     | KW_TABLE INTEGER_LITERAL:tableId
@@ -4273,6 +4315,10 @@ show_param ::=
     | KW_ROLES
     {:
         RESULT = new ShowRolesStmt();
+    :}
+    | KW_PRIVILEGES
+    {:
+        RESULT = new ShowPrivilegesStmt();
     :}
     | opt_full opt_builtin:isBuiltin KW_FUNCTIONS opt_db:dbName opt_wild_where
     {:
@@ -8050,6 +8096,8 @@ keyword ::=
     | KW_VERSION:id
     {: RESULT = id; :}
     | KW_VIEW:id
+    {: RESULT = id; :}
+    | KW_VIEWS:id
     {: RESULT = id; :}
     | KW_WARNINGS:id
     {: RESULT = id; :}

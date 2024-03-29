@@ -76,6 +76,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -178,7 +179,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
-        auto mem_tracker = std::make_shared<MemTrackerLimiter>(
+        auto mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
@@ -189,7 +190,8 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
         Status res = Status::OK();
         try {
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
-            SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2);
+            SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
+                                std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
             status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
         } catch (const Exception& e) {
             status = e.to_status();
@@ -246,7 +248,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     TTabletId new_tablet_id = 0;
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
-        auto mem_tracker = std::make_shared<MemTrackerLimiter>(
+        auto mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
@@ -446,7 +448,6 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(PUBLISH_VERSION)
     ADD_TASK_COUNT(CLEAR_TRANSACTION_TASK)
     ADD_TASK_COUNT(UPDATE_TABLET_META_INFO)
-    ADD_TASK_COUNT(ALTER)
     ADD_TASK_COUNT(CLONE)
     ADD_TASK_COUNT(STORAGE_MEDIUM_MIGRATE)
     ADD_TASK_COUNT(GC_BINLOG)
@@ -459,6 +460,17 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
             DELETE_count << n;
         }
         return;
+    case TTaskType::ALTER:
+    {
+        ALTER_count << n;
+        // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
+        doris::g_fragment_executing_count << 1;
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+        g_fragment_last_active_time.set_value(now);
+        return;
+    }
     default:
         return;
     }
@@ -477,7 +489,7 @@ bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
 TaskWorkerPool::TaskWorkerPool(std::string_view name, int worker_count,
                                std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWorkerPool.{}", name))
+    auto st = ThreadPoolBuilder(fmt::format("TaskWP_{}", name))
                       .set_min_threads(worker_count)
                       .set_max_threads(worker_count)
                       .build(&_thread_pool);
@@ -512,7 +524,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::string_view name, int normal_worker_count, int high_prior_worker_conut,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWorkerPool.{}", name))
+    auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
                       .set_min_threads(normal_worker_count)
                       .set_max_threads(normal_worker_count)
                       .build(&_normal_pool);
@@ -703,6 +715,7 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
     auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
     if (tablet_ptr != nullptr) {
         EngineIndexChangeTask engine_task(engine, alter_inverted_index_rq);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     } else {
         status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
@@ -929,6 +942,7 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
     EngineChecksumTask engine_task(engine, check_consistency_req.tablet_id,
                                    check_consistency_req.schema_hash, check_consistency_req.version,
                                    &checksum);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status status = engine_task.execute();
     if (!status.ok()) {
         LOG_WARNING("failed to check consistency")
@@ -1387,12 +1401,14 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
 void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPtr existed_fs) {
     Status st;
     io::RemoteFileSystemSPtr fs;
+    std::string root_path =
+            param.hdfs_storage_param.__isset.root_path ? param.hdfs_storage_param.root_path : "";
 
     if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::HdfsFileSystem::create(param.hdfs_storage_param,
-                                              param.hdfs_storage_param.fs_name,
-                                              std::to_string(param.id), nullptr);
+        auto res = io::HdfsFileSystem::create(
+                param.hdfs_storage_param, param.hdfs_storage_param.fs_name,
+                std::to_string(param.id), nullptr, std::move(root_path));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -1410,7 +1426,8 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
     } else {
         LOG_INFO("successfully update hdfs resource")
                 .tag("resource_id", param.id)
-                .tag("resource_name", param.name);
+                .tag("resource_name", param.name)
+                .tag("root_path", fs->root_path().string());
         put_storage_resource(param.id, {std::move(fs), param.version});
     }
 }
@@ -1582,6 +1599,7 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     std::vector<TTabletInfo> tablet_infos;
 
     EngineBatchLoadTask engine_task(engine, const_cast<TPushReq&>(push_req), &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
 
     // Return result to fe
@@ -1692,6 +1710,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         EnginePublishVersionTask engine_task(_engine, publish_version_req, &error_tablet_ids,
                                              &succ_tablets, &discontinuous_version_tablets,
                                              &table_id_to_num_delta_rows);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
         if (status.ok()) {
             break;
@@ -1851,6 +1870,11 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
         alter_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
+    doris::g_fragment_executing_count << -1;
+    int64 now = duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
 
@@ -1872,6 +1896,11 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
         alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
+    doris::g_fragment_executing_count << -1;
+    int64 now = duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
 
@@ -1904,6 +1933,7 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
 
     std::vector<TTabletInfo> tablet_infos;
     EngineCloneTask engine_task(engine, clone_req, master_info, req.signature, &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
     // Return result to fe
     TFinishTaskRequest finish_task_request;

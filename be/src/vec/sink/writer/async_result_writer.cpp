@@ -101,7 +101,6 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
         RETURN_IF_ERROR(pool_ptr->submit_func([this, state, profile, task_ctx]() {
             auto task_lock = task_ctx.lock();
             if (task_lock == nullptr) {
-                _set_ready_to_finish();
                 return;
             }
             this->process_block(state, profile);
@@ -111,7 +110,6 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
                 [this, state, profile, task_ctx]() {
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
-                        _set_ready_to_finish();
                         return;
                     }
                     this->process_block(state, profile);
@@ -121,6 +119,7 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
+    SCOPED_ATTACH_TASK(state);
     if (auto status = open(state, profile); !status.ok()) {
         force_close(status);
     }

@@ -47,7 +47,6 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     // bound data sink
     private final HMSExternalDatabase database;
     private final HMSExternalTable targetTable;
-    private final List<Column> cols;
     private final Set<String> hivePartitionKeys;
     private final DMLCommandType dmlCommandType;
 
@@ -63,10 +62,9 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
                                 Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties,
                                 CHILD_TYPE child) {
-        super(PlanType.LOGICAL_HIVE_TABLE_SINK, outputExprs, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_HIVE_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalHiveTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalHiveTableSink");
-        this.cols = Utils.copyRequiredList(cols);
         this.dmlCommandType = dmlCommandType;
         this.hivePartitionKeys = hivePartitionKeys;
     }
@@ -97,10 +95,6 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
 
     public HMSExternalTable getTargetTable() {
         return targetTable;
-    }
-
-    public List<Column> getCols() {
-        return cols;
     }
 
     public Set<String> getHivePartitionKeys() {

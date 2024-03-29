@@ -62,9 +62,10 @@ public class Config extends ConfigBase {
      * sys_log_enable_compress:
      *      default is false. if true, will compress fe.log & fe.warn.log by gzip
      */
+    @Deprecated // use env var LOG_DIR instead
     @ConfField(description = {"FE 日志文件的存放路径，用于存放 fe.log。",
             "The path of the FE log file, used to store fe.log"})
-    public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
+    public static String sys_log_dir = "";
 
     @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
@@ -101,7 +102,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"FE 审计日志文件的存放路径，用于存放 fe.audit.log。",
             "The path of the FE audit log file, used to store fe.audit.log"})
-    public static String audit_log_dir = System.getenv("DORIS_HOME") + "/log";
+    public static String audit_log_dir = System.getenv("LOG_DIR");
     @ConfField(description = {"FE 审计日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
             "The maximum number of FE audit log files. "
                     + "After exceeding this number, the oldest log file will be deleted"})
@@ -570,7 +571,7 @@ public class Config extends ConfigBase {
     public static String spark_resource_path = "";
 
     @ConfField(description = {"Spark launcher 日志路径", "Spark launcher log dir"})
-    public static String spark_launcher_log_dir = sys_log_dir + "/spark_launcher_log";
+    public static String spark_launcher_log_dir = System.getenv("LOG_DIR") + "/spark_launcher_log";
 
     @ConfField(description = {"Yarn client 的路径", "Yarn client path"})
     public static String yarn_client_path = System.getenv("DORIS_HOME") + "/lib/yarn-client/hadoop/bin/yarn";
@@ -1143,8 +1144,8 @@ public class Config extends ConfigBase {
     /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'routine_load_thread_pool_size'(default 10),
-     * which is the routine load task thread pool size on BE.
+     * than BE config 'max_routine_load_thread_pool_size'(default 1024),
+     * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_num_per_be = 5;
@@ -2212,11 +2213,6 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "启用外表DDL",
-            "Enable external table DDL"})
-    public static boolean enable_external_ddl = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
             "Enable external hive bucket table"})
     public static boolean enable_create_hive_bucket_table = false;
@@ -2278,11 +2274,6 @@ public class Config extends ConfigBase {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
-
-    @ConfField(description = {
-            "是否开启列权限",
-            "Whether to enable col auth"})
-    public static boolean enable_col_auth = false;
 
     @ConfField
     public static boolean forbid_running_alter_job = false;
@@ -2346,10 +2337,16 @@ public class Config extends ConfigBase {
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为2000",
+    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为512, "
+            + "并强制限制小于 qe_max_connection/2, 避免`Reach limit of connections`, "
+            + "因为arrow flight sql是无状态的协议，连接通常不会主动断开，"
+            + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
             "The cache limit of all user tokens in Arrow Flight Server. which will be eliminated by"
-            + "LRU rules after exceeding the limit, the default value is 2000."})
-    public static int arrow_flight_token_cache_size = 2000;
+            + "LRU rules after exceeding the limit, the default value is 512, the mandatory limit is "
+            + "less than qe_max_connection/2 to avoid `Reach limit of connections`, "
+            + "because arrow flight sql is a stateless protocol, the connection is usually not actively "
+            + "disconnected, bearer token is evict from the cache will unregister ConnectContext."})
+    public static int arrow_flight_token_cache_size = 512;
 
     @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为4320，即3天",
             "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
@@ -2468,7 +2465,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"nereids trace文件的存放路径。",
             "The path of the nereids trace file."})
-    public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
+    public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
@@ -2535,10 +2532,21 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_proxy_protocol = false;
 
+    // Used to check compatibility when upgrading.
+    @ConfField
+    public static boolean enable_check_compatibility_mode = false;
+
+    // Do checkpoint after replaying edit logs.
+    @ConfField
+    public static boolean checkpoint_after_check_compatibility = false;
 
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
+
+    @ConfField public static int info_sys_accumulated_file_size = 4;
+    @ConfField public static int warn_sys_accumulated_file_size = 2;
+    @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
     public static String cloud_unique_id = "";
@@ -2553,6 +2561,9 @@ public class Config extends ConfigBase {
 
     /**
      * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     *
+     * If you want to access a group of meta services, separated the endpoints by comma,
+     * like "host-1:port,host-2:port".
      */
     @ConfField
     public static String meta_service_endpoint = "";
@@ -2568,6 +2579,8 @@ public class Config extends ConfigBase {
 
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
+    //
+    // It only works if the meta_service_endpoint is not point to a group of meta services.
     @ConfField(mutable = true)
     public static int meta_service_connection_age_base_minutes = 5;
 
@@ -2618,6 +2631,9 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
+
+    @ConfField
+    public static int drop_user_notify_ms_max_times = 86400;
 
     //==========================================================================
     //                      end of cloud config

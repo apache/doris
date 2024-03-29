@@ -84,9 +84,7 @@ public abstract class StorageVault {
     }
 
     public static StorageVault fromStmt(CreateStorageVaultStmt stmt) throws DdlException {
-        StorageVault storageVault = getStorageVaultInstance(stmt);
-        storageVault.setProperties(stmt.getProperties());
-        return storageVault;
+        return getStorageVaultInstance(stmt);
     }
 
     public boolean ifNotExists() {
@@ -152,11 +150,6 @@ public abstract class StorageVault {
             properties.put(key, value);
         }
     }
-
-    /**
-     * Set and check the properties in child resources
-     */
-    protected abstract void setProperties(Map<String, String> properties) throws DdlException;
 
     public abstract Map<String, String> getCopiedProperties();
 }
