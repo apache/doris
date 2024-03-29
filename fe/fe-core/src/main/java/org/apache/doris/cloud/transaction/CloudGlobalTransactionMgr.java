@@ -548,11 +548,25 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private Map<Long, Long> getPartitionVersions(Map<Long, Partition> partitionMap) {
         Map<Long, Long> partitionToVersions = Maps.newHashMap();
+        List<CloudPartition> cloudPartitions = Lists.newArrayList();
         partitionMap.forEach((key, value) -> {
-            long visibleVersion = value.getVisibleVersion();
-            long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
-            partitionToVersions.put(key, newVersion);
+            if (value instanceof CloudPartition) {
+                cloudPartitions.add((CloudPartition) value);
+            } else {
+                long visibleVersion = value.getVisibleVersion();
+                long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
+                partitionToVersions.put(key, newVersion);
+            }
         });
+        try {
+             List<Long> visibleVersion = CloudPartition.getSnapshotVisibleVersion(cloudPartitions);
+             for (int i = 0; i < visibleVersion.size(); i++) {
+                 long newVersion = visibleVersion.get(i) <= 0 ? 2 : visibleVersion.get(i) + 1;
+                 partitionToVersions.put(cloudPartitions.get(i).getId(), newVersion);
+            }
+        } catch (RpcException e) {
+            throw new RuntimeException("get version from meta service failed");
+        }
         return partitionToVersions;
     }
 
