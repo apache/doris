@@ -416,7 +416,8 @@ public class StmtExecutor {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
             return logicalPlan instanceof InsertIntoTableCommand;
         }
-        return parsedStmt instanceof InsertStmt || parsedStmt instanceof CreateTableAsSelectStmt;
+        return parsedStmt instanceof InsertStmt || parsedStmt instanceof InsertOverwriteTableStmt
+                || parsedStmt instanceof CreateTableAsSelectStmt;
     }
 
     public boolean isAnalyzeStmt() {
