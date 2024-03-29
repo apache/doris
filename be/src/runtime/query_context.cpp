@@ -287,7 +287,6 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     _workload_group = tg;
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
-    RETURN_IF_ERROR(_workload_group->add_query(_query_id));
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                          &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
