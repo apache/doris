@@ -99,7 +99,8 @@ public class ExecutionProfile {
             RuntimeProfile runtimeProfile = new RuntimeProfile("Fragment " + i);
             fragmentProfiles.put(planFragment.getFragmentId().asInt(), runtimeProfile);
             fragmentsProfile.addChild(runtimeProfile);
-            multiBeProfile.put(planFragment.getFragmentId().asInt(), new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
+            multiBeProfile.put(planFragment.getFragmentId().asInt(),
+                    new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
             fragmentIdBeNum.put(planFragment.getFragmentId().asInt(), 0);
             seqNoToFragmentId.put(i, planFragment.getFragmentId().asInt());
             ++i;
