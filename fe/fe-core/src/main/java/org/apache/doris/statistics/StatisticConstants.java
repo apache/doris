@@ -64,8 +64,6 @@ public class StatisticConstants {
 
     public static List<String> SYSTEM_DBS = new ArrayList<>();
 
-    public static int ANALYZE_TASK_RETRY_TIMES = 5;
-
     public static final String DB_NAME = FeConstants.INTERNAL_DB_NAME;
 
     public static final String FULL_QUALIFIED_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
@@ -95,7 +93,7 @@ public class StatisticConstants {
 
     public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
 
-    public static final int TASK_QUEUE_CAP = 10;
+    public static final int TASK_QUEUE_CAP = 1;
 
     public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 100;
 
