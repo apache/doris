@@ -372,7 +372,8 @@ public class ExportStmt extends StatementBase {
             } else if (ExportJob.CONSISTENT_PARTITION.equalsIgnoreCase(dataConsistencyStr)) {
                 this.dataConsistency = ExportJob.CONSISTENT_PARTITION;
             } else {
-
+                throw new AnalysisException("The value of data_consistency is invalid, please use `"
+                        + ExportJob.CONSISTENT_PARTITION + "`/`" + ExportJob.CONSISTENT_NONE + "`");
             }
         }
     }
