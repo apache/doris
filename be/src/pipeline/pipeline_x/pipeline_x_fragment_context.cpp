@@ -473,6 +473,10 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
         break;
     }
+    case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
+        LOG_WARNING("GROUP_COMMIT_BLOCK_SINK someting is wrong");
+        break;
+    }
     default:
         return Status::InternalError("Unsuported sink type in pipeline: {}", thrift_sink.type);
     }
