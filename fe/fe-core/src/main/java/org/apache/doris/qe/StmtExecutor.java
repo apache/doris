@@ -65,6 +65,8 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TableName;
@@ -82,6 +84,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -112,6 +115,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -148,19 +152,26 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
+import org.apache.doris.proto.InternalService.POutfileWriteSuccessRequest;
+import org.apache.doris.proto.InternalService.POutfileWriteSuccessResult;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.Coordinator.FragmentExecParams;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
@@ -168,6 +179,7 @@ import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
@@ -185,6 +197,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
+import org.apache.doris.thrift.TResultFileSink;
+import org.apache.doris.thrift.TResultFileSinkOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
@@ -207,6 +221,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -220,6 +235,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
@@ -1836,6 +1852,10 @@ public class StmtExecutor {
                 }
             }
 
+            if (isOutfileQuery && !Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
+                outfileWriteSuccess(queryStmt.getOutFileClause());
+            }
+
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime();
@@ -1848,6 +1868,75 @@ public class StmtExecutor {
             throw e;
         } finally {
             coordBase.close();
+        }
+    }
+
+    private void outfileWriteSuccess(OutFileClause outFileClause) throws Exception {
+        if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
+            // 1. set TResultFileSinkOptions
+            TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(outFileClause.getFilePath(),
+                    outFileClause.getFileFormatType());
+            sinkOptions.setSuccessFileName(outFileClause.getSuccessFileName());
+            if (outFileClause.getBrokerDesc() != null) {
+                sinkOptions.setBrokerProperties(outFileClause.getBrokerDesc().getProperties());
+                // broker_addresses of sinkOptions will be set in Coordinator.
+                // Because we need to choose the nearest broker with the result sink node.
+            }
+
+            // set brokerNetAddress
+            List<PlanFragment> fragments = coord.getFragments();
+            Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = coord.getFragmentExecParamsMap();
+            PlanFragmentId topId = fragments.get(0).getFragmentId();
+            FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
+            DataSink topDataSink = topParams.fragment.getSink();
+            TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
+            if (topDataSink instanceof ResultFileSink
+                    && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
+                // set the broker address for OUTFILE sink
+                ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
+                FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
+                        .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+                sinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(broker.host, broker.port)));
+            }
+
+            // 2. set TResultFileSink properties
+            TResultFileSink sink = new TResultFileSink();
+            sink.setFileOptions(sinkOptions);
+            StorageType storageType = outFileClause.getBrokerDesc() == null
+                    ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
+            sink.setStorageBackendType(storageType.toThrift());
+
+            POutfileWriteSuccessRequest request = POutfileWriteSuccessRequest.newBuilder()
+                    .setResultFileSink(ByteString.copyFrom(new TSerializer().serialize(sink))).build();
+
+            // 3. get BE
+            TNetworkAddress address = null;
+            for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+                if (be.isAlive()) {
+                    address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                    break;
+                }
+            }
+            if (address == null) {
+                throw new AnalysisException("No Alive backends");
+            }
+
+            // 4. send rpc to write success file.
+            Future<POutfileWriteSuccessResult> future = BackendServiceProxy.getInstance()
+                    .outfileWriteSuccessAsync(address, request);
+            InternalService.POutfileWriteSuccessResult result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            String errMsg;
+            if (code != TStatusCode.OK) {
+                if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                    errMsg = result.getStatus().getErrorMsgsList().get(0);
+                } else {
+                    errMsg = "Outfile write success file failed. backend address: "
+                            + NetUtils
+                            .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
+                }
+                throw new AnalysisException(errMsg);
+            }
         }
     }
 
