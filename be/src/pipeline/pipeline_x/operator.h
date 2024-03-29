@@ -379,11 +379,9 @@ public:
     }
 
     void dec_running_big_mem_op_num(RuntimeState* state) {
-        if (!_big_mem_op_num_added) {
-            if (!_big_mem_op_num_deced) {
-                state->get_query_ctx()->dec_running_big_mem_op_num();
-                _big_mem_op_num_deced = true;
-            }
+        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
+            state->get_query_ctx()->dec_running_big_mem_op_num();
+            _big_mem_op_num_deced = true;
         }
     }
 
@@ -694,11 +692,9 @@ public:
     }
 
     void dec_running_big_mem_op_num(RuntimeState* state) {
-        if (!_big_mem_op_num_added) {
-            if (!_big_mem_op_num_deced) {
-                state->get_query_ctx()->dec_running_big_mem_op_num();
-                _big_mem_op_num_deced = true;
-            }
+        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
+            state->get_query_ctx()->dec_running_big_mem_op_num();
+            _big_mem_op_num_deced = true;
         }
     }
 

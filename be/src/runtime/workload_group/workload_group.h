@@ -88,10 +88,6 @@ public:
 
     void set_weighted_memory_used(int64_t wg_total_mem_used, double ratio);
 
-    int64_t get_weighted_memory_used() {
-        return _weighted_mem_used.load(std::memory_order_relaxed);
-    }
-
     void check_mem_used(bool* is_low_wartermark, bool* is_high_wartermark) const {
         auto weighted_mem_used = _weighted_mem_used.load(std::memory_order_relaxed);
         *is_low_wartermark =

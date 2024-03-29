@@ -339,8 +339,10 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
 
         const auto min_revocable_mem_bytes = state->min_revocable_mem();
         LOG_EVERY_N(INFO, 5) << "revoke memory, low water mark, revocable_mem_bytes: "
-                             << revocable_mem_bytes << ", mem_limit_of_op: " << mem_limit_of_op
-                             << ", min_revocable_mem_bytes: " << min_revocable_mem_bytes;
+                             << PrettyPrinter::print_bytes(revocable_mem_bytes)
+                             << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
+                             << ", min_revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);
     } else {

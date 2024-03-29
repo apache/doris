@@ -161,7 +161,8 @@ Status PartitionedHashJoinProbeLocalState::spill_build_block(RuntimeState* state
                                                              uint32_t partition_index) {
     auto& partitioned_build_blocks = _shared_state->partitioned_build_blocks;
     auto& mutable_block = partitioned_build_blocks[partition_index];
-    if (!mutable_block || mutable_block->bytes() < 32 * 1024) {
+    if (!mutable_block ||
+        mutable_block->allocated_bytes() < vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         --_spilling_task_count;
         return Status::OK();
     }
@@ -232,7 +233,8 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
 
     auto& blocks = _probe_blocks[partition_index];
     auto& partitioned_block = _partitioned_blocks[partition_index];
-    if (partitioned_block && partitioned_block->bytes() >= 32 * 1024) {
+    if (partitioned_block && partitioned_block->allocated_bytes() >=
+                                     vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         blocks.emplace_back(partitioned_block->to_block());
         partitioned_block.reset();
     }
@@ -703,16 +705,22 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
     for (uint32_t i = spilling_start; i < _partition_count; ++i) {
         auto& build_block = partitioned_build_blocks[i];
         if (build_block) {
-            mem_size += build_block->bytes();
+            auto block_bytes = build_block->allocated_bytes();
+            if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                mem_size += build_block->allocated_bytes();
+            }
         }
 
         for (auto& block : probe_blocks[i]) {
-            mem_size += block.bytes();
+            mem_size += block.allocated_bytes();
         }
 
         auto& partitioned_block = local_state._partitioned_blocks[i];
         if (partitioned_block) {
-            mem_size += partitioned_block->bytes();
+            auto block_bytes = partitioned_block->allocated_bytes();
+            if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                mem_size += block_bytes;
+            }
         }
     }
     return mem_size;

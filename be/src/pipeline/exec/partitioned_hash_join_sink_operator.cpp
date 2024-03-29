@@ -67,7 +67,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
 
-        if (!mutable_block || mutable_block->bytes() < 32 * 1024) {
+        if (!mutable_block ||
+            mutable_block->allocated_bytes() < vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
             --_spilling_streams_count;
             continue;
         }
@@ -256,7 +257,10 @@ size_t PartitionedHashJoinSinkOperatorX::revocable_mem_size(RuntimeState* state)
     for (uint32_t i = 0; i != _partition_count; ++i) {
         auto& block = partitioned_blocks[i];
         if (block) {
-            mem_size += block->bytes();
+            auto block_bytes = block->allocated_bytes();
+            if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                mem_size += block_bytes;
+            }
         }
     }
     return mem_size;
