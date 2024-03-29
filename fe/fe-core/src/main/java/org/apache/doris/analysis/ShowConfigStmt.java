@@ -17,9 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.AdminSetConfigStmt.ConfigType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -29,48 +31,57 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
 
-// ADMIN DIAGNOSE TABLET tablet_id
-public class AdminDiagnoseTabletStmt extends ShowStmt {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Item").add("Info").add("Suggestion")
-            .build();
+// show frontend config;
+public class ShowConfigStmt extends ShowStmt {
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
+            "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
 
-    private long tabletId;
+    private ConfigType type;
 
-    public AdminDiagnoseTabletStmt(long tabletId) {
-        this.tabletId = tabletId;
+    private String pattern;
+
+    public ShowConfigStmt(ConfigType type, String pattern) {
+        this.type = type;
+        this.pattern = pattern;
+    }
+
+    public ConfigType getType() {
+        return type;
+    }
+
+    public String getPattern() {
+        return pattern;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
 
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-    }
 
-    public long getTabletId() {
-        return tabletId;
-    }
-
-    @Override
-    public String toSql() {
-        return "ADMIN DIAGNOSE TABLET " + tabletId;
+        if (type != ConfigType.FRONTEND) {
+            throw new AnalysisException("Only support setting Frontend configs now");
+        }
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(1024)));
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

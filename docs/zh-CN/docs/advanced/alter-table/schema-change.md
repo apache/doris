@@ -264,7 +264,7 @@ SHOW ALTER TABLE COLUMN\G;
 
   数据分片副本是否完整，可以通过以下命令查看：
 
-  `ADMIN SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";`
+  `SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";`
 
   如果有返回结果，则说明有副本有问题。通常系统会自动修复这些问题，用户也可以通过以下命令优先修复这个表：
 

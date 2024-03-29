@@ -35,7 +35,7 @@ import org.junit.jupiter.api.Test;
 import java.io.StringReader;
 import java.lang.reflect.Method;
 
-public class AdminShowReplicaTest extends TestWithFeService {
+public class ShowReplicaTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -51,8 +51,8 @@ public class AdminShowReplicaTest extends TestWithFeService {
 
     @Test
     public void testShowReplicaDistribution() throws Exception {
-        String stmtStr = "admin show replica distribution from test.tbl1 partition(p1)";
-        AdminShowReplicaDistributionStmt stmt = (AdminShowReplicaDistributionStmt) parseAndAnalyzeStmt(
+        String stmtStr = "show replica distribution from test.tbl1 partition(p1)";
+        ShowReplicaDistributionStmt stmt = (ShowReplicaDistributionStmt) parseAndAnalyzeStmt(
                 stmtStr);
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);
         ShowResultSet resultSet = executor.execute();
@@ -93,36 +93,36 @@ public class AdminShowReplicaTest extends TestWithFeService {
 
     @Test
     public void testShowReplicaStatus() {
-        String stmt = new String("ADMIN SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'ok'");
+        String stmt = new String("SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'ok'");
         testAnalyzeWhere(stmt, true);
 
-        stmt = new String("ADMIN SHOW REPLICA STATUS FROM db.tbl1 WHERE status != 'ok'");
+        stmt = new String("SHOW REPLICA STATUS FROM db.tbl1 WHERE status != 'ok'");
         testAnalyzeWhere(stmt, true);
 
-        stmt = new String("ADMIN SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'dead'");
+        stmt = new String("SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'dead'");
         testAnalyzeWhere(stmt, true);
 
-        stmt = new String("ADMIN SHOW REPLICA STATUS FROM db.tbl1 WHERE status != 'VERSION_ERROR'");
+        stmt = new String("SHOW REPLICA STATUS FROM db.tbl1 WHERE status != 'VERSION_ERROR'");
         testAnalyzeWhere(stmt, true);
 
-        stmt = new String("ADMIN SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'MISSING'");
+        stmt = new String("SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'MISSING'");
         testAnalyzeWhere(stmt, true);
 
-        stmt = new String("ADMIN SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'missing'");
+        stmt = new String("SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'missing'");
         testAnalyzeWhere(stmt, true);
 
-        stmt = new String("ADMIN SHOW REPLICA STATUS FROM db.tbl1 WHERE status != 'what'");
+        stmt = new String("SHOW REPLICA STATUS FROM db.tbl1 WHERE status != 'what'");
         testAnalyzeWhere(stmt, false);
 
-        stmt = new String("ADMIN SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'how'");
+        stmt = new String("SHOW REPLICA STATUS FROM db.tbl1 WHERE status = 'how'");
         testAnalyzeWhere(stmt, false);
     }
 
     private void testAnalyzeWhere(String stmt, boolean correct) {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
-        AdminShowReplicaStatusStmt showStmt = null;
+        ShowReplicaStatusStmt showStmt = null;
         try {
-            showStmt = (AdminShowReplicaStatusStmt) SqlParserUtils.getFirstStmt(parser);
+            showStmt = (ShowReplicaStatusStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             Assert.fail(e.getMessage());
         } catch (Exception e) {
@@ -130,7 +130,7 @@ public class AdminShowReplicaTest extends TestWithFeService {
         }
 
         try {
-            Method method = AdminShowReplicaStatusStmt.class.getDeclaredMethod("analyzeWhere");
+            Method method = ShowReplicaStatusStmt.class.getDeclaredMethod("analyzeWhere");
             method.setAccessible(true);
             if (!(Boolean) method.invoke(showStmt)) {
                 if (correct) {

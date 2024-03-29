@@ -48,9 +48,9 @@ There are two ways to view the configuration items of FE:
 
 2. View by command
 
-    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command,Concrete language law reference [ADMIN-SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG.md):
+    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command,Concrete language law reference [SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/SHOW-CONFIG.md):
 
-    `ADMIN SHOW FRONTEND CONFIG;`
+    `SHOW FRONTEND CONFIG;`
 
     The meanings of the columns in the results are as follows:
 
@@ -75,7 +75,7 @@ There are two ways to configure FE configuration items:
 
     `ADMIN SET FRONTEND CONFIG (" fe_config_name "=" fe_config_value ");`
 
-    Not all configuration items support dynamic configuration. You can check whether the dynamic configuration is supported by the `IsMutable` column in the` ADMIN SHOW FRONTEND CONFIG; `command result.
+    Not all configuration items support dynamic configuration. You can check whether the dynamic configuration is supported by the `IsMutable` column in the` SHOW FRONTEND CONFIG; `command result.
 
     If the configuration item of `MasterOnly` is modified, the command will be directly forwarded to the Master FE and only the corresponding configuration item in the Master FE will be modified.
 
@@ -93,7 +93,7 @@ There are two ways to configure FE configuration items:
 
 1. Modify `async_pending_load_task_pool_size`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that this configuration item cannot be dynamically configured (`IsMutable` is false). You need to add in `fe.conf`:
+    Through `SHOW FRONTEND CONFIG;` you can see that this configuration item cannot be dynamically configured (`IsMutable` is false). You need to add in `fe.conf`:
 
     `async_pending_load_task_pool_size = 20`
 
@@ -101,7 +101,7 @@ There are two ways to configure FE configuration items:
 
 2. Modify `dynamic_partition_enable`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). And it is the unique configuration of Master FE. Then first we can connect to any FE and execute the following command to modify the configuration:
+    Through `SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). And it is the unique configuration of Master FE. Then first we can connect to any FE and execute the following command to modify the configuration:
 
     ```
     ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true"); `
@@ -111,14 +111,14 @@ There are two ways to configure FE configuration items:
 
     ```
     set forward_to_master = true;
-    ADMIN SHOW FRONTEND CONFIG;
+    SHOW FRONTEND CONFIG;
     ```
 
     After modification in the above manner, if the Master FE restarts or a Master election is performed, the configuration will be invalid. You can add the configuration item directly in `fe.conf` and restart the FE to make the configuration item permanent.
 
 3. Modify `max_distribution_pruner_recursion_depth`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). It is not unique to Master FE.
+    Through `SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). It is not unique to Master FE.
 
     Similarly, we can modify the configuration by dynamically modifying the configuration command. Because this configuration is not unique to the Master FE, user need to connect to different FEs separately to modify the configuration dynamically, so that all FEs use the modified configuration values.
 

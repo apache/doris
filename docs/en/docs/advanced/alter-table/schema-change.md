@@ -255,7 +255,7 @@ SHOW ALTER TABLE COLUMN\G;
     Schema Change can only be started when the table data is complete and unbalanced. If some data shard copies of the table are incomplete, or if some copies are undergoing an equalization operation, the submission is rejected.
         
     Whether the data shard copy is complete can be checked with the following command:
-        ```ADMIN SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";```
+        ```SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";```
     
     If a result is returned, there is a problem with the copy. These problems are usually fixed automatically by the system. You can also use the following commands to repair this table first:    
     ```ADMIN REPAIR TABLE tbl1;```

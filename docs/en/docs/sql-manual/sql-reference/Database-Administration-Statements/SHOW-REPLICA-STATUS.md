@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN-SHOW-REPLICA-STATUS",
+    "title": "SHOW-REPLICA-STATUS",
     "language": "en"
 }
 ---
@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ADMIN-SHOW-REPLICA-STATUS
+## SHOW-REPLICA-STATUS
 
 ### Name
 
-ADMIN SHOW REPLICA STATUS
+SHOW REPLICA STATUS
 
 ### Description
 
@@ -37,7 +37,7 @@ This statement is used to display replica status information for a table or part
 grammar:
 
 ```sql
- ADMIN SHOW REPLICA STATUS FROM [db_name.]tbl_name [PARTITION (p1, ...)]
+SHOW REPLICA STATUS FROM [db_name.]tbl_name [PARTITION (p1, ...)]
 [where_clause];
 ````
 
@@ -58,26 +58,26 @@ illustrate
 1. View the status of all replicas of the table
 
    ```sql
-   ADMIN SHOW REPLICA STATUS FROM db1.tbl1;
+   SHOW REPLICA STATUS FROM db1.tbl1;
    ````
 
 2. View a copy of a table with a partition status of VERSION_ERROR
 
    ```sql
-   ADMIN SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2)
+   SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2)
    WHERE STATUS = "VERSION_ERROR";
    ````
 
 3. View all unhealthy replicas of the table
 
    ```sql
-   ADMIN SHOW REPLICA STATUS FROM tbl1
+   SHOW REPLICA STATUS FROM tbl1
    WHERE STATUS != "OK";
    ````
 
 ### Keywords
 
-    ADMIN, SHOW, REPLICA, STATUS, ADMIN SHOW
+    SHOW, REPLICA, STATUS
 
 ### Best Practice
 
