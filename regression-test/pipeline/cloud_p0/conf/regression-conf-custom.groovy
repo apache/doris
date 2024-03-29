@@ -44,9 +44,9 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_spark_load," +
     "test_stream_load_move_memtable," +
     "test_stream_load_new_move_memtable," +
-    "zzz_the_end_sentinel_do_not_touch," + // keep this line as the last line
-    "test_array_index1," + 
-    "test_array_index2"
+    "test_array_index1," +
+    "test_array_index2," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
