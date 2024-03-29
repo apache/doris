@@ -1303,4 +1303,12 @@ public class ConnectContext {
     public void setGroupCommitStreamLoadSql(boolean groupCommitStreamLoadSql) {
         isGroupCommitStreamLoadSql = groupCommitStreamLoadSql;
     }
+
+    public Map<String, LiteralExpr> getUserVars() {
+        return userVars;
+    }
+
+    public void setUserVars(Map<String, LiteralExpr> userVars) {
+        this.userVars = userVars;
+    }
 }

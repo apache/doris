@@ -17,8 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -26,11 +29,14 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TTypeAndLiteral;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -195,7 +201,7 @@ public class MasterOpExecutor {
         params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
         // session variables
         params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
-
+        params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
@@ -299,5 +305,42 @@ public class MasterOpExecutor {
         public String getMessage() {
             return msg;
         }
+    }
+
+    private Map<String, TTypeAndLiteral> getForwardUserVariables(Map<String, LiteralExpr> userVariables) {
+        System.out.println("print userVariables:");
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
+            sb.append(entry.getKey());
+            sb.append(" ");
+            sb.append(entry.getValue());
+            sb.append(" ");
+        }
+        String s = sb.toString();
+        System.out.println(s);
+
+        Map<String, TTypeAndLiteral> forwardVariables = Maps.newHashMap();
+        for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
+            LiteralExpr literalExpr = entry.getValue();
+            Type type = literalExpr.getType();
+            PrimitiveType ttype = type.getPrimitiveType();
+            System.out.println(ttype);
+            TPrimitiveType tPrimitiveType = ttype.toThrift();
+            System.out.println(tPrimitiveType);
+            TTypeAndLiteral tTypeAndLiteral = new TTypeAndLiteral(tPrimitiveType, literalExpr.getStringValue());
+            forwardVariables.put(entry.getKey(), tTypeAndLiteral);
+        }
+        System.out.println("print forwardVariables");
+        StringBuilder sb2 = new StringBuilder();
+        for (Map.Entry<String, TTypeAndLiteral> entry : forwardVariables.entrySet()) {
+            sb2.append(entry.getKey());
+            sb2.append(" ");
+            sb2.append(entry.getValue().value);
+            sb2.append(" ");
+        }
+        System.out.println(sb2);
+        System.out.println(forwardVariables);
+
+        return forwardVariables;
     }
 }

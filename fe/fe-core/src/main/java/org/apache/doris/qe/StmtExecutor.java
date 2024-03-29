@@ -658,7 +658,7 @@ public class StmtExecutor {
         if (logicalPlan instanceof Command) {
             if (logicalPlan instanceof Forward) {
                 redirectStatus = ((Forward) logicalPlan).toRedirectStatus();
-                if (isForwardToMaster()) {
+                // if (isForwardToMaster()) {
                     if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
@@ -682,7 +682,7 @@ public class StmtExecutor {
                         context.setQueryId(masterOpExecutor.getQueryId());
                     }
                     return;
-                }
+                // }
             }
             try {
                 ((Command) logicalPlan).run(context, this);
