@@ -852,6 +852,10 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     // But do we need brpc::StartCancel(call_id)?
     _cancel_with_msg(cancel_msg);
 
+    if (_stub == nullptr) {
+        return;
+    }
+
     PTabletWriterCancelRequest request;
     request.set_allocated_id(&_parent->_load_id);
     request.set_index_id(_index_channel->_index_id);
