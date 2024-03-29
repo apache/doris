@@ -109,7 +109,9 @@ int64_t WorkloadGroup::memory_used() {
     int64_t used_memory = 0;
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
-        for (const auto& tracker : mem_tracker_group.trackers) {
+        for (const auto& trackerWptr : mem_tracker_group.trackers) {
+            auto tracker = trackerWptr.lock();
+            CHECK(tracker != nullptr);
             used_memory += tracker->is_query_cancelled() ? 0 : tracker->consumption();
         }
     }
@@ -119,13 +121,21 @@ int64_t WorkloadGroup::memory_used() {
 void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    _mem_tracker_limiter_pool[group_num].trackers.insert(mem_tracker_ptr);
+    mem_tracker_ptr->tg_tracker_limiter_group_it =
+            _mem_tracker_limiter_pool[group_num].trackers.insert(
+                    _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
 }
 
 void WorkloadGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    _mem_tracker_limiter_pool[group_num].trackers.erase(mem_tracker_ptr);
+    if (mem_tracker_ptr->tg_tracker_limiter_group_it !=
+        _mem_tracker_limiter_pool[group_num].trackers.end()) {
+        _mem_tracker_limiter_pool[group_num].trackers.erase(
+                mem_tracker_ptr->tg_tracker_limiter_group_it);
+        mem_tracker_ptr->tg_tracker_limiter_group_it =
+                _mem_tracker_limiter_pool[group_num].trackers.end();
+    }
 }
 
 int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
@@ -169,7 +179,7 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile)
     if (config::enable_query_memory_overcommit) {
         RuntimeProfile* tmq_profile = profile->create_child(
                 fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
-        freed_mem += MemTrackerLimiter::tg_free_top_overcommit_query(
+        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY,
                 _mem_tracker_limiter_pool, cancel_top_overcommit_str, tmq_profile,
                 MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
@@ -181,7 +191,7 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile)
     // 2. free top usage query
     RuntimeProfile* tmq_profile =
             profile->create_child(fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::tg_free_top_memory_query(
+    freed_mem += MemTrackerLimiter::free_top_memory_query(
             need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
             cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     if (freed_mem >= need_free_mem) {
@@ -192,7 +202,7 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile)
     if (config::enable_query_memory_overcommit) {
         tmq_profile = profile->create_child(
                 fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name), true, true);
-        freed_mem += MemTrackerLimiter::tg_free_top_overcommit_query(
+        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
                 cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
         if (freed_mem >= need_free_mem) {
@@ -203,7 +213,7 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile)
     // 4. free top usage load
     tmq_profile =
             profile->create_child(fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::tg_free_top_memory_query(
+    freed_mem += MemTrackerLimiter::free_top_memory_query(
             need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
             cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     return freed_mem;

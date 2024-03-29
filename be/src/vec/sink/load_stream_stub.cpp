@@ -392,7 +392,6 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
         RETURN_IF_ERROR(_check_cancel());
         int ret;
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {
                 int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
                 bthread_usleep(delay_ms * 1000);

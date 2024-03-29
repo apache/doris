@@ -25,29 +25,27 @@
 namespace doris {
 
 void ThreadMemTrackerMgr::attach_limiter_tracker(
-        const std::shared_ptr<MemTrackerLimiter>& mem_tracker, const TUniqueId& query_id) {
+        const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
     CHECK(init());
     flush_untracked_mem();
-    _query_id = query_id;
     _limiter_tracker = mem_tracker;
     _limiter_tracker_raw = mem_tracker.get();
-    _wait_gc = true;
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
     CHECK(init());
     flush_untracked_mem();
-    _query_id = TUniqueId();
     _limiter_tracker = old_mem_tracker;
     _limiter_tracker_raw = old_mem_tracker.get();
-    _wait_gc = false;
 }
 
 void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {
-    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-            _query_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, exceed_msg);
+    if (is_attach_query()) {
+        ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+                _query_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, exceed_msg);
+    }
 }
 
 } // namespace doris
