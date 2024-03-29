@@ -45,6 +45,8 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -134,7 +136,15 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
         AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
         LOG.debug("Auto analyze job : {}", analyzeJob.toString());
-        executeSystemAnalysisJob(analyzeJob);
+        try {
+            executeSystemAnalysisJob(analyzeJob);
+        } catch (Exception e) {
+            StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
+            for (Pair<String, String> pair : columns) {
+                stringJoiner.add(pair.toString());
+            }
+            LOG.warn("Fail to auto analyze table {}, columns [{}]", table.getName(), stringJoiner.toString());
+        }
     }
 
     protected void appendPartitionColumns(TableIf table, Set<Pair<String, String>> columns) throws DdlException {
@@ -205,7 +215,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
     // Analysis job created by the system
     @VisibleForTesting
     protected void executeSystemAnalysisJob(AnalysisInfo jobInfo)
-            throws DdlException {
+            throws DdlException, ExecutionException, InterruptedException {
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
@@ -215,7 +225,14 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
         Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
         Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
-        analysisTasks.values().forEach(analysisTaskExecutor::submitTask);
+        Future<?>[] futures = new Future[analysisTasks.values().size()];
+        int i = 0;
+        for (BaseAnalysisTask task : analysisTasks.values()) {
+            futures[i++] = analysisTaskExecutor.submitTask(task);
+        }
+        for (Future future : futures) {
+            future.get();
+        }
     }
 
     protected AnalysisInfo getNeedAnalyzeColumns(AnalysisInfo jobInfo) {
