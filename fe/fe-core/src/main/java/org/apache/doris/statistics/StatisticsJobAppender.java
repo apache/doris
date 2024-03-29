@@ -101,13 +101,16 @@ public class StatisticsJobAppender extends MasterDaemon {
                 continue;
             }
             Column col = table.getColumn(column.colName);
-            if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
+            if (col == null || !col.isVisible() || StatisticsUtil.isUnsupportedType(col.getType())) {
                 continue;
             }
             Set<Pair<String, String>> columnIndexPairs = table.getColumnIndexPairs(
                     Collections.singleton(column.colName)).stream()
                     .filter(p -> StatisticsUtil.needAnalyzeColumn(table, p))
                     .collect(Collectors.toSet());
+            if (columnIndexPairs.isEmpty()) {
+                continue;
+            }
             TableName tableName = new TableName(table.getDatabase().getCatalog().getName(),
                     table.getDatabase().getFullName(), table.getName());
             synchronized (jobs) {
