@@ -73,11 +73,15 @@ public class TVFScanNode extends FileQueryScanNode {
         if (tableValuedFunction instanceof LocalTableValuedFunction) {
             // For local tvf, the backend was specified by backendId
             Long backendId = ((LocalTableValuedFunction) tableValuedFunction).getBackendId();
-            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-            if (backend == null) {
-                throw new UserException("Backend " + backendId + " does not exist");
+            if (backendId != -1) {
+                // User has specified the backend, only use that backend
+                // Otherwise, use all backends for shared storage.
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                if (backend == null) {
+                    throw new UserException("Backend " + backendId + " does not exist");
+                }
+                preferLocations.add(backend.getHost());
             }
-            preferLocations.add(backend.getHost());
         }
         backendPolicy.init(preferLocations);
         numNodes = backendPolicy.numBackends();
