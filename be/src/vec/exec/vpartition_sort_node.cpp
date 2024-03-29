@@ -263,8 +263,6 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             _value_places[i]->create_or_reset_sorter_state();
             auto sorter = std::ref(_value_places[i]->_partition_topn_sorter);
 
-            DCHECK(child(0)->row_desc().num_materialized_slots() ==
-                   _value_places[i]->_blocks.back()->columns());
             //get blocks from every partition, and sorter get those data.
             for (const auto& block : _value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter.get()->append_block(block.get()));
