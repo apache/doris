@@ -75,7 +75,7 @@ public class ExecutionProfile {
     private boolean isPipelineXProfile = false;
 
     // use to merge profile from multi be
-    private List<Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
+    private Map<Integer, Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
 
     // Not serialize this property, it is only used to get profile id.
     private SummaryProfile summaryProfile;
@@ -83,6 +83,7 @@ public class ExecutionProfile {
     // BE only has instance id, does not have fragmentid, so should use this map to find fragmentid.
     private Map<TUniqueId, PlanFragmentId> instanceIdToFragmentId;
     private Map<Integer, Integer> fragmentIdBeNum;
+    private Map<Integer, Integer> seqNoToFragmentId;
 
     public ExecutionProfile(TUniqueId queryId, List<PlanFragment> fragments) {
         this.queryId = queryId;
@@ -90,15 +91,17 @@ public class ExecutionProfile {
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         root.addChild(fragmentsProfile);
         fragmentProfiles = Maps.newHashMap();
-        multiBeProfile = Lists.newArrayList();
+        multiBeProfile = Maps.newHashMap();
         fragmentIdBeNum = Maps.newHashMap();
+        seqNoToFragmentId = Maps.newHashMap();
         int i = 0;
         for (PlanFragment planFragment : fragments) {
             RuntimeProfile runtimeProfile = new RuntimeProfile("Fragment " + i);
             fragmentProfiles.put(planFragment.getFragmentId().asInt(), runtimeProfile);
             fragmentsProfile.addChild(runtimeProfile);
-            multiBeProfile.add(new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
+            multiBeProfile.put(planFragment.getFragmentId().asInt(), new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
             fragmentIdBeNum.put(planFragment.getFragmentId().asInt(), 0);
+            seqNoToFragmentId.put(i, planFragment.getFragmentId().asInt());
             ++i;
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
@@ -107,8 +110,8 @@ public class ExecutionProfile {
         instanceIdToFragmentId = Maps.newHashMap();
     }
 
-    private List<List<RuntimeProfile>> getMultiBeProfile(int profileFragmentId) {
-        Map<TNetworkAddress, List<RuntimeProfile>> multiPipeline = multiBeProfile.get(profileFragmentId);
+    private List<List<RuntimeProfile>> getMultiBeProfile(int fragmentId) {
+        Map<TNetworkAddress, List<RuntimeProfile>> multiPipeline = multiBeProfile.get(fragmentId);
         List<List<RuntimeProfile>> allPipelines = Lists.newArrayList();
         int pipelineSize = 0;
         for (List<RuntimeProfile> profiles : multiPipeline.values()) {
@@ -133,7 +136,7 @@ public class ExecutionProfile {
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
             RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
             fragmentsProfile.addChild(newFragmentProfile);
-            List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(i);
+            List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(seqNoToFragmentId.get(i));
             int pipelineIdx = 0;
             for (List<RuntimeProfile> allPipelineTask : allPipelines) {
                 RuntimeProfile mergedpipelineProfile = new RuntimeProfile(
@@ -151,7 +154,7 @@ public class ExecutionProfile {
     private RuntimeProfile getNonPipelineXAggregatedProfile(Map<Integer, String> planNodeMap) {
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
-            RuntimeProfile oldFragmentProfile = fragmentProfiles.get(i);
+            RuntimeProfile oldFragmentProfile = fragmentProfiles.get(seqNoToFragmentId.get(i));
             RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
             fragmentsProfile.addChild(newFragmentProfile);
             List<RuntimeProfile> allInstanceProfiles = new ArrayList<RuntimeProfile>();
