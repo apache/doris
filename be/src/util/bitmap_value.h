@@ -1208,7 +1208,7 @@ public:
         }
     }
 
-    BitmapValue(BitmapValue&& other) {
+    BitmapValue(BitmapValue&& other) noexcept {
         _type = other._type;
         switch (other._type) {
         case EMPTY:
@@ -1265,7 +1265,7 @@ public:
         return buf;
     }
 
-    BitmapValue& operator=(BitmapValue&& other) {
+    BitmapValue& operator=(BitmapValue&& other) noexcept {
         if (this == &other) {
             return *this;
         }

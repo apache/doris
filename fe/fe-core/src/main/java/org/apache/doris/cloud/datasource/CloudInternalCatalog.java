@@ -361,12 +361,13 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     @Override
-    protected void afterCreatePartitions(long tableId, List<Long> partitionIds, List<Long> indexIds)
+    protected void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+                                         boolean isCreateTable)
             throws DdlException {
         if (partitionIds == null) {
-            commitMaterializedIndex(tableId, indexIds);
+            commitMaterializedIndex(dbId, tableId, indexIds, isCreateTable);
         } else {
-            commitPartition(tableId, partitionIds, indexIds);
+            commitPartition(dbId, tableId, partitionIds, indexIds);
         }
     }
 
@@ -406,11 +407,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void commitPartition(long tableId, List<Long> partitionIds, List<Long> indexIds) throws DdlException {
+    private void commitPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+            throws DdlException {
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
         partitionRequestBuilder.addAllIndexIds(indexIds);
+        partitionRequestBuilder.setDbId(dbId);
         partitionRequestBuilder.setTableId(tableId);
         final Cloud.PartitionRequest partitionRequest = partitionRequestBuilder.build();
 
@@ -469,11 +472,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void commitMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    public void commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean isCreateTable)
+            throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
+        indexRequestBuilder.setDbId(dbId);
         indexRequestBuilder.setTableId(tableId);
+        indexRequestBuilder.setIsNewTable(isCreateTable);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;
@@ -562,7 +568,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 if (indexs.isEmpty()) {
                     break;
                 }
-                dropMaterializedIndex(olapTable.getId(), indexs);
+                dropMaterializedIndex(olapTable.getId(), indexs, true);
             } catch (Exception e) {
                 LOG.warn("failed to drop index {} of table {}, try cnt {}, execption {}",
                         indexs, olapTable.getId(), tryCnt, e);
@@ -657,7 +663,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void dropMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+    public void dropMaterializedIndex(long tableId, List<Long> indexIds, boolean dropTable) throws DdlException {
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -706,4 +712,62 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    public void dropStage(Cloud.StagePB.StageType stageType, String userName, String userId,
+                          String stageName, String reason, boolean ifExists)
+            throws DdlException {
+        Cloud.DropStageRequest.Builder builder = Cloud.DropStageRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setType(stageType);
+        if (userName != null) {
+            builder.setMysqlUserName(userName);
+        }
+        if (userId != null) {
+            builder.setMysqlUserId(userId);
+        }
+        if (stageName != null) {
+            builder.setStageName(stageName);
+        }
+        if (reason != null) {
+            builder.setReason(reason);
+        }
+        Cloud.DropStageResponse response = null;
+        int retryTime = 0;
+        while (retryTime++ < 3) {
+            try {
+                response = MetaServiceProxy.getInstance().dropStage(builder.build());
+                LOG.info("drop stage, stageType:{}, userName:{}, userId:{}, stageName:{}, reason:{}, "
+                        + "retry:{}, response: {}", stageType, userName, userId, stageName, reason, retryTime,
+                        response);
+                // just retry kv conflict
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("dropStage response: {} ", response);
+            }
+            // sleep random millis [20, 200] ms, avoid txn conflict
+            int randomMillis = 20 + (int) (Math.random() * (200 - 20));
+            LOG.debug("randomMillis:{}", randomMillis);
+            try {
+                Thread.sleep(randomMillis);
+            } catch (InterruptedException e) {
+                LOG.info("InterruptedException: ", e);
+            }
+        }
+
+        if (response == null || !response.hasStatus()) {
+            throw new DdlException("metaService exception");
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("dropStage response: {} ", response);
+            if (response.getStatus().getCode() == Cloud.MetaServiceCode.STAGE_NOT_FOUND) {
+                if (ifExists) {
+                    return;
+                } else {
+                    throw new DdlException("Stage does not exists: " + stageName);
+                }
+            }
+            throw new DdlException("internal error, try later");
+        }
+    }
 }

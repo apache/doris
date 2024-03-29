@@ -94,10 +94,12 @@ public:
     VScannerSPtr _scanner;
     ScannerDelegate(VScannerSPtr& scanner_ptr) : _scanner(scanner_ptr) {}
     ~ScannerDelegate() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_scanner->runtime_state()->query_mem_tracker());
         Status st = _scanner->close(_scanner->runtime_state());
         if (!st.ok()) {
             LOG(WARNING) << "close scanner failed, st = " << st;
         }
+        _scanner.reset();
     }
     ScannerDelegate(ScannerDelegate&&) = delete;
 };

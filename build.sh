@@ -45,7 +45,6 @@ Usage: $0 <options>
      --cloud                build Cloud. Default OFF.
      --index-tool           build Backend inverted index tool. Default OFF.
      --broker               build Broker. Default ON.
-     --audit                build audit loader. Default ON.
      --spark-dpp            build Spark DPP application. Default ON.
      --hive-udf             build Hive UDF library for Spark Load. Default ON.
      --be-java-extensions   build Backend java extensions. Default ON.
@@ -123,7 +122,6 @@ if ! OPTS="$(getopt \
     -l 'be' \
     -l 'cloud' \
     -l 'broker' \
-    -l 'audit' \
     -l 'meta-tool' \
     -l 'index-tool' \
     -l 'spark-dpp' \
@@ -146,7 +144,6 @@ BUILD_FE=0
 BUILD_BE=0
 BUILD_CLOUD=0
 BUILD_BROKER=0
-BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
 BUILD_SPARK_DPP=0
@@ -164,7 +161,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_BE=1
 
     BUILD_BROKER=1
-    BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
     BUILD_INDEX_TOOL='OFF'
     BUILD_SPARK_DPP=1
@@ -192,10 +188,6 @@ else
             ;;
         --broker)
             BUILD_BROKER=1
-            shift
-            ;;
-        --audit)
-            BUILD_AUDIT=1
             shift
             ;;
         --meta-tool)
@@ -263,7 +255,6 @@ else
         BUILD_BE=1
         BUILD_CLOUD=1
         BUILD_BROKER=1
-        BUILD_AUDIT=1
         BUILD_META_TOOL='ON'
         BUILD_INDEX_TOOL='ON'
         BUILD_SPARK_DPP=1
@@ -450,7 +441,6 @@ echo "Get params:
     BUILD_BE                    -- ${BUILD_BE}
     BUILD_CLOUD                 -- ${BUILD_CLOUD}
     BUILD_BROKER                -- ${BUILD_BROKER}
-    BUILD_AUDIT                 -- ${BUILD_AUDIT}
     BUILD_META_TOOL             -- ${BUILD_META_TOOL}
     BUILD_INDEX_TOOL            -- ${BUILD_INDEX_TOOL}
     BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
@@ -818,10 +808,14 @@ EOF
     rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
     mkdir "${BE_JAVA_EXTENSIONS_DIR}"
     for extensions_module in "${extensions_modules[@]}"; do
-        module_path="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
+        module_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
+        module_proj_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-project.jar"
         mkdir "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-        if [[ -f "${module_path}" ]]; then
-            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+        if [[ -f "${module_jar}" ]]; then
+            cp "${module_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+        fi
+        if [[ -f "${module_proj_jar}" ]]; then
+            cp "${module_proj_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
         fi
     done
 
@@ -841,16 +835,6 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
     copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
-    cd "${DORIS_HOME}"
-fi
-
-if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/audit_loader"
-
-    cd "${DORIS_HOME}/fe_plugins/auditloader"
-    ./build.sh
-    rm -rf "${DORIS_OUTPUT}/audit_loader"/*
-    cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
     cd "${DORIS_HOME}"
 fi
 

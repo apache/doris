@@ -110,7 +110,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
 
 Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
         : _mem_tracker(
-                  std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label)),
+                  MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
           _is_vertical(config::enable_vertical_compaction),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
@@ -466,6 +466,7 @@ Status CompactionMixin::do_inverted_index_compaction() {
                     _tablet->table_id());
             DCHECK(false) << err_msg;
             LOG(WARNING) << err_msg;
+            return Status::InternalError(err_msg);
         }
     }
 
@@ -523,7 +524,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
         auto write_json_to_file = [&](const nlohmann::json& json_obj,
                                       const std::string& file_name) {
             io::FileWriterPtr file_writer;
-            std::string file_path = fmt::format("{}/{}.json", config::sys_log_dir, file_name);
+            std::string file_path =
+                    fmt::format("{}/{}.json", std::string(getenv("LOG_DIR")), file_name);
             RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
             RETURN_IF_ERROR(file_writer->append(json_obj.dump()));
             RETURN_IF_ERROR(file_writer->append("\n"));
@@ -617,7 +619,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
 
     // we choose the first destination segment name as the temporary index writer path
     // Used to distinguish between different index compaction
-    auto index_tmp_path = tablet_path + "/" + dest_rowset_id.to_string() + "_" + "tmp";
+    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
+    auto index_tmp_path = tmp_file_dir / dest_rowset_id.to_string();
     LOG(INFO) << "start index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", source index size=" << src_segment_num
               << ", destination index size=" << dest_segment_num << ".";
@@ -1058,6 +1061,9 @@ Status CloudCompactionMixin::modify_rowsets() {
 }
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
+    if (_engine.latest_fs() == nullptr) [[unlikely]] {
+        return Status::IOError("Invalid latest fs");
+    }
     ctx.fs = _engine.latest_fs();
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive

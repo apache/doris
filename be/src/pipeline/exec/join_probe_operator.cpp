@@ -86,7 +86,10 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
         // In previous versions, the join node had a separate set of project structures,
         // and you could see a 'todo' in the Thrift definition.
         //  Here, we have refactored it, but considering upgrade compatibility, we still need to retain the old code.
-        *output_block = *origin_block;
+        if (!output_block->mem_reuse()) {
+            output_block->swap(origin_block->clone_empty());
+        }
+        output_block->swap(*origin_block);
         return Status::OK();
     }
     SCOPED_TIMER(_build_output_block_timer);

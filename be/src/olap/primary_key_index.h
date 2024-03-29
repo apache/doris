@@ -100,10 +100,10 @@ public:
     PrimaryKeyIndexReader() : _index_parsed(false), _bf_parsed(false) {}
 
     ~PrimaryKeyIndexReader() {
-        segment_v2::g_pk_total_bloom_filter_num << -_bf_num;
-        segment_v2::g_pk_total_bloom_filter_total_bytes << -_bf_bytes;
-        segment_v2::g_pk_read_bloom_filter_num << -_bf_num;
-        segment_v2::g_pk_read_bloom_filter_total_bytes << -_bf_bytes;
+        segment_v2::g_pk_total_bloom_filter_num << -static_cast<int64_t>(_bf_num);
+        segment_v2::g_pk_total_bloom_filter_total_bytes << -static_cast<int64_t>(_bf_bytes);
+        segment_v2::g_pk_read_bloom_filter_num << -static_cast<int64_t>(_bf_num);
+        segment_v2::g_pk_read_bloom_filter_total_bytes << -static_cast<int64_t>(_bf_bytes);
     }
 
     Status parse_index(io::FileReaderSPtr file_reader,

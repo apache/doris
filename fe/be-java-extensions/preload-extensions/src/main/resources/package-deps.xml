@@ -28,7 +28,7 @@ under the License.
     <dependencySets>
         <dependencySet>
             <outputDirectory>/</outputDirectory>
-            <useProjectArtifact>true</useProjectArtifact>
+            <useProjectArtifact>false</useProjectArtifact>
             <unpack>true</unpack>
             <scope>runtime</scope>
             <unpackOptions>

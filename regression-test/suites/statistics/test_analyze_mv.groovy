@@ -145,7 +145,7 @@ suite("test_analyze_mv") {
     def result_sample = sql """show column stats mvTestDup(key1)"""
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestDup", result_sample[0][1])
     assertEquals("6.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("1", result_sample[0][7])
@@ -157,7 +157,7 @@ suite("test_analyze_mv") {
     result_sample = sql """show column stats mvTestDup(value1)"""
     assertEquals(1, result_sample.size())
     assertEquals("value1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestDup", result_sample[0][1])
     assertEquals("6.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("3", result_sample[0][7])
@@ -252,9 +252,9 @@ suite("test_analyze_mv") {
 
     result_sample = sql """show column stats mvTestAgg(key1)"""
     assertEquals(2, result_sample.size())
-    if (result_sample[0][1] == "N/A") {
+    if (result_sample[0][1] == "mvTestAgg") {
         assertEquals("key1", result_sample[0][0])
-        assertEquals("N/A", result_sample[0][1])
+        assertEquals("mvTestAgg", result_sample[0][1])
         assertEquals("5.0", result_sample[0][2])
         assertEquals("4.0", result_sample[0][3])
         assertEquals("1", result_sample[0][7])
@@ -267,7 +267,7 @@ suite("test_analyze_mv") {
         assertEquals("1001", result_sample[1][8])
     } else {
         assertEquals("key1", result_sample[1][0])
-        assertEquals("N/A", result_sample[1][1])
+        assertEquals("mvTestAgg", result_sample[1][1])
         assertEquals("5.0", result_sample[1][2])
         assertEquals("4.0", result_sample[1][3])
         assertEquals("1", result_sample[1][7])
@@ -282,9 +282,9 @@ suite("test_analyze_mv") {
 
     result_sample = sql """show column stats mvTestAgg(value1)"""
     assertEquals(2, result_sample.size())
-    if (result_sample[0][1] == "N/A") {
+    if (result_sample[0][1] == "mvTestAgg") {
         assertEquals("value1", result_sample[0][0])
-        assertEquals("N/A", result_sample[0][1])
+        assertEquals("mvTestAgg", result_sample[0][1])
         assertEquals("5.0", result_sample[0][2])
         assertEquals("5.0", result_sample[0][3])
         assertEquals("6", result_sample[0][7])
@@ -297,7 +297,7 @@ suite("test_analyze_mv") {
         assertEquals("3001", result_sample[1][8])
     } else {
         assertEquals("value1", result_sample[1][0])
-        assertEquals("N/A", result_sample[1][1])
+        assertEquals("mvTestAgg", result_sample[1][1])
         assertEquals("5.0", result_sample[1][2])
         assertEquals("5.0", result_sample[1][3])
         assertEquals("6", result_sample[1][7])
@@ -313,7 +313,7 @@ suite("test_analyze_mv") {
     result_sample = sql """show column stats mvTestAgg(key2)"""
     assertEquals(1, result_sample.size())
     assertEquals("key2", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestAgg", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("5.0", result_sample[0][3])
     assertEquals("2", result_sample[0][7])
@@ -323,7 +323,7 @@ suite("test_analyze_mv") {
     result_sample = sql """show column stats mvTestAgg(value2)"""
     assertEquals(1, result_sample.size())
     assertEquals("value2", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestAgg", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("5.0", result_sample[0][3])
     assertEquals("4", result_sample[0][7])
@@ -391,7 +391,7 @@ suite("test_analyze_mv") {
     result_sample = sql """show column stats mvTestUni(key1)"""
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestUni", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("1", result_sample[0][7])
@@ -444,7 +444,7 @@ suite("test_analyze_mv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestDup", result_sample[0][1])
     assertEquals("6.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("1", result_sample[0][7])
@@ -462,7 +462,7 @@ suite("test_analyze_mv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("value1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestDup", result_sample[0][1])
     assertEquals("6.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("3", result_sample[0][7])
@@ -558,11 +558,11 @@ suite("test_analyze_mv") {
         logger.info("col " + colName + " in index " + indexName + " found ? " + found)
         assertTrue(found)
     }
-    verifyTaskStatus(result_sample, "key1", "N/A")
-    verifyTaskStatus(result_sample, "key2", "N/A")
-    verifyTaskStatus(result_sample, "value1", "N/A")
-    verifyTaskStatus(result_sample, "value2", "N/A")
-    verifyTaskStatus(result_sample, "value3", "N/A")
+    verifyTaskStatus(result_sample, "key1", "mvTestDup")
+    verifyTaskStatus(result_sample, "key2", "mvTestDup")
+    verifyTaskStatus(result_sample, "value1", "mvTestDup")
+    verifyTaskStatus(result_sample, "value2", "mvTestDup")
+    verifyTaskStatus(result_sample, "value3", "mvTestDup")
     verifyTaskStatus(result_sample, "mv_key1", "mv1")
     verifyTaskStatus(result_sample, "mv_key1", "mv3")
     verifyTaskStatus(result_sample, "mv_key2", "mv2")
@@ -580,7 +580,7 @@ suite("test_analyze_mv") {
     def result = sql """show column cached stats mvTestDup(key1)"""
     assertEquals(1, result.size())
     assertEquals("key1", result[0][0])
-    assertEquals("N/A", result[0][1])
+    assertEquals("mvTestDup", result[0][1])
     assertEquals("50.0", result[0][2])
     assertEquals("1.0", result[0][3])
     assertEquals("1.0", result[0][4])

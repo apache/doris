@@ -204,13 +204,19 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         cloud_unique_id = request->cloud_unique_id();
     }
 
+    bool is_table_version = false;
+    if (request->has_is_table_version()) {
+        is_table_version = request->is_table_version();
+    }
+
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
     int64_t table_id = request->has_table_id() ? request->table_id() : -1;
     int64_t partition_id = request->has_partition_id() ? request->partition_id() : -1;
-    if (db_id == -1 || table_id == -1 || partition_id == -1) {
+    if (db_id == -1 || table_id == -1 || (!is_table_version && partition_id == -1)) {
         msg = "params error, db_id=" + std::to_string(db_id) +
               " table_id=" + std::to_string(table_id) +
-              " partition_id=" + std::to_string(partition_id);
+              " partition_id=" + std::to_string(partition_id) +
+              " is_table_version=" + std::to_string(is_table_version);
         code = MetaServiceCode::INVALID_ARGUMENT;
         LOG(WARNING) << msg;
         return;
@@ -224,9 +230,12 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         return;
     }
     RPC_RATE_LIMIT(get_version)
-    VersionKeyInfo ver_key_info {instance_id, db_id, table_id, partition_id};
     std::string ver_key;
-    version_key(ver_key_info, &ver_key);
+    if (is_table_version) {
+        table_version_key({instance_id, db_id, table_id}, &ver_key);
+    } else {
+        partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
+    }
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -237,17 +246,22 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
     }
 
     std::string ver_val;
-    VersionPB version_pb;
     // 0 for success get a key, 1 for key not found, negative for error
     err = txn->get(ver_key, &ver_val);
     VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
     if (err == TxnErrorCode::TXN_OK) {
-        if (!version_pb.ParseFromString(ver_val)) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = "malformed version value";
-            return;
+        if (is_table_version) {
+            int64_t version = *reinterpret_cast<const int64_t*>(ver_val.data());
+            response->set_version(version);
+        } else {
+            VersionPB version_pb;
+            if (!version_pb.ParseFromString(ver_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "malformed version value";
+                return;
+            }
+            response->set_version(version_pb.version());
         }
-        response->set_version(version_pb.version());
         { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -270,12 +284,18 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         cloud_unique_id = request->cloud_unique_id();
     }
 
+    bool is_table_version = false;
+    if (request->has_is_table_version()) {
+        is_table_version = request->is_table_version();
+    }
+
     if (request->db_ids_size() == 0 || request->table_ids_size() == 0 ||
-        request->table_ids_size() != request->partition_ids_size() ||
-        request->db_ids_size() != request->partition_ids_size()) {
+        (!is_table_version && request->table_ids_size() != request->partition_ids_size()) ||
+        (!is_table_version && request->db_ids_size() != request->partition_ids_size())) {
         msg = "param error, num db_ids=" + std::to_string(request->db_ids_size()) +
               " num table_ids=" + std::to_string(request->table_ids_size()) +
-              " num partition_ids=" + std::to_string(request->partition_ids_size());
+              " num partition_ids=" + std::to_string(request->partition_ids_size()) +
+              " is_table_version=" + std::to_string(request->is_table_version());
         code = MetaServiceCode::INVALID_ARGUMENT;
         LOG(WARNING) << msg;
         return;
@@ -308,7 +328,12 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             int64_t db_id = request->db_ids(i);
             int64_t table_id = request->table_ids(i);
             int64_t partition_id = request->partition_ids(i);
-            std::string ver_key = version_key({instance_id, db_id, table_id, partition_id});
+            std::string ver_key;
+            if (is_table_version) {
+                table_version_key({instance_id, db_id, table_id}, &ver_key);
+            } else {
+                partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
+            }
 
             // TODO(walter) support batch get.
             std::string ver_val;
@@ -316,13 +341,18 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             TEST_SYNC_POINT_CALLBACK("batch_get_version_err", &err);
             VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
             if (err == TxnErrorCode::TXN_OK) {
-                VersionPB version_pb;
-                if (!version_pb.ParseFromString(ver_val)) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = "malformed version value";
-                    break;
+                if (is_table_version) {
+                    int64_t version = *reinterpret_cast<const int64_t*>(ver_val.data());
+                    response->add_versions(version);
+                } else {
+                    VersionPB version_pb;
+                    if (!version_pb.ParseFromString(ver_val)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        msg = "malformed version value";
+                        break;
+                    }
+                    response->add_versions(version_pb.version());
                 }
-                response->add_versions(version_pb.version());
             } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
                 // return -1 if the target version is not exists.
                 response->add_versions(-1);

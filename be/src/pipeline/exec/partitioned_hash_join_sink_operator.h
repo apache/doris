@@ -46,6 +46,7 @@ public:
     ~PartitionedHashJoinSinkLocalState() override = default;
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     Status revoke_memory(RuntimeState* state);
 
 protected:
@@ -65,6 +66,11 @@ protected:
 
     Status _spill_status;
     std::mutex _spill_status_lock;
+
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::shared_ptr<PartitionedHashJoinSharedState> _shared_state_holder;
 
     std::unique_ptr<PartitionerType> _partitioner;
 
