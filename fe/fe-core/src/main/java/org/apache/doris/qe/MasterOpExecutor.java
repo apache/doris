@@ -308,17 +308,6 @@ public class MasterOpExecutor {
     }
 
     private Map<String, TTypeAndLiteral> getForwardUserVariables(Map<String, LiteralExpr> userVariables) {
-        System.out.println("print userVariables:");
-        StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
-            sb.append(entry.getKey());
-            sb.append(" ");
-            sb.append(entry.getValue());
-            sb.append(" ");
-        }
-        String s = sb.toString();
-        System.out.println(s);
-
         Map<String, TTypeAndLiteral> forwardVariables = Maps.newHashMap();
         for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
             LiteralExpr literalExpr = entry.getValue();
@@ -330,17 +319,6 @@ public class MasterOpExecutor {
             TTypeAndLiteral tTypeAndLiteral = new TTypeAndLiteral(tPrimitiveType, literalExpr.getStringValue());
             forwardVariables.put(entry.getKey(), tTypeAndLiteral);
         }
-        System.out.println("print forwardVariables");
-        StringBuilder sb2 = new StringBuilder();
-        for (Map.Entry<String, TTypeAndLiteral> entry : forwardVariables.entrySet()) {
-            sb2.append(entry.getKey());
-            sb2.append(" ");
-            sb2.append(entry.getValue().value);
-            sb2.append(" ");
-        }
-        System.out.println(sb2);
-        System.out.println(forwardVariables);
-
         return forwardVariables;
     }
 }
