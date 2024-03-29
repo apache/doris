@@ -609,27 +609,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         auto pos = name_itr - instance.storage_vault_names().begin();
         auto id_itr = instance.resource_ids().begin() + pos;
-        auto default_key = default_storage_vault_key({instance_id});
-        DefaultStorageVaultInfo info;
-        info.set_id(*id_itr);
-        info.set_name(name);
-        auto val = info.SerializeAsString();
-        if (val.empty()) {
-            msg = "failed to serialize";
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            return;
-        }
-
-        txn->put(key, val);
-        LOG(INFO) << "set default vault " << name << " id " << *id_itr
-                  << "instance_id=" << instance_id << " instance_key=" << hex(key);
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::COMMIT>(err);
-            msg = fmt::format("failed to commit kv txn, err={}", err);
-            LOG(WARNING) << msg;
-        }
-        return;
+        instance.set_default_storage_vault_id(*id_itr);
+        instance.set_default_storage_vault_name(name);
     }
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;

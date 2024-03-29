@@ -66,7 +66,6 @@ namespace doris::cloud {
 [[maybe_unused]] static const char* STAGE_KEY_INFIX           = "stage";
 [[maybe_unused]] static const char* VAULT_KEY_PREFIX          = "storage_vault";
 [[maybe_unused]] static const char* VAULT_KEY_INFIX           = "vault";
-[[maybe_unused]] static const char* VAULT_KEY_DEFAULT         = "default_storage_vault";
 
 // clang-format on
 
@@ -116,8 +115,7 @@ static void encode_prefix(const T& t, std::string* key) {
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo, TableVersionKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
-        CopyJobKeyInfo, CopyFileKeyInfo, MetaRowsetSchemaKeyInfo, StorageVaultKeyInfo,
-        DefaultStorageVaultKeyInfo>);
+        CopyJobKeyInfo, CopyFileKeyInfo, MetaRowsetSchemaKeyInfo, StorageVaultKeyInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -156,8 +154,7 @@ static void encode_prefix(const T& t, std::string* key) {
     } else if constexpr (std::is_same_v<T, CopyJobKeyInfo>
                       || std::is_same_v<T, CopyFileKeyInfo>) {
         encode_bytes(COPY_KEY_PREFIX, key);
-    } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>
-                      || std::is_same_v<T, DefaultStorageVaultKeyInfo>) {
+    } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(VAULT_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
@@ -453,11 +450,6 @@ void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
     encode_prefix(in, out);
     encode_bytes(VAULT_KEY_INFIX, out);
     encode_bytes(std::get<1>(in), out);
-}
-
-void default_storage_vault_key(const DefaultStorageVaultKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);
-    encode_bytes(VAULT_KEY_DEFAULT, out);
 }
 
 //==============================================================================

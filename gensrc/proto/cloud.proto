@@ -76,6 +76,8 @@ message InstanceInfoPB {
 
     repeated string resource_ids = 100;
     repeated string storage_vault_names = 101;
+    optional string default_storage_vault_id = 102;
+    optional string default_storage_vault_name = 103;
 }
 
 message StagePB {
@@ -794,6 +796,7 @@ message CreateTabletsRequest {
 message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
+    optional string storage_vault_name = 3;
 }
 
 message UpdateTabletRequest {
@@ -1323,16 +1326,6 @@ message GetRLTaskCommitAttachResponse {
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
 }
 
-message GetDefaultVaultRequest {
-    optional string cloud_unique_id = 1; // For auth
-}
-
-message GetDefaultVaultResponse {
-    optional MetaServiceResponseStatus status = 1;
-    optional string vault_id = 2;
-    optional string vault_name = 3;
-}
-
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -1398,8 +1391,6 @@ service MetaService {
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
-
-    rpc get_default_vault(GetDefaultVaultRequest) returns (GetDefaultVaultResponse);
 };
 
 service RecyclerService {

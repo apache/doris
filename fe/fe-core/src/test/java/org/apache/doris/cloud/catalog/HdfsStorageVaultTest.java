@@ -166,7 +166,7 @@ public class HdfsStorageVaultTest {
     @Test
     public void testSetDefaultVault() throws Exception {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
-            private Pair<String, String> defaultVaultInfo;;
+            private Pair<String, String> defaultVaultInfo;
             private HashSet<String> existed = new HashSet<>();
             @Mock
             public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
@@ -175,6 +175,7 @@ public class HdfsStorageVaultTest {
                 }
                 this.defaultVaultInfo = Pair.of(stmt.getStorageVaultName(), "1");
             }
+
             @Mock
             public Pair getDefaultStorageVaultInfo() {
                 return defaultVaultInfo;
@@ -182,7 +183,7 @@ public class HdfsStorageVaultTest {
 
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-            alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
                 if (existed.contains(request.getHdfs().getName())) {

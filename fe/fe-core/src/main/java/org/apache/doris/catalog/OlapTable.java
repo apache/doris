@@ -249,7 +249,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     public void setStorageVaultName(String storageVaultName) throws DdlException {
         if (storageVaultName == null && storageVaultName.isEmpty()) {
-            throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
+            return;
         }
         getOrCreatTableProperty().setStorageVaultName(storageVaultName);
     }

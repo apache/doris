@@ -48,6 +48,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
@@ -122,10 +123,6 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
         boolean storageVaultIdSet = false;
-        // We don't need to set the vault name if the table has no property
-        if (storageVaultName == null || storageVaultName.isEmpty()) {
-            storageVaultIdSet = true;
-        }
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -171,6 +168,11 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (resp.hasStorageVaultId() && !storageVaultIdSet) {
                 tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
                 storageVaultIdSet = true;
+                if (storageVaultName.isEmpty()) {
+                    tbl.getTableProperty().setStorageVaultName(resp.getStorageVaultName());
+                    Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
+                            Pair.of(resp.getStorageVaultName(), resp.getStorageVaultId()));
+                }
             }
             if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition

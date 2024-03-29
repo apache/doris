@@ -528,7 +528,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
-    if (request->has_storage_vault_name() && !request->storage_vault_name().empty()) {
+    if (request->has_storage_vault_name()) {
         InstanceInfoPB instance;
         std::unique_ptr<Transaction> txn0;
         TxnErrorCode err = txn_kv_->create_txn(&txn0);
@@ -545,12 +545,24 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             msg = fmt::format("failed to get instance, info={}", m0);
         }
 
+        std::string_view name = request->storage_vault_name();
+
+        if (name.empty()) {
+            if (!instance.has_default_storage_vault_name()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format("You must supply at least one default vault");
+                return;
+            }
+            name = instance.default_storage_vault_name();
+        }
+
         auto vault_name = std::find_if(
                 instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                 [&](const auto& name) { return name == request->storage_vault_name(); });
         if (vault_name != instance.storage_vault_names().end()) {
             auto idx = vault_name - instance.storage_vault_names().begin();
             response->set_storage_vault_id(instance.resource_ids().at(idx));
+            response->set_storage_vault_name(std::string(name.data(), name.size()));
         } else {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get vault id, vault name={}",
@@ -1883,57 +1895,6 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         msg = ss.str();
         return;
     }
-}
-
-void MetaServiceImpl::get_default_vault(::google::protobuf::RpcController* controller,
-                                        const ::doris::cloud::GetDefaultVaultRequest* request,
-                                        ::doris::cloud::GetDefaultVaultResponse* response,
-                                        ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_default_vault);
-    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
-    if (cloud_unique_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "cloud unique id not set";
-        return;
-    }
-
-    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
-        return;
-    }
-
-    RPC_RATE_LIMIT(get_default_vault)
-    InstanceInfoPB instance;
-    std::unique_ptr<Transaction> txn0;
-    TxnErrorCode err = txn_kv_->create_txn(&txn0);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to create txn");
-        return;
-    }
-
-    std::shared_ptr<Transaction> txn(txn0.release());
-    auto default_key = default_storage_vault_key({instance_id});
-    std::string val;
-    if (err = txn->get(default_key, &val); err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get default vault for instance {}", instance_id);
-        return;
-    }
-
-    DefaultStorageVaultInfo info;
-    if (!info.ParseFromString(val)) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = "malformed rowset meta, unable to deserialize";
-        LOG(WARNING) << msg << " key=" << hex(default_key);
-        return;
-    }
-    
-    response->set_vault_id(info.id());
-    response->set_vault_name(info.name());
 }
 
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(

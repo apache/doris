@@ -2359,7 +2359,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 storageVaultId = info.second;
             }
         }
-        // If the storage vault is null or empty then it would throw DdlException
         olapTable.setStorageVaultName(storageVaultName);
         if (storageVaultId != null) {
             olapTable.setStorageVaultId(storageVaultId);
