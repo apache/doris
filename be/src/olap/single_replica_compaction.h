@@ -30,8 +30,7 @@ class DataDir;
 //  SingleReplicaCompaction is used to fetch peer replica compaction result.
 class SingleReplicaCompaction final : public CompactionMixin {
 public:
-    SingleReplicaCompaction(StorageEngine& engine, const TabletSharedPtr& tablet,
-                            CompactionType compaction_type);
+    SingleReplicaCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
     ~SingleReplicaCompaction() override;
 
     Status prepare_compact() override;
@@ -39,11 +38,7 @@ public:
 
 protected:
     std::string_view compaction_name() const override { return "single replica compaction"; }
-    ReaderType compaction_type() const override {
-        return (_compaction_type == CompactionType::CUMULATIVE_COMPACTION)
-                       ? ReaderType::READER_CUMULATIVE_COMPACTION
-                       : ReaderType::READER_BASE_COMPACTION;
-    }
+    ReaderType compaction_type() const override { return ReaderType::UNKNOWN; }
 
 private:
     Status _do_single_replica_compaction();
@@ -61,7 +56,6 @@ private:
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
     Status _finish_clone(const std::string& clone_dir, const Version& version);
     std::string _mask_token(const std::string& str);
-    CompactionType _compaction_type;
 
     std::vector<PendingRowsetGuard> _pending_rs_guards;
 };
