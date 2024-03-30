@@ -200,7 +200,7 @@ public class HdfsStorageVaultTest {
         StorageVault vault = new HdfsStorageVault("name", true);
         Assertions.assertThrows(DdlException.class,
                 () -> {
-                    mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt(vault.getName()));
+                    mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt("non_existent"));
                 });
         vault.modifyProperties(ImmutableMap.of(
                 "type", "hdfs",
