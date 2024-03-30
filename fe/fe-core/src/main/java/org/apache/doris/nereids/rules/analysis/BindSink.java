@@ -68,12 +68,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -389,15 +387,10 @@ public class BindSink implements AnalysisRuleFactory {
                 return column;
             }).collect(ImmutableList.toImmutableList());
         }
-        Set<String> hivePartitionKeys = table.getRemoteTable()
-                .getPartitionKeys().stream()
-                .map(FieldSchema::getName)
-                .collect(Collectors.toSet());
         LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(
                 database,
                 table,
                 bindColumns,
-                hivePartitionKeys,
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
