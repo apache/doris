@@ -23,6 +23,7 @@ import org.apache.doris.catalog.HdfsStorageVault;
 import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.StorageVaultMgr;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceResponseStatus;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
@@ -168,13 +169,6 @@ public class HdfsStorageVaultTest {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             private Pair<String, String> defaultVaultInfo;
             private HashSet<String> existed = new HashSet<>();
-            @Mock
-            public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
-                if (!existed.contains(stmt.getStorageVaultName())) {
-                    throw new DdlException("There is no such vault");
-                }
-                this.defaultVaultInfo = Pair.of(stmt.getStorageVaultName(), "1");
-            }
 
             @Mock
             public Pair getDefaultStorageVaultInfo() {
@@ -186,11 +180,20 @@ public class HdfsStorageVaultTest {
                     alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
-                if (existed.contains(request.getHdfs().getName())) {
-                    status.setCode(MetaServiceCode.ALREADY_EXISTED);
-                } else {
-                    status.setCode(MetaServiceCode.OK);
-                    existed.add(request.getHdfs().getName());
+                if (request.getOp() == Operation.ADD_HDFS_INFO) {
+                    if (existed.contains(request.getHdfs().getName())) {
+                        status.setCode(MetaServiceCode.ALREADY_EXISTED);
+                    } else {
+                        status.setCode(MetaServiceCode.OK);
+                        existed.add(request.getHdfs().getName());
+                    }
+                } else if (request.getOp() == Operation.SET_DEFAULT_VAULT) {
+                    if (!existed.contains(request.getHdfs().getName())) {
+                        status.setCode(MetaServiceCode.INVALID_ARGUMENT);
+                    } else {
+                        this.defaultVaultInfo = Pair.of(request.getHdfs().getName(), "1");
+                        status.setCode(MetaServiceCode.OK);
+                    }
                 }
                 resp.setStatus(status.build());
                 resp.setStorageVaultId(String.valueOf(existed.size()));
