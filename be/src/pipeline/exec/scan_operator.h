@@ -140,7 +140,7 @@ class ScanLocalState : public ScanLocalStateBase {
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    std::string debug_string(int indentation_level) const override;
+    std::string debug_string(int indentation_level) const final;
 
     bool ready_to_read() override;
 
