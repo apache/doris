@@ -50,7 +50,7 @@ public class HdfsStorageVaultTest {
     }
 
     StorageVault createHdfsVault(String name, Map<String, String> properties) throws Exception {
-        CreateStorageVaultStmt stmt = new CreateStorageVaultStmt(false, name , properties);
+        CreateStorageVaultStmt stmt = new CreateStorageVaultStmt(false, name, properties);
         stmt.setStorageVaultType(StorageVault.StorageVaultType.HDFS);
         StorageVault vault = StorageVault.fromStmt(stmt);
         return vault;
