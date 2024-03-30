@@ -935,7 +935,8 @@ DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {
     // which can be insufficient and cause performance issues when the amount of user data is large.
     // To mitigate the problem of an inadequate cache,
     // we will take the larger of 5% of the total memory and 100MB as the delete bitmap cache size.
-    int64_t mem = 0.05 * MemInfo::physical_mem();
+    int64_t mem =
+            config::delete_bitmap_dynamic_agg_cache_capacity_percentage * MemInfo::physical_mem();
     _agg_cache.reset(new AggCache(mem > config::delete_bitmap_agg_cache_capacity
                                           ? mem
                                           : config::delete_bitmap_agg_cache_capacity));

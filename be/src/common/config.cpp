@@ -800,6 +800,7 @@ DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
+DEFINE_Double(delete_bitmap_dynamic_agg_cache_capacity_percentage, "0.005");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
