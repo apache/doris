@@ -38,17 +38,18 @@ public class SnapshotProxy {
         while (tryTimes++ < Config.meta_service_rpc_retry_times) {
             Cloud.GetVersionResponse resp = getVisibleVersionInternal(request,
                     Config.default_get_version_from_ms_timeout_second * 1000);
-            if (resp.hasStatus() && (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK
-                    || resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get version from meta service, code: {}", resp.getStatus().getCode());
+            if (resp != null) {
+                if (resp.hasStatus() && (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK
+                        || resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND)) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("get version from meta service, code: {}", resp.getStatus().getCode());
+                    }
+                    return resp;
                 }
-                return resp;
+
+                LOG.warn("get version from meta service failed, status: {}, retry time: {}",
+                        resp.getStatus(), tryTimes);
             }
-
-            LOG.warn("get version from meta service failed, status: {}, retry time: {}",
-                    resp.getStatus(), tryTimes);
-
             // sleep random millis, retry rpc failed
             if (tryTimes > Config.meta_service_rpc_retry_times / 2) {
                 sleepSeveralMs(500, 1000);
