@@ -89,7 +89,6 @@ public class HdfsStorageVault extends StorageVault {
                     Cloud.HdfsVaultInfo.newBuilder();
         Cloud.HdfsBuildConf.Builder hdfsConfBuilder = Cloud.HdfsBuildConf.newBuilder();
         for (Map.Entry<String, String> property : properties.entrySet()) {
-            LOG.info("key is P{}, value is {}", property.getKey(), property.getValue());
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
                 hdfsConfBuilder.setFsName(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(VAULT_PATH_PREFIX)) {
