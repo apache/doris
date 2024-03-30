@@ -2004,6 +2004,7 @@ void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     const auto& calc_delete_bitmap_req = req.calc_delete_bitmap_req;
     CloudEngineCalcDeleteBitmapTask engine_task(engine, calc_delete_bitmap_req, &error_tablet_ids,
                                                 &succ_tablet_ids);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     status = engine_task.execute();
 
     TFinishTaskRequest finish_task_request;
