@@ -70,6 +70,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
+    _query_thread_context.init();
 
     _reset_mem_table();
 
@@ -144,6 +145,7 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
+    SCOPED_ATTACH_TASK(_query_thread_context);
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
