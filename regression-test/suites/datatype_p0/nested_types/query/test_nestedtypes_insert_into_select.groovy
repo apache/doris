@@ -52,6 +52,6 @@ suite("test_nestedtypes_insert_into_select", "p0") {
 
     test {
         sql "insert into ast values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"
-        exception "ParseException"
+        exception "Sql parser can't convert the result to array"
     }
 }
