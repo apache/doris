@@ -1335,6 +1335,20 @@ public class StmtExecutor {
         }
     }
 
+    // Because this is called by other thread
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+        Coordinator coordRef = coord;
+        if (coordRef != null) {
+            coordRef.cancel(cancelReason);
+        }
+        if (mysqlLoadId != null) {
+            Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
+        }
+        if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
+            Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
+        }
+    }
+
     // Handle kill statement.
     private void handleKill() throws DdlException {
         KillStmt killStmt = (KillStmt) parsedStmt;
