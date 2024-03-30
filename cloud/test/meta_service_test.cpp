@@ -5426,6 +5426,210 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+TEST(MetaServiceTest, GetDefaultVaultTest) {
+    auto meta_service = get_meta_service();
+
+    auto get_test_instance = [&](InstanceInfoPB& i, std::string instance_id) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {std::move(instance_id)};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    // case: normal create instance with hdfs info
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        std::string instance_id = "test_instance_with_hdfs_info";
+        req.set_instance_id(instance_id);
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        HdfsVaultInfo hdfs;
+        HdfsBuildConf conf;
+        conf.set_fs_name("test_name_node");
+        conf.set_user("test_user");
+        hdfs.mutable_build_conf()->CopyFrom(conf);
+        req.mutable_hdfs_info()->CopyFrom(hdfs);
+
+        auto sp = SyncPoint::get_instance();
+        sp->set_call_back("create_instance_with_object_info",
+                          [](void* p) { *reinterpret_cast<int*>(p) = 0; });
+        sp->set_call_back("create_instance_with_object_info::pred",
+                          [](void* p) { *((bool*)p) = true; });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        InstanceInfoPB i;
+        get_test_instance(i, instance_id);
+        ASSERT_EQ(i.default_storage_vault_id(), "1");
+        ASSERT_EQ(i.default_storage_vault_name(), "built_in_storage_vault");
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    // case: normal create instance with obj info
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        std::string instance_id = "test_instance_with_s3_info";
+        req.set_instance_id(instance_id);
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        InstanceInfoPB instance;
+
+        EncryptionInfoPB encryption_info;
+        encryption_info.set_encryption_method("AES_256_ECB");
+        encryption_info.set_key_id(1);
+
+        std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+        std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+        ObjectStoreInfoPB obj_info;
+        obj_info.mutable_encryption_info()->CopyFrom(encryption_info);
+        obj_info.set_ak("akak1");
+        obj_info.set_sk(cipher_sk);
+        obj_info.set_endpoint("selectdb");
+        obj_info.set_external_endpoint("velodb");
+        obj_info.set_bucket("gavin");
+        obj_info.set_region("American");
+        obj_info.set_provider(ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        instance.add_obj_info()->CopyFrom(obj_info);
+        req.mutable_obj_info()->CopyFrom(obj_info);
+
+        auto sp = SyncPoint::get_instance();
+        sp->set_call_back("create_instance_with_object_info", [](void* p) {
+            std::tuple<int*, MetaServiceCode*, std::string*>& ret_tuple =
+                    *reinterpret_cast<std::tuple<int*, MetaServiceCode*, std::string*>*>(p);
+            *std::get<0>(ret_tuple) = 0;
+            *std::get<1>(ret_tuple) = MetaServiceCode::OK;
+            *std::get<2>(ret_tuple) = "";
+        });
+        sp->set_call_back("create_instance_with_object_info::pred",
+                          [](void* p) { *((bool*)p) = true; });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        InstanceInfoPB i;
+        get_test_instance(i, instance_id);
+        ASSERT_EQ(i.default_storage_vault_id(), "1");
+        ASSERT_EQ(i.default_storage_vault_name(), "built_in_storage_vault");
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+}
+
+TEST(MetaServiceTest, SetDefaultVaultTest) {
+    auto meta_service = get_meta_service();
+    std::string instance_id = "test_instance";
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {instance_id};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    brpc::Controller cntl;
+    CreateInstanceRequest req;
+    req.set_instance_id(instance_id);
+    req.set_user_id("test_user");
+    req.set_name("test_name");
+    HdfsVaultInfo hdfs;
+    HdfsBuildConf conf;
+    conf.set_fs_name("test_name_node");
+    conf.set_user("test_user");
+    hdfs.mutable_build_conf()->CopyFrom(conf);
+    req.mutable_hdfs_info()->CopyFrom(hdfs);
+
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
+                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
+                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
+                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
+    sp->enable_processing();
+    CreateInstanceResponse res;
+    meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                  &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    InstanceInfoPB i;
+    get_test_instance(i);
+    ASSERT_EQ(i.default_storage_vault_id(), "1");
+    ASSERT_EQ(i.default_storage_vault_name(), "built_in_storage_vault");
+
+    for (size_t i = 0; i < 20; i++) {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+        StorageVaultPB hdfs;
+        auto name = fmt::format("test_alter_add_hdfs_info_{}", i);
+        hdfs.set_name(name);
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        req.mutable_hdfs()->CopyFrom(hdfs);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        AlterObjStoreInfoRequest set_default_req;
+        set_default_req.set_cloud_unique_id("test_cloud_unique_id");
+        set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
+        set_default_req.mutable_hdfs()->CopyFrom(hdfs);
+        AlterObjStoreInfoResponse set_default_res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
+                &set_default_res, nullptr);
+        ASSERT_EQ(set_default_res.status().code(), MetaServiceCode::OK)
+                << set_default_res.status().msg();
+
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(std::to_string(i + 2), instance.default_storage_vault_id());
+    }
+
+    // Try to set one non-existent vault as default
+    {
+        StorageVaultPB hdfs;
+        auto name = "test_alter_add_hdfs_info_no";
+        hdfs.set_name(name);
+        HdfsVaultInfo params;
+
+        hdfs.mutable_hdfs_info()->CopyFrom(params);
+        AlterObjStoreInfoRequest set_default_req;
+        set_default_req.set_cloud_unique_id("test_cloud_unique_id");
+        set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
+        set_default_req.mutable_hdfs()->CopyFrom(hdfs);
+        AlterObjStoreInfoResponse set_default_res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
+                &set_default_res, nullptr);
+        ASSERT_NE(set_default_res.status().code(), MetaServiceCode::OK)
+                << set_default_res.status().msg();
+    }
+
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 TEST(MetaServiceTest, GetObjStoreInfoTest) {
     auto meta_service = get_meta_service();
 

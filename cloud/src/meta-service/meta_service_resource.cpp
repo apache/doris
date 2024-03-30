@@ -24,6 +24,7 @@
 #include <chrono>
 #include <numeric>
 #include <string>
+#include <tuple>
 
 #include "common/encryption_util.h"
 #include "common/logging.h"
@@ -328,6 +329,8 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     hdfs_param.set_id(vault_id);
     if (vault_id == BUILT_IN_STORAGE_VAULT_ID) {
         hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME);
+        instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
     }
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
@@ -567,6 +570,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_sse_enabled(instance.sse_enabled());
         if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
             last_item.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+            instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+            instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
         }
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
@@ -614,6 +619,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         auto id_itr = instance.resource_ids().begin() + pos;
         instance.set_default_storage_vault_id(*id_itr);
         instance.set_default_storage_vault_name(name);
+        break;
     }
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -861,8 +867,13 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     }
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
-    if (encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code, msg) !=
-        0) {
+    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
+                                    msg);
+    {
+        [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
+        TEST_SYNC_POINT_CALLBACK("create_instance_with_object_info", &ak_sk_ret);
+    }
+    if (ret != 0) {
         return -1;
     }
 
@@ -890,6 +901,8 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     obj_info.set_sse_enabled(sse_enabled);
     if (obj_info.id() == BUILT_IN_STORAGE_VAULT_ID) {
         obj_info.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
     }
     instance.mutable_obj_info()->Add(std::move(obj_info));
     return 0;
