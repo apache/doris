@@ -381,6 +381,7 @@ public class AggregationNode extends PlanNode {
                 }
             }
             allRequestIds.forEach(allUnRequestIds::remove);
+            groupingSlotIds.forEach(allUnRequestIds::remove);
             allUnRequestIds.forEach(result::remove);
         }
         return result;
