@@ -284,7 +284,10 @@ public class VariableMgr {
     //      setVar: variable information that needs to be set
     public static void setVar(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
-        VarContext varCtx = setVarPreCheck(setVar);
+        VarContext varCtx = getVarContext(setVar.getVariable());
+        if (varCtx == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
+        }
         checkUpdate(setVar, varCtx.getFlag());
         setVarInternal(sessionVariable, setVar, varCtx);
     }
@@ -299,7 +302,10 @@ public class VariableMgr {
     // So in this case, we should just ignore this exception and return.
     public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
-        VarContext varCtx = setVarPreCheck(setVar);
+        VarContext varCtx = getVarContext(setVar.getVariable());
+        if (varCtx == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
+        }
         try {
             checkUpdate(setVar, varCtx.getFlag());
         } catch (DdlException e) {
@@ -311,9 +317,9 @@ public class VariableMgr {
         setVarInternal(sessionVariable, setVar, varCtx);
     }
 
-    @NotNull
-    private static VarContext setVarPreCheck(SetVar setVar) throws DdlException {
-        String varName = setVar.getVariable();
+    @Nullable
+    private static VarContext getVarContext(String name) {
+        String varName = name;
         boolean hasExpPrefix = false;
         if (varName.startsWith(VariableAnnotation.EXPERIMENTAL.getPrefix())) {
             varName = varName.substring(VariableAnnotation.EXPERIMENTAL.getPrefix().length());
@@ -325,13 +331,13 @@ public class VariableMgr {
         }
         VarContext ctx = ctxByVarName.get(varName);
         if (ctx == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
+            return null;
         }
         // for non-matched prefix, report an error
         VariableAnnotation varType = ctx.getField().getAnnotation(VarAttr.class).varType();
-        if (hasExpPrefix && (!setVar.getVariable().startsWith(varType.getPrefix())
+        if (hasExpPrefix && (!name.startsWith(varType.getPrefix())
                 || varType == VariableAnnotation.NONE)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
+            return null;
         }
         return ctx;
     }
@@ -383,84 +389,25 @@ public class VariableMgr {
         }
     }
 
-    public static void setGlobalPipelineTask(int instance) {
+    public static void refreshDefaultSessionVariables(String versionMsg, String sessionVar, String value) {
         wlock.lock();
         try {
-            VarContext ctx = ctxByVarName.get(SessionVariable.PARALLEL_PIPELINE_TASK_NUM);
+            VarContext ctx = ctxByVarName.get(sessionVar);
             try {
-                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), String.valueOf(instance));
+                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), value);
             } catch (DdlException e) {
-                LOG.warn("failed to set global variable: {}", SessionVariable.PARALLEL_PIPELINE_TASK_NUM, e);
+                LOG.warn("failed to set global variable: {}", sessionVar, e);
                 return;
             }
 
             // write edit log
             GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
-                    Lists.newArrayList(SessionVariable.PARALLEL_PIPELINE_TASK_NUM));
+                    Lists.newArrayList(sessionVar));
             Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
         } finally {
             wlock.unlock();
         }
-    }
-
-    public static void setGlobalBroadcastScaleFactor(double factor) {
-        wlock.lock();
-        try {
-            VarContext ctx = ctxByVarName.get(SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR);
-            try {
-                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), String.valueOf(factor));
-            } catch (DdlException e) {
-                LOG.warn("failed to set global variable: {}", SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR, e);
-                return;
-            }
-
-            // write edit log
-            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
-                    Lists.newArrayList(SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR));
-            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
-        } finally {
-            wlock.unlock();
-        }
-    }
-
-    public static void enableNereidsPlanner() {
-        wlock.lock();
-        try {
-            VarContext ctx = ctxByVarName.get(SessionVariable.ENABLE_NEREIDS_PLANNER);
-            try {
-                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), String.valueOf(true));
-            } catch (DdlException e) {
-                LOG.warn("failed to set global variable: {}", SessionVariable.ENABLE_NEREIDS_PLANNER, e);
-                return;
-            }
-
-            // write edit log
-            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
-                    Lists.newArrayList(SessionVariable.ENABLE_NEREIDS_PLANNER));
-            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
-        } finally {
-            wlock.unlock();
-        }
-    }
-
-    public static void enableNereidsDml() {
-        wlock.lock();
-        try {
-            VarContext ctx = ctxByVarName.get(SessionVariable.ENABLE_NEREIDS_DML);
-            try {
-                setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), String.valueOf(true));
-            } catch (DdlException e) {
-                LOG.warn("failed to set global variable: {}", SessionVariable.ENABLE_NEREIDS_DML, e);
-                return;
-            }
-
-            // write edit log
-            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
-                    Lists.newArrayList(SessionVariable.ENABLE_NEREIDS_DML));
-            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
-        } finally {
-            wlock.unlock();
-        }
+        LOG.info("upgrade FE from {}, set {} to new default value: {}", versionMsg, sessionVar, value);
     }
 
     public static void setLowerCaseTableNames(int mode) throws DdlException {
@@ -533,7 +480,7 @@ public class VariableMgr {
 
     // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
     public static void fillValue(SessionVariable var, VariableExpr desc) throws AnalysisException {
-        VarContext ctx = ctxByVarName.get(desc.getName());
+        VarContext ctx = getVarContext(desc.getName());
         if (ctx == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, desc.getName());
         }
@@ -621,7 +568,7 @@ public class VariableMgr {
 
     // For Nereids optimizer
     public static @Nullable Literal getLiteral(SessionVariable var, String name, SetType setType) {
-        VarContext ctx = ctxByVarName.get(name);
+        VarContext ctx = getVarContext(name);
         if (ctx == null) {
             return null;
         }

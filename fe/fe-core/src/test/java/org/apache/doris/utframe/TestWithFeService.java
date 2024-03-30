@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.persist.CreateTableInfo;
@@ -114,6 +115,7 @@ import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -676,10 +678,16 @@ public abstract class TestWithFeService {
     }
 
     public void createTables(boolean enableNereids, String... sqls) throws Exception {
+        createTablesAndReturnPlans(enableNereids, sqls);
+    }
+
+    public List<LogicalPlan> createTablesAndReturnPlans(boolean enableNereids, String... sqls) throws Exception {
+        List<LogicalPlan> logicalPlans = new ArrayList<>();
         if (enableNereids) {
             for (String sql : sqls) {
                 NereidsParser nereidsParser = new NereidsParser();
                 LogicalPlan parsed = nereidsParser.parseSingle(sql);
+                logicalPlans.add(parsed);
                 StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
                 if (parsed instanceof CreateTableCommand) {
                     ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
@@ -692,6 +700,7 @@ public abstract class TestWithFeService {
             }
         }
         updateReplicaPathHash();
+        return logicalPlans;
     }
 
     public void createView(String sql) throws Exception {
@@ -816,6 +825,30 @@ public abstract class TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         if (parsed instanceof CreateMTMVCommand) {
             ((CreateMTMVCommand) parsed).run(connectContext, stmtExecutor);
+        }
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(1000);
+
+    }
+
+    protected void dropMvByNereids(String sql) throws Exception {
+        new MockUp<EditLog>() {
+            @Mock
+            public void logCreateTable(CreateTableInfo info) {
+                System.out.println("skip log create table...");
+            }
+
+            @Mock
+            public void logCreateJob(AbstractJob job) {
+                System.out.println("skip log create job...");
+            }
+        };
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropMTMVCommand) {
+            ((DropMTMVCommand) parsed).run(connectContext, stmtExecutor);
         }
         checkAlterJob();
         // waiting table state to normal

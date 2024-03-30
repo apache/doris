@@ -61,7 +61,15 @@ public:
     VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
              RuntimeProfile* profile);
 
-    virtual ~VScanner() = default;
+    virtual ~VScanner() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_state->query_mem_tracker());
+        _input_block.clear();
+        _conjuncts.clear();
+        _projections.clear();
+        _origin_block.clear();
+        _common_expr_ctxs_push_down.clear();
+        _stale_expr_ctxs.clear();
+    }
 
     virtual Status init() { return Status::OK(); }
 
@@ -86,7 +94,7 @@ protected:
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 
     // Update the counters before closing this scanner
-    virtual void _update_counters_before_close();
+    virtual void _collect_profile_before_close();
 
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
@@ -146,7 +154,7 @@ public:
         // update counters. For example, update counters depend on scanner's tablet, but
         // the tablet == null when init failed.
         if (_is_open) {
-            _update_counters_before_close();
+            _collect_profile_before_close();
         }
         _need_to_close = true;
     }

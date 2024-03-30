@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
@@ -372,6 +373,25 @@ public class AggregationNode extends PlanNode {
             if (!tupleDesc.getMaterializedSlots().isEmpty()) {
                 result.add(tupleDesc.getMaterializedSlots().get(0).getId());
             }
+        } else {
+            // if some input slot for aggregate slot which is not materialized, we need to remove it from the result
+            TupleDescriptor tupleDescriptor = aggInfo.getOutputTupleDesc();
+            ArrayList<SlotDescriptor> slots = tupleDescriptor.getSlots();
+            Set<SlotId> allUnRequestIds = Sets.newHashSet();
+            Set<SlotId> allRequestIds = Sets.newHashSet();
+            for (SlotDescriptor slot : slots) {
+                if (!slot.isMaterialized()) {
+                    List<SlotId> unRequestIds = Lists.newArrayList();
+                    Expr.getIds(slot.getSourceExprs(), null, unRequestIds);
+                    allUnRequestIds.addAll(unRequestIds);
+                } else {
+                    List<SlotId> requestIds = Lists.newArrayList();
+                    Expr.getIds(slot.getSourceExprs(), null, requestIds);
+                    allRequestIds.addAll(requestIds);
+                }
+            }
+            allRequestIds.forEach(allUnRequestIds::remove);
+            allUnRequestIds.forEach(result::remove);
         }
         return result;
     }

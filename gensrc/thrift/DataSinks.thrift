@@ -38,6 +38,7 @@ enum TDataSinkType {
     MULTI_CAST_DATA_STREAM_SINK,
     GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
     GROUP_COMMIT_BLOCK_SINK,
+    HIVE_TABLE_SINK,
 }
 
 enum TResultSinkType {
@@ -101,7 +102,7 @@ enum TParquetRepetitionType {
 struct TParquetSchema {
     1: optional TParquetRepetitionType schema_repetition_type
     2: optional TParquetDataType schema_data_type
-    3: optional string schema_column_name    
+    3: optional string schema_column_name
     4: optional TParquetDataLogicalType schema_data_logical_type
 }
 
@@ -275,11 +276,14 @@ struct TOlapTableSink {
     21: optional i64 base_schema_version
     22: optional TGroupCommitMode group_commit_mode
     23: optional double max_filter_ratio
+
+    24: optional string storage_vault_id
 }
 
 struct THiveLocationParams {
   1: optional string write_path
   2: optional string target_path
+  3: optional Types.TFileType file_type
 }
 
 struct TSortedColumn {
@@ -298,11 +302,15 @@ struct THiveBucket {
     4: optional list<TSortedColumn> sorted_by
 }
 
-enum THiveCompressionType {
-    SNAPPY = 3,
-    LZ4 = 4,
-    ZLIB = 6,
-    ZSTD = 7,
+enum THiveColumnType {
+    PARTITION_KEY = 0,
+    REGULAR = 1,
+    SYNTHESIZED = 2
+}
+
+struct THiveColumn {
+  1: optional string name
+  2: optional THiveColumnType column_type
 }
 
 struct THivePartition {
@@ -314,13 +322,14 @@ struct THivePartition {
 struct THiveTableSink {
     1: optional string db_name
     2: optional string table_name
-    3: optional list<string> data_column_names
-    4: optional list<string> partition_column_names
-    5: optional list<THivePartition> partitions
-    6: optional list<THiveBucket> buckets
-    7: optional PlanNodes.TFileFormatType file_format
-    8: optional THiveCompressionType compression_type
-    9: optional THiveLocationParams location
+    3: optional list<THiveColumn> columns
+    4: optional list<THivePartition> partitions
+    5: optional THiveBucket bucket_info
+    6: optional PlanNodes.TFileFormatType file_format
+    7: optional PlanNodes.TFileCompressType compression_type
+    8: optional THiveLocationParams location
+    9: optional map<string, string> hadoop_config
+    10: optional bool overwrite
 }
 
 enum TUpdateMode {

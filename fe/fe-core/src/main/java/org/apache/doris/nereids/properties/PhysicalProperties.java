@@ -49,6 +49,9 @@ public class PhysicalProperties {
     public static PhysicalProperties TABLET_ID_SHUFFLE
             = new PhysicalProperties(DistributionSpecTabletIdShuffle.INSTANCE);
 
+    public static PhysicalProperties SINK_RANDOM_PARTITIONED
+            = new PhysicalProperties(DistributionSpecTableSinkRandomPartitioned.INSTANCE);
+
     private final OrderSpec orderSpec;
 
     private final DistributionSpec distributionSpec;

@@ -74,6 +74,8 @@ public enum ErrorCode {
             + "(current value: %d)"),
     ERR_SPECIFIC_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
             + "one of) the %s privilege(s) for this operation"),
+    ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR(1227, new byte[] {'4', '2', '0', '0', '0'}, "Access denied; you need all "
+            + " %s privilege(s) for this operation"),
     ERR_LOCAL_VARIABLE(1228, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a SESSION variable and can't be "
             + "used with SET GLOBAL"),
     ERR_GLOBAL_VARIABLE(1229, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a GLOBAL variable and should be "
@@ -1213,7 +1215,10 @@ public enum ErrorCode {
     ERR_CLOUD_CLUSTER_ERROR(5098, new byte[]{'4', '2', '0', '0', '0'},
             "Cluster %s not exist, use SQL 'SHOW CLUSTERS' to get a valid cluster"),
 
-    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No cluster selected");
+    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No cluster selected"),
+
+    ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
+            "Command only support in cloud mode.");
 
     // This is error code
     private final int code;

@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
+#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -91,7 +92,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
-        for (const auto slot_desc : _output_tuple_desc->slots()) {
+        for (auto* const slot_desc : _output_tuple_desc->slots()) {
             if (!slot_desc->need_materialize()) {
                 // should be ignore from reading
                 continue;
@@ -112,7 +113,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             // 1. Get input block from scanner
             {
                 // get block time
-                auto timer = _parent ? _parent->_scan_timer : _local_state->_scan_timer;
+                auto* timer = _parent ? _parent->_scan_timer : _local_state->_scan_timer;
                 SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
@@ -125,7 +126,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
             // 2. Filter the output block finally.
             {
-                auto timer = _parent ? _parent->_filter_timer : _local_state->_filter_timer;
+                auto* timer = _parent ? _parent->_filter_timer : _local_state->_filter_timer;
                 SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
             }
@@ -152,6 +153,14 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status VScanner::_filter_output_block(Block* block) {
+    Defer clear_tmp_block([&]() {
+        auto all_column_names = block->get_names();
+        for (auto& name : all_column_names) {
+            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+                block->erase(name);
+            }
+        }
+    });
     if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
         // scanner filter_block is already done (only by _topn_next currently), just skip it
         return Status::OK();
@@ -159,12 +168,6 @@ Status VScanner::_filter_output_block(Block* block) {
     auto old_rows = block->rows();
     Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
-    auto all_column_names = block->get_names();
-    for (auto& name : all_column_names) {
-        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-            block->erase(name);
-        }
-    }
     return st;
 }
 
@@ -257,7 +260,7 @@ Status VScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void VScanner::_update_counters_before_close() {
+void VScanner::_collect_profile_before_close() {
     if (_parent) {
         COUNTER_UPDATE(_parent->_scan_cpu_timer, _scan_cpu_timer);
         COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);

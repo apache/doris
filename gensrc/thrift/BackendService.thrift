@@ -68,6 +68,8 @@ struct TRoutineLoadTask {
     15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     16: optional bool is_multi_table
     17: optional bool memtable_on_sink_node;
+    18: optional string qualified_user
+    19: optional string cloud_cluster
 }
 
 struct TKafkaMetaProxyRequest {
@@ -260,6 +262,8 @@ struct TWorkloadGroupInfo {
   9: optional i32 scan_thread_num
   10: optional i32 max_remote_scan_thread_num
   11: optional i32 min_remote_scan_thread_num
+  12: optional i32 spill_threshold_low_watermark
+  13: optional i32 spill_threshold_high_watermark
 }
 
 enum TWorkloadMetricType {

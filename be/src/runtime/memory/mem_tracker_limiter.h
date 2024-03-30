@@ -45,11 +45,15 @@ class RuntimeProfile;
 
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
-namespace taskgroup {
-struct TgTrackerLimiterGroup;
-class TaskGroup;
-using TaskGroupPtr = std::shared_ptr<TaskGroup>;
-} // namespace taskgroup
+struct TrackerLimiterGroup {
+    TrackerLimiterGroup() = default;
+    TrackerLimiterGroup(TrackerLimiterGroup&&) noexcept {}
+    TrackerLimiterGroup(const TrackerLimiterGroup&) {}
+    TrackerLimiterGroup& operator=(const TrackerLimiterGroup&) { return *this; }
+
+    std::list<std::weak_ptr<MemTrackerLimiter>> trackers;
+    std::mutex group_lock;
+};
 
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.
@@ -65,18 +69,11 @@ public:
         LOAD = 2,          // Count the memory consumption of all Load tasks.
         COMPACTION = 3,    // Count the memory consumption of all Base and Cumulative tasks.
         SCHEMA_CHANGE = 4, // Count the memory consumption of all SchemaChange tasks.
-        CLONE = 5, // Count the memory consumption of all EngineCloneTask. Note: Memory that does not contain make/release snapshots.
-        EXPERIMENTAL =
-                6 // Experimental memory statistics, usually inaccurate, used for debugging, and expect to add other types in the future.
+        OTHER = 5
     };
 
     // TODO There are more and more GC codes and there should be a separate manager class.
     enum class GCType { PROCESS = 0, WORK_LOAD_GROUP = 1 };
-
-    struct TrackerLimiterGroup {
-        std::list<MemTrackerLimiter*> trackers;
-        std::mutex group_lock;
-    };
 
     inline static std::unordered_map<Type, std::shared_ptr<MemCounter>> TypeMemSum = {
             {Type::GLOBAL, std::make_shared<MemCounter>()},
@@ -84,12 +81,14 @@ public:
             {Type::LOAD, std::make_shared<MemCounter>()},
             {Type::COMPACTION, std::make_shared<MemCounter>()},
             {Type::SCHEMA_CHANGE, std::make_shared<MemCounter>()},
-            {Type::CLONE, std::make_shared<MemCounter>()},
-            {Type::EXPERIMENTAL, std::make_shared<MemCounter>()}};
+            {Type::OTHER, std::make_shared<MemCounter>()}};
 
 public:
+    static std::shared_ptr<MemTrackerLimiter> create_shared(
+            MemTrackerLimiter::Type type, const std::string& label = std::string(),
+            int64_t byte_limit = -1);
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
-    MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1);
+    MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit);
 
     ~MemTrackerLimiter() override;
 
@@ -105,10 +104,8 @@ public:
             return "compaction";
         case Type::SCHEMA_CHANGE:
             return "schema_change";
-        case Type::CLONE:
-            return "clone";
-        case Type::EXPERIMENTAL:
-            return "experimental";
+        case Type::OTHER:
+            return "other";
         default:
             LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
         }
@@ -150,9 +147,6 @@ public:
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
 
 public:
-    // If need to consume the tracker frequently, use it
-    void cache_consume(int64_t bytes);
-
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
     void transfer_to(int64_t size, MemTrackerLimiter* dst) {
         if (label() == dst->label()) {
@@ -188,15 +182,8 @@ public:
                                          const std::string& mem_available_str,
                                          RuntimeProfile* profile, Type type = Type::QUERY);
 
-    template <typename TrackerGroups>
     static int64_t free_top_memory_query(
-            int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
-            const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
-            RuntimeProfile* profile, GCType gctype);
-
-    static int64_t tg_free_top_memory_query(
-            int64_t min_free_mem, Type type,
-            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_groups,
+            int64_t min_free_mem, Type type, std::vector<TrackerLimiterGroup>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype);
 
@@ -212,15 +199,8 @@ public:
                                              const std::string& mem_available_str,
                                              RuntimeProfile* profile, Type type = Type::QUERY);
 
-    template <typename TrackerGroups>
     static int64_t free_top_overcommit_query(
-            int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
-            const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
-            RuntimeProfile* profile, GCType gctype);
-
-    static int64_t tg_free_top_overcommit_query(
-            int64_t min_free_mem, Type type,
-            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_groups,
+            int64_t min_free_mem, Type type, std::vector<TrackerLimiterGroup>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype);
 
@@ -257,8 +237,15 @@ public:
         return msg.str();
     }
 
+    // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
+    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tracker_limiter_group_it;
+    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tg_tracker_limiter_group_it;
+
 private:
     friend class ThreadMemTrackerMgr;
+
+    // If need to consume the tracker frequently, use it
+    void cache_consume(int64_t bytes);
 
     // When the accumulated untracked memory value exceeds the upper limit,
     // the current value is returned and set to 0.
@@ -271,7 +258,7 @@ private:
     // Limit on memory consumption, in bytes.
     int64_t _limit;
 
-    // Group number in MemTracker::mem_tracker_limiter_pool and MemTracker::mem_tracker_pool, generated by the timestamp.
+    // Group number in mem_tracker_limiter_pool and mem_tracker_pool, generated by the timestamp.
     int64_t _group_num;
 
     // Consume size smaller than mem_tracker_consume_min_size_bytes will continue to accumulate
@@ -284,11 +271,6 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
-
-    static std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
-
-    // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
-    std::list<MemTrackerLimiter*>::iterator _tracker_limiter_group_it;
 };
 
 inline int64_t MemTrackerLimiter::add_untracked_mem(int64_t bytes) {

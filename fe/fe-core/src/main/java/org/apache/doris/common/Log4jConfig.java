@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
@@ -56,10 +57,12 @@ public class Log4jConfig extends XmlConfiguration {
             + "        <TimeBasedTriggeringPolicy/>\n"
             + "        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n"
             + "      </Policies>\n"
-            + "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\">\n"
+            + "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"max\">\n"
             + "        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n"
             + "          <IfFileName glob=\"fe.log.*\" />\n"
-            + "          <IfLastModified age=\"${sys_log_delete_age}\" />\n"
+            + "          <IfAny>\n"
+            + "             <IfAccumulatedFileSize exceeds=\"${info_sys_accumulated_file_size}GB\"/>\n"
+            + "           </IfAny>\n"
             + "        </Delete>\n"
             + "      </DefaultRolloverStrategy>\n"
             + "    </RollingFile>\n"
@@ -71,10 +74,12 @@ public class Log4jConfig extends XmlConfiguration {
             + "        <TimeBasedTriggeringPolicy/>\n"
             + "        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n"
             + "      </Policies>\n"
-            + "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\">\n"
+            + "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"max\">\n"
             + "        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n"
             + "          <IfFileName glob=\"fe.warn.log.*\" />\n"
-            + "          <IfLastModified age=\"${sys_log_delete_age}\" />\n"
+            + "          <IfAny>\n"
+            + "             <IfAccumulatedFileSize exceeds=\"${warn_sys_accumulated_file_size}GB\"/>\n"
+            + "          </IfAny>\n"
             + "        </Delete>\n"
             + "      </DefaultRolloverStrategy>\n"
             + "    </RollingFile>\n"
@@ -86,10 +91,12 @@ public class Log4jConfig extends XmlConfiguration {
             + "        <TimeBasedTriggeringPolicy/>\n"
             + "        <SizeBasedTriggeringPolicy size=\"${audit_roll_maxsize}MB\"/>\n"
             + "      </Policies>\n"
-            + "      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"min\">\n"
+            + "      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"max\">\n"
             + "        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\">\n"
             + "          <IfFileName glob=\"fe.audit.log.*\" />\n"
-            + "          <IfLastModified age=\"${audit_log_delete_age}\" />\n"
+            + "          <IfAny>\n"
+            + "             <IfAccumulatedFileSize exceeds=\"${audit_sys_accumulated_file_size}GB\"/>\n"
+            + "          </IfAny>\n"
             + "        </Delete>\n"
             + "      </DefaultRolloverStrategy>\n"
             + "    </RollingFile>\n"
@@ -130,7 +137,9 @@ public class Log4jConfig extends XmlConfiguration {
         String newXmlConfTemplate = xmlConfTemplate;
 
         // sys log config
-        String sysLogDir = Config.sys_log_dir;
+        // ATTN, sys_log_dir is deprecated, use LOG_DIR instead
+        String sysLogDir = Strings.isNullOrEmpty(Config.sys_log_dir) ? System.getenv("LOG_DIR") :
+                Config.sys_log_dir;
         String sysRollNum = String.valueOf(Config.sys_log_roll_num);
         String sysDeleteAge = String.valueOf(Config.sys_log_delete_age);
         boolean compressSysLog = Config.sys_log_enable_compress;
@@ -215,6 +224,11 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("audit_roll_maxsize", auditRollMaxSize);
         properties.put("audit_roll_num", auditRollNum);
         properties.put("audit_log_delete_age", auditDeleteAge);
+
+        properties.put("info_sys_accumulated_file_size", String.valueOf(Config.info_sys_accumulated_file_size));
+        properties.put("warn_sys_accumulated_file_size", String.valueOf(Config.warn_sys_accumulated_file_size));
+        properties.put("audit_sys_accumulated_file_size", String.valueOf(Config.audit_sys_accumulated_file_size));
+
         properties.put("include_location_flag", sysLogMode.equalsIgnoreCase("NORMAL") ? "true" : "false");
         properties.put("immediate_flush_flag", sysLogMode.equalsIgnoreCase("ASYNC") ? "false" : "true");
         properties.put("audit_file_postfix", compressAuditLog ? ".gz" : "");

@@ -25,6 +25,7 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <memory>
 #include <string>
 
 #include "common/config.h"
@@ -50,7 +51,8 @@ using namespace ErrorCode;
 // for ut only
 RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
+                           ExecEnv* exec_env,
+                           const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
         : _profile("Fragment " + print_id(fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -70,13 +72,21 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _error_log_file(nullptr) {
     Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _runtime_filter_mgr.reset(
-            new RuntimeFilterMgr(TUniqueId(), RuntimeFilterParamsContext::create(this)));
+    _query_mem_tracker = query_mem_tracker;
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    _runtime_filter_mgr.reset(new RuntimeFilterMgr(
+            TUniqueId(), RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env, QueryContext* ctx)
+                           ExecEnv* exec_env, QueryContext* ctx,
+                           const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -98,14 +108,32 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _runtime_filter_mgr.reset(new RuntimeFilterMgr(fragment_exec_params.query_id,
-                                                   RuntimeFilterParamsContext::create(this)));
+    if (query_mem_tracker != nullptr) {
+        _query_mem_tracker = query_mem_tracker;
+    } else {
+        DCHECK(ctx != nullptr);
+        _query_mem_tracker = ctx->query_mem_tracker;
+    }
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+            fragment_exec_params.query_id, RuntimeFilterParamsContext::create(this),
+            _query_mem_tracker);
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
     }
+
     if (_query_ctx) {
-        _query_ctx->init_runtime_predicates({0});
+        if (fragment_exec_params.__isset.topn_filter_source_node_ids) {
+            _query_ctx->init_runtime_predicates(fragment_exec_params.topn_filter_source_node_ids);
+        } else {
+            _query_ctx->init_runtime_predicates({0});
+        }
     }
 }
 
@@ -134,8 +162,15 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _runtime_filter_mgr.reset(
-            new RuntimeFilterMgr(query_id, RuntimeFilterParamsContext::create(this)));
+    _query_mem_tracker = ctx->query_mem_tracker;
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    _runtime_filter_mgr.reset(new RuntimeFilterMgr(
+            query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
 RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
@@ -164,6 +199,13 @@ RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId&
           _error_log_file(nullptr),
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
+    _query_mem_tracker = ctx->query_mem_tracker;
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
     DCHECK(status.ok());
 }
 
@@ -193,8 +235,15 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _runtime_filter_mgr.reset(
-            new RuntimeFilterMgr(query_id, RuntimeFilterParamsContext::create(this)));
+    _query_mem_tracker = ctx->query_mem_tracker;
+#ifdef BE_TEST
+    if (_query_mem_tracker == nullptr) {
+        init_mem_trackers();
+    }
+#endif
+    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    _runtime_filter_mgr.reset(new RuntimeFilterMgr(
+            query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
@@ -229,6 +278,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _nano_seconds = 0;
     }
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    init_mem_trackers("<unnamed>");
 }
 
 RuntimeState::RuntimeState()
@@ -245,9 +295,11 @@ RuntimeState::RuntimeState()
     _nano_seconds = 0;
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     _exec_env = ExecEnv::GetInstance();
+    init_mem_trackers("<unnamed>");
 }
 
 RuntimeState::~RuntimeState() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
@@ -309,15 +361,13 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     return Status::OK();
 }
 
-void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& name) {
-    _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::EXPERIMENTAL, fmt::format("{}#Id={}", name, print_id(id)));
+void RuntimeState::init_mem_trackers(const std::string& name, const TUniqueId& id) {
+    _query_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER, fmt::format("{}#Id={}", name, print_id(id)));
 }
 
 std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
-    if (!_query_mem_tracker) {
-        return _exec_env->orphan_mem_tracker();
-    }
+    CHECK(_query_mem_tracker != nullptr);
     return _query_mem_tracker;
 }
 

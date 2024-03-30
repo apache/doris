@@ -52,8 +52,7 @@ public:
     bool init();
 
     // After attach, the current thread Memory Hook starts to consume/release task mem_tracker
-    void attach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                                const TUniqueId& fragment_instance_id);
+    void attach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
     void detach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker =
                                         ExecEnv::GetInstance()->orphan_mem_tracker());
 
@@ -64,7 +63,12 @@ public:
         return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack.back()->label();
     }
 
+    void set_query_id(const TUniqueId& query_id) { _query_id = query_id; }
+
+    TUniqueId query_id() { return _query_id; }
+
     void start_count_scope_mem() {
+        CHECK(init());
         _scope_mem = 0;
         _count_scope_mem = true;
     }
@@ -82,7 +86,7 @@ public:
     void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
 
-    bool is_attach_query() { return _fragment_instance_id != TUniqueId(); }
+    bool is_attach_query() { return _query_id != TUniqueId(); }
 
     std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
         CHECK(init());
@@ -93,9 +97,10 @@ public:
         return _limiter_tracker_raw;
     }
 
+    void enable_wait_gc() { _wait_gc = true; }
     void disable_wait_gc() { _wait_gc = false; }
     [[nodiscard]] bool wait_gc() const { return _wait_gc; }
-    void cancel_instance(const std::string& exceed_msg);
+    void cancel_query(const std::string& exceed_msg);
 
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
@@ -130,7 +135,7 @@ private:
 
     // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
     bool _stop_consume = false;
-    TUniqueId _fragment_instance_id = TUniqueId();
+    TUniqueId _query_id = TUniqueId();
 };
 
 inline bool ThreadMemTrackerMgr::init() {
@@ -185,7 +190,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
                 "malloc or new large memory: {}, {}, this is just a warning, not prevent memory "
                 "alloc, stacktrace:\n{}",
                 size,
-                is_attach_query() ? "in query or load: " + print_id(_fragment_instance_id)
+                is_attach_query() ? "in query or load: " + print_id(_query_id)
                                   : "not in query or load",
                 get_stack_trace());
         _stop_consume = false;

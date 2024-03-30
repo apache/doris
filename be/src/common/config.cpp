@@ -32,6 +32,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -131,6 +132,8 @@ DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
+DEFINE_mBool(enable_memory_orphan_check, "true");
+
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
@@ -200,10 +203,8 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
 
-// log dir
-DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
+DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
-DEFINE_String(pipeline_tracing_log_dir, "${DORIS_HOME}/log/tracing");
 // INFO, WARNING, ERROR, FATAL
 DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -268,6 +269,7 @@ DEFINE_mInt32(doris_max_scan_key_num, "48");
 DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
+DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
 
 DEFINE_mInt64(column_dictionary_key_ratio_threshold, "0");
 DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
@@ -313,7 +315,6 @@ DEFINE_mInt32(trash_file_expire_time_sec, "259200");
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
 DEFINE_mBool(disable_segment_cache, "false");
-DEFINE_Int64(index_stream_cache_capacity, "10737418240");
 DEFINE_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
@@ -470,8 +471,6 @@ DEFINE_String(ssl_private_key_path, "");
 DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
 DEFINE_Int32(webserver_num_workers, "48");
-// Period to update rate counters and sampling counters in ms.
-DEFINE_mInt32(periodic_counter_update_period_ms, "500");
 
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
@@ -539,10 +538,6 @@ DEFINE_Int32(num_threads_per_disk, "0");
 DEFINE_Int32(read_size, "8388608");    // 8 * 1024 * 1024, Read Size (in bytes)
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
-// For each io buffer size, the maximum number of buffers the IoMgr will hold onto
-// With 1024B through 8MB buffers, this is up to ~2GB of buffers.
-DEFINE_Int32(max_free_io_buffers, "128");
-
 // for pprof
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
@@ -563,12 +558,6 @@ DEFINE_Int32(num_cores, "0");
 // Otherwise, we will ignore the broken disk,
 DEFINE_Bool(ignore_broken_disk, "false");
 
-// linux transparent huge page
-DEFINE_Bool(madvise_huge_pages, "false");
-
-// whether use mmap to allocate memory
-DEFINE_Bool(mmap_buffers, "false");
-
 // Sleep time in milliseconds between memory maintenance iterations
 DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 
@@ -579,14 +568,14 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
 DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
 
+// Sleep time in milliseconds between refresh iterations of workload group memory statistics
+DEFINE_mInt64(wg_mem_refresh_interval_ms, "50");
+
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
 
 // percent of (active memtables size / all memtables size) when reach soft limit
 DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
-
-// Alignment
-DEFINE_Int32(memory_max_alignment, "16");
 
 // memtable insert memory tracker will multiply input block size with this ratio
 DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
@@ -617,7 +606,7 @@ DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
 // sync tablet_meta when modifying meta
-DEFINE_mBool(sync_tablet_meta, "true");
+DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
@@ -631,9 +620,9 @@ DEFINE_Bool(enable_metric_calculator, "true");
 // max consumer num in one data consumer group, for routine load
 DEFINE_mInt32(max_consumer_num_per_group, "3");
 
-// the size of thread pool for routine load task.
+// the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-DEFINE_Int32(routine_load_thread_pool_size, "10");
+DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -813,11 +802,6 @@ DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
-DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
-
-// s3 config
-DEFINE_mInt32(max_remote_storage_count, "10");
-
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
 // If the dependent kafka broker version older than 0.10.0.0,
 // the value of kafka_api_version_request should be false, and the
@@ -903,14 +887,6 @@ DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
-DEFINE_Int32(concurrency_per_dir, "2");
-// file_cache_type is used to set the type of file cache for remote files.
-// "": no cache, "sub_file_cache": split sub files from remote file.
-// "whole_file_cache": the whole file.
-DEFINE_mString(file_cache_type, "file_block_cache");
-DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
-    return config.empty() || config == "file_block_cache";
-});
 
 DEFINE_String(tmp_file_dir, "tmp");
 
@@ -991,20 +967,12 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
-DEFINE_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
-// 4KB <= file_cache_max_file_segment_size <= 256MB
-DEFINE_Validator(file_cache_max_file_segment_size, [](const int64_t config) -> bool {
-    return config >= 4096 && config <= 268435456;
-});
-DEFINE_Int64(file_cache_min_file_segment_size, "1048576"); // 1MB
-// 4KB <= file_cache_min_file_segment_size <= 256MB
-DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> bool {
-    return config >= 4096 && config <= 268435456 &&
-           config <= config::file_cache_max_file_segment_size;
-});
+DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
+
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1014,6 +982,7 @@ DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_write_index_searcher_cache, "true");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
+DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
@@ -1030,6 +999,8 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
 DEFINE_mBool(inverted_index_compaction_enable, "false");
+// Only for debug, do not use in production
+DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
 DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
@@ -1048,7 +1019,7 @@ DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 // Page size of row column, default 4KB
 DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
-DEFINE_mInt32(s3_write_buffer_size, "5242880");
+DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
@@ -1067,9 +1038,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
-DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
-DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+DEFINE_Int64(max_external_file_meta_cache_num, "1000");
+DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
 // Apply delete pred in cumu compaction
 DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 
@@ -1181,10 +1153,44 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
+// limit the storage space that query spill files can use
+DEFINE_String(spill_storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_mInt64(spill_storage_limit, "10737418240"); // 10G
+DEFINE_mInt32(spill_gc_interval_ms, "2000");       // 2s
+DEFINE_Int32(spill_io_thread_pool_per_disk_thread_num, "2");
+DEFINE_Int32(spill_io_thread_pool_queue_size, "1024");
+DEFINE_Int32(spill_async_task_thread_pool_thread_num, "2");
+DEFINE_Int32(spill_async_task_thread_pool_queue_size, "1024");
+DEFINE_mInt32(spill_mem_warning_water_mark_multiplier, "2");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+DEFINE_mString(ca_cert_file_paths,
+               "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+               "/etc/ssl/ca-bundle.pem");
+
+/** Table sink configurations(currently contains only external table types) **/
+// Minimum data processed to scale writers when non partition writing
+DEFINE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold,
+              "125829120"); // 120MB
+// Minimum data processed to start rebalancing in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_data_processed_threshold, "209715200"); // 200MB
+// Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold,
+              "209715200"); // 200MB
+// Maximum processed partition nums of per writer when partition writing
+DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
+
+/** Hive sink configurations **/
+DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
+
+DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1611,15 +1617,24 @@ void update_config(const std::string& field, const std::string& value) {
 
 Status set_fuzzy_configs() {
     std::unordered_map<std::string, std::string> fuzzy_field_and_value;
+    std::shared_ptr<std::mt19937_64> generator(new std::mt19937_64());
+    generator->seed(std::random_device()());
+    std::uniform_int_distribution<int64_t> distribution(0, 100);
 
     // if have set enable_fuzzy_mode=true in be.conf, will fuzzy those field and values
-    fuzzy_field_and_value["disable_storage_page_cache"] = ((rand() % 2) == 0) ? "true" : "false";
-    fuzzy_field_and_value["enable_system_metrics"] = ((rand() % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["disable_storage_page_cache"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_system_metrics"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_set_in_bitmap_value"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_shrink_memory"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
 
     fmt::memory_buffer buf;
-    for (auto it = fuzzy_field_and_value.begin(); it != fuzzy_field_and_value.end(); it++) {
-        const auto& field = it->first;
-        const auto& value = it->second;
+    for (auto& it : fuzzy_field_and_value) {
+        const auto& field = it.first;
+        const auto& value = it.second;
         RETURN_IF_ERROR(set_config(field, value, false, true));
         fmt::format_to(buf, "{}={}, ", field, value);
     }

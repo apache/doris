@@ -44,6 +44,8 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+extern bvar::Adder<uint64_t> g_fragment_executing_count;
+extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
 namespace pipeline {
 class PipelineFragmentContext;
@@ -99,25 +101,14 @@ public:
     // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
-    void cancel_instance_unlocked(const TUniqueId& instance_id,
-                                  const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock,
-                                  const std::string& msg = "");
     // Cancel fragment (only pipelineX).
     // {query id fragment} -> PipelineXFragmentContext
     void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                          const PPlanFragmentCancelReason& reason, const std::string& msg = "");
-    void cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fragment_id,
-                                  const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock,
-                                  const std::string& msg = "");
 
     // Can be used in both version.
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
-    void cancel_query_unlocked(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                               const std::unique_lock<std::mutex>& state_lock,
-                               const std::string& msg = "");
 
     bool query_is_canceled(const TUniqueId& query_id);
 
@@ -147,12 +138,14 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
+    std::shared_ptr<QueryContext> get_query_context(const TUniqueId& query_id);
+
     int32_t running_query_num() {
         std::unique_lock<std::mutex> ctx_lock(_lock);
         return _query_ctx_map.size();
     }
 
-    std::string dump_pipeline_tasks();
+    std::string dump_pipeline_tasks(int64_t duration = 0);
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
@@ -191,8 +184,6 @@ private:
     // call _lock, so that there is dead lock.
     std::mutex _lock;
 
-    std::condition_variable _cv;
-
     // Make sure that remove this before no data reference PlanFragmentExecutor
     std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_instance_map;
 
@@ -214,5 +205,8 @@ private:
     std::unique_ptr<ThreadPool> _async_report_thread_pool =
             nullptr; // used for pipeliine context report
 };
+
+uint64_t get_fragment_executing_count();
+uint64_t get_fragment_last_active_time();
 
 } // namespace doris

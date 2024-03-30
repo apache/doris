@@ -41,4 +41,10 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     return Status::OK();
 }
 
+const vectorized::SortDescription& SortSourceOperatorX::get_sort_description(
+        RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->get_sort_description();
+}
+
 } // namespace doris::pipeline

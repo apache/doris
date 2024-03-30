@@ -119,7 +119,8 @@ public class PartitionTableInfo {
             && partitionDefs.stream().allMatch(p -> p instanceof InPartition);
     }
 
-    private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx, boolean isEnableMergeOnWrite) {
+    private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx,
+                                         boolean isEnableMergeOnWrite, boolean isExternal) {
         if (!column.isKey()
                 && (!column.getAggType().equals(AggregateType.NONE) || isEnableMergeOnWrite)) {
             throw new AnalysisException("The partition column could not be aggregated column");
@@ -127,17 +128,13 @@ public class PartitionTableInfo {
         if (column.getType().isFloatLikeType()) {
             throw new AnalysisException("Floating point type column can not be partition column");
         }
-        if (column.getType().isStringType()) {
+        if (column.getType().isStringType() && !isExternal) {
             throw new AnalysisException("String Type should not be used in partition column["
                 + column.getName() + "].");
         }
         if (column.getType().isComplexType()) {
             throw new AnalysisException("Complex type column can't be partition column: "
                 + column.getType().toString());
-        }
-        // prohibit to create auto partition with null column anyhow
-        if (this.isAutoPartition && column.isNullable()) {
-            throw new AnalysisException("The auto partition column must be NOT NULL");
         }
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
             throw new AnalysisException(
@@ -174,7 +171,7 @@ public class PartitionTableInfo {
                     throw new AnalysisException(
                             String.format("partition key %s is not exists", p));
                 }
-                validatePartitionColumn(columnMap.get(p), ctx, isEnableMergeOnWrite);
+                validatePartitionColumn(columnMap.get(p), ctx, isEnableMergeOnWrite, isExternal);
             });
 
             Set<String> partitionColumnSets = Sets.newHashSet();

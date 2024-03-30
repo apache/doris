@@ -21,8 +21,10 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
@@ -42,6 +44,7 @@ import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
+import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
@@ -75,6 +78,7 @@ import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
+import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
 import org.apache.doris.nereids.DorisParser.DateCeilContext;
 import org.apache.doris.nereids.DorisParser.DateFloorContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
@@ -202,7 +206,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -418,10 +422,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -507,10 +513,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isOverwrite = ctx.INTO() == null;
         ImmutableList.Builder<String> tableName = ImmutableList.builder();
         if (null != ctx.tableName) {
-            tableName.addAll(visitMultipartIdentifier(ctx.tableName));
+            List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
+            tableName.addAll(nameParts);
         } else if (null != ctx.tableId) {
             // process group commit insert table command send by be
-            TableName name = Env.getCurrentEnv().getInternalCatalog()
+            TableName name = Env.getCurrentEnv().getCurrentCatalog()
                     .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
             tableName.add(name.getDb());
             tableName.add(name.getTbl());
@@ -520,14 +527,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<String> labelName = ctx.labelName == null ? Optional.empty() : Optional.of(ctx.labelName.getText());
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
-        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
         LogicalPlan plan = visitQuery(ctx.query());
-        UnboundTableSink<?> sink = new UnboundTableSink<>(
+        // partitionSpec may be NULL. means auto detect partition. only available when IOT
+        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        boolean isAutoDetect = partitionSpec.second == null;
+        LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
                 tableName.build(),
                 colNames,
-                ImmutableList.of(),
-                partitionSpec.first,
-                partitionSpec.second,
+                ImmutableList.of(), // hints
+                partitionSpec.first, // isTemp
+                partitionSpec.second, // partition names
+                isAutoDetect,
+                isOverwrite,
                 ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
                 DMLCommandType.INSERT,
                 plan);
@@ -535,7 +546,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (isOverwrite) {
             command = new InsertOverwriteTableCommand(sink, labelName);
         } else {
-            if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()) {
+            if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
+                    && sink.child() instanceof LogicalInlineTable) {
+                // FIXME: In legacy, the `insert into select 1` is handled as `insert into values`.
+                //  In nereids, the original way is throw an AnalysisException and fallback to legacy.
+                //  Now handle it as `insert into select`(a separate load job), should fix it as the legacy.
                 command = new BatchInsertIntoTableCommand(sink);
             } else {
                 command = new InsertIntoTableCommand(sink, labelName, Optional.empty());
@@ -556,7 +571,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean temporaryPartition = false;
         if (ctx != null) {
             temporaryPartition = ctx.TEMPORARY() != null;
-            if (ctx.partition != null) {
+            if (ctx.ASTERISK() != null) {
+                partitions = null;
+            } else if (ctx.partition != null) {
                 partitions = ImmutableList.of(ctx.partition.getText());
             } else {
                 partitions = visitIdentifierList(ctx.partitions);
@@ -838,6 +855,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitDelete(DeleteContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        // TODO: now dont support delete auto detect partition.
+        if (partitionSpec == null) {
+            throw new ParseException("Now don't support auto detect partitions in deleting", ctx);
+        }
         LogicalPlan query = withTableAlias(LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName,
                         partitionSpec.second, partitionSpec.first)), ctx.tableAlias());
@@ -1302,11 +1323,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             relationHints = ImmutableList.of();
         }
 
+        TableScanParams scanParams = null;
+        if (ctx.optScanParams() != null) {
+            Map<String, String> map = visitPropertyItemList(ctx.optScanParams().properties);
+            scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map);
+        }
+
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample), indexName));
+                        Optional.ofNullable(tableSample), indexName, scanParams));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -2519,7 +2546,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String colName = ctx.colName.getText();
         DataType colType = ctx.type instanceof PrimitiveDataTypeContext
                 ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
-                : visitComplexDataType(((ComplexDataTypeContext) ctx.type));
+                : ctx.type instanceof ComplexDataTypeContext
+                        ? visitComplexDataType((ComplexDataTypeContext) ctx.type)
+                        : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
         colType = colType.conversion();
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
@@ -2533,7 +2562,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
             } else if (ctx.nullValue != null) {
                 defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
-            } else if (ctx.CURRENT_TIMESTAMP() != null) {
+            } else if (ctx.defaultTimestamp != null) {
                 if (ctx.defaultValuePrecision == null) {
                     defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
                 } else {
@@ -2541,6 +2570,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             .currentTimeStampDefaultValueWithPrecision(
                                     Long.valueOf(ctx.defaultValuePrecision.getText())));
                 }
+            } else if (ctx.CURRENT_DATE() != null) {
+                defaultValue = Optional.of(DefaultValue.CURRENT_DATE_DEFAULT_VALUE);
             }
         }
         if (ctx.UPDATE() != null) {
@@ -2594,7 +2625,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
         String comment = ctx.comment != null ? ctx.comment.getText() : "";
         // change BITMAP index to INVERTED index
-        if (indexType.equalsIgnoreCase("BITMAP")) {
+        if ("BITMAP".equalsIgnoreCase(indexType)) {
             indexType = "INVERTED";
         }
         return new IndexDefinition(indexName, indexCols, indexType, properties, comment);
@@ -3250,6 +3281,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return ExplainLevel.MEMO_PLAN;
         }
         return ExplainLevel.ALL_PLAN;
+    }
+
+    @Override
+    public Pair<DataType, Boolean> visitDataTypeWithNullable(DataTypeWithNullableContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> Pair.of(typedVisit(ctx.dataType()), ctx.NOT() == null));
+    }
+
+    @Override
+    public DataType visitAggStateDataType(AggStateDataTypeContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Pair<DataType, Boolean>> dataTypeWithNullables = ctx.dataTypes.stream()
+                    .map(this::visitDataTypeWithNullable)
+                    .collect(Collectors.toList());
+            List<DataType> dataTypes = dataTypeWithNullables.stream()
+                    .map(dt -> dt.first)
+                    .collect(ImmutableList.toImmutableList());
+            List<Boolean> nullables = dataTypeWithNullables.stream()
+                    .map(dt -> dt.second)
+                    .collect(ImmutableList.toImmutableList());
+            String functionName = ctx.functionNameIdentifier().getText();
+            if (!BuiltinAggregateFunctions.INSTANCE.aggFuncNames.contains(functionName)) {
+                // TODO use function binder to check function exists
+                throw new ParseException("Can not found function '" + functionName + "'", ctx);
+            }
+            return new AggStateType(functionName, dataTypes, nullables);
+        });
     }
 
     @Override

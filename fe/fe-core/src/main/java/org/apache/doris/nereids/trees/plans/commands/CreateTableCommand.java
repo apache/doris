@@ -23,9 +23,10 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -141,7 +143,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
             columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, !s.isColumnFromTable() || s.nullable()));
         }
-        createTableInfo.validateCreateTableAsSelect(columnsOfQuery.build(), ctx);
+        List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
+        createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
@@ -153,10 +156,12 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
 
-        query = new UnboundTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), query);
+        query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
-            new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
+            if (!FeConstants.runningUnitTest) {
+                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
+            }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
             }

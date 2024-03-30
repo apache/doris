@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/compiler_util.h"
 #include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"

@@ -75,7 +75,6 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
@@ -108,9 +107,7 @@ bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
 BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
-          _stop_background_threads_latch(1),
-          _segment_meta_mem_tracker(std::make_shared<MemTracker>(
-                  "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())) {}
+          _stop_background_threads_latch(1) {}
 
 BaseStorageEngine::~BaseStorageEngine() = default;
 
@@ -149,7 +146,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _is_all_cluster_id_exist(true),
           _stopped(false),
-          _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _default_rowset_type(BETA_ROWSET),
@@ -1487,10 +1483,10 @@ void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {
-    auto lru_handle = cache()->lookup(key);
+    auto* lru_handle = lookup(key);
     if (lru_handle) {
-        Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
-        auto value = (CacheValue*)cache()->value(lru_handle);
+        Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
+        auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
         VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
         return value->idx;
     }
@@ -1499,14 +1495,10 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
 
 void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
-    CacheValue* value = new CacheValue;
+    auto* value = new CacheValue;
     value->idx = next_idx;
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        CacheValue* cache_value = (CacheValue*)value;
-        delete cache_value;
-    };
-    auto lru_handle = cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
-    cache()->release(lru_handle);
+    auto* lru_handle = insert(key, value, 1, sizeof(int), CachePriority::NORMAL);
+    release(lru_handle);
 }
 
 } // namespace doris

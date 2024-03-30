@@ -27,6 +27,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -146,14 +147,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             if (ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
-
-            Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+            Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
+                    .<Set<PhysicalSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
             PhysicalSink physicalSink = plan.get();
             DataSink sink = planner.getFragments().get(0).getSink();
-            String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
+            // Transaction insert should reuse the label in the transaction.
+            String label = this.labelName.orElse(
+                    ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
@@ -161,6 +163,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     throw new AnalysisException("group commit is not supported in Nereids now");
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
+                // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()
@@ -171,6 +174,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner, insertCtx);
+                // set hive query options
             } else {
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support olap table");
@@ -192,6 +196,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         insertExecutor.executeSingleInsert(executor, jobId);
+    }
+
+    public boolean isExternalTableSink() {
+        return !(logicalQuery instanceof UnboundTableSink);
     }
 
     @Override

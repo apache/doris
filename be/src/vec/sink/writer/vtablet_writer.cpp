@@ -357,9 +357,10 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_eos(false);
 
     // add block closure
+    // Has to using value to capture _task_exec_ctx because tablet writer may destroyed during callback.
     _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
-    _send_block_callback->addFailedHandler([this](bool is_last_rpc) {
-        auto ctx_lock = _task_exec_ctx.lock();
+    _send_block_callback->addFailedHandler([&, task_exec_ctx = _task_exec_ctx](bool is_last_rpc) {
+        auto ctx_lock = task_exec_ctx.lock();
         if (ctx_lock == nullptr) {
             return;
         }
@@ -367,8 +368,9 @@ Status VNodeChannel::init(RuntimeState* state) {
     });
 
     _send_block_callback->addSuccessHandler(
-            [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
-                auto ctx_lock = _task_exec_ctx.lock();
+            [&, task_exec_ctx = _task_exec_ctx](const PTabletWriterAddBlockResult& result,
+                                                bool is_last_rpc) {
+                auto ctx_lock = task_exec_ctx.lock();
                 if (ctx_lock == nullptr) {
                     return;
                 }
@@ -397,7 +399,9 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_index_id(_index_channel->_index_id);
     request->set_txn_id(_parent->_txn_id);
     request->set_allocated_schema(_parent->_schema->to_protobuf());
-
+    if (_parent->_t_sink.olap_table_sink.__isset.storage_vault_id) {
+        request->set_storage_vault_id(_parent->_t_sink.olap_table_sink.storage_vault_id);
+    }
     std::set<int64_t> deduper;
     for (auto& tablet : _tablets_wait_open) {
         if (deduper.contains(tablet.tablet_id)) {
@@ -673,9 +677,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             request->add_partition_ids(pid);
         }
 
-        request->set_write_single_replica(false);
+        request->set_write_single_replica(_parent->_write_single_replica);
         if (_parent->_write_single_replica) {
-            request->set_write_single_replica(true);
             for (auto& _slave_tablet_node : _slave_tablet_nodes) {
                 PSlaveTabletNodes slave_tablet_nodes;
                 for (auto node_id : _slave_tablet_node.second) {
@@ -725,7 +728,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         _send_block_callback->cntl_->http_request().set_content_type("application/json");
 
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(
                     send_block_closure->cntl_.get(), nullptr, send_block_closure->response_.get(),
                     send_block_closure.get());
@@ -734,7 +736,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     } else {
         _send_block_callback->cntl_->http_request().Clear();
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_block(
                     send_block_closure->cntl_.get(), send_block_closure->request_.get(),
                     send_block_closure->response_.get(), send_block_closure.get());
@@ -917,7 +918,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_cancelled || state->is_cancelled()) {
-        _cancel_with_msg(state->cancel_reason());
+        cancel(state->cancel_reason());
     }
 
     if (_add_batches_finished) {

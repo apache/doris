@@ -26,6 +26,7 @@
 #include <ostream>
 #include <utility>
 
+#include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
@@ -34,7 +35,9 @@
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
+#include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
+#include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
@@ -43,6 +46,7 @@
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_workload_groups_scanner.h"
 #include "olap/hll.h"
 #include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
@@ -152,6 +156,14 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaProfilingScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_ACTIVE_TASKS:
         return SchemaBackendActiveTasksScanner::create_unique();
+    case TSchemaTableType::SCH_ACTIVE_QUERIES:
+        return SchemaActiveQueriesScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUPS:
+        return SchemaWorkloadGroupsScanner::create_unique();
+    case TSchemaTableType::SCH_PROCESSLIST:
+        return SchemaProcessListScanner::create_unique();
+    case TSchemaTableType::SCH_PROCEDURES:
+        return SchemaRoutinesScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

@@ -19,6 +19,7 @@
 
 #include <bthread/bthread.h>
 // IWYU pragma: no_include <bthread/errno.h>
+#include <bvar/bvar.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -38,11 +39,9 @@
 
 namespace doris {
 namespace io {
-struct IOContext;
 
-LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
-                                 std::shared_ptr<LocalFileSystem> fs)
-        : _fd(fd), _path(std::move(path)), _file_size(file_size), _fs(std::move(fs)) {
+LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd)
+        : _fd(fd), _path(std::move(path)), _file_size(file_size) {
     DorisMetrics::instance()->local_file_open_reading->increment(1);
     DorisMetrics::instance()->local_file_reader_total->increment(1);
 }
@@ -67,7 +66,12 @@ Status LocalFileReader::close() {
 
 Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                      const IOContext* /*io_ctx*/) {
-    DCHECK(!closed());
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileReader::read_at_impl",
+                                      Status::IOError("inject io error"));
+    if (closed()) [[unlikely]] {
+        return Status::InternalError("read closed file: ", _path.native());
+    }
+
     if (offset > _file_size) {
         return Status::InternalError(
                 "offset exceeds file size(offset: {}, file size: {}, path: {})", offset, _file_size,

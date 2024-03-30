@@ -21,6 +21,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "olap/storage_policy.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -36,7 +37,11 @@ Status CloudRowsetBuilder::init() {
 
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
-        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets());
+        auto st = std::static_pointer_cast<CloudTablet>(_tablet)->sync_rowsets();
+        // sync_rowsets will return INVALID_TABLET_STATE when tablet is under alter
+        if (!st.ok() && !st.is<ErrorCode::INVALID_TABLET_STATE>()) {
+            return st;
+        }
         RETURN_IF_ERROR(init_mow_context(mow_context));
     }
     RETURN_IF_ERROR(check_tablet_version_count());
@@ -52,7 +57,6 @@ Status CloudRowsetBuilder::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
-    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _req.tablet_id;
     context.index_id = _req.index_id;
@@ -61,14 +65,25 @@ Status CloudRowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
+    context.file_cache_ttl_sec = _tablet->ttl_seconds();
     // New loaded data is always written to latest shared storage
-    context.fs = _engine.latest_fs();
+    // TODO(AlexYue): use the passed resource id to retrive the corresponding
+    // fs to pass to the RowsetWriterContext
+    if (_req.storage_vault_id.empty()) {
+        if (_engine.latest_fs() == nullptr) [[unlikely]] {
+            return Status::IOError("Invalid latest fs");
+        }
+        context.fs = _engine.latest_fs();
+    } else {
+        // TODO(ByteYue): What if the corresponding fs does not exists temporarily?
+        context.fs = get_filesystem(_req.storage_vault_id);
+    }
     context.rowset_dir = _tablet->tablet_path();
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 
-    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), true));
+    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta()));
 
     _is_init = true;
     return Status::OK();

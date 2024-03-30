@@ -29,6 +29,7 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
                                    RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
     _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
+    _query_thread_context.init();
 }
 
 CloudDeltaWriter::~CloudDeltaWriter() = default;
@@ -46,12 +47,13 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
         }
 
         tasks.emplace_back([writer] {
-            ThreadLocalHandle::create_thread_local_if_not_exits();
+            SCOPED_ATTACH_TASK(writer->query_thread_context());
             std::lock_guard<bthread::Mutex> lock(writer->_mtx);
             if (writer->_is_init || writer->_is_cancelled) {
                 return Status::OK();
             }
-            return writer->init();
+            Status st = writer->init(); // included in SCOPED_ATTACH_TASK
+            return st;
         });
     }
 
@@ -64,7 +66,7 @@ Status CloudDeltaWriter::write(const vectorized::Block* block,
         return Status::OK();
     }
     std::lock_guard lock(_mtx);
-    CHECK(_is_init);
+    CHECK(_is_init || _is_cancelled);
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
         while (_memtable_writer->flush_running_count() >=
@@ -111,7 +113,7 @@ Status CloudDeltaWriter::commit_rowset() {
         RETURN_IF_ERROR(_rowset_builder->init());
         RETURN_IF_ERROR(_rowset_builder->build_rowset());
     }
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), true);
+    return _engine.meta_mgr().commit_rowset(*rowset_meta());
 }
 
 Status CloudDeltaWriter::set_txn_related_delete_bitmap() {

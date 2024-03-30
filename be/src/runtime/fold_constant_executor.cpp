@@ -63,6 +63,12 @@ using std::map;
 
 namespace doris {
 
+static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
+        TYPE_BOOLEAN,  TYPE_TINYINT,  TYPE_SMALLINT, TYPE_INT,        TYPE_BIGINT,
+        TYPE_LARGEINT, TYPE_FLOAT,    TYPE_TIME,     TYPE_DOUBLE,     TYPE_TIMEV2,
+        TYPE_CHAR,     TYPE_VARCHAR,  TYPE_STRING,   TYPE_HLL,        TYPE_OBJECT,
+        TYPE_DATE,     TYPE_DATETIME, TYPE_DATEV2,   TYPE_DATETIMEV2, TYPE_DECIMALV2};
+
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
     const auto& expr_map = params.expr_map;
@@ -74,7 +80,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     // init
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
@@ -106,7 +112,9 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             } else {
                 expr_result.set_success(true);
                 StringRef string_ref;
-                if (!ctx->root()->type().is_complex_type()) {
+                auto type = ctx->root()->type().type;
+                //eg: strcut, array, map VARIANT... will not impl get_data_at, so could use column->to_string()
+                if (PRIMITIVE_TYPE_SET.contains(type)) {
                     string_ref = column_ptr->get_data_at(0);
                 }
                 RETURN_IF_ERROR(_get_result((void*)string_ref.data, string_ref.size,
@@ -136,8 +144,12 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     TExecPlanFragmentParams fragment_params;
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
-    _runtime_state = RuntimeState::create_unique(fragment_params.params, query_options,
-                                                 query_globals, ExecEnv::GetInstance(), nullptr);
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::SCHEMA_CHANGE,
+            fmt::format("FoldConstant:query_id={}", print_id(_query_id)));
+    _runtime_state =
+            RuntimeState::create_unique(fragment_params.params, query_options, query_globals,
+                                        ExecEnv::GetInstance(), nullptr, _mem_tracker);
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);
@@ -146,11 +158,9 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
         return status;
     }
     _runtime_state->set_desc_tbl(desc_tbl);
-    _runtime_state->init_mem_trackers(_query_id, "FoldConstant");
 
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
-    _mem_tracker = std::make_unique<MemTracker>("FoldConstantExpr");
 
     return Status::OK();
 }
@@ -264,6 +274,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         result = column_type->to_string(*column_ptr, 0);
         break;
     }
+    case TYPE_VARIANT:
     case TYPE_QUANTILE_STATE: {
         result = column_type->to_string(*column_ptr, 0);
         break;

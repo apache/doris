@@ -66,6 +66,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
+class InvertedIndexFileReader;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -201,12 +202,20 @@ private:
                                            vectorized::DataTypePtr target_type_hint);
 
     Status _load_index_impl();
+    Status _open_inverted_index();
 
 private:
     friend class SegmentIterator;
+    io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
     uint32_t _segment_id;
     uint32_t _num_rows;
+
+    // only for tracking memory use by segment meta data such as footer or index page.
+    // The memory consumed by querying is tracked in segment iterator.
+    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
+    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
+    // maybe have to use ColumnReader count as segment meta size.
     int64_t _meta_mem_usage;
 
     RowsetId _rowset_id;
@@ -242,9 +251,10 @@ private:
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
     // primary key index reader
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
-    // Segment may be destructed after StorageEngine, in order to exit gracefully.
-    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
     std::mutex _open_lock;
+    // inverted index file reader
+    std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
+    DorisCallOnce<Status> _inverted_index_file_reader_open;
 };
 
 } // namespace segment_v2

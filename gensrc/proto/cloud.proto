@@ -73,6 +73,9 @@ message InstanceInfoPB {
     optional RamUserPB ram_user = 11;
     optional RamUserPB iam_user = 12;
     optional bool sse_enabled = 13;
+
+    repeated string resource_ids = 100;
+    repeated string storage_vault_names = 101;
 }
 
 message StagePB {
@@ -187,6 +190,29 @@ message ObjectStoreInfoPB {
     optional bool sse_enabled = 15;
 }
 
+message StorageVaultPB {
+    optional string id = 1;
+    optional string name = 2;
+    optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
+}
+
+message HdfsBuildConf {
+    message HdfsConfKVPair {
+        required string key = 1;
+        required string value = 2;
+    }
+    optional string fs_name = 1; // name_node
+    optional string user = 2;
+    optional string hdfs_kerberos_principal = 3;
+    optional string hdfs_kerberos_keytab = 4;
+    repeated HdfsConfKVPair hdfs_confs = 5;
+}
+
+message HdfsVaultInfo {
+    optional HdfsBuildConf build_conf = 1;
+    optional string prefix = 2;
+}
+
 //==============================================================================
 // Transaction persistence
 //==============================================================================
@@ -232,6 +258,7 @@ message TxnCoordinatorPB {
 
 message RoutineLoadProgressPB {
     map<int32, int64> partition_to_offset = 1;
+    optional RoutineLoadJobStatisticPB stat = 2;
 }
 
 message RLTaskTxnCommitAttachmentPB {
@@ -244,6 +271,14 @@ message RLTaskTxnCommitAttachmentPB {
     optional int64 task_execution_time_ms = 7;
     optional RoutineLoadProgressPB progress = 8;
     optional string error_log_url = 9;
+}
+
+message RoutineLoadJobStatisticPB {
+    optional int64 filtered_rows = 1;
+    optional int64 loaded_rows = 2;
+    optional int64 unselected_rows = 3;
+    optional int64 received_bytes = 4;
+    optional int64 task_execution_time_ms = 5;
 }
 
 message TxnCommitAttachmentPB {
@@ -432,6 +467,8 @@ message TabletMetaInfoPB { // For update tablet meta
     optional bool is_in_memory = 2; // deprecated
     optional bool is_persistent = 3; // deprecated
     optional int64 ttl_seconds = 4;
+    optional int64 group_commit_interval_ms = 5;
+    optional int64 group_commit_data_bytes = 6;
 }
 
 message TabletCompactionJobPB {
@@ -681,6 +718,9 @@ message GetVersionRequest {
     repeated int64 db_ids = 6;
     repeated int64 table_ids = 7;
     repeated int64 partition_ids = 8;
+
+    // True if get table version
+    optional bool is_table_version = 9;
 };
 
 message GetVersionResponse {
@@ -705,14 +745,19 @@ message AlterObjStoreInfoRequest {
         UPDATE_AK_SK    = 1;
         ADD_OBJ_INFO    = 2;
         LEGACY_UPDATE_AK_SK = 3;
+
+        ADD_HDFS_INFO = 100;
+        DROP_HDFS_INFO = 101;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
+    optional StorageVaultPB hdfs = 4;
 }
 
 message AlterObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional string storage_vault_id = 2;
 }
 
 message UpdateAkSkRequest {
@@ -728,15 +773,18 @@ message UpdateAkSkResponse {
 message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
+    repeated StorageVaultPB storage_vault = 3;
 };
 
 message CreateTabletsRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
+    optional string storage_vault_name = 3;
 }
 
 message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional string storage_vault_id = 2;
 }
 
 message UpdateTabletRequest {
@@ -808,6 +856,8 @@ message IndexRequest {
     repeated int64 index_ids = 2;
     optional int64 table_id = 3;
     optional int64 expiration = 4;
+    optional int64 db_id = 5;
+    optional bool is_new_table = 6;
 }
 
 message IndexResponse {
@@ -845,6 +895,7 @@ message CreateInstanceRequest {
     optional ObjectStoreInfoPB obj_info = 4;
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
+    optional HdfsVaultInfo hdfs_info = 7;
 }
 
 message CreateInstanceResponse {
@@ -1155,6 +1206,8 @@ enum MetaServiceCode {
     ALREADY_EXISTED = 3002;
     CLUSTER_ENDPOINT_MISSING = 3003;
 
+    STORAGE_VAULT_NOT_FOUND = 3004;
+
     // Stage
     STAGE_NOT_FOUND = 4001;
     STAGE_GET_ERR = 4002;
@@ -1166,6 +1219,7 @@ enum MetaServiceCode {
     JOB_TABLET_BUSY = 5001;
     JOB_ALREADY_SUCCESS = 5002;
     ROUTINE_LOAD_DATA_INCONSISTENT = 5003;
+    ROUTINE_LOAD_PROGRESS_NOT_FOUND = 5004;
 
     // Rate limit
     MAX_QPS_LIMIT = 6001;
@@ -1180,6 +1234,9 @@ enum MetaServiceCode {
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
+
+    // The meta service retries KV_TXN_CONFLICT error but is exceeded the max times.
+    KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES = 10001;
 
     UNDEFINED_ERR = 1000000;
 }
@@ -1246,6 +1303,17 @@ message GetDeleteBitmapUpdateLockResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message GetRLTaskCommitAttachRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+}
+
+message GetRLTaskCommitAttachResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
+}
+
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -1308,6 +1376,9 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+
+    // routine load progress
+    rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
 };
 
 service RecyclerService {

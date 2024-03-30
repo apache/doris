@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -28,9 +29,9 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -85,6 +86,8 @@ public abstract class ExternalCatalog
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
 
     public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
+    public static final String DORIS_VERSION = "doris.version";
+    public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -134,6 +137,11 @@ public abstract class ExternalCatalog
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
+    }
+
+    // only for test
+    public void setInitialized() {
+        initialized = true;
     }
 
     /**
@@ -391,6 +399,16 @@ public abstract class ExternalCatalog
         }
     }
 
+    public TableName getTableNameByTableId(Long tableId) {
+        for (DatabaseIf<?> db : idToDb.values()) {
+            TableIf table = db.getTableNullable(tableId);
+            if (table != null) {
+                return new TableName(getName(), db.getFullName(), table.getName());
+            }
+        }
+        return null;
+    }
+
     @Override
     public String getResource() {
         return catalogProperty.getResource();
@@ -596,9 +614,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createDb not implemented");
@@ -614,9 +629,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropDb not implemented");
@@ -632,9 +644,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void createTable(CreateTableStmt stmt) throws UserException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createTable not implemented");
@@ -650,9 +659,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropTable not implemented");

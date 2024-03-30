@@ -21,7 +21,7 @@ suite("test_agg_state_avg") {
     sql """
             create table a_table(
             k1 int not null,
-            k2 agg_state avg(int not null)
+            k2 agg_state<avg(int not null)> generic
         )
         aggregate key (k1)
         distributed BY hash(k1)

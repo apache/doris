@@ -53,14 +53,14 @@ public class FunctionRegistry {
     // to record the global alias function and other udf.
     private static final String GLOBAL_FUNCTION = "__GLOBAL_FUNCTION__";
 
-    private final Map<String, List<FunctionBuilder>> name2InternalBuiltinBuilders;
+    private final Map<String, List<FunctionBuilder>> name2BuiltinBuilders;
     private final Map<String, Map<String, List<FunctionBuilder>>> name2UdfBuilders;
 
     public FunctionRegistry() {
-        name2InternalBuiltinBuilders = new ConcurrentHashMap<>();
+        name2BuiltinBuilders = new ConcurrentHashMap<>();
         name2UdfBuilders = new ConcurrentHashMap<>();
-        registerBuiltinFunctions(name2InternalBuiltinBuilders);
-        afterRegisterBuiltinFunctions(name2InternalBuiltinBuilders);
+        registerBuiltinFunctions(name2BuiltinBuilders);
+        afterRegisterBuiltinFunctions(name2BuiltinBuilders);
     }
 
     // this function is used to test.
@@ -78,10 +78,31 @@ public class FunctionRegistry {
     }
 
     public Optional<List<FunctionBuilder>> tryGetBuiltinBuilders(String name) {
-        List<FunctionBuilder> builders = name2InternalBuiltinBuilders.get(name);
-        return name2InternalBuiltinBuilders.get(name) == null
+        List<FunctionBuilder> builders = name2BuiltinBuilders.get(name);
+        return name2BuiltinBuilders.get(name) == null
                 ? Optional.empty()
                 : Optional.of(ImmutableList.copyOf(builders));
+    }
+
+    public boolean isAggregateFunction(String dbName, String name) {
+        name = name.toLowerCase();
+        Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
+        if (StringUtils.isEmpty(dbName)) {
+            List<FunctionBuilder> functionBuilders = name2BuiltinBuilders.get(name);
+            for (FunctionBuilder functionBuilder : functionBuilders) {
+                if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
+                    return true;
+                }
+            }
+        }
+
+        List<FunctionBuilder> udfBuilders = findUdfBuilder(dbName, name);
+        for (FunctionBuilder udfBuilder : udfBuilders) {
+            if (aggClass.isAssignableFrom(udfBuilder.functionClass())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // currently we only find function by name and arity and args' types.
@@ -92,16 +113,21 @@ public class FunctionRegistry {
 
         if (StringUtils.isEmpty(dbName)) {
             // search internal function only if dbName is empty
-            functionBuilders = name2InternalBuiltinBuilders.get(name.toLowerCase());
+            functionBuilders = name2BuiltinBuilders.get(name.toLowerCase());
             if (CollectionUtils.isEmpty(functionBuilders) && AggCombinerFunctionBuilder.isAggStateCombinator(name)) {
                 String nestedName = AggCombinerFunctionBuilder.getNestedName(name);
                 String combinatorSuffix = AggCombinerFunctionBuilder.getCombinatorSuffix(name);
-                functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
+                functionBuilders = name2BuiltinBuilders.get(nestedName.toLowerCase());
                 if (functionBuilders != null) {
-                    functionBuilders = functionBuilders.stream()
-                            .map(builder -> new AggCombinerFunctionBuilder(combinatorSuffix, builder))
-                            .filter(functionBuilder -> functionBuilder.canApply(arguments))
-                            .collect(Collectors.toList());
+                    List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(functionBuilders.size());
+                    for (FunctionBuilder functionBuilder : functionBuilders) {
+                        AggCombinerFunctionBuilder combinerBuilder
+                                = new AggCombinerFunctionBuilder(combinatorSuffix, functionBuilder);
+                        if (combinerBuilder.canApply(arguments)) {
+                            candidateBuilders.add(combinerBuilder);
+                        }
+                    }
+                    functionBuilders = candidateBuilders;
                 }
             }
         }
@@ -115,9 +141,12 @@ public class FunctionRegistry {
         }
 
         // check the arity and type
-        List<FunctionBuilder> candidateBuilders = functionBuilders.stream()
-                .filter(functionBuilder -> functionBuilder.canApply(arguments))
-                .collect(Collectors.toList());
+        List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(arguments.size());
+        for (FunctionBuilder functionBuilder : functionBuilders) {
+            if (functionBuilder.canApply(arguments)) {
+                candidateBuilders.add(functionBuilder);
+            }
+        }
         if (candidateBuilders.isEmpty()) {
             String candidateHints = getCandidateHint(name, functionBuilders);
             throw new AnalysisException("Can not found function '" + qualifiedName
@@ -191,8 +220,8 @@ public class FunctionRegistry {
         }
         synchronized (name2UdfBuilders) {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
-            builders.getOrDefault(name, Lists.newArrayList()).removeIf(builder -> ((UdfBuilder) builder).getArgTypes()
-                    .equals(argTypes));
+            builders.getOrDefault(name, Lists.newArrayList())
+                    .removeIf(builder -> ((UdfBuilder) builder).getArgTypes().equals(argTypes));
         }
     }
 }

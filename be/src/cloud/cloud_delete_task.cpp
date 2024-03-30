@@ -62,6 +62,9 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     load_id.set_hi(0);
     load_id.set_lo(0);
     RowsetWriterContext context;
+    if (engine.latest_fs() == nullptr) [[unlikely]] {
+        return Status::IOError("Invalid latest fs");
+    }
     context.fs = engine.latest_fs();
     context.txn_id = request.transaction_id;
     context.load_id = load_id;
@@ -77,7 +80,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     RETURN_IF_ERROR(rowset_writer->build(rowset));
     rowset->rowset_meta()->set_delete_predicate(std::move(del_pred));
 
-    auto st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), true);
+    auto st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta());
 
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);

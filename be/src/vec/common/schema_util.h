@@ -96,7 +96,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseContext& ctx);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);
-void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
+Status encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.

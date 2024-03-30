@@ -60,7 +60,6 @@ class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
-class MemTracker;
 class StreamLoadRecorder;
 class TCloneReq;
 class TCreateTabletReq;
@@ -125,10 +124,6 @@ public:
         return _calc_delete_bitmap_executor.get();
     }
 
-    const std::shared_ptr<MemTracker>& segment_meta_mem_tracker() {
-        return _segment_meta_mem_tracker;
-    }
-
     void add_quering_rowset(RowsetSharedPtr rs);
 
     RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
@@ -148,13 +143,6 @@ protected:
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
     CountDownLatch _stop_background_threads_latch;
-
-    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
-    // The memory consumed by querying is tracked in segment iterator.
-    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
-    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
-    // maybe have to use ColumnReader count as segment meta size.
-    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
@@ -254,10 +242,6 @@ public:
     }
 
     Status get_compaction_status_json(std::string* result);
-
-    const std::shared_ptr<MemTracker>& segcompaction_mem_tracker() {
-        return _segcompaction_mem_tracker;
-    }
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
@@ -413,9 +397,6 @@ private:
     PendingRowsetSet _pending_local_rowsets;
     PendingRowsetSet _pending_remote_rowsets;
 
-    // Count the memory consumption of segment compaction tasks.
-    std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
-
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
     // thread to monitor snapshot expiry
     scoped_refptr<Thread> _garbage_sweeper_thread;
@@ -527,7 +508,10 @@ public:
 
     void set_index(const std::string& key, int next_idx);
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE) {}
+
         int idx = 0;
     };
 

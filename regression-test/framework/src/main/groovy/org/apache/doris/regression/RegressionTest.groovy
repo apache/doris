@@ -17,9 +17,12 @@
 
 package org.apache.doris.regression
 
+import ch.qos.logback.classic.PatternLayout
+import ch.qos.logback.core.OutputStreamAppender
 import com.google.common.collect.Lists
 import groovy.transform.CompileStatic
 import jodd.util.Wildcard
+import org.apache.doris.regression.logger.TeamcityServiceMessageEncoder
 import org.apache.doris.regression.suite.Suite
 import org.apache.doris.regression.suite.event.EventListener
 import org.apache.doris.regression.suite.GroovyFileSource
@@ -64,7 +67,13 @@ class RegressionTest {
         ch.qos.logback.classic.Logger loggerOfSuite =
                 LoggerFactory.getLogger(Suite.class) as ch.qos.logback.classic.Logger
         def context = loggerOfSuite.getLoggerContext()
-        context.getFrameworkPackages().add(IndyInterface.class.getPackage().getName())
+        def frameworkPackages = context.getFrameworkPackages()
+
+        // don't print this class name as the log class name
+        frameworkPackages.add(TeamcityServiceMessageEncoder.class.getPackage().getName())
+        frameworkPackages.add(IndyInterface.class.getPackage().getName())
+        frameworkPackages.add(OutputStreamAppender.class.getPackage().getName())
+        frameworkPackages.add(PatternLayout.class.getPackage().getName())
     }
 
     static void main(String[] args) {
@@ -86,6 +95,10 @@ class RegressionTest {
             log.info("=== run ${i} time ===")
             if (config.times > 1) {
                 TeamcityUtils.postfix = i.toString()
+            }
+
+            if (config.caseNamePrefix) {
+                TeamcityUtils.prefix = config.caseNamePrefix.toString()
             }
 
             Recorder recorder = runScripts(config)

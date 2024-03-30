@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -70,7 +71,7 @@ public class PlanTranslatorContext {
     private final DescriptorTable descTable = new DescriptorTable();
 
     private final RuntimeFilterTranslator translator;
-
+    private final TopnFilterContext topnFilterContext;
     /**
      * index from Nereids' slot to legacy slot.
      */
@@ -115,12 +116,14 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.topnFilterContext = ctx.getTopnFilterContext();
     }
 
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.translator = null;
+        this.topnFilterContext = new TopnFilterContext();
     }
 
     /**
@@ -185,6 +188,10 @@ public class PlanTranslatorContext {
 
     public Optional<RuntimeFilterTranslator> getRuntimeTranslator() {
         return Optional.ofNullable(translator);
+    }
+
+    public TopnFilterContext getTopnFilterContext() {
+        return topnFilterContext;
     }
 
     public PlanFragmentId nextFragmentId() {
@@ -282,7 +289,7 @@ public class PlanTranslatorContext {
             slotRef = new SlotRef(slotDescriptor);
             if (slotReference.hasSubColPath()) {
                 slotDescriptor.setSubColLables(slotReference.getSubColPath());
-                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName()
+                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
                             + "." + String.join(".", slotReference.getSubColPath()));
             }
         }

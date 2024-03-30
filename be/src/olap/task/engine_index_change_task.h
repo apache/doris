@@ -22,7 +22,6 @@
 namespace doris {
 class StorageEngine;
 class TAlterInvertedIndexReq;
-class MemTrackerLimiter;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
@@ -37,8 +36,6 @@ public:
 private:
     StorageEngine& _engine;
     const TAlterInvertedIndexReq& _alter_inverted_index_req;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

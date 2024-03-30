@@ -518,6 +518,91 @@ suite("test_inlineview_with_project") {
                                 FROM test_01 ) TOTAL;
     """
 
+    qt_select5 """
+    SELECT
+        caseId
+    FROM
+        (
+            SELECT
+                caseId,
+                count(judgementDateId)
+            FROM
+                (
+                    SELECT
+                        abs(caseId) AS caseId,
+                        id as judgementDateId
+                    FROM
+                        dr_user_test_t2
+                ) AGG_RESULT
+            GROUP BY
+                caseId
+        ) TOTAL
+        order by 1;
+    """
+
+    qt_select5 """
+    SELECT
+        caseId
+    FROM
+        (
+            SELECT
+                caseId,
+                count(judgementDateId)
+            FROM
+                (
+                    SELECT
+                        caseId AS caseId,
+                        abs(id) as judgementDateId
+                    FROM
+                        dr_user_test_t2
+                ) AGG_RESULT
+            GROUP BY
+                caseId
+        ) TOTAL
+        order by 1;
+    """
+
+    qt_select5 """
+    select
+            count(*)
+        from
+            (
+                select
+                    random(),
+                    group_concat(cast(ga.column3 as varchar)) as column111
+                from
+                    (
+                        select
+                            t1.id as id,
+                            upper(t1.caseId) as column1,
+                            t1.content as column3
+                        from
+                            (
+                                select
+                                    id,
+                                    caseId,
+                                    content
+                                from
+                                    dr_user_test_t2
+                                limit
+                                    10
+                            ) t1
+                            left join (
+                                select
+                                    id,
+                                    caseId,
+                                    content
+                                from
+                                    dr_user_test_t2
+                                limit
+                                    10
+                            ) t2 on t1.id = t2.id
+                    ) as ga
+                group by
+                    lower(ga.column3)
+            ) as a;
+    """
+
     sql """DROP TABLE IF EXISTS `dr_user_test_t1`;"""
     sql """DROP TABLE IF EXISTS `dr_user_test_t2`;"""
 }

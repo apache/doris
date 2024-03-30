@@ -115,6 +115,8 @@ Status NewOlapScanNode::_init_profile() {
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
     _block_conditions_filtered_bf_timer =
             ADD_TIMER(_segment_profile, "BlockConditionsFilteredBloomFilterTime");
+    _collect_iterator_merge_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorMergeTime");
+    _collect_iterator_normal_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorNormalTime");
     _block_conditions_filtered_zonemap_timer =
             ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapTime");
     _block_conditions_filtered_zonemap_rp_timer =
@@ -763,8 +765,8 @@ void NewOlapScanNode::add_filter_info(int id, const PredicateFilterInfo& update_
     filter_name += std::to_string(id);
     std::string info_str;
     info_str += "type = " + type_to_string(static_cast<PredicateType>(info.type)) + ", ";
-    info_str += "input = " + std::to_string(info.input_row) + ", ";
-    info_str += "filtered = " + std::to_string(info.filtered_row);
+    info_str += "predicate input = " + std::to_string(info.input_row) + ", ";
+    info_str += "predicate filtered = " + std::to_string(info.filtered_row);
     info_str = "[" + info_str + "]";
 
     // add info

@@ -22,11 +22,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <string>
 #include <utility>
 
+#include "cloud/cloud_rowset_writer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "io/fs/file_system.h"
@@ -41,30 +43,182 @@
 namespace doris {
 using namespace ErrorCode;
 
-VerticalBetaRowsetWriter::VerticalBetaRowsetWriter(StorageEngine& engine)
-        : BetaRowsetWriter(engine) {
-    _helper = std::make_shared<VerticalBetaRowsetWriterHelper>(
-            &_segment_writers, _already_built, _rowset_meta, &_num_segment, _context,
-            &_num_rows_written, &_segments_encoded_key_bounds, &_segment_num_rows,
-            &_total_index_size, &_file_writers, &_total_data_size, &_lock);
+template class VerticalBetaRowsetWriter<BetaRowsetWriter>;
+template class VerticalBetaRowsetWriter<CloudRowsetWriter>;
+
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
+                                                const std::vector<uint32_t>& col_ids, bool is_key,
+                                                uint32_t max_rows_per_segment) {
+    auto& context = this->_context;
+
+    VLOG_NOTICE << "VerticalBetaRowsetWriter::add_columns, columns: " << block->columns();
+    size_t num_rows = block->rows();
+    if (num_rows == 0) {
+        return Status::OK();
+    }
+    if (UNLIKELY(max_rows_per_segment > context.max_rows_per_segment)) {
+        max_rows_per_segment = context.max_rows_per_segment;
+    }
+
+    if (_segment_writers.empty()) {
+        // it must be key columns
+        DCHECK(is_key);
+        std::unique_ptr<segment_v2::SegmentWriter> writer;
+        RETURN_IF_ERROR(_create_segment_writer(col_ids, is_key, &writer));
+        _segment_writers.emplace_back(std::move(writer));
+        _cur_writer_idx = 0;
+        RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
+    } else if (is_key) {
+        if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment) {
+            // segment is full, need flush columns and create new segment writer
+            RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get(), true));
+
+            std::unique_ptr<segment_v2::SegmentWriter> writer;
+            RETURN_IF_ERROR(_create_segment_writer(col_ids, is_key, &writer));
+            _segment_writers.emplace_back(std::move(writer));
+            ++_cur_writer_idx;
+        }
+        RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
+    } else {
+        // value columns
+        uint32_t num_rows_written = _segment_writers[_cur_writer_idx]->num_rows_written();
+        VLOG_NOTICE << "num_rows_written: " << num_rows_written
+                    << ", _cur_writer_idx: " << _cur_writer_idx;
+        uint32_t num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
+        // init if it's first value column write in current segment
+        if (_cur_writer_idx == 0 && num_rows_written == 0) {
+            VLOG_NOTICE << "init first value column segment writer";
+            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
+        }
+        // when splitting segment, need to make rows align between key columns and value columns
+        size_t start_offset = 0;
+        size_t limit = num_rows;
+        if (num_rows_written + num_rows >= num_rows_key_group &&
+            _cur_writer_idx < _segment_writers.size() - 1) {
+            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(
+                    block, 0, num_rows_key_group - num_rows_written));
+            RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get()));
+            start_offset = num_rows_key_group - num_rows_written;
+            limit = num_rows - start_offset;
+            ++_cur_writer_idx;
+            // switch to next writer
+            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
+            num_rows_written = 0;
+            num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
+        }
+        if (limit > 0) {
+            RETURN_IF_ERROR(
+                    _segment_writers[_cur_writer_idx]->append_block(block, start_offset, limit));
+            DCHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
+                   _segment_writers[_cur_writer_idx]->row_count());
+        }
+    }
+    if (is_key) {
+        this->_num_rows_written += num_rows;
+    }
+    return Status::OK();
 }
 
-VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
-    _helper->destruct_writer();
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+Status VerticalBetaRowsetWriter<T>::_flush_columns(segment_v2::SegmentWriter* segment_writer,
+                                                   bool is_key) {
+    uint64_t index_size = 0;
+    VLOG_NOTICE << "flush columns index: " << _cur_writer_idx;
+    RETURN_IF_ERROR(segment_writer->finalize_columns_data());
+    RETURN_IF_ERROR(segment_writer->finalize_columns_index(&index_size));
+    if (is_key) {
+        _total_key_group_rows += segment_writer->row_count();
+        // record segment key bound
+        KeyBoundsPB key_bounds;
+        Slice min_key = segment_writer->min_encoded_key();
+        Slice max_key = segment_writer->max_encoded_key();
+        DCHECK_LE(min_key.compare(max_key), 0);
+        key_bounds.set_min_key(min_key.to_string());
+        key_bounds.set_max_key(max_key.to_string());
+        this->_segments_encoded_key_bounds.emplace_back(std::move(key_bounds));
+        this->_segment_num_rows.resize(_cur_writer_idx + 1);
+        this->_segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
+    }
+    this->_total_index_size +=
+            static_cast<int64_t>(index_size) + segment_writer->get_inverted_index_file_size();
+    return Status::OK();
 }
 
-Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
-                                             const std::vector<uint32_t>& col_ids, bool is_key,
-                                             uint32_t max_rows_per_segment) {
-    return _helper->add_columns(block, col_ids, is_key, max_rows_per_segment);
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+Status VerticalBetaRowsetWriter<T>::flush_columns(bool is_key) {
+    if (_segment_writers.empty()) {
+        return Status::OK();
+    }
+
+    DCHECK(_cur_writer_idx < _segment_writers.size() && _segment_writers[_cur_writer_idx]);
+    RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get(), is_key));
+    _cur_writer_idx = 0;
+    return Status::OK();
 }
 
-Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
-    return _helper->flush_columns(is_key);
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
+        const std::vector<uint32_t>& column_ids, bool is_key,
+        std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    auto& context = this->_context;
+
+    int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
+    auto path = BetaRowset::segment_file_path(context.rowset_dir, context.rowset_id, seg_id);
+    auto fs = this->_rowset_meta->fs();
+    if (!fs) {
+        return Status::Error<INIT_FAILED>("get fs failed");
+    }
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(path, &file_writer);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
+        return st;
+    }
+
+    DCHECK(file_writer != nullptr);
+    segment_v2::SegmentWriterOptions writer_options;
+    writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &context;
+    *writer = std::make_unique<segment_v2::SegmentWriter>(
+            file_writer.get(), seg_id, context.tablet_schema, context.tablet, context.data_dir,
+            context.max_rows_per_segment, writer_options, nullptr, fs);
+    RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(file_writer)));
+
+    auto s = (*writer)->init(column_ids, is_key);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to init segment writer: " << s.to_string();
+        writer->reset(nullptr);
+        return s;
+    }
+    return Status::OK();
 }
 
-Status VerticalBetaRowsetWriter::final_flush() {
-    return _helper->final_flush();
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+Status VerticalBetaRowsetWriter<T>::final_flush() {
+    for (auto& segment_writer : _segment_writers) {
+        uint64_t segment_size = 0;
+        //uint64_t footer_position = 0;
+        auto st = segment_writer->finalize_footer(&segment_size);
+        if (!st.ok()) {
+            LOG(WARNING) << "Fail to finalize segment footer, " << st;
+            return st;
+        }
+        this->_total_data_size += segment_size + segment_writer->get_inverted_index_file_size();
+        segment_writer.reset();
+    }
+    return Status::OK();
+}
+
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+Status VerticalBetaRowsetWriter<T>::_close_file_writers() {
+    return this->_seg_files.close();
 }
 
 } // namespace doris
