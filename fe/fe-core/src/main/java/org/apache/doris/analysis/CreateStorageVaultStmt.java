@@ -63,6 +63,13 @@ public class CreateStorageVaultStmt extends DdlStmt {
         return vaultType;
     }
 
+    public void setStorageVaultType(StorageVault.StorageVaultType type) throws UserException {
+        if (type == StorageVault.StorageVaultType.UNKNOWN) {
+            throw new AnalysisException("Unsupported Storage Vault type: " + type);
+        }
+        this.vaultType = type;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -83,10 +90,7 @@ public class CreateStorageVaultStmt extends DdlStmt {
         if (type == null) {
             throw new AnalysisException("Storage Vault type can't be null");
         }
-        vaultType = StorageVault.StorageVaultType.fromString(type);
-        if (vaultType == StorageVault.StorageVaultType.UNKNOWN) {
-            throw new AnalysisException("Unsupported Storage Vault type: " + type);
-        }
+        setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
     }
 
     @Override

@@ -17,7 +17,7 @@
 
 package org.apache.doris.cloud.catalog;
 
-
+import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.catalog.HdfsStorageVault;
 import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.StorageVaultMgr;
@@ -49,9 +49,10 @@ public class HdfsStorageVaultTest {
         Config.meta_service_endpoint = "127.0.0.1:20121";
     }
 
-    StorageVault createHdfsVault(String name, Map<String, String> properties) throws DdlException {
-        HdfsStorageVault vault = new HdfsStorageVault(name, false);
-        vault.modifyProperties(properties);
+    StorageVault createHdfsVault(String name, Map<String, String> properties) throws Exception {
+        CreateStorageVaultStmt stmt = new CreateStorageVaultStmt(false, name , properties);
+        stmt.setStorageVaultType(StorageVault.StorageVaultType.HDFS);
+        StorageVault vault = StorageVault.fromStmt(stmt);
         return vault;
     }
 
@@ -69,7 +70,11 @@ public class HdfsStorageVaultTest {
         };
         StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
                 "type", "hdfs",
-                "path", "abs/"));
+                "path", "abs/",
+                HdfsStorageVault.HADOOP_FS_NAME, "default"));
+        Map<String, String> properties = vault.getCopiedProperties();
+        // To check if the properties is carried correctly
+        Assertions.assertEquals(properties.get(HdfsStorageVault.HADOOP_FS_NAME), "default");
         mgr.createHdfsVault(vault);
     }
 
