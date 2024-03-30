@@ -451,6 +451,8 @@ public class SparkLoadJob extends BulkLoadJob {
                 for (TableIf table : tableList) {
                     Set<Long> partitionIds = tableToLoadPartitions.get(table.getId());
                     OlapTable olapTable = (OlapTable) table;
+                    String vaultId = (olapTable.getTableProperty() == null) ? "" :
+                            olapTable.getTableProperty().getStorageVaultId();
                     for (long partitionId : partitionIds) {
                         Partition partition = olapTable.getPartition(partitionId);
                         if (partition == null) {
@@ -527,7 +529,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                                 partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
                                                 TPushType.LOAD_V2, TPriority.NORMAL, transactionId, taskSignature,
                                                 tBrokerScanRange, params.tDescriptorTable, columnsDesc,
-                                                olapTable.getTableProperty().getStorageVaultId());
+                                                vaultId);
                                         if (AgentTaskQueue.addTask(pushTask)) {
                                             batchTask.addTask(pushTask);
                                             if (!tabletToSentReplicaPushTask.containsKey(tabletId)) {
