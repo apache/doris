@@ -114,7 +114,8 @@ public class CreateFunctionTest {
 
         queryStr = "select db1.id_masking(k1) from db1.tbl1";
         Assert.assertTrue(
-                dorisAssert.query(queryStr).explainQuery().contains("concat(left(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 3), '****', right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+                dorisAssert.query(queryStr).explainQuery().contains(
+                    "concat(left(CAST(`k1` AS VARCHAR(65533)), 3), '****', right(CAST(`k1` AS VARCHAR(65533)), 4))"));
 
         // create alias function with cast
         // cast any type to decimal with specific precision and scale
@@ -236,7 +237,7 @@ public class CreateFunctionTest {
 
         queryStr = "select id_masking(k1) from db2.tbl1";
         Assert.assertTrue(
-                dorisAssert.query(queryStr).explainQuery().contains("concat(left(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 3), '****', right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+                dorisAssert.query(queryStr).explainQuery().contains("concat(left(CAST(`k1` AS VARCHAR(65533)), 3), '****', right(CAST(`k1` AS VARCHAR(65533)), 4))"));
 
         // 4. create alias function with cast
         // cast any type to decimal with specific precision and scale
