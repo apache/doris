@@ -159,11 +159,14 @@ void MemTrackerLimiter::refresh_global_counter() {
             {Type::GLOBAL, 0},     {Type::QUERY, 0},         {Type::LOAD, 0},
             {Type::COMPACTION, 0}, {Type::SCHEMA_CHANGE, 0}, {Type::OTHER, 0}};
     // always ExecEnv::ready(), because Daemon::_stop_background_threads_latch
-    for (auto& group : ExecEnv::GetInstance()->mem_tracker_limiter_pool) {
+    for (unsigned i = 0; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
+        auto group = ExecEnv::GetInstance()->mem_tracker_limiter_pool[i];
         std::lock_guard<std::mutex> l(group.group_lock);
         for (auto it = group.trackers.begin(); it != group.trackers.end();) {
             auto tracker = (*it).lock();
             if (tracker == nullptr) {
+                LOG(WARNING) << "abnormally invalid MemTrackerLimiter, env tracking memory: "
+                             << ExecEnv::tracking_memory() << ", group num: " << i;
                 it = group.trackers.erase(it);
             } else {
                 type_mem_sum[tracker->type()] += tracker->consumption();
