@@ -248,14 +248,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public void setStorageVaultName(String storageVaultName) throws DdlException {
-        if (storageVaultName == null && storageVaultName.isEmpty()) {
+        if (storageVaultName == null || storageVaultName.isEmpty()) {
             return;
         }
         getOrCreatTableProperty().setStorageVaultName(storageVaultName);
     }
 
     public void setStorageVaultId(String setStorageVaultId) throws DdlException {
-        if (setStorageVaultId == null && setStorageVaultId.isEmpty()) {
+        if (setStorageVaultId == null || setStorageVaultId.isEmpty()) {
             throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
         }
         getOrCreatTableProperty().setStorageVaultId(setStorageVaultId);
