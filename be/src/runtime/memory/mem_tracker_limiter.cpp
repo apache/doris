@@ -160,7 +160,7 @@ void MemTrackerLimiter::refresh_global_counter() {
             {Type::COMPACTION, 0}, {Type::SCHEMA_CHANGE, 0}, {Type::OTHER, 0}};
     // always ExecEnv::ready(), because Daemon::_stop_background_threads_latch
     for (unsigned i = 0; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
-        auto group = ExecEnv::GetInstance()->mem_tracker_limiter_pool[i];
+        TrackerLimiterGroup& group = ExecEnv::GetInstance()->mem_tracker_limiter_pool[i];
         std::lock_guard<std::mutex> l(group.group_lock);
         for (auto it = group.trackers.begin(); it != group.trackers.end();) {
             auto tracker = (*it).lock();
