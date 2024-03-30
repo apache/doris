@@ -201,6 +201,7 @@ Status PipelineXTask::_open() {
                     return Status::InternalError("Unknown RF error, task was blocked by RF twice");
                 }
             } else {
+                RETURN_IF_ERROR(st);
                 break;
             }
         }
