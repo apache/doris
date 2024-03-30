@@ -241,9 +241,8 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
     if (find) {
         //  4. reset input rowsets
         _input_rowsets.clear();
-        Tablet* tablet = static_cast<Tablet*>(_tablet.get());
         std::vector<RowsetSharedPtr> candidate_rowsets;
-        tablet->traverse_rowsets([&candidate_rowsets, &proper_version](const auto& rs) {
+        tablet()->traverse_rowsets([&candidate_rowsets, &proper_version](const auto& rs) {
             // only need rowset in proper_version
             if (rs->is_local() && rs->end_version() >= proper_version->first &&
                 rs->start_version() <= proper_version->second) {
