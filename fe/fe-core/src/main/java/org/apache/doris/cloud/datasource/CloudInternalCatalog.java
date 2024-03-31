@@ -121,7 +121,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         long version = partition.getVisibleVersion();
 
-        final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
+        final String storageVaultName = tbl.getTableProperty().getStorageVaultName();
         boolean storageVaultIdSet = false;
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
@@ -162,8 +162,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
-                    + "indexId: {}",
-                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
+                    + "indexId: {}, vault name {}",
+                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
             if (resp.hasStorageVaultId() && !storageVaultIdSet) {
                 tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
@@ -180,8 +180,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
 
-        LOG.info("succeed in creating partition[{}-{}], table : [{}-{}]", partitionId, partitionName,
-                tbl.getId(), tbl.getName());
+        LOG.info("succeed in creating partition[{}-{}], table : [{}-{}], vault {}", partitionId, partitionName,
+                tbl.getId(), tbl.getName(), tbl.getTableProperty().getStorageVaultName());
 
         return partition;
     }

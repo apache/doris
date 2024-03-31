@@ -655,7 +655,7 @@ public class TableProperty implements Writable {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, storageVaultId);
     }
 
-    public String getStorageVauldName() {
+    public String getStorageVaultName() {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
     }
 

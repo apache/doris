@@ -3508,10 +3508,10 @@ public class Env {
             }
 
             // Storage Vault
-            if (!olapTable.getTableProperty().getStorageVauldName().isEmpty()) {
+            if (!olapTable.getTableProperty().getStorageVaultName().isEmpty()) {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_STORAGE_VAULT).append("\" = \"");
-                sb.append(olapTable.getTableProperty().getStorageVauldName()).append("\"");
+                sb.append(olapTable.getTableProperty().getStorageVaultName()).append("\"");
             }
 
             // disable auto compaction
