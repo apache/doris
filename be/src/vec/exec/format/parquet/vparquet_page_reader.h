@@ -109,7 +109,7 @@ class PageReaderWithOffsetIndex : public PageReader {
 public:
     PageReaderWithOffsetIndex(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
                               uint64_t offset, uint64_t length, int64_t num_values,
-                              tparquet::OffsetIndex* offset_index)
+                              const tparquet::OffsetIndex* offset_index)
             : PageReader(reader, io_ctx, offset, length),
               _num_values(num_values),
               _offset_index(offset_index) {}
@@ -138,19 +138,19 @@ public:
     }
 
     Status skip_page() override {
-        _page_index++;
         if (_page_index >= _offset_index->page_locations.size()) {
             return Status::IOError("End of page");
         }
+        _page_index++;
         seek_to_page(_offset_index->page_locations[_page_index].offset);
         return Status::OK();
     }
 
     Status get_page_data(Slice& slice) override {
-        _page_index++;
         if (_page_index >= _offset_index->page_locations.size()) {
             return Status::IOError("End of page");
         }
+        _page_index++;
 
         if (_state != HEADER_PARSED) {
             RETURN_IF_ERROR(_parse_page_header());
@@ -161,12 +161,12 @@ public:
 private:
     size_t _page_index = 0;
     int64_t _num_values = 0;
-    tparquet::OffsetIndex* _offset_index;
+    const tparquet::OffsetIndex* _offset_index;
 };
 
 std::unique_ptr<PageReader> create_page_reader(io::BufferedStreamReader* reader,
                                                io::IOContext* io_ctx, uint64_t offset,
                                                uint64_t length, int64_t num_values = 0,
-                                               tparquet::OffsetIndex* offset_index = nullptr);
+                                               const tparquet::OffsetIndex* offset_index = nullptr);
 
 } // namespace doris::vectorized

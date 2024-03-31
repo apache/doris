@@ -23,18 +23,14 @@
 #include <glog/logging.h>
 
 #include <functional>
-#include <ostream>
 #include <utility>
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/descriptors.pb.h"
-#include "gtest/gtest_pred_impl.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "olap/olap_common.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
@@ -776,9 +772,9 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         const FieldSchema* col_schema = schema_desc.get_column(read_col);
         static_cast<void>(page_index.collect_skipped_page_range(
                 &column_index, conjuncts, col_schema, skipped_page_range, *_ctz));
-        if (skipped_page_range.empty()) {
-            continue;
-        }
+        // if (skipped_page_range.empty()) {
+        //     continue;
+        // }
         tparquet::OffsetIndex offset_index;
         RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff, &offset_index));
         for (int page_id : skipped_page_range) {
