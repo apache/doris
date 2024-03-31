@@ -145,7 +145,7 @@ echo "JAR:  ${OUTPUT_EXT}"
 
 sh build.sh --clean &&
     USE_AVX2="${_USE_AVX2}" sh build.sh &&
-    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool
+    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool --be-extension-ignore avro-scanner
 
 echo "Begin to pack"
 rm -rf "${OUTPUT}"
@@ -156,7 +156,6 @@ cp -R "${ORI_OUTPUT}"/fe/* "${OUTPUT_FE}"/
 
 # EXT
 cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_EXT}"/apache_hdfs_broker
-cp -R "${ORI_OUTPUT}"/audit_loader "${OUTPUT_EXT}"/audit_loader
 
 # BE
 cp -R "${ORI_OUTPUT}"/be/* "${OUTPUT_BE}"/

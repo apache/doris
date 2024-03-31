@@ -80,6 +80,9 @@ public class Role implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "roleName")
     private String roleName;
+
+    @SerializedName(value = "comment")
+    private String comment;
     // Will be persisted
     @SerializedName(value = "tblPatternToPrivs")
     private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
@@ -116,7 +119,12 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public Role(String roleName) {
+        this(roleName, "");
+    }
+
+    public Role(String roleName, String comment) {
         this.roleName = roleName;
+        this.comment = comment;
     }
 
     public Role(String roleName, TablePattern tablePattern, PrivBitSet privs) throws DdlException {
@@ -395,7 +403,7 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public boolean checkCloudPriv(String cloudName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
+            PrivPredicate wanted, ResourceTypeEnum type) {
         ResourcePrivTable cloudPrivTable = getCloudPrivTable(type);
         if (cloudPrivTable == null) {
             LOG.warn("cloud resource type err: {}", type);
@@ -451,7 +459,7 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     private boolean checkCloudInternal(String cloudName, PrivPredicate wanted,
-                                       PrivBitSet savedPrivs, ResourcePrivTable table, ResourceTypeEnum type) {
+            PrivBitSet savedPrivs, ResourcePrivTable table, ResourceTypeEnum type) {
         table.getPrivs(cloudName, savedPrivs);
         return Privilege.satisfy(savedPrivs, wanted);
     }
@@ -463,8 +471,8 @@ public class Role implements Writable, GsonPostProcessable {
             return true;
         }
         PrivBitSet savedPrivs = PrivBitSet.of();
-        // Workload groups do not support global usage_priv, so only global admin_priv and usage_priv are checked.
-        if (checkGlobalInternal(PrivPredicate.ADMIN, savedPrivs)
+        // usage priv not in global, but grant_priv may in global
+        if (checkGlobalInternal(wanted, savedPrivs)
                 || checkWorkloadGroupInternal(workloadGroupName, wanted, savedPrivs)) {
             return true;
         }
@@ -537,6 +545,14 @@ public class Role implements Writable, GsonPostProcessable {
         return workloadGroupPrivTable;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
+    }
+
     public boolean checkCanEnterCluster(String clusterName) {
         if (checkGlobalPriv(PrivPredicate.ALL)) {
             return true;
@@ -557,22 +573,11 @@ public class Role implements Writable, GsonPostProcessable {
         if (privs.isEmpty()) {
             return;
         }
-        // grant privs to user
-        switch (resourcePattern.getPrivLevel()) {
-            case GLOBAL:
-                grantGlobalPrivs(privs);
-                break;
-            case RESOURCE:
-                if (resourcePattern.isClusterResource()) {
-                    grantCloudClusterPrivs(resourcePattern.getResourceName(), false, false, privs);
-                } else {
-                    grantResourcePrivs(resourcePattern.getResourceName(), privs);
-                }
-                break;
-            default:
-                Preconditions.checkNotNull(null, resourcePattern.getPrivLevel());
+        if (resourcePattern.isClusterResource()) {
+            grantCloudClusterPrivs(resourcePattern.getResourceName(), false, false, privs);
+        } else {
+            grantResourcePrivs(resourcePattern.getResourceName(), privs);
         }
-
     }
 
     private void grantPrivs(WorkloadGroupPattern workloadGroupPattern, PrivBitSet privs) throws DdlException {
@@ -644,7 +649,7 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     private void grantCloudClusterPrivs(String cloudClusterName, boolean errOnExist,
-                                        boolean errOnNonExist, PrivBitSet privs) throws DdlException {
+            boolean errOnNonExist, PrivBitSet privs) throws DdlException {
         ResourcePrivEntry entry;
         try {
             entry = ResourcePrivEntry.create(cloudClusterName, privs);

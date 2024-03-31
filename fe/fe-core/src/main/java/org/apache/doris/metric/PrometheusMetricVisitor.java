@@ -204,7 +204,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void getNodeInfo() {
+    public void visitNodeInfo() {
         final String NODE_INFO = "node_info";
         sb.append(Joiner.on(" ").join(TYPE, NODE_INFO, "gauge\n"));
         sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
@@ -223,6 +223,11 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         if (Env.getCurrentEnv().isMaster()) {
             sb.append(NODE_INFO).append("{type=\"is_master\"} ").append(1).append("\n");
         }
+        return;
+    }
+
+    @Override
+    public void visitCloudTableStats() {
         return;
     }
 }

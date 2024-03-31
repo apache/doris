@@ -137,6 +137,9 @@ suite("test_show_data", "p0") {
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
+            if (alter_res.size() == 0) {
+                return "FINISHED"
+            }
             if (alter_res.size() > 0) {
                 def last_job_state = alter_res[alter_res.size()-1][7];
                 if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
@@ -165,7 +168,6 @@ suite("test_show_data", "p0") {
         sql """ ALTER TABLE ${testTableWithoutIndex} ADD INDEX idx_request (`request`) USING INVERTED PROPERTIES("parser" = "english") """
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
 
-        // BUILD INDEX and expect state is RUNNING
         sql """ BUILD INDEX idx_request ON ${testTableWithoutIndex} """
         def state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
         assertEquals(state, "FINISHED")
@@ -309,6 +311,9 @@ suite("test_show_data_for_bkd", "p0") {
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
+            if (alter_res.size() == 0) {
+                return "FINISHED"
+            }
             if (alter_res.size() > 0) {
                 def last_job_state = alter_res[alter_res.size()-1][7];
                 if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
@@ -319,7 +324,6 @@ suite("test_show_data_for_bkd", "p0") {
             useTime = t
             Thread.sleep(delta_time)
         }
-        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }
@@ -482,6 +486,9 @@ suite("test_show_data_multi_add", "p0") {
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
+            if (alter_res.size() == 0) {
+                return "FINISHED"
+            }
             if (alter_res.size() > 0) {
                 def last_job_state = alter_res[alter_res.size()-1][7];
                 if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {

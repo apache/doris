@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.BoundType;
@@ -342,6 +344,27 @@ public class OneRangePartitionEvaluator
     }
 
     @Override
+    public EvaluateRangeResult visitNullSafeEqual(NullSafeEqual nullSafeEqual, EvaluateRangeInput context) {
+        EvaluateRangeResult result = evaluateChildrenThenThis(nullSafeEqual, context);
+        if (!(result.result instanceof NullSafeEqual)) {
+            return result;
+        }
+        // "A <=> null" has been convert to "A is null" or false by NullSafeEqualToEqual rule
+        // so we don't consider "A <=> null" here
+        if (nullSafeEqual.left() instanceof Slot && nullSafeEqual.right() instanceof Literal) {
+            // A <=> literal -> A = literal and A is not null
+            return visit(ExpressionUtils.and(new EqualTo(nullSafeEqual.left(), nullSafeEqual.right()),
+                    new Not(new IsNull(nullSafeEqual.left()))), context);
+        } else if (nullSafeEqual.left() instanceof Literal && nullSafeEqual.right() instanceof Slot) {
+            // literal <=> A -> literal = A and A is not null
+            return visit(ExpressionUtils.and(new EqualTo(nullSafeEqual.left(), nullSafeEqual.right()),
+                    new Not(new IsNull(nullSafeEqual.right()))), context);
+        } else {
+            return result.withRejectNot(false);
+        }
+    }
+
+    @Override
     public EvaluateRangeResult visitInPredicate(InPredicate inPredicate, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(inPredicate, context);
         if (!(result.result instanceof InPredicate)) {
@@ -433,7 +456,7 @@ public class OneRangePartitionEvaluator
         boolean hasNewChildren = false;
         for (Expression child : expr.children()) {
             EvaluateRangeResult childResult = child.accept(this, context);
-            if (childResult.result != child) {
+            if (!childResult.result.equals(child)) {
                 hasNewChildren = true;
             }
             childrenResults.add(childResult);

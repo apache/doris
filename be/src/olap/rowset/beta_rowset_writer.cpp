@@ -508,6 +508,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     // otherwise _segcompacting_cond will never get notified
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_context.tablet_schema->cluster_key_idxes().empty() ||
+        _context.tablet_schema->num_variant_columns() > 0 ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
@@ -810,11 +811,10 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
     io::FileWriterOptions opts {
             .write_file_cache = _context.write_file_cache,
             .is_cold_data = _context.is_hot_data,
-            .file_cache_expiration =
+            .file_cache_expiration = static_cast<int64_t>(
                     _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
                             ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
-                            : 0,
-            .create_empty_file = false};
+                            : 0)};
     Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
@@ -848,7 +848,8 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
 
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
-            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context);
+            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
+            _context.fs);
     if (_segcompaction_worker->get_file_writer() != nullptr) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());
     }

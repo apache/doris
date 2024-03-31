@@ -247,6 +247,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     int originSchemaHash = tbl.getSchemaHashByIndexId(originIndexId);
                     KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
 
+                    List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
+
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
                         long shadowTabletId = shadowTablet.getId();
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
@@ -259,7 +261,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION,
                                     originKeysType, TStorageType.COLUMN, storageMedium,
-                                    shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
+                                    shadowSchema, bfColumns, bfFpp, countDownLatch, tabletIndexes,
                                     tbl.isInMemory(),
                                     tbl.getPartitionInfo().getTabletType(partitionId),
                                     null,
@@ -457,7 +459,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
                             Column newColumn = indexColumnMap
                                     .get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                            if (newColumn.getType() != column.getType()) {
+                            if (!newColumn.getType().equals(column.getType())) {
                                 try {
                                     SlotRef slot = new SlotRef(destSlotDesc);
                                     slot.setCol(column.getName());

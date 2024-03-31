@@ -147,7 +147,8 @@ public class SchemaTable extends Table {
                             .column("SCHEMA_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_CHARACTER_SET_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_COLLATION_NAME", ScalarType.createVarchar(32))
-                            .column("SQL_PATH", ScalarType.createVarchar(512)).build()))
+                            .column("SQL_PATH", ScalarType.createVarchar(512))
+                            .column("DEFAULT_ENCRYPTION", ScalarType.createVarchar(3)).build()))
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
@@ -479,10 +480,24 @@ public class SchemaTable extends Table {
                             .column("MAX_CONCURRENCY", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("QUEUE_TIMEOUT", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("CPU_HARD_LIMIT", ScalarType.createStringType())
+                            .column("CPU_HARD_LIMIT", ScalarType.createVarchar(256))
                             .column("SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("SPILL_THRESHOLD_LOW_WATERMARK", ScalarType.createVarchar(256))
+                            .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
+                            .column("TAG", ScalarType.createVarchar(256))
+                            .build()))
+            .put("processlist", new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
+                    builder().column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
+                            .column("USER", ScalarType.createVarchar(32))
+                            .column("HOST", ScalarType.createVarchar(261))
+                            .column("CATALOG", ScalarType.createVarchar(64))
+                            .column("DB", ScalarType.createVarchar(64))
+                            .column("COMMAND", ScalarType.createVarchar(16))
+                            .column("TIME", ScalarType.createType(PrimitiveType.INT))
+                            .column("STATE", ScalarType.createVarchar(64))
+                            .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                             .build()))
             .build();
 

@@ -27,6 +27,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -75,7 +76,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-            Optional<InsertCommandContext> insertCtx) {
+                                  Optional<InsertCommandContext> insertCtx) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
@@ -195,6 +196,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         insertExecutor.executeSingleInsert(executor, jobId);
+    }
+
+    public boolean isExternalTableSink() {
+        return !(logicalQuery instanceof UnboundTableSink);
     }
 
     @Override

@@ -643,7 +643,11 @@ public class Coordinator implements CoordInterface {
     @Override
     public void close() {
         if (queryQueue != null && queueToken != null) {
-            queryQueue.returnToken(queueToken);
+            try {
+                queryQueue.returnToken(queueToken);
+            } catch (Throwable t) {
+                LOG.error("error happens when coordinator close ", t);
+            }
         }
     }
 
@@ -888,14 +892,17 @@ public class Coordinator implements CoordInterface {
             int backendIdx = 0;
             int profileFragmentId = 0;
             beToPipelineExecCtxs.clear();
-            // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
+            // If #fragments > 1 and BE amount is bigger than 1, use twoPhaseExecution with
+            // exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
-            // we choose #fragments >=2 because in some cases
+            // we choose #fragments > 1 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
             // For example: select * from numbers("number"="10") will generate ExchangeNode and
             // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does not
             // send data until ExchangeNode is ready to receive.
-            boolean twoPhaseExecution = fragments.size() >= 2;
+            boolean twoPhaseExecution = ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().isEnableSinglePhaseExecutionCommitOpt()
+                    ? fragments.size() > 1 && addressToBackendID.size() > 1 : fragments.size() > 1;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
@@ -3294,9 +3301,6 @@ public class Coordinator implements CoordInterface {
         // return true if cancel success. Otherwise, return false
 
         private synchronized boolean cancelFragment(Types.PPlanFragmentCancelReason cancelReason) {
-            if (!this.hasCanceled) {
-                return false;
-            }
             for (RuntimeProfile profile : taskProfile) {
                 profile.setIsCancel(true);
             }
@@ -3311,6 +3315,7 @@ public class Coordinator implements CoordInterface {
                 try {
                     BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(brpcAddress,
                             this.fragmentId, queryId, cancelReason);
+                    this.hasCanceled = true;
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());

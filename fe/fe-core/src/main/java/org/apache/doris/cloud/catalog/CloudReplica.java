@@ -163,7 +163,7 @@ public class CloudReplica extends Replica {
 
         // if cluster is SUSPENDED, wait
         try {
-            CloudSystemInfoService.waitForAutoStart(cluster);
+            ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
         } catch (DdlException e) {
             // this function cant throw exception. so just log it
             LOG.warn("cant resume cluster {}", cluster);

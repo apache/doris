@@ -208,6 +208,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
+    public static final String ENABLE_SINGLE_PHASE_EXECUTION_COMMIT_OPT = "enable_single_phase_execution_commit_opt";
+
     public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
 
@@ -471,6 +473,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
+    public static final String FORCE_SAMPLE_ANALYZE = "force_sample_analyze";
+
     public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
 
     public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
@@ -717,11 +721,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT)
-    public int netWriteTimeout = 60;
+    public int netWriteTimeout = 600;
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_READ_TIMEOUT)
-    public int netReadTimeout = 60;
+    public int netReadTimeout = 600;
 
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true)
@@ -899,7 +903,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private long parallelScanMinRowsPerScanner = 2097152; // 2MB
+    private long parallelScanMinRowsPerScanner = 16384; // 16K
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -943,7 +947,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
-    private boolean enableFoldConstantByBe = false;
+    public boolean enableFoldConstantByBe = true;
 
     @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
     private boolean enableRewriteElementAtToSlot = true;
@@ -1185,6 +1189,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_SINGLE_PHASE_EXECUTION_COMMIT_OPT, fuzzy = true,
+            varType = VariableAnnotation.DEPRECATED)
+    private boolean enableSinglePhaseExecutionCommitOpt = true;
 
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
@@ -1505,6 +1513,11 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public boolean enableAutoAnalyze = true;
 
+    @VariableMgr.VarAttr(name = FORCE_SAMPLE_ANALYZE,
+            description = {"是否将 full analyze 自动转换成 sample analyze", "Set true to force sample analyze"},
+            flag = VariableMgr.GLOBAL)
+    public boolean forceSampleAnalyze = Config.force_sample_analyze;
+
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
             description = {"参与自动收集的最大表宽度，列数多于这个参数的表不参与自动收集",
                 "Maximum table width to enable auto analyze, "
@@ -1740,6 +1753,7 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
+        this.enableSinglePhaseExecutionCommitOpt = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
@@ -1757,6 +1771,7 @@ public class SessionVariable implements Serializable, Writable {
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
         }
+
         /*
         switch (randomInt) {
             case 0:
@@ -1802,6 +1817,17 @@ public class SessionVariable implements Serializable, Writable {
                     break;
             }
 
+            switch (Config.pull_request_id % 3) {
+                case 0:
+                    this.fragmentTransmissionCompressionCodec = "snappy";
+                    break;
+                case 1:
+                    this.fragmentTransmissionCompressionCodec = "lz4";
+                    break;
+                default:
+                    this.fragmentTransmissionCompressionCodec = "none";
+            }
+
             this.runtimeFilterType = 1 << randomInt;
             this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
             switch (randomInt) {
@@ -1827,8 +1853,10 @@ public class SessionVariable implements Serializable, Writable {
             if (Config.pull_request_id > 0) {
                 if (Config.pull_request_id % 2 == 1) {
                     this.batchSize = 4064;
+                    this.enableFoldConstantByBe = true;
                 } else {
                     this.batchSize = 50;
+                    this.enableFoldConstantByBe = false;
                 }
             }
         }
@@ -3588,4 +3616,7 @@ public class SessionVariable implements Serializable, Writable {
         return this.maxMsgSizeOfResultReceiver;
     }
 
+    public boolean isEnableSinglePhaseExecutionCommitOpt() {
+        return enableSinglePhaseExecutionCommitOpt;
+    }
 }
