@@ -462,7 +462,7 @@ void internal_create_tablet(MetaServiceCode& code, std::string& msg,
         return;
     }
     txn->put(key, val);
-    LOG(INFO) << "xxx put tablet_key=" << hex(key);
+    LOG(INFO) << "xxx put tablet_key=" << hex(key) << " tablet id " << tablet_id;
 
     // Index tablet_id -> table_id, index_id, partition_id
     std::string key1;
@@ -544,6 +544,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         if (c0 != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get instance, info={}", m0);
+            return;
         }
 
         std::string_view name = request->storage_vault_name();
@@ -584,7 +585,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             break;
         }
 
-        code = cast_as<ErrCategory::READ>(err);
+        code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("failed to get vault id, vault name={}", request->storage_vault_name());
         return;
     }
