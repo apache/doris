@@ -175,9 +175,6 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         std::lock_guard l(_m);
         _writer_status = st;
     }
-    // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
-    _set_ready_to_finish();
-
     Status st = Status::OK();
     {
         std::lock_guard l(_m);
@@ -194,6 +191,8 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         }
         _writer_thread_closed = true;
     }
+    // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
+    _set_ready_to_finish();
 }
 
 void AsyncResultWriter::_set_ready_to_finish() {
