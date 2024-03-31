@@ -71,7 +71,7 @@ using ColumnString = ColumnStr<UInt32>;
  *   // Or, we can call the chunk_reader.skip_page() to skip current page.
  *   chunk_reader.load_page_data();
  *   // Decode values into column or slice.
- *   // Or, we can call chunk_reader.slip_values(num_values) to skip some values.
+ *   // Or, we can call chunk_reader.skip_values(num_values) to skip some values.
  *   chunk_reader.decode_values(slice, num_values);
  * }
  */
@@ -219,6 +219,7 @@ private:
     size_t _decompress_buf_size = 0;
     Slice _v2_rep_levels;
     Slice _v2_def_levels;
+    bool _dict_checked = false;
     bool _has_dict = false;
     Decoder* _page_decoder = nullptr;
     // Map: encoding -> Decoder
