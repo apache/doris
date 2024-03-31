@@ -91,13 +91,13 @@ public:
 protected:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
     PageReaderState _state = INITIALIZED;
+    tparquet::PageHeader _cur_page_header;
 
     Status _parse_page_header();
 
 private:
     io::BufferedStreamReader* _reader = nullptr;
     io::IOContext* _io_ctx = nullptr;
-    tparquet::PageHeader _cur_page_header;
     uint64_t _offset = 0;
     uint64_t _next_header_offset = 0;
     uint64_t _start_offset = 0;
@@ -123,11 +123,15 @@ public:
         if (_state != HEADER_PARSED) {
             RETURN_IF_ERROR(_parse_page_header());
         }
-        RETURN_IF_ERROR(PageReader::get_page_header(page_header));
+        page_header = &_cur_page_header;
         return Status::OK();
     }
 
     Status get_num_values(uint32_t& num_values) override {
+        if (UNLIKELY(_page_index >= _offset_index->page_locations.size())) {
+            return Status::IOError("End of page");
+        }
+
         if (_page_index < _offset_index->page_locations.size() - 1) {
             num_values = _offset_index->page_locations[_page_index + 1].first_row_index -
                          _offset_index->page_locations[_page_index].first_row_index;
@@ -138,11 +142,13 @@ public:
     }
 
     Status skip_page() override {
-        if (_page_index >= _offset_index->page_locations.size()) {
+        if (UNLIKELY(_page_index >= _offset_index->page_locations.size())) {
             return Status::IOError("End of page");
         }
+
+        seek_to_page(_offset_index->page_locations[_page_index].offset +
+                     _offset_index->page_locations[_page_index].compressed_page_size);
         _page_index++;
-        seek_to_page(_offset_index->page_locations[_page_index].offset);
         return Status::OK();
     }
 
@@ -150,11 +156,15 @@ public:
         if (_page_index >= _offset_index->page_locations.size()) {
             return Status::IOError("End of page");
         }
-        _page_index++;
-
         if (_state != HEADER_PARSED) {
             RETURN_IF_ERROR(_parse_page_header());
         }
+
+        // dirctionary page is not in page location
+        if (LIKELY(_cur_page_header.type != tparquet::PageType::DICTIONARY_PAGE)) {
+            _page_index++;
+        }
+
         return PageReader::get_page_data(slice);
     }
 
