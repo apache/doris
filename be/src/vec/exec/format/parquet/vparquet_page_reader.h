@@ -88,34 +88,42 @@ public:
         _state = INITIALIZED;
     }
 
-private:
+protected:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
+    PageReaderState _state = INITIALIZED;
 
     Status _parse_page_header();
 
+private:
     io::BufferedStreamReader* _reader = nullptr;
     io::IOContext* _io_ctx = nullptr;
     tparquet::PageHeader _cur_page_header;
-    Statistics _statistics;
-    PageReaderState _state = INITIALIZED;
-
     uint64_t _offset = 0;
     uint64_t _next_header_offset = 0;
-
     uint64_t _start_offset = 0;
     uint64_t _end_offset = 0;
+    Statistics _statistics;
 };
 
-class PageReaderV2 : public PageReader {
+class PageReaderWithOffsetIndex : public PageReader {
 public:
-    PageReaderV2(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
-                 uint64_t length, int64_t num_values, tparquet::OffsetIndex* offset_index)
+    PageReaderWithOffsetIndex(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
+                              uint64_t offset, uint64_t length, int64_t num_values,
+                              tparquet::OffsetIndex* offset_index)
             : PageReader(reader, io_ctx, offset, length),
               _num_values(num_values),
               _offset_index(offset_index) {}
 
     Status next_page_header() override {
-        // don't have to parse header
+        // lazy to parse page header in get_page_header
+        return Status::OK();
+    }
+
+    Status get_page_header(const tparquet::PageHeader*& page_header) override {
+        if (_state != HEADER_PARSED) {
+            RETURN_IF_ERROR(_parse_page_header());
+        }
+        RETURN_IF_ERROR(PageReader::get_page_header(page_header));
         return Status::OK();
     }
 
@@ -127,6 +135,27 @@ public:
             num_values = _num_values - _offset_index->page_locations[_page_index].first_row_index;
         }
         return Status::OK();
+    }
+
+    Status skip_page() override {
+        _page_index++;
+        if (_page_index >= _offset_index->page_locations.size()) {
+            return Status::IOError("End of page");
+        }
+        seek_to_page(_offset_index->page_locations[_page_index].offset);
+        return Status::OK();
+    }
+
+    Status get_page_data(Slice& slice) override {
+        _page_index++;
+        if (_page_index >= _offset_index->page_locations.size()) {
+            return Status::IOError("End of page");
+        }
+
+        if (_state != HEADER_PARSED) {
+            RETURN_IF_ERROR(_parse_page_header());
+        }
+        return PageReader::get_page_data(slice);
     }
 
 private:

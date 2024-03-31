@@ -45,7 +45,7 @@ std::unique_ptr<PageReader> create_page_reader(io::BufferedStreamReader* reader,
                                                uint64_t length, int64_t num_values,
                                                tparquet::OffsetIndex* offset_index) {
     if (offset_index) {
-        return std::make_unique<PageReaderV2>(reader, io_ctx, offset, length, num_values,
+        return std::make_unique<PageReaderWithOffsetIndex>(reader, io_ctx, offset, length, num_values,
                                               offset_index);
     } else {
         return std::make_unique<PageReader>(reader, io_ctx, offset, length);
