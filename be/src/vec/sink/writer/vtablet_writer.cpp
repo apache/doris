@@ -677,9 +677,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             request->add_partition_ids(pid);
         }
 
-        request->set_write_single_replica(false);
+        request->set_write_single_replica(_parent->_write_single_replica);
         if (_parent->_write_single_replica) {
-            request->set_write_single_replica(true);
             for (auto& _slave_tablet_node : _slave_tablet_nodes) {
                 PSlaveTabletNodes slave_tablet_nodes;
                 for (auto node_id : _slave_tablet_node.second) {
@@ -729,7 +728,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         _send_block_callback->cntl_->http_request().set_content_type("application/json");
 
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(
                     send_block_closure->cntl_.get(), nullptr, send_block_closure->response_.get(),
                     send_block_closure.get());
@@ -738,7 +736,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     } else {
         _send_block_callback->cntl_->http_request().Clear();
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_block(
                     send_block_closure->cntl_.get(), send_block_closure->request_.get(),
                     send_block_closure->response_.get(), send_block_closure.get());

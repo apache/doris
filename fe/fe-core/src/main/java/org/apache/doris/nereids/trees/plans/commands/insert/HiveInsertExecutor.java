@@ -20,7 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetadataOps;
+import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -32,12 +35,14 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -88,6 +93,12 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
         } else {
+            // TODO use transaction
+            List<THivePartitionUpdate> ups = coordinator.getHivePartitionUpdates();
+            loadedRows = ups.stream().mapToLong(THivePartitionUpdate::getRowCount).sum();
+            ExternalCatalog catalog = ((HMSExternalTable) table).getCatalog();
+            ExternalMetadataOps metadataOps = catalog.getMetadataOps();
+            ((HiveMetadataOps) metadataOps).commit(((HMSExternalTable) table).getDbName(), table.getName(), ups);
             txnStatus = TransactionStatus.COMMITTED;
         }
     }
@@ -98,18 +109,33 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
+        StringBuilder sb = new StringBuilder(t.getMessage());
         if (txnId != INVALID_TXN_ID) {
             LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
-            StringBuilder sb = new StringBuilder(t.getMessage());
             if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
                 sb.append(". url: ").append(coordinator.getTrackingUrl());
             }
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
         }
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
     }
 
     @Override
     protected void afterExec(StmtExecutor executor) {
-        // TODO: set THivePartitionUpdate
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        sb.append("'status':'")
+                .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
+        // sb.append("', 'txnId':'").append(txnId).append("'");
+        if (!Strings.isNullOrEmpty(errMsg)) {
+            sb.append(", 'err':'").append(errMsg).append("'");
+        }
+        sb.append("}");
+        ctx.getState().setOk(loadedRows, 0, sb.toString());
+        // set insert result in connection context,
+        // so that user can use `show insert result` to get info of the last insert operation.
+        ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
+                txnStatus, loadedRows, 0);
+        // update it, so that user can get loaded rows in fe.audit.log
+        ctx.updateReturnRows((int) loadedRows);
     }
 }

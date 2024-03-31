@@ -54,17 +54,27 @@ public class CloudEnv extends Env {
 
     private static final Logger LOG = LogManager.getLogger(CloudEnv.class);
 
+    private CloudInstanceStatusChecker cloudInstanceStatusChecker;
     private CloudClusterChecker cloudClusterCheck;
 
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
+        this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
     }
 
+    @Override
     protected void startMasterOnlyDaemonThreads() {
         LOG.info("start cloud Master only daemon threads");
         super.startMasterOnlyDaemonThreads();
         cloudClusterCheck.start();
+    }
+
+    @Override
+    protected void startNonMasterDaemonThreads() {
+        LOG.info("start cloud Non Master only daemon threads");
+        super.startNonMasterDaemonThreads();
+        cloudInstanceStatusChecker.start();
     }
 
     public static String genFeNodeNameFromMeta(String host, int port, long timeMs) {
@@ -73,8 +83,8 @@ public class CloudEnv extends Env {
 
     private Cloud.NodeInfoPB getLocalTypeFromMetaService() {
         // get helperNodes from ms
-        Cloud.GetClusterResponse response = CloudSystemInfoService.getCloudCluster(
-                Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
+        Cloud.GetClusterResponse response = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudCluster(Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
                 || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             LOG.warn("failed to get cloud cluster due to incomplete response, "
@@ -382,8 +392,7 @@ public class CloudEnv extends Env {
 
     public void changeCloudCluster(String clusterName, ConnectContext ctx) throws DdlException {
         checkCloudClusterPriv(clusterName);
-        // TODO(merge-cloud): pick cloud auto start
-        CloudSystemInfoService.waitForAutoStart(clusterName);
+        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(clusterName);
         try {
             ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster(clusterName, "");
         } catch (UserException e) {

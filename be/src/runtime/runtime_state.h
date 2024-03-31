@@ -67,11 +67,13 @@ class RuntimeState {
 public:
     // for ut only
     RuntimeState(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env,
+                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
     RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                 ExecEnv* exec_env, QueryContext* ctx);
+                 ExecEnv* exec_env, QueryContext* ctx,
+                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker = nullptr);
 
     RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
@@ -101,7 +103,9 @@ public:
 
     // for ut and non-query.
     void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
-    void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
+
+    // for ut and non-query.
+    void init_mem_trackers(const std::string& name = "ut", const TUniqueId& id = TUniqueId());
 
     const TQueryOptions& query_options() const { return _query_options; }
     int64_t scan_queue_mem_limit() const {
@@ -485,6 +489,8 @@ public:
         _query_mem_tracker = tracker;
     }
 
+    void set_query_options(const TQueryOptions& query_options) { _query_options = query_options; }
+
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
@@ -622,7 +628,7 @@ private:
 
     static const int DEFAULT_BATCH_SIZE = 4062;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
 
     // Could not find a better way to record if the weak ptr is inited, use a bool to record
     // it. In some unit test cases, the runtime state's task ctx is not inited, then the test

@@ -97,7 +97,7 @@ statementBase
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
-    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE)?      #refreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)      #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
@@ -124,9 +124,9 @@ constraint
 partitionSpec
     : TEMPORARY? (PARTITION | PARTITIONS) partitions=identifierList
     | TEMPORARY? PARTITION partition=errorCapturingIdentifier
-    // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
-    // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
-    // | PARTITIONS WITH RECENT
+	| (PARTITION | PARTITIONS) LEFT_PAREN ASTERISK RIGHT_PAREN // for auto detect partition in overwriting
+	// TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
+	// | PARTITIONS WITH RECENT
     ;
 
 partitionTable
@@ -899,6 +899,7 @@ primitiveColType:
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=VARIANT
     | type=ALL
     ;
 

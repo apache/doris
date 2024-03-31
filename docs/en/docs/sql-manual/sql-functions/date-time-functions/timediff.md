@@ -34,8 +34,8 @@ under the License.
 TIMEDIFF returns the difference between two DATETIMEs
 
 The TIMEDIFF function returns the result of expr1 - expr2 expressed as a time value, with a return value of TIME type
-
-The results are limited to TIME values ranging from - 838:59:59 to 838:59:59.
+Due to the valid range of TIME type being '-838:59:59' to '838:59:59',
+So when the return value of the calculation result is less than the left boundary or greater than the right boundary, the corresponding boundary value will be taken.
 
 #### example
 
@@ -60,6 +60,13 @@ mysql> SELECT TIMEDIFF('2019-01-01 00:00:00', NULL);
 +---------------------------------------+
 | NULL                                  |
 +---------------------------------------+
+
+mysql >SELECT timediff('2020-02-02 15:30:00', '1951-02-16 15:27:00') as res;
++-----------+
+| res       |
++-----------+
+| 838:59:59 |
++-----------+
 ```
 ### keywords
     TIMEDIFF

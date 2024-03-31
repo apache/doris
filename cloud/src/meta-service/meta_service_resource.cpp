@@ -245,10 +245,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
     // Iterate all the resources to return to the rpc caller
     if (!instance.resource_ids().empty()) {
-        std::string storage_vault_start =
-                storage_vault_key({instance_id, *instance.resource_ids().begin()});
-        std::string storage_vault_end = storage_vault_key(
-                {instance_id, instance.resource_ids().at(instance.resource_ids().size() - 1)});
+        std::string storage_vault_start = storage_vault_key({instance.instance_id(), ""});
+        std::string storage_vault_end = storage_vault_key({instance.instance_id(), "\xff"});
         std::unique_ptr<RangeGetIterator> it;
         do {
             TxnErrorCode err = txn->get(storage_vault_start, storage_vault_end, &it);
@@ -261,15 +259,14 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
             while (it->has_next()) {
                 auto [k, v] = it->next();
-                StorageVaultPB vault;
-                if (!vault.ParseFromArray(v.data(), v.size())) {
+                auto *vault = response->add_storage_vault();
+                if (!vault->ParseFromArray(v.data(), v.size())) {
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                     msg = fmt::format("malformed storage vault, unable to deserialize key={}",
                                       hex(k));
                     LOG(WARNING) << msg << " key=" << hex(k);
                     return;
                 }
-                response->add_storage_vault()->MergeFrom(vault);
                 if (!it->has_next()) {
                     storage_vault_start = k;
                 }
@@ -898,19 +895,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         return;
     }
 
-    InstanceKeyInfo key_info {request->instance_id()};
-    std::string key;
-    std::string val = instance.SerializeAsString();
-    instance_key(key_info, &key);
-    if (val.empty()) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "failed to serialize";
-        LOG(ERROR) << msg;
-        return;
-    }
-
-    LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
-
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -927,6 +911,19 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
             return;
         }
     }
+
+    InstanceKeyInfo key_info {request->instance_id()};
+    std::string key;
+    std::string val = instance.SerializeAsString();
+    instance_key(key_info, &key);
+    if (val.empty()) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize";
+        LOG(ERROR) << msg;
+        return;
+    }
+
+    LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
 
     // Check existence before proceeding
     err = txn->get(key, &val);

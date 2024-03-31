@@ -95,9 +95,9 @@ public class MTMVPlanUtil {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
-                                .newHashSet(TableType.values()));
+                                .newHashSet(TableType.values()), true);
         plan.accept(TableCollector.INSTANCE, collectorContext);
-        List<TableIf> collectedTables = collectorContext.getCollectedTables();
+        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);
     }
 
@@ -105,7 +105,7 @@ public class MTMVPlanUtil {
         return Sets.newHashSet();
     }
 
-    private static Set<BaseTableInfo> transferTableIfToInfo(List<TableIf> tables) {
+    private static Set<BaseTableInfo> transferTableIfToInfo(Set<TableIf> tables) {
         Set<BaseTableInfo> result = com.google.common.collect.Sets.newHashSet();
         for (TableIf table : tables) {
             result.add(new BaseTableInfo(table));

@@ -46,11 +46,13 @@ public class PartitionValue {
     }
 
     public LiteralExpr getValue(Type type) throws AnalysisException {
+        if (isNullPartition) {
+            return new NullLiteral();
+        }
         if (isMax()) {
             return LiteralExpr.createInfinity(type, true);
-        } else {
-            return LiteralExpr.create(value, type);
         }
+        return LiteralExpr.create(value, type);
     }
 
     public boolean isMax() {

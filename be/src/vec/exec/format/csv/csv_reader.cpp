@@ -181,7 +181,6 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
-          _file_system(nullptr),
           _file_reader(nullptr),
           _line_reader(nullptr),
           _line_reader_eof(false),
@@ -212,8 +211,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
-        : _state(nullptr),
-          _profile(profile),
+        : _profile(profile),
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
@@ -269,7 +267,7 @@ Status CsvReader::init_reader(bool is_load) {
     if (start_offset == 0) {
         // check header typer first
         if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
-            _params.file_attributes.header_type.size() > 0) {
+            !_params.file_attributes.header_type.empty()) {
             std::string header_type = to_lower(_params.file_attributes.header_type);
             if (header_type == BeConsts::CSV_WITH_NAMES) {
                 _skip_lines = 1;
@@ -298,9 +296,9 @@ Status CsvReader::init_reader(bool is_load) {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options, &_file_system,
-                &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
+        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
@@ -846,7 +844,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     *is_parse_name = false;
 
     if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
-        _params.file_attributes.header_type.size() > 0) {
+        !_params.file_attributes.header_type.empty()) {
         std::string header_type = to_lower(_params.file_attributes.header_type);
         if (header_type == BeConsts::CSV_WITH_NAMES) {
             *is_parse_name = true;
@@ -864,9 +862,8 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         RETURN_IF_ERROR(
                 FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state, true));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
-                                                        reader_options, &_file_system,
-                                                        &_file_reader));
+        _file_reader = DORIS_TRY(FileFactory::create_file_reader(
+                _system_properties, _file_description, reader_options));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {

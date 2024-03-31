@@ -29,11 +29,6 @@ targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoa
 jdbcUser = "root"
 jdbcPassword = ""
 
-ccrDownstreamUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-ccrDownstreamUser = "root"
-ccrDownstreamPassword = ""
-ccrDownstreamFeThriftAddress = "127.0.0.1:9020"
-
 feSourceThriftAddress = "127.0.0.1:9020"
 feTargetThriftAddress = "127.0.0.1:9020"
 syncerAddress = "127.0.0.1:9190"
@@ -91,7 +86,10 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = "segcompaction_p2,workload_manager_p1"
+excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "segcompaction_p2," +
+    "workload_manager_p1," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 

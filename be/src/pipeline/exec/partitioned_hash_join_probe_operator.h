@@ -80,6 +80,11 @@ private:
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _partitioned_blocks;
     std::map<uint32_t, std::vector<vectorized::Block>> _probe_blocks;
 
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::shared_ptr<PartitionedHashJoinSharedState> _shared_state_holder;
+
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
     std::unique_ptr<PartitionerType> _partitioner;
@@ -99,6 +104,14 @@ private:
     RuntimeProfile::Counter* _spill_probe_blocks = nullptr;
     RuntimeProfile::Counter* _recovery_probe_rows = nullptr;
     RuntimeProfile::Counter* _recovery_probe_blocks = nullptr;
+
+    RuntimeProfile::Counter* _spill_read_data_time = nullptr;
+    RuntimeProfile::Counter* _spill_deserialize_time = nullptr;
+    RuntimeProfile::Counter* _spill_read_bytes = nullptr;
+    RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
+    RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
+    RuntimeProfile::Counter* _spill_data_size = nullptr;
+    RuntimeProfile::Counter* _spill_block_count = nullptr;
 
     RuntimeProfile::Counter* _build_phase_label = nullptr;
     RuntimeProfile::Counter* _build_rows_counter = nullptr;

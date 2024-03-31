@@ -25,6 +25,7 @@ import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -153,5 +154,9 @@ public class EnvFactory {
 
     public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler) {
         return new LoadManager(loadJobScheduler);
+    }
+
+    public MasterDaemon createTabletStatMgr() {
+        return new TabletStatMgr();
     }
 }

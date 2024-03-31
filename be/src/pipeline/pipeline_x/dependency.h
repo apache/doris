@@ -57,6 +57,8 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
+    ENABLE_FACTORY_CREATOR(BasicSharedState)
+
     template <class TARGET>
     TARGET* cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -184,7 +186,9 @@ protected:
     std::mutex _always_ready_lock;
 };
 
-struct FakeSharedState final : public BasicSharedState {};
+struct FakeSharedState final : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(FakeSharedState)
+};
 
 struct FakeDependency final : public Dependency {
 public:
@@ -325,6 +329,7 @@ protected:
 };
 
 struct AggSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
     AggSharedState() {
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
@@ -399,6 +404,7 @@ private:
                 },
                 agg_data->method_variant);
     }
+
     void _close_without_key() {
         //because prepare maybe failed, and couldn't create agg data.
         //but finally call close to destory agg data, if agg data has bitmapValue
@@ -417,8 +423,10 @@ private:
 };
 
 struct AggSpillPartition;
-struct PartitionedAggSharedState : public BasicSharedState {
-public:
+struct PartitionedAggSharedState : public BasicSharedState,
+                                   public std::enable_shared_from_this<PartitionedAggSharedState> {
+    ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
+
     PartitionedAggSharedState() = default;
     ~PartitionedAggSharedState() override = default;
 
@@ -479,11 +487,15 @@ struct AggSpillPartition {
 };
 using AggSpillPartitionSPtr = std::shared_ptr<AggSpillPartition>;
 struct SortSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(SortSharedState)
 public:
     std::unique_ptr<vectorized::Sorter> sorter;
 };
 
-struct SpillSortSharedState : public BasicSharedState {
+struct SpillSortSharedState : public BasicSharedState,
+                              public std::enable_shared_from_this<SpillSortSharedState> {
+    ENABLE_FACTORY_CREATOR(SpillSortSharedState)
+
     SpillSortSharedState() = default;
     ~SpillSortSharedState() override = default;
 
@@ -511,6 +523,8 @@ struct SpillSortSharedState : public BasicSharedState {
 };
 
 struct UnionSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(UnionSharedState)
+
 public:
     UnionSharedState(int child_count = 1) : data_queue(child_count), _child_count(child_count) {};
     int child_count() const { return _child_count; }
@@ -526,6 +540,8 @@ public:
 };
 
 struct AnalyticSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(AnalyticSharedState)
+
 public:
     AnalyticSharedState() = default;
 
@@ -559,6 +575,7 @@ struct JoinSharedState : public BasicSharedState {
 };
 
 struct HashJoinSharedState : public JoinSharedState {
+    ENABLE_FACTORY_CREATOR(HashJoinSharedState)
     // mark the join column whether support null eq
     std::vector<bool> is_null_safe_eq_join;
     // mark the build hash table whether it needs to store null value
@@ -575,12 +592,18 @@ struct HashJoinSharedState : public JoinSharedState {
     bool probe_ignore_null = false;
 };
 
-struct PartitionedHashJoinSharedState : public HashJoinSharedState {
+struct PartitionedHashJoinSharedState
+        : public HashJoinSharedState,
+          public std::enable_shared_from_this<PartitionedHashJoinSharedState> {
+    ENABLE_FACTORY_CREATOR(PartitionedHashJoinSharedState)
+
     std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
+    bool need_to_spill = false;
 };
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
+    ENABLE_FACTORY_CREATOR(NestedLoopJoinSharedState)
     // if true, left child has no more rows to process
     bool left_side_eos = false;
     // Visited flags for each row in build side.
@@ -590,6 +613,7 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
 };
 
 struct PartitionSortNodeSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(PartitionSortNodeSharedState)
 public:
     std::queue<vectorized::Block> blocks_buffer;
     std::mutex buffer_mutex;
@@ -608,6 +632,7 @@ public:
 };
 
 struct SetSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(SetSharedState)
 public:
     /// default init
     vectorized::Block build_block; // build to source

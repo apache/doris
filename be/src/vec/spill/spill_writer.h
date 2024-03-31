@@ -35,7 +35,7 @@ public:
         file_path_ = dir + "/" + std::to_string(file_index_);
     }
 
-    ~SpillWriter() { (void)close(); }
+    ~SpillWriter();
 
     Status open();
 
@@ -78,9 +78,6 @@ private:
     size_t written_blocks_ = 0;
     size_t total_written_bytes_ = 0;
     std::string meta_;
-
-    bool is_first_write_ = true;
-    Block tmp_block_;
 
     RuntimeProfile::Counter* write_bytes_counter_;
     RuntimeProfile::Counter* serialize_timer_;

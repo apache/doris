@@ -80,13 +80,16 @@ Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_statu
             _spill_cv.wait(lk);
         }
     }
+    auto& parent = Base::_parent->template cast<Parent>();
+    if (parent._enable_spill) {
+        dec_running_big_mem_op_num(state);
+    }
     return Status::OK();
 }
 Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    _runtime_state->set_query_mem_tracker(state->query_mem_tracker());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
 
@@ -161,6 +164,9 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
 Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                     bool eos) {
     auto& local_state = get_local_state(state);
+    if (_enable_spill) {
+        local_state.inc_running_big_mem_op_num(state);
+    }
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state.Base::_shared_state->sink_status);
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -177,6 +183,7 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
                 RETURN_IF_ERROR(revoke_memory(state));
             } else {
                 local_state._dependency->set_ready_to_read();
+                local_state._finish_dependency->set_ready();
             }
         } else {
             RETURN_IF_ERROR(
@@ -214,11 +221,20 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_eos) {
         Base::_dependency->Dependency::block();
     }
+
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
     status =
             ExecEnv::GetInstance()
                     ->spill_stream_mgr()
                     ->get_spill_io_thread_pool(_spilling_stream->get_spill_root_dir())
-                    ->submit_func([this, state, &parent] {
+                    ->submit_func([this, state, &parent, execution_context] {
+                        auto execution_context_lock = execution_context.lock();
+                        if (!execution_context_lock) {
+                            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                            return Status::OK();
+                        }
+
                         SCOPED_ATTACH_TASK(state);
                         Defer defer {[&]() {
                             if (!_shared_state->sink_status.ok()) {

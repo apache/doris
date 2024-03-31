@@ -190,6 +190,14 @@ public class OlapTableSink extends DataSink {
         tDataSink.getOlapTableSink().getPartition().setEnableAutomaticPartition(var);
     }
 
+    public void setAutoDetectOverwite(boolean var) {
+        tDataSink.getOlapTableSink().getPartition().setEnableAutoDetectOverwrite(var);
+    }
+
+    public void setOverwriteGroupId(long var) {
+        tDataSink.getOlapTableSink().getPartition().setOverwriteGroupId(var);
+    }
+
     // must called after tupleDescriptor is computed
     public void complete(Analyzer analyzer) throws UserException {
         for (Long partitionId : partitionIds) {
@@ -469,16 +477,19 @@ public class OlapTableSink extends DataSink {
         return partitionParam;
     }
 
-    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
+    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum)
+            throws UserException {
         if (partitionItem instanceof RangePartitionItem) {
             Range<PartitionKey> range = partitionItem.getItems();
-            // set start keys
+            // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
                     tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
-            // set end keys
+            // TODO: support real MaxLiteral in thrift.
+            // now we dont send it to BE. if BE meet it, treat it as default value.
+            // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
@@ -518,12 +529,13 @@ public class OlapTableSink extends DataSink {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
                         String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                        + " < load required replica num " + loadRequiredReplicaNum
-                                        + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
+                                + " < load required replica num " + loadRequiredReplicaNum
+                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
+                                + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
                         if (Config.isCloudMode()) {
                             errMsg += ", or you may not have permission to access the current cluster";
                             if (ConnectContext.get() != null) {
-                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
+                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster(false);
                             }
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);

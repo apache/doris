@@ -28,7 +28,7 @@ suite("test_index_change_3") {
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
+                sleep(10000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
                 break
             }
@@ -50,6 +50,7 @@ suite("test_index_change_3") {
                 }
             }
             if (finished_num == expected_finished_num) {
+                sleep(10000)
                 logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
                 break
             }
@@ -119,9 +120,8 @@ suite("test_index_change_3") {
     sql """ DROP INDEX idx_city ON ${tableName} """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_build_index_on_partition_finish(tableName, timeout)
+    wait_for_latest_op_on_table_finish(tableName, timeout)
 
-    sleep(2*1000)
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
     assertEquals(show_result.size(), 1)
@@ -193,7 +193,7 @@ suite("test_index_change_3") {
     sql """ DROP INDEX idx_city ON ${tableName} """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_build_index_on_partition_finish(tableName, timeout)
+    wait_for_latest_op_on_table_finish(tableName, timeout)
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

@@ -70,6 +70,7 @@ Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_stat
     if (Base::_closed) {
         return Status::OK();
     }
+    dec_running_big_mem_op_num(state);
     {
         std::unique_lock<std::mutex> lk(_spill_lock);
         if (_is_spilling) {
@@ -159,6 +160,7 @@ Status PartitionedAggSinkOperatorX::close(RuntimeState* state) {
 Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                          bool eos) {
     auto& local_state = get_local_state(state);
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     RETURN_IF_ERROR(local_state.Base::_shared_state->sink_status);
@@ -170,7 +172,11 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
         if (revocable_mem_size(state) > 0) {
             RETURN_IF_ERROR(revoke_memory(state));
         } else {
+            for (auto& partition : local_state._shared_state->spill_partitions) {
+                RETURN_IF_ERROR(partition->finish_current_spilling(eos));
+            }
             local_state._dependency->set_ready_to_read();
+            local_state._finish_dependency->set_ready();
         }
     }
     if (local_state._runtime_state) {
@@ -198,7 +204,6 @@ Status PartitionedAggSinkLocalState::setup_in_memory_agg_op(RuntimeState* state)
     _runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    _runtime_state->set_query_mem_tracker(state->query_mem_tracker());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
 
@@ -244,8 +249,17 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
             }
         }
     }};
+
+    auto execution_context = state->get_task_execution_context();
+    _shared_state_holder = _shared_state->shared_from_this();
+
     status = ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-            [this, &parent, state] {
+            [this, &parent, state, execution_context] {
+                auto execution_context_lock = execution_context.lock();
+                if (!execution_context_lock) {
+                    LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                    return Status::Cancelled("Cancelled");
+                }
                 SCOPED_ATTACH_TASK(state);
                 SCOPED_TIMER(Base::_spill_timer);
                 Defer defer {[&]() {

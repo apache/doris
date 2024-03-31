@@ -758,6 +758,18 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     // and after renew, the previous task is removed from routineLoadTaskInfoList,
                     // so task can no longer be committed successfully.
                     // the already committed task will not be handled here.
+                    int timeoutBackOffCount = routineLoadTaskInfo.getTimeoutBackOffCount();
+                    if (timeoutBackOffCount > RoutineLoadTaskInfo.MAX_TIMEOUT_BACK_OFF_COUNT) {
+                        try {
+                            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TIMEOUT_TOO_MUCH,
+                                        "task " + routineLoadTaskInfo.getId() + " timeout too much"), false);
+                        } catch (UserException e) {
+                            LOG.warn("update job state to pause failed", e);
+                        }
+                        return;
+                    }
+                    routineLoadTaskInfo.setTimeoutBackOffCount(timeoutBackOffCount + 1);
+                    routineLoadTaskInfo.setTimeoutMs((routineLoadTaskInfo.getTimeoutMs() << 1));
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -766,6 +778,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             writeUnlock();
         }
     }
+
+    abstract void updateCloudProgress() throws UserException;
 
     abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
 
@@ -1154,7 +1168,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 return;
             }
             RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
-            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED) {
+            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED
+                        && routineLoadTaskInfo.getTxnStatus() != TransactionStatus.VISIBLE) {
                 // TODO(cmy): Normally, this should not happen. But for safe reason, just pause the job
                 String msg = String.format(
                         "should not happen, we find that task %s is not COMMITTED when handling afterVisble."
@@ -1306,6 +1321,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState, txnStatusChangeReason)) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
+            routineLoadTaskInfo.selfAdaptTimeout(rlTaskTxnCommitAttachment);
         }
 
         if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {

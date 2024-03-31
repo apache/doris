@@ -44,6 +44,7 @@ import java.util.Objects;
 public class Partition extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Partition.class);
 
+    // Every partition starts from version 1, version 1 has no data
     public static final long PARTITION_INIT_VERSION = 1L;
 
     public enum PartitionState {
@@ -158,6 +159,10 @@ public class Partition extends MetaObject implements Writable {
 
     public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
         this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+    }
+
+    public long getCachedVisibleVersion() {
+        return visibleVersion;
     }
 
     public long getVisibleVersion() {

@@ -253,6 +253,12 @@ public:
     /** Get block data in string. */
     std::string dump_data(size_t begin = 0, size_t row_limit = 100) const;
 
+    static std::string dump_column(ColumnPtr col, DataTypePtr type) {
+        ColumnWithTypeAndName type_name {col, type, ""};
+        Block b {type_name};
+        return b.dump_data(0, b.rows());
+    }
+
     /** Get one line data from block, only use in load data */
     std::string dump_one_line(size_t row, int column_end) const;
 
@@ -526,8 +532,9 @@ public:
         } else {
             if (_columns.size() != block.columns()) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "Merge block not match, self:[{}], input:[{}], ", dump_types(),
-                        block.dump_types());
+                        "Merge block not match, self:[columns: {}, types: {}], input:[columns: {}, "
+                        "types: {}], ",
+                        dump_names(), dump_types(), block.dump_names(), block.dump_types());
             }
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {

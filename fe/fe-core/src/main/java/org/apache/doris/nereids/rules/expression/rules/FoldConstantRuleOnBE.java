@@ -32,7 +32,9 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -127,9 +129,19 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                 if (((Cast) expr).child().isNullLiteral()) {
                     return;
                 }
+                if (skipSleepFunction(((Cast) expr).child())) {
+                    return;
+                }
             }
             // skip literal expr
             if (expr.isLiteral()) {
+                return;
+            }
+            // eg: avg_state(1) return is agg function serialize data
+            if (expr.getDataType().isAggStateType()) {
+                return;
+            }
+            if (skipSleepFunction(expr)) {
                 return;
             }
             String id = idGenerator.getNextId().toString();
@@ -148,6 +160,20 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                 collectConst(child, constMap, tExprMap);
             }
         }
+    }
+
+    // if sleep(5) will cause rpc timeout
+    private boolean skipSleepFunction(Expression expr) {
+        if (expr instanceof Sleep) {
+            Expression param = expr.child(0);
+            if (param instanceof Cast) {
+                param = param.child(0);
+            }
+            if (param instanceof NumericLiteral) {
+                return ((NumericLiteral) param).getDouble() >= 5.0;
+            }
+        }
+        return false;
     }
 
     private Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,
@@ -183,8 +209,8 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
 
             // TODO: will be delete the debug log after find problem of timeout.
             LOG.info("fold query {} ", DebugUtil.printId(context.queryId()));
-            Future<PConstantExprResult> future =
-                    BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
+            Future<PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress,
+                    tParams);
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
 
             if (result.getStatus().getStatusCode() == 0) {

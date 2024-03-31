@@ -631,7 +631,8 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPla
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _pool(pool),
           _limit(tnode.limit),
-          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
+          _have_conjuncts((tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) ||
+                          (tnode.__isset.conjuncts && !tnode.conjuncts.empty())),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
                                                                : std::vector<TExpr> {}),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {}

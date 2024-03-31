@@ -76,7 +76,14 @@ public:
               _has_null(false),
               _bf_buffer_size(0) {}
 
-    ~PrimaryKeyBloomFilterIndexWriterImpl() override = default;
+    ~PrimaryKeyBloomFilterIndexWriterImpl() override {
+        for (auto& bf : _bfs) {
+            g_pk_total_bloom_filter_num << -1;
+            g_pk_total_bloom_filter_total_bytes << -static_cast<int64_t>(bf->size());
+            g_pk_write_bloom_filter_decrease_num << 1;
+            g_pk_write_bloom_filter_decrease_bytes << bf->size();
+        }
+    };
 
     void add_values(const void* values, size_t count) override;
 

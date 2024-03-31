@@ -33,11 +33,11 @@ INSERT OVERWRITE
 
 ### Description
 
-该语句的功能是重写表或表的某个分区
+该语句的功能是重写表或表的某些分区
 
 ```sql
 INSERT OVERWRITE table table_name
-    [ PARTITION (p1, ...) ]
+    [ PARTITION (p1, ... | *) ]
     [ WITH LABEL label]
     [ (column [, ...]) ]
     [ [ hint [, ...] ] ]
@@ -48,7 +48,10 @@ INSERT OVERWRITE table table_name
 
 > table_name: 需要重写的目的表。这个表必须存在。可以是 `db_name.table_name` 形式
 >
-> partitions: 需要重写的表分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
+> partitions: 需要重写的目标分区，支持两种形式：
+>
+>> 1. 分区名。必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔。
+>> 2. 星号(*)。开启[自动检测分区](#overwrite-auto-detect-partition)功能。写入操作将会自动检测数据所涉及的分区，并覆写这些分区。
 >
 > label: 为 Insert 任务指定一个 label
 >
@@ -69,7 +72,7 @@ INSERT OVERWRITE table table_name
 注意：
 
 1. 在当前版本中，会话变量 `enable_insert_strict` 默认为 `true`，如果执行 `INSERT OVERWRITE` 语句时，对于有不符合目标表格式的数据被过滤掉的话会重写目标表失败（比如重写分区时，不满足所有分区条件的数据会被过滤）。
-2. 如果INSERT OVERWRITE的目标表是[AUTO-PARTITION表](../../../../advanced/partition/auto-partition)，若未指定PARTITION（重写整表），那么可以创建新的分区。如果指定了覆写的PARTITION，那么在此过程中，AUTO PARTITION表表现得如同普通分区表一样，不满足现有分区条件的数据将被过滤，而非创建新的分区。
+2. 如果INSERT OVERWRITE的目标表是[AUTO-PARTITION表](../../../../advanced/partition/auto-partition)，若未指定PARTITION（重写整表），那么可以创建新的分区。如果指定了覆写的PARTITION（包括通过 `partition(*)` 语法自动检测并覆盖分区），那么在此过程中，AUTO PARTITION表表现得如同普通分区表一样，不满足现有分区条件的数据将被过滤，而非创建新的分区。
 3. INSERT OVERWRITE语句会首先创建一个新表，将需要重写的数据插入到新表中，最后原子性的用新表替换旧表并修改名称。因此，在重写表的过程中，旧表中的数据在重写完毕之前仍然可以正常访问。
 
 ### Example
@@ -139,6 +142,13 @@ PROPERTIES (
 
 #### Overwrite Table Partition
 
+使用 INSERT OVERWRITE 重写分区时，实际我们是将如下三步操作封装为一个事务并执行，如果中途失败，已进行的操作将会回滚：
+1. 假设指定重写分区 p1，首先创建一个与重写的目标分区结构相同的空临时分区 `pTMP`
+2. 向 `pTMP` 中写入数据
+3. 使用 `pTMP` 原子替换 `p1` 分区
+
+举例如下：
+
 1. VALUES的形式重写`test`表分区`P1`和`p2`
 
     ```sql
@@ -176,7 +186,56 @@ PROPERTIES (
     INSERT OVERWRITE table test PARTITION(p1,p2) WITH LABEL `label4` (c1, c2) SELECT * from test2;
     ```
 
+#### Overwrite Auto Detect Partition
+
+当 INSERT OVERWRITE 命令指定的 PARTITION 子句为 `PARTITION(*)` 时，此次覆写将会自动检测分区数据所在的分区。例如：
+
+```sql
+mysql> create table test(
+    -> k0 int null
+    -> )
+    -> partition by range (k0)
+    -> (
+    -> PARTITION p10 values less than (10),
+    -> PARTITION p100 values less than (100),
+    -> PARTITION pMAX values less than (maxvalue)
+    -> )
+    -> DISTRIBUTED BY HASH(`k0`) BUCKETS 1
+    -> properties("replication_num" = "1");
+Query OK, 0 rows affected (0.11 sec)
+
+mysql> insert into test values (1), (2), (15), (100), (200);
+Query OK, 5 rows affected (0.29 sec)
+
+mysql> select * from test order by k0;
++------+
+| k0   |
++------+
+|    1 |
+|    2 |
+|   15 |
+|  100 |
+|  200 |
++------+
+5 rows in set (0.23 sec)
+
+mysql> insert overwrite table test partition(*) values (3), (1234);
+Query OK, 2 rows affected (0.24 sec)
+
+mysql> select * from test order by k0;
++------+
+| k0   |
++------+
+|    3 |
+|   15 |
+| 1234 |
++------+
+3 rows in set (0.20 sec)
+```
+
+可以看到，数据 3、1234 所在的分区 `p10` 和 `pMAX` 中的全部数据均被覆写，而 `p100` 分区未发生变化。该操作可以理解为 INSERT OVERWRITE 操作时通过 PARTITION 子句指定覆写特定分区的语法糖，它的实现原理与[指定重写特定分区](#overwrite-table-partition)相同。通过 `PARTITION(*)` 的语法，在覆写大量分区数据时我们可以免于手动填写全部分区名的繁琐。
+
 ### Keywords
 
-    INSERT OVERWRITE, OVERWRITE
+    INSERT OVERWRITE, OVERWRITE, AUTO DETECT
 
