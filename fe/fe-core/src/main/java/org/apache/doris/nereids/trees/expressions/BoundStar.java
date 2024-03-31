@@ -22,9 +22,12 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Preconditions;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** BoundStar is used to wrap list of slots for temporary. */
@@ -52,6 +55,20 @@ public class BoundStar extends NamedExpression implements PropagateNullable {
 
     public String toSqlWithBacktick() {
         return children.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBacktick())
+                .collect(Collectors.joining(", "));
+    }
+
+    /** toSqlWithBacktick */
+    public String toSqlWithBacktick(List<NamedExpression> excepts) {
+        List<Expression> outputs = Lists.newArrayList();
+        Set<Expression> exceptSet = Sets.newHashSet();
+        exceptSet.addAll(excepts);
+        for (Expression child : children) {
+            if (!exceptSet.contains(child)) {
+                outputs.add(child);
+            }
+        }
+        return outputs.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBacktick())
                 .collect(Collectors.joining(", "));
     }
 

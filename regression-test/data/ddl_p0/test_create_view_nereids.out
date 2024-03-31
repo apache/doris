@@ -25,7 +25,7 @@
 3	[-1, 20, 0]	[0, 1, 0]
 
 -- !test_view_6 --
-v1	CREATE VIEW `v1` COMMENT 'VIEW' AS SELECT\n      error_code, \n      1, \n      'string', \n      now(), \n      dayofyear(op_time), \n      cast (source AS BIGINT), \n      min(`timestamp`) OVER (\n        ORDER BY \n          op_time DESC ROWS BETWEEN UNBOUNDED PRECEDING\n          AND 1 FOLLOWING\n      ), \n      1 > 2,\n      2 + 3,\n      1 IN (1, 2, 3, 4), \n      remark LIKE '%like', \n      CASE WHEN remark = 's' THEN 1 ELSE 2 END,\n      TRUE | FALSE \n    FROM \n      view_column_name_test_nereids;
+v1	CREATE VIEW `v1` COMMENT 'VIEW' AS SELECT\n      error_code, \n      1, \n      'string', \n      now(), \n      dayofyear(op_time), \n      cast (source AS BIGINT), \n      min(`timestamp`) OVER (\n        ORDER BY \n          op_time DESC ROWS BETWEEN UNBOUNDED PRECEDING\n          AND 1 FOLLOWING\n      ), \n      1 > 2,\n      2 + 3,\n      1 IN (1, 2, 3, 4), \n      remark LIKE '%like', \n      CASE WHEN remark = 's' THEN 1 ELSE 2 END,\n      TRUE | FALSE \n    FROM \n      `internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`;
 
 -- !test_with_as --
 1	1	2
@@ -86,13 +86,13 @@ test_view_with_as	CREATE VIEW `test_view_with_as` COMMENT 'VIEW' AS (\n         
 6	7	1
 
 -- !test_union_sql --
-test_view_union	CREATE VIEW `test_view_union` COMMENT 'VIEW' AS (select `regression_test_ddl_p0`.`mal_test_view`.`pk` AS `c1`, `regression_test_ddl_p0`.`mal_test_view`.`a` AS `c2`, `regression_test_ddl_p0`.`mal_test_view`.`b` AS `c3` from mal_test_view Union all SELECT `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` FROM mal_test_view);	utf8mb4	utf8mb4_0900_bin
+test_view_union	CREATE VIEW `test_view_union` COMMENT 'VIEW' AS (select `regression_test_ddl_p0`.`mal_test_view`.`pk` AS `c1`, `regression_test_ddl_p0`.`mal_test_view`.`a` AS `c2`, `regression_test_ddl_p0`.`mal_test_view`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`mal_test_view` Union all SELECT `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` FROM `internal`.`regression_test_ddl_p0`.`mal_test_view`);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_count_star --
 17
 
 -- !test_count_star_sql --
-test_view_count_star	CREATE VIEW `test_view_count_star` COMMENT 'VIEW' AS (select count(*) AS `c1` from mal_test_view having count(*) > 0);	utf8mb4	utf8mb4_0900_bin
+test_view_count_star	CREATE VIEW `test_view_count_star` COMMENT 'VIEW' AS (select count(*) AS `c1` from `internal`.`regression_test_ddl_p0`.`mal_test_view` having count(*) > 0);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_expression --
 \N	\N	6
@@ -114,7 +114,7 @@ test_view_count_star	CREATE VIEW `test_view_count_star` COMMENT 'VIEW' AS (selec
 8	10	1
 
 -- !test_expression_sql --
-test_view_expression	CREATE VIEW `test_view_expression` COMMENT 'VIEW' AS (select a+1 AS `c1`, abs(a)+2+1 AS `c2`, cast(b as varchar(10)) AS `c3` from mal_test_view);	utf8mb4	utf8mb4_0900_bin
+test_view_expression	CREATE VIEW `test_view_expression` COMMENT 'VIEW' AS (select a+1 AS `c1`, abs(a)+2+1 AS `c2`, cast(b as varchar(10)) AS `c3` from `internal`.`regression_test_ddl_p0`.`mal_test_view`);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_alias --
 \N	\N	6
@@ -136,5 +136,5 @@ test_view_expression	CREATE VIEW `test_view_expression` COMMENT 'VIEW' AS (selec
 8	10	1
 
 -- !test_alias_sql --
-test_view_alias	CREATE VIEW `test_view_alias` COMMENT 'VIEW' AS (\n        select c8 AS `c1`, c2 AS `c2`, c1 AS `c3` from (select a+1 c8,abs(a)+2+1 as c2, cast(b as varchar(10)) as c1 from mal_test_view) t);	utf8mb4	utf8mb4_0900_bin
+test_view_alias	CREATE VIEW `test_view_alias` COMMENT 'VIEW' AS (\n        select c8 AS `c1`, c2 AS `c2`, c1 AS `c3` from (select a+1 c8,abs(a)+2+1 as c2, cast(b as varchar(10)) as c1 from `internal`.`regression_test_ddl_p0`.`mal_test_view`) t);	utf8mb4	utf8mb4_0900_bin
 

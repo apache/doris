@@ -135,6 +135,14 @@ public class Utils {
         return StringUtils.join(qualifiedNameParts(qualifierWithBacktick, nameWithBacktick), ".");
     }
 
+    public static String qualifiedNameWithBacktick(List<String> qualifiers) {
+        List<String> qualifierWithBacktick = Lists.newArrayListWithCapacity(qualifiers.size());
+        for (String qualifier : qualifiers) {
+            qualifierWithBacktick.add('`' + qualifier + '`');
+        }
+        return StringUtils.join(qualifierWithBacktick, ".");
+    }
+
     /**
      * Get sql string for plan.
      *

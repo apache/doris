@@ -35,6 +35,7 @@ import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.BindRelationForCreateView;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -60,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -89,6 +92,7 @@ public class CreateViewInfo {
     private final List<Slot> outputs = Lists.newArrayList();
     private final List<NamedExpression> projects = Lists.newArrayList();
     private Plan analyzedPlan;
+    private Map<Pair<Integer, Integer>, String> relationMap;
 
     /** constructor*/
     public CreateViewInfo(boolean ifNotExists, TableNameInfo viewName, String comment, LogicalPlan logicalQuery,
@@ -143,6 +147,7 @@ public class CreateViewInfo {
                 null);
         // expand star(*) in project list
         Map<Pair<Integer, Integer>, String> indexStringSqlMap = collectBoundStar(analyzedPlan);
+        indexStringSqlMap.putAll(relationMap);
         String rewrittenSql = rewriteStarToColumn(indexStringSqlMap);
 
         // rewrite project alias
@@ -162,9 +167,15 @@ public class CreateViewInfo {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
-        AnalyzerForCreateView analyzer = new AnalyzerForCreateView(viewContext);
+        AnalyzerForCreateView analyzer = new AnalyzerForCreateView(viewContext, true);
         analyzer.analyze();
-        return viewContext.getRewritePlan();
+        Plan planForRelation = viewContext.getRewritePlan();
+        relationMap = collectUnBoundRelation(planForRelation);
+        CascadesContext viewContextForStar = CascadesContext.initContext(
+                stmtCtx, planForRelation, PhysicalProperties.ANY);
+        AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar, false);
+        analyzerForStar.analyze();
+        return viewContextForStar.getRewritePlan();
     }
 
     private String rewriteStarToColumn(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
@@ -255,13 +266,31 @@ public class CreateViewInfo {
         }
     }
 
+    private Map<Pair<Integer, Integer>, String> collectUnBoundRelation(Plan plan) {
+        TreeMap<Pair<Integer, Integer>, String> result = new TreeMap<>(new Pair.PairComparator<>());
+        plan.foreach(node -> {
+            if (node instanceof UnboundRelation) {
+                UnboundRelation unboundRelation = (UnboundRelation) node;
+                List<String> tableQualifier = unboundRelation.getTableQualifier();
+                result.put(unboundRelation.getIndexInSqlString(), Utils.qualifiedNameWithBacktick(tableQualifier));
+            }
+        });
+        return result;
+    }
+
     private Map<Pair<Integer, Integer>, String> collectBoundStar(Plan plan) {
         TreeMap<Pair<Integer, Integer>, String> result = new TreeMap<>(new Pair.PairComparator<>());
         plan.foreach(node -> {
             if (node instanceof LogicalProject) {
                 LogicalProject<Plan> project = (LogicalProject) node;
-                for (BoundStar star : project.getBoundStars()) {
-                    result.put(star.getIndexInSqlString(), star.toSqlWithBacktick());
+                if (project.getExcepts().isEmpty()) {
+                    for (BoundStar star : project.getBoundStars()) {
+                        result.put(star.getIndexInSqlString(), star.toSqlWithBacktick());
+                    }
+                } else {
+                    List<NamedExpression> namedExpressions = project.getExcepts();
+                    BoundStar star = project.getBoundStars().get(0);
+                    result.put(star.getIndexInSqlString(), star.toSqlWithBacktick(namedExpressions));
                 }
             }
         });
@@ -355,10 +384,15 @@ public class CreateViewInfo {
     }
 
     private static class AnalyzerForCreateView extends AbstractBatchJobExecutor {
-        private final List<RewriteJob> jobs = buildAnalyzeViewJobs();
+        private final List<RewriteJob> jobs;
 
-        public AnalyzerForCreateView(CascadesContext cascadesContext) {
+        public AnalyzerForCreateView(CascadesContext cascadesContext, boolean forRelation) {
             super(cascadesContext);
+            if (forRelation) {
+                jobs = buildAnalyzeViewJobsForRelation();
+            } else {
+                jobs = buildAnalyzeViewJobsForStar();
+            }
         }
 
         public void analyze() {
@@ -370,10 +404,18 @@ public class CreateViewInfo {
             return jobs;
         }
 
-        private static List<RewriteJob> buildAnalyzeViewJobs() {
+        private static List<RewriteJob> buildAnalyzeViewJobsForRelation() {
             return jobs(
                     topDown(new AnalyzeCTE()),
                     topDown(new EliminateLogicalSelectHint()),
+                    bottomUp(
+                            new BindRelationForCreateView()
+                            )
+            );
+        }
+
+        private static List<RewriteJob> buildAnalyzeViewJobsForStar() {
+            return jobs(
                     bottomUp(
                             new BindRelation(),
                             new CheckPolicy(),
