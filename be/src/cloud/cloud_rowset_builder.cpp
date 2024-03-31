@@ -66,7 +66,12 @@ Status CloudRowsetBuilder::init() {
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     context.file_cache_ttl_sec = _tablet->ttl_seconds();
-    context.fs = _engine.get_fs_by_vault_id(_req.storage_vault_id);
+    auto fs = _engine.get_fs_by_vault_id(_req.storage_vault_id);
+    if (fs == nullptr) {
+        return Status::InternalError("vault id not found, maybe not sync, vault id {}",
+                                     _req.storage_vault_id);
+    }
+    context.fs = std::move(fs);
     context.rowset_dir = _tablet->tablet_path();
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
 

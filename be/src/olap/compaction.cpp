@@ -1074,10 +1074,13 @@ Status CloudCompactionMixin::modify_rowsets() {
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // Use the vault id of the previous rowset
     for (const auto& rs : _input_rowsets) {
-        if (!rs->rowset_meta()->resource_id().empty()) {
-            ctx.fs = _engine.get_fs_by_vault_id(rs->rowset_meta()->resource_id());
+        if (nullptr != rs->rowset_meta()->fs()) {
+            ctx.fs = rs->rowset_meta()->fs();
             break;
         }
+    }
+    if (nullptr == ctx.fs) [[unlikely]] {
+        return Status::InternalError("Failed to find fs");
     }
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive

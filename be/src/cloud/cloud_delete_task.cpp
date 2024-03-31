@@ -62,7 +62,12 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     load_id.set_hi(0);
     load_id.set_lo(0);
     RowsetWriterContext context;
-    context.fs = engine.get_fs_by_vault_id(request.storage_vault_id);
+    auto fs = engine.get_fs_by_vault_id(request.storage_vault_id);
+    if (fs == nullptr) {
+        return Status::InternalError("vault id not found, maybe not sync, vault id {}",
+                                     request.storage_vault_id);
+    }
+    context.fs = std::move(fs);
     context.txn_id = request.transaction_id;
     context.load_id = load_id;
     context.rowset_state = PREPARED;
