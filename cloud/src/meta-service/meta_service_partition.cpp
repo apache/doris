@@ -612,6 +612,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
                 ss << "failed to get partition version, table_id=" << request->table_id()
                    << "partition_id=" << part_id << " key=" << hex(partition_ver_key);
                 msg = ss.str();
+                LOG_WARNING(msg);
                 return;
             }
             int64_t part_version = -1;
