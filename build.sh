@@ -472,12 +472,13 @@ fi
 
 # Assesmble FE modules
 FE_MODULES=''
+# TODO: docs are temporarily removed, so this var is always OFF
+# Fix it later
 BUILD_DOCS='OFF'
 modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("fe-core")
-    BUILD_DOCS='ON'
 fi
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     modules+=("fe-common")

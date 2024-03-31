@@ -18,6 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.help.HelpCategory;
+import org.apache.doris.qe.help.HelpModule;
+import org.apache.doris.qe.help.HelpTopic;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

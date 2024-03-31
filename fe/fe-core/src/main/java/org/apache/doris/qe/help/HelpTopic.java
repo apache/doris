@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.qe;
+package org.apache.doris.qe.help;
 
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
