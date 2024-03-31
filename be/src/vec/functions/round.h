@@ -525,7 +525,6 @@ struct Dispatcher {
             return col_res;
         } else if constexpr (IsDecimalNumber<T>) {
             const auto* decimal_col = assert_cast<const ColumnDecimal<T>*>(col_general);
-            const auto& vec_src = decimal_col->get_data();
 
             // For truncate, ALWAYS use SAME scale with source Decimal column
             const Int32 input_scale = decimal_col->get_scale();
