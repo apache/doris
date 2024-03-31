@@ -46,6 +46,9 @@ class RuntimeProfile;
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
 struct TrackerLimiterGroup {
+    // Note! in order to enable ExecEnv::mem_tracker_limiter_pool support resize,
+    // the copy construction of TrackerLimiterGroup is disabled.
+    // so cannot copy TrackerLimiterGroup anywhere, should use reference.
     TrackerLimiterGroup() = default;
     TrackerLimiterGroup(TrackerLimiterGroup&&) noexcept {}
     TrackerLimiterGroup(const TrackerLimiterGroup&) {}
