@@ -562,11 +562,11 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
 
         auto vault_name = std::find_if(
                 instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
-                [&](const auto& name) { return name == request->storage_vault_name(); });
+                [&](const auto& candidate_name) { return candidate_name == name; });
         if (vault_name != instance.storage_vault_names().end()) {
             auto idx = vault_name - instance.storage_vault_names().begin();
             response->set_storage_vault_id(instance.resource_ids().at(idx));
-            response->set_storage_vault_name(std::string(name.data(), name.size()));
+            response->set_storage_vault_name(*vault_name);
             break;
         }
 
@@ -586,7 +586,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         }
 
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("failed to get vault id, vault name={}", request->storage_vault_name());
+        msg = fmt::format("failed to get vault id, vault name={}", name);
         return;
     }
     // [index_id, schema_version]
