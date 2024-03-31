@@ -205,7 +205,7 @@ public:
                                                column_general.type->get_name(), "truncate");
             }
         } else {
-            // round(Column, Column)
+            // truncate(Column, Column)
             const ColumnWithTypeAndName& column_scale = block.get_by_position(arguments[1]);
 
             auto call = [&](const auto& types) -> bool {

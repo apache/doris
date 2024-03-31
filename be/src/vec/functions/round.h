@@ -489,34 +489,35 @@ struct Dispatcher {
         }
 
         const ColumnInt32& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
+        const size_t input_row_count = col_scale_i32.size();
+        for (size_t i = 0; i < input_row_count; ++i) {
+            const Int32 scale_arg = col_scale_i32.get_data()[i];
+            if (scale_arg > std::numeric_limits<Int16>::max() ||
+                scale_arg < std::numeric_limits<Int16>::min()) {
+                throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                                       "Scale argument for function is out of bound: {}",
+                                       scale_arg);
+            }
+        }
 
         if constexpr (IsNumber<T>) {
             const auto* col = assert_cast<const ColumnVector<T>*>(col_general);
-            const size_t input_row_count = col->size();
             auto col_res = ColumnVector<T>::create();
-
             typename ColumnVector<T>::Container& vec_res = col_res->get_data();
             vec_res.resize(input_row_count);
 
             for (size_t i = 0; i < input_row_count; ++i) {
                 const Int32 scale_arg = col_scale_i32.get_data()[i];
-                if (scale_arg > std::numeric_limits<Int16>::max() ||
-                    scale_arg < std::numeric_limits<Int16>::min()) {
-                    throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                                           "Scale argument for function is out of bound: {}",
-                                           scale_arg);
-                }
-
                 if (scale_arg == 0) {
                     size_t scale = 1;
                     FunctionRoundingImpl<ScaleMode::Zero>::apply(col->get_data()[i], scale,
                                                                  vec_res[i]);
                 } else if (scale_arg > 0) {
-                    size_t scale = int_exp10(col_scale_i32.get_data()[i]);
+                    size_t scale = int_exp10(scale_arg);
                     FunctionRoundingImpl<ScaleMode::Positive>::apply(col->get_data()[i], scale,
                                                                      vec_res[i]);
                 } else {
-                    size_t scale = int_exp10(-col_scale_i32.get_data()[i]);
+                    size_t scale = int_exp10(-scale_arg);
                     FunctionRoundingImpl<ScaleMode::Negative>::apply(col->get_data()[i], scale,
                                                                      vec_res[i]);
                 }
@@ -525,18 +526,6 @@ struct Dispatcher {
         } else if constexpr (IsDecimalNumber<T>) {
             const auto* decimal_col = assert_cast<const ColumnDecimal<T>*>(col_general);
             const auto& vec_src = decimal_col->get_data();
-            const size_t input_row_count = vec_src.size();
-
-            for (size_t i = 0; i < input_row_count; ++i) {
-                const Int32 scale_arg = col_scale_i32.get_data()[i];
-
-                if (scale_arg > std::numeric_limits<Int16>::max() ||
-                    scale_arg < std::numeric_limits<Int16>::min()) {
-                    throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                                           "Scale argument for function is out of bound: {}",
-                                           scale_arg);
-                }
-            }
 
             // For truncate, ALWAYS use SAME scale with source Decimal column
             const Int32 input_scale = decimal_col->get_scale();
