@@ -89,12 +89,6 @@ Status PartitionedAggLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
     dec_running_big_mem_op_num(state);
-    {
-        std::unique_lock<std::mutex> lk(_merge_spill_lock);
-        if (_is_merging) {
-            _merge_spill_cv.wait(lk);
-        }
-    }
     return Base::close(state);
 }
 PartitionedAggSourceOperatorX::PartitionedAggSourceOperatorX(ObjectPool* pool,
@@ -224,12 +218,8 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                             }
                             Base::_shared_state->in_mem_shared_state->aggregate_data_container
                                     ->init_once();
-                            {
-                                std::unique_lock<std::mutex> lk(_merge_spill_lock);
-                                _is_merging = false;
-                                _dependency->Dependency::set_ready();
-                                _merge_spill_cv.notify_one();
-                            }
+                            _is_merging = false;
+                            _dependency->Dependency::set_ready();
                         }};
                         bool has_agg_data = false;
                         auto& parent = Base::_parent->template cast<Parent>();

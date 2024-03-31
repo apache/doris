@@ -60,8 +60,6 @@ protected:
     std::future<Status> _spill_merge_future;
     bool _current_partition_eos = true;
     bool _is_merging = false;
-    std::mutex _merge_spill_lock;
-    std::condition_variable _merge_spill_cv;
 
     /// Resources in shared state will be released when the operator is closed,
     /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.

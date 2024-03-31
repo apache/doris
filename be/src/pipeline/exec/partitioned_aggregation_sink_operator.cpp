@@ -71,12 +71,6 @@ Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_stat
         return Status::OK();
     }
     dec_running_big_mem_op_num(state);
-    {
-        std::unique_lock<std::mutex> lk(_spill_lock);
-        if (_is_spilling) {
-            _spill_cv.wait(lk);
-        }
-    }
     return Base::close(state, exec_status);
 }
 
@@ -168,10 +162,6 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
     auto* runtime_state = local_state._runtime_state.get();
     RETURN_IF_ERROR(_agg_sink_operator->sink(runtime_state, in_block, false));
     if (eos) {
-        local_state.profile()->add_info_string(
-                "Spilled", local_state._shared_state->is_spilled ? "true" : "false");
-        LOG(INFO) << "agg node " << id()
-                  << " sink eos, spilled: " << local_state._shared_state->is_spilled;
         if (local_state._shared_state->is_spilled) {
             if (revocable_mem_size(state) > 0) {
                 RETURN_IF_ERROR(revoke_memory(state));
@@ -240,9 +230,10 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
     LOG(INFO) << "agg node " << Base::_parent->id() << " revoke_memory"
               << ", eos: " << _eos;
     RETURN_IF_ERROR(Base::_shared_state->sink_status);
-    DCHECK(!_is_spilling);
-    _is_spilling = true;
-    _shared_state->is_spilled = true;
+    if (!_shared_state->is_spilled) {
+        _shared_state->is_spilled = true;
+        profile()->add_info_string("Spilled", "true");
+    }
 
     // TODO: spill thread may set_ready before the task::execute thread put the task to blocked state
     if (!_eos) {
@@ -252,7 +243,6 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
     Status status;
     Defer defer {[&]() {
         if (!status.ok()) {
-            _is_spilling = false;
             if (!_eos) {
                 Base::_dependency->Dependency::set_ready();
             }
@@ -281,15 +271,12 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                                   << ", eos: " << _eos;
                     }
                     {
-                        std::unique_lock<std::mutex> lk(_spill_lock);
-                        _is_spilling = false;
                         if (_eos) {
                             Base::_dependency->set_ready_to_read();
                             _finish_dependency->set_ready();
                         } else {
                             Base::_dependency->Dependency::set_ready();
                         }
-                        _spill_cv.notify_one();
                     }
                 }};
                 auto* runtime_state = _runtime_state.get();

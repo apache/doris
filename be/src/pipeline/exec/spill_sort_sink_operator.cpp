@@ -74,12 +74,6 @@ Status SpillSortSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
-    {
-        std::unique_lock<std::mutex> lk(_spill_lock);
-        if (_is_spilling) {
-            _spill_cv.wait(lk);
-        }
-    }
     auto& parent = Base::_parent->template cast<Parent>();
     if (parent._enable_spill) {
         dec_running_big_mem_op_num(state);
@@ -179,10 +173,6 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
             local_state._shared_state->in_mem_shared_state->sorter->data_size());
     if (eos) {
         if (_enable_spill) {
-            local_state.profile()->add_info_string(
-                    "Spilled", local_state._shared_state->is_spilled ? "true" : "false");
-            LOG(INFO) << "sort node " << id()
-                      << " sink eos, spilled: " << local_state._shared_state->is_spilled;
             if (local_state._shared_state->is_spilled) {
                 if (revocable_mem_size(state) > 0) {
                     RETURN_IF_ERROR(revoke_memory(state));
@@ -205,9 +195,10 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     return Status::OK();
 }
 Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
-    DCHECK(!_is_spilling);
-    _is_spilling = true;
-    _shared_state->is_spilled = true;
+    if (!_shared_state->is_spilled) {
+        _shared_state->is_spilled = true;
+        profile()->add_info_string("Spilled", "true");
+    }
 
     LOG(INFO) << "sort node " << Base::_parent->id() << " revoke_memory"
               << ", eos: " << _eos;
@@ -263,17 +254,12 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
                                 _shared_state->clear();
                             }
 
-                            {
-                                std::unique_lock<std::mutex> lk(_spill_lock);
-                                _spilling_stream.reset();
-                                _is_spilling = false;
-                                if (_eos) {
-                                    _dependency->set_ready_to_read();
-                                    _finish_dependency->set_ready();
-                                } else {
-                                    _dependency->Dependency::set_ready();
-                                }
-                                _spill_cv.notify_one();
+                            _spilling_stream.reset();
+                            if (_eos) {
+                                _dependency->set_ready_to_read();
+                                _finish_dependency->set_ready();
+                            } else {
+                                _dependency->Dependency::set_ready();
                             }
                         }};
 
@@ -308,7 +294,6 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
                         return Status::OK();
                     });
     if (!status.ok()) {
-        _is_spilling = false;
         _spilling_stream->end_spill(status);
 
         if (!_eos) {
