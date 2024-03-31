@@ -118,19 +118,12 @@ public:
 
     String get_name() const override { return "group_array_intersect"; }
 
-    // DataTypePtr get_return_type() const override { return argument_type; }
     DataTypePtr get_return_type() const override {
         std::string demangled_name = boost::core::demangle(typeid(argument_type).name());
         LOG(INFO) << "in the get_return_type, name of argument_type: " << demangled_name;
         std::string demangled_name_T = boost::core::demangle(typeid(T).name());
         LOG(INFO) << "in the get_return_type, name of T: " << demangled_name_T;
-        // return std::make_shared<DataTypeArray>(make_nullable(argument_type));
         return argument_type;
-
-        // using ReturnDataType = DataTypeNumber<T>;
-        // std::string demangled_name_re = boost::core::demangle(typeid(ReturnDataType).name());
-        // LOG(INFO) << "in the get_return_type, name of ReturnDataType: " << demangled_name_re;
-        // return std::make_shared<DataTypeArray>(std::make_shared<ReturnDataType>());
     }
 
     bool allocates_memory_in_arena() const override { return false; }
@@ -182,10 +175,7 @@ public:
                         is_column_data_nullable && col_null->is_null_at(offset + i);
                 const T* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
-                // const char* src_data = reinterpret_cast<const char*>(
-                //         &(nested_column_data->get_element(offset + i)));
-                // auto src_data = nested_column_data->get_data_at(offset + i);
-                // set->insert((void*)&value);
+
                 if (is_null_element) {
                     LOG(INFO) << "src_data is null!!!!";
                     // src_data.data = nullptr;
@@ -207,9 +197,6 @@ public:
                 LOG(INFO) << "in the last of version==1, the set contains null.";
             }
 
-            // LOG(INFO) << "before insert ";
-            // set->insert_fixed_len(data_column, offset);
-            // LOG(INFO) << "after insert ";
         } else if (set->size() != 0 || set->contain_null()) {
             // typename State::Set new_set;
             typename State::Set new_set = std::make_shared<typename State::NullableKeySetType>();
@@ -220,9 +207,7 @@ public:
                         is_column_data_nullable && col_null->is_null_at(offset + i);
                 const T* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
-                // const char* src_data = reinterpret_cast<const char*>(
-                //         &(nested_column_data->get_element(offset + i)));
-                // auto src_data = nested_column_data->get_data_at(offset + i);
+
                 if (is_null_element) {
                     LOG(INFO) << "src_data is null again ~";
                     // src_data.data = nullptr;
@@ -233,19 +218,12 @@ public:
                 if (src_data == nullptr) {
                     LOG(INFO) << "src_data==nullptr is true. ";
                 }
-                // if (set->find((void*)(src_data.data))) {
-                //     LOG(INFO) << "we can find set's value: " << src_data.to_string();
-                //     // new_set->insert((void*)&value);
-                //     new_set->insert((src_data.data));
-                //     LOG(INFO) << "After inserting value.";
-                // }
                 if (set->find(src_data) || src_data == nullptr) {
                     if (set->find(src_data)) {
                         LOG(INFO) << "we can find set's value: " << *src_data;
                     } else {
                         LOG(INFO) << "src_data is null again ";
                     }
-                    // new_set->insert((void*)&value);
                     new_set->insert(src_data);
                     LOG(INFO) << "After inserting value.";
                 }
@@ -257,129 +235,19 @@ public:
             if (new_set->contain_null()) {
                 LOG(INFO) << "before swap between set and new_set, the new_set contains null.";
             }
-
-            // set->clear();
-            // set->change_contains_null_value(new_set->contain_null());
-            // HybridSetBase::IteratorBase* it = new_set->begin();
-            // while (it->has_next()) {
-            //     const T* value = reinterpret_cast<const T*>(it->get_value());
-            //     LOG(INFO) << "In the while loop, we insert the value: " << *value;
-
-            //     set->insert(value);
-            //     it->next();
-            // }
-            // new_set->clear();
             set = std::move(new_set);
 
             if (set->contain_null()) {
                 LOG(INFO) << "after swap between set and new_set, the set contains null.";
             }
-            // if (new_set->contain_null()) {
-            //     LOG(INFO) << "after swap between set and new_set, the new_set contains null.";
-            // }
         }
-
-        // using ColVecType = ColumnVector<T>;
-        // LOG(INFO) << "the name of column is: " << column.get_name();
-
-        // const auto& column_data = column.get_data();
-
-        // bool is_column_data_nullable = column_data.is_nullable();
-        // ColumnNullable* col_null = nullptr;
-        // const ColVecType* nested_column_data = nullptr;
-
-        // if (is_column_data_nullable) {
-        //     LOG(INFO) << "nested_col is nullable. ";
-        //     auto const_col_data = const_cast<IColumn*>(&column_data);
-        //     col_null = static_cast<ColumnNullable*>(const_col_data);
-        //     nested_column_data = &assert_cast<const ColVecType&>(col_null->get_nested_column());
-        // } else {
-        //     LOG(INFO) << "nested_col is not nullable. ";
-        //     nested_column_data = &static_cast<const ColVecType&>(column_data);
-        // }
-
-        // std::string demangled_name_column =
-        //         boost::core::demangle(typeid(*nested_column_data).name());
-        // LOG(INFO) << "In add func, the name of nested_column_data: " << demangled_name_column;
-
-        // const auto& offsets = column.get_offsets();
-        // const size_t offset = offsets[row_num - 1];
-        // const auto arr_size = offsets[row_num] - offset;
-        // LOG(INFO) << "In add func, the name of *columns[0] is: " << (*columns[0]).get_name();
-        // LOG(INFO) << "In add func, offsets size: " << offsets.size();
-        // LOG(INFO) << "In add func, offsets capacity: " << offsets.capacity();
-
-        // LOG(INFO) << "Before update: version = " << version
-        //           << ", set = {"; // 输出更新前的 version 和 set
-        // for (const auto& elem : set) {
-        //     LOG(INFO) << elem.get_value() << " "; // 逐个输出 set 中的元素
-        // }
-        // LOG(INFO) << "}";
-
-        // ++version;
-        // if (version == 1) {
-        //     LOG(INFO) << "Inserting elements into an empty set...";
-        //     for (size_t i = 0; i < arr_size; ++i) {
-        //         if (col_null->is_null_at(offset + i)) {
-        //             LOG(INFO) << "Encounting null: ";
-        //             // this->data(place).null_set.insert(offset + i);
-        //             has_null = 1;
-        //             break;
-        //         } else {
-        //             T value = nested_column_data->get_element(offset + i);
-        //             LOG(INFO) << "Inserting value: " << value;
-        //             set.insert(value);
-        //         }
-        //     }
-        // } else if (!set.empty()) {
-        //     LOG(INFO) << "Updating an existing set...";
-        //     typename State::Set new_set;
-        //     bool found_null = false;
-        //     for (size_t i = 0; i < arr_size; ++i) {
-        //         T value; // 将value的声明移动到循环体的开始
-        //         if (col_null && col_null->is_null_at(offset + i)) {
-        //             LOG(INFO) << "Encounting null: ";
-        //             if (!found_null) { // 如果还没有找到null值
-        //                 // this->data(place).null_set.insert(offset + i);
-        //                 has_null = 1;
-        //                 found_null = true; // 更新标志
-        //             }
-        //             break; // 遇到null值，跳出循环
-        //         } else {
-        //             value = nested_column_data->get_element(offset + i);
-        //         }
-        //         LOG(INFO) << "Checking value: " << value;
-        //         typename State::Set::LookupResult set_value = set.find(value);
-        //         if (set_value != nullptr) {
-        //             LOG(INFO) << "Value found in the set, inserting into new_set";
-        //             new_set.insert(value);
-        //         } else {
-        //             LOG(INFO) << "Value not found in the set, skipping";
-        //         }
-        //     }
-        //     set = std::move(new_set);
-        // }
-
-        // LOG(INFO) << "After update: set = {";
-        // for (const auto& elem : set) {
-        //     LOG(INFO) << elem.get_value() << " ";
-        // }
-        // LOG(INFO) << "}";
-
-        // if (is_column_data_nullable) {
-        //     auto& null_map_data = col_null->get_null_map_data();
-        //     null_map_data.resize_fill(nested_column_data->size(), 0);
-        // }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
         auto& data = this->data(place);
-
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
-        // auto& null_set = this->data(place).null_set;
-        // const auto& rhs_null_set = this->data(rhs).null_set;
         set->change_contains_null_value(rhs_set->contain_null());
 
         LOG(INFO) << "merge: place set size = " << set->size();
@@ -421,15 +289,6 @@ public:
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
                                                          : create_new_set(set, rhs_set);
-            // set->clear();
-            // set->change_contains_null_value(new_set->contain_null());
-            // HybridSetBase::IteratorBase* it = new_set->begin();
-            // while (it->has_next()) {
-            //     const void* value = it->get_value();
-            //     set->insert(value);
-            //     it->next();
-            // }
-            // new_set->clear();
             set = std::move(new_set);
         }
 
@@ -482,14 +341,6 @@ public:
             write_int_binary((*value_ptr), buf);
             it->next();
         }
-        // }
-        // } else {
-        // }
-        // // 序列化null_set
-        // write_var_uint(null_set.size(), buf);
-        // for (const auto& null_index : null_set) {
-        //     write_var_uint(null_index, buf);
-        // }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
@@ -509,19 +360,8 @@ public:
         read_var_uint(size, buf);
         LOG(INFO) << "Deserialized size: " << size;
 
-        // read_binary(data.value, buf);
         LOG(INFO) << "Deserialized set: {";
         T element;
-        // for (const auto& elem : this->data(place).value) {
-        //     LOG(INFO) << elem.get_value() << " ";
-        // }
-        // HybridSetBase::IteratorBase* it = data.value->begin();
-        // while (it->has_next()) {
-        //     const T* value_ptr = reinterpret_cast<const T*>(it->get_value());
-        //     // const StringRef* str_ref = reinterpret_cast<const StringRef*>(value_ptr);
-        //     LOG(INFO) << "derializing element: " << (*value_ptr);
-        //     it->next();
-        // }
         for (size_t i = 0; i < size; ++i) {
             read_int_binary(element, buf);
             LOG(INFO) << "derializing element: " << element;
@@ -532,15 +372,6 @@ public:
         if (data.value->contain_null()) {
             LOG(INFO) << "After reading of deserialize, the set contains null.";
         }
-        // }
-
-        // size_t null_set_size;
-        // read_var_uint(null_set_size, buf);
-        // for (size_t i = 0; i < null_set_size; ++i) {
-        //     size_t null_index;
-        //     read_var_uint(null_index, buf);
-        //     this->data(place).null_set.insert(null_index);
-        // }
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -566,20 +397,6 @@ public:
             auto& nested_col = assert_cast<ColVecType&>(col_null->get_nested_column());
             auto& null_map_data = col_null->get_null_map_data();
 
-            // if (this->data(place).has_null == 1) {
-            //     LOG(INFO) << "We have null, pass!";
-            //     // nested_col.insert_default();
-            //     // if (offsets_to.size() == 0) {
-            //     //     offsets_to.push_back(0);
-            //     // } else {
-            //     //     offsets_to.push_back(offsets_to.back());
-            //     // }
-            //     // nested_col.get_data().resize(1);
-            //     // nested_col.insert_default();
-            //     col_null->insert_data(nullptr, 0);
-            //     offsets_to.push_back(to_nested_col.size());
-            //     // null_map_data.push_back(1);
-            // } else {
             size_t old_size = nested_col.get_data().size();
             LOG(INFO) << "old_size of data_to: " << old_size;
 
@@ -642,27 +459,6 @@ public:
             }
         }
         LOG(INFO) << "After making value to data_to, leaving...";
-
-        // auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
-        // auto& data_to = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
-        // // typename ColumnVector<T>::Container& data_to =
-        // //         assert_cast<ColumnVector<T>&>(arr_to.get_data()).get_data();
-        // std::string demangled_name = boost::core::demangle(typeid(data_to).name());
-        // LOG(INFO) << "name of data_to: " << demangled_name << std::endl;
-        // size_t old_size = data_to.size();
-        // LOG(INFO) << "old_size of data_to: " << old_size;
-
-        // data_to.resize(old_size + set.size());
-        // LOG(INFO) << "after resize, size of data_to: " << data_to.size();
-
-        // size_t i = 0;
-        // for (auto it = set.begin(); it != set.end(); ++it, ++i) {
-        //     T value = it.get_value();
-        //     LOG(INFO) << "Inserting value: " << value << " at index " << (old_size + i);
-        //     data_to[old_size + i] = value;
-        // }
-        // LOG(INFO) << "after for loop, size of data_to: " << data_to.size();
-        // LOG(INFO) << "After making value to data_to, leaving...";
     }
 };
 
