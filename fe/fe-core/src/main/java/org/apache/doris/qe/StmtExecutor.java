@@ -2769,6 +2769,14 @@ public class StmtExecutor {
             if (!(parsedStmt instanceof AnalyzeStmt)) {
                 context.getState().setOk();
             }
+            // copy into used
+            if (context.getState().getResultSet() != null) {
+                if (isProxy) {
+                    proxyShowResultSet = context.getState().getResultSet();
+                    return;
+                }
+                sendResultSet(context.getState().getResultSet());
+            }
         } catch (QueryStateException e) {
             LOG.warn("", e);
             context.setState(e.getQueryState());

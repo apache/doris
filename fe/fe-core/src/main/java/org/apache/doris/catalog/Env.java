@@ -49,6 +49,7 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -59,6 +60,7 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionName;
@@ -93,6 +95,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -159,6 +162,7 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.StreamLoadRecordMgr;
+import org.apache.doris.load.loadv2.CleanCopyJobScheduler;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
@@ -466,6 +470,7 @@ public class Env {
     private PriorityMasterTaskExecutor<LoadTask> loadingLoadTaskScheduler;
 
     private LoadJobScheduler loadJobScheduler;
+    private CleanCopyJobScheduler cleanCopyJobScheduler;
 
     private LoadEtlChecker loadEtlChecker;
     private LoadLoadingChecker loadLoadingChecker;
@@ -718,7 +723,8 @@ public class Env {
                 Config.async_loading_load_task_pool_size, LoadTask.COMPARATOR, LoadTask.class, !isCheckpointCatalog);
 
         this.loadJobScheduler = new LoadJobScheduler();
-        this.loadManager = EnvFactory.getInstance().createLoadManager(loadJobScheduler);
+        this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
+        this.loadManager = EnvFactory.getInstance().createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
         this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
@@ -1636,6 +1642,7 @@ public class Env {
         loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
+        cleanCopyJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
         // Tablet checker and scheduler
@@ -6128,6 +6135,23 @@ public class Env {
         } catch (Exception e) {
             throw new TException(e);
         }
+    }
+
+    public void createStage(CreateStageStmt stmt) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            throw new DdlException("stage is only supported in cloud mode");
+        }
+        if (!stmt.isDryRun()) {
+            getInternalCatalog().createStage(stmt.toStageProto(), stmt.isIfNotExists());
+        }
+    }
+
+    public void dropStage(DropStageStmt stmt) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            throw new DdlException("stage is only supported in cloud mode");
+        }
+        getInternalCatalog().dropStage(Cloud.StagePB.StageType.EXTERNAL, null, null, stmt.getStageName(), null,
+                stmt.isIfExists());
     }
 
     private void replayJournalsAndExit() {

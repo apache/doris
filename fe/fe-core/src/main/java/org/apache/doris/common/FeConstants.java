@@ -63,6 +63,9 @@ public class FeConstants {
     // use \N to indicate NULL
     public static String null_string = "\\N";
 
+    // use for copy into test
+    public static boolean disablePreHeat = false;
+
     public static final String FS_PREFIX_S3 = "s3";
     public static final String FS_PREFIX_S3A = "s3a";
     public static final String FS_PREFIX_S3N = "s3n";

@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -57,6 +58,7 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -102,6 +104,16 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (ConnectContext.get() != null) {
             enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
             enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+        }
+    }
+
+    public BrokerLoadJob(EtlJobType type, long dbId, String label, BrokerDesc brokerDesc,
+            OriginStatement originStmt, UserIdentity userInfo)
+            throws MetaNotFoundException {
+        super(type, dbId, label, originStmt, userInfo);
+        this.brokerDesc = brokerDesc;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
+            enableProfile = true;
         }
     }
 
@@ -212,8 +224,16 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        task.init(loadId, attachment.getFileStatusByTable(aggKey),
-                attachment.getFileNumByTable(aggKey), getUserInfo());
+        if (Config.isNotCloudMode()) {
+            task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                    attachment.getFileNumByTable(aggKey), getUserInfo());
+        } else {
+            if (Strings.isNullOrEmpty(clusterId)) {
+                throw new UserException("can not get a valid cluster");
+            }
+            task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                    attachment.getFileNumByTable(aggKey), getUserInfo(), clusterId);
+        }
         task.settWorkloadGroups(tWorkloadGroups);
         return task;
     }
@@ -334,10 +354,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                     .add("msg", "Load job try to commit txn")
                     .build());
             Env.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, tableList, transactionId, commitInfos,
-                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-                            finishTimestamp, state, failMsg));
+                    dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
             afterLoadingTaskCommitTransaction(tableList);
+            afterCommit();
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
@@ -355,6 +374,13 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     // cloud override
     protected void afterLoadingTaskCommitTransaction(List<Table> tableList) {
+    }
+
+    protected void afterCommit() throws DdlException {}
+
+    protected LoadJobFinalOperation getLoadJobFinalOperation() {
+        return new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp, state,
+                failMsg);
     }
 
     private void writeProfile() {
@@ -439,6 +465,87 @@ public class BrokerLoadJob extends BulkLoadJob {
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
         super.afterVisible(txnState, txnOperated);
         writeProfile();
+    }
+
+    @Override
+    public void onTaskFailed(long taskId, FailMsg failMsg) {
+        if (!Config.isCloudMode() || Strings.isNullOrEmpty(this.clusterId)) {
+            super.onTaskFailed(taskId, failMsg);
+            return;
+        }
+        try {
+            writeLock();
+            if (isTxnDone()) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("label", label)
+                        .add("transactionId", transactionId)
+                        .add("state", state)
+                        .add("error_msg", "this task will be ignored when job is: " + state)
+                        .build());
+                return;
+            }
+            LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                    .add("label", label)
+                    .add("transactionId", transactionId)
+                    .add("state", state)
+                    .add("retryTimes", retryTimes)
+                    .add("failMsg", failMsg.getMsg())
+                    .build());
+
+            this.retryTimes--;
+            if (this.retryTimes <= 0) {
+                boolean abortTxn = this.transactionId > 0 ? true : false;
+                unprotectedExecuteCancel(failMsg, abortTxn);
+                logFinalOperation();
+                return;
+            } else {
+                unprotectedExecuteRetry(failMsg);
+            }
+        } finally {
+            writeUnlock();
+        }
+
+        boolean allTaskDone = false;
+        while (!allTaskDone) {
+            try {
+                writeLock();
+                // check if all task has been done
+                // unprotectedExecuteRetry() will cancel all running task
+                allTaskDone = true;
+                for (Map.Entry<Long, LoadTask> entry : idToTasks.entrySet()) {
+                    if (entry.getKey() != taskId && !entry.getValue().isDone()) {
+                        LOG.info("LoadTask({}) has not been done", entry.getKey());
+                        allTaskDone = false;
+                    }
+                }
+            } finally {
+                writeUnlock();
+            }
+            if (!allTaskDone) {
+                try {
+                    Thread.sleep(1000);
+                    continue;
+                } catch (InterruptedException e) {
+                    LOG.warn("", e);
+                }
+            }
+        }
+
+        try {
+            writeLock();
+            this.state = JobState.PENDING;
+            this.idToTasks.clear();
+            this.failMsg = null;
+            this.finishedTaskIds.clear();
+            Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);
+            LoadTask task = createPendingTask();
+            // retry default backoff 60 seconds, because `be restart` is slow
+            task.setStartTimeMs(System.currentTimeMillis() + 60 * 1000);
+            idToTasks.put(task.getSignature(), task);
+            Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(task);
+        } finally {
+            writeUnlock();
+        }
     }
 
     @Override

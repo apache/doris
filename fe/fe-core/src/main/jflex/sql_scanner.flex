@@ -516,6 +516,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("workload", new Integer(SqlParserSymbols.KW_WORKLOAD));
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
+        keywordMap.put("stage", new Integer(SqlParserSymbols.KW_STAGE));
+        keywordMap.put("stages", new Integer(SqlParserSymbols.KW_STAGES));
         keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
         keywordMap.put("histogram", new Integer(SqlParserSymbols.KW_HISTOGRAM));
         keywordMap.put("auto", new Integer(SqlParserSymbols.KW_AUTO));

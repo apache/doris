@@ -78,6 +78,12 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
     public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
+
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_ERR;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_QUERY_REQUEST;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_QUERY_ERR;
+
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ALL;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ERR;
     public static Histogram HISTO_QUERY_LATENCY;
@@ -103,6 +109,8 @@ public final class MetricRepo {
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
     public static Histogram HISTO_JOURNAL_BATCH_SIZE;
     public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
+    public static Histogram HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY;
+    public static Histogram HISTO_HTTP_COPY_INTO_QUERY_LATENCY;
 
     public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
@@ -492,6 +500,24 @@ public final class MetricRepo {
                 new LongCounterMetric("thrift_rpc_total", MetricUnit.NOUNIT, ""));
         THRIFT_COUNTER_RPC_LATENCY = addLabeledMetrics("method", () ->
                 new LongCounterMetric("thrift_rpc_latency_ms", MetricUnit.MILLISECONDS, ""));
+
+        // copy into
+        HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST = new LongCounterMetric("http_copy_into_upload_request_total",
+                MetricUnit.REQUESTS, "http copy into upload total request");
+        DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST);
+        HTTP_COUNTER_COPY_INFO_UPLOAD_ERR = new LongCounterMetric("http_copy_into_upload_err_total",
+                MetricUnit.REQUESTS, "http copy into upload err request");
+        DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_UPLOAD_ERR);
+        HTTP_COUNTER_COPY_INFO_QUERY_REQUEST = new LongCounterMetric("http_copy_into_query_request_total",
+                MetricUnit.REQUESTS, "http copy into total query request");
+        DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_QUERY_REQUEST);
+        HTTP_COUNTER_COPY_INFO_QUERY_ERR = new LongCounterMetric("http_copy_into_upload_err_total",
+                MetricUnit.REQUESTS, "http copy into err query request");
+        DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_QUERY_ERR);
+        HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY = METRIC_REGISTER.histogram(
+            MetricRegistry.name("http_copy_into_upload", "latency", "ms"));
+        HISTO_HTTP_COPY_INTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
+            MetricRegistry.name("http_copy_into_query", "latency", "ms"));
 
         // init system metrics
         initSystemMetrics();
