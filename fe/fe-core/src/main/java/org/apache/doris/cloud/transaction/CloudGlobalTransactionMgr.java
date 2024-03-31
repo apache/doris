@@ -550,13 +550,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         Map<Long, Long> partitionToVersions = Maps.newHashMap();
         List<CloudPartition> cloudPartitions = Lists.newArrayList();
         partitionMap.forEach((key, value) -> {
-            if (value instanceof CloudPartition) {
-                cloudPartitions.add((CloudPartition) value);
-            } else {
-                long visibleVersion = value.getVisibleVersion();
-                long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
-                partitionToVersions.put(key, newVersion);
-            }
+            cloudPartitions.add((CloudPartition) value);
         });
         try {
             List<Long> visibleVersion = CloudPartition.getSnapshotVisibleVersion(cloudPartitions);
