@@ -1443,7 +1443,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                 runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
                 pool = &pip_context->get_query_ctx()->obj_pool;
                 query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                    pip_context->get_query_ctx()->query_mem_tracker};
+                                        pip_context->get_query_ctx()->query_mem_tracker};
             } else {
                 auto iter = _fragment_instance_map.find(tfragment_instance_id);
                 if (iter == _fragment_instance_map.end()) {
@@ -1455,7 +1455,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                 runtime_filter_mgr = fragment_executor->get_query_ctx()->runtime_filter_mgr();
                 pool = &fragment_executor->get_query_ctx()->obj_pool;
                 query_thread_context = {fragment_executor->get_query_ctx()->query_id(),
-                                    fragment_executor->get_query_ctx()->query_mem_tracker};
+                                        fragment_executor->get_query_ctx()->query_mem_tracker};
             }
             break;
         }

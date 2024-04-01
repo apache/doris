@@ -1288,7 +1288,6 @@ void IRuntimeFilter::set_dependency(pipeline::CountedFinishDependency* dependenc
 void IRuntimeFilter::set_global_size(uint64_t global_size) {
     CHECK(_dependency);
     _global_size = global_size;
-    _isset_global_size = true;
     _dependency->sub();
 }
 
