@@ -40,7 +40,7 @@ CREATE TABLE `stream_load_range_test_table`(
   `col39` decimal(9, 3),
   `col40` char(128)
 ) UNIQUE KEY(`col1`)
-AUTO PARTITION BY range date_trunc(`col1`, 'day')
+auto partition by range (date_trunc(`col1`, 'day'))
 (
 )
 DISTRIBUTED BY HASH(`col1`) BUCKETS 10

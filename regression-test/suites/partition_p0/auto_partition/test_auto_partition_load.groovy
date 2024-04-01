@@ -25,7 +25,7 @@ suite("test_auto_partition_load") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`k2`, 'year')
+        auto partition by range (date_trunc(`k2`, 'year'))
         (
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 16
