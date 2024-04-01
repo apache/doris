@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScala
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -486,11 +487,12 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalSort<LogicalSetOperation> sort = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
+        List<Slot> childOutput = sort.child().getOutput();
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 sort, cascadesContext, sort.children(), true, true);
         Builder<OrderKey> boundKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
         for (OrderKey orderKey : sort.getOrderKeys()) {
-            Expression boundKey = analyzer.analyze(orderKey.getExpr());
+            Expression boundKey = bindWithOrdinal(orderKey.getExpr(), analyzer, childOutput);
             boundKeys.add(orderKey.withExpression(boundKey));
         }
         return new LogicalSort<>(boundKeys.build(), sort.child());
@@ -699,7 +701,11 @@ public class BindExpression implements AnalysisRuleFactory {
                     return useOutputExpr.build();
                 });
 
-        List<Expression> boundGroupBy = analyzer.analyzeToList(groupBy);
+        ImmutableList.Builder<Expression> boundGroupByBuilder = ImmutableList.builderWithExpectedSize(groupBy.size());
+        for (Expression key : groupBy) {
+            boundGroupByBuilder.add(bindWithOrdinal(key, analyzer, boundAggOutput));
+        }
+        List<Expression> boundGroupBy = boundGroupByBuilder.build();
         checkIfOutputAliasNameDuplicatedForGroupBy(boundGroupBy, boundAggOutput);
         return boundGroupBy;
     }
@@ -723,6 +729,9 @@ public class BindExpression implements AnalysisRuleFactory {
     private Plan bindSortWithoutSetOperation(MatchingContext<LogicalSort<Plan>> ctx) {
         LogicalSort<Plan> sort = ctx.root;
         Plan input = sort.child();
+
+        List<Slot> childOutput = input.getOutput();
+
         // we should skip LogicalHaving to bind slot in LogicalSort;
         if (input instanceof LogicalHaving) {
             input = input.child(0);
@@ -744,7 +753,8 @@ public class BindExpression implements AnalysisRuleFactory {
         //        group by col1
         //        order by col1;     # order by order_col1
         //    bind order_col1 with alias_col1, then, bind it with inner_col1
-        Scope inputScope = toScope(cascadesContext, input.getOutput());
+        List<Slot> inputSlots = input.getOutput();
+        Scope inputScope = toScope(cascadesContext, inputSlots);
 
         final Plan finalInput = input;
         Supplier<Scope> inputChildrenScope = Suppliers.memoize(
@@ -766,7 +776,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Builder<OrderKey> boundOrderKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
         for (OrderKey orderKey : sort.getOrderKeys()) {
-            Expression boundKey = analyzer.analyze(orderKey.getExpr());
+            Expression boundKey = bindWithOrdinal(orderKey.getExpr(), analyzer, childOutput);
             boundOrderKeys.add(orderKey.withExpression(boundKey));
         }
         return new LogicalSort<>(boundOrderKeys.build(), sort.child());
@@ -856,6 +866,21 @@ public class BindExpression implements AnalysisRuleFactory {
     private boolean isAggregateFunction(UnboundFunction unboundFunction, FunctionRegistry functionRegistry) {
         return functionRegistry.isAggregateFunction(
                     unboundFunction.getDbName(), unboundFunction.getName());
+    }
+
+    private Expression bindWithOrdinal(
+            Expression unbound, SimpleExprAnalyzer analyzer, List<? extends Expression> boundSelectOutput) {
+        if (unbound instanceof IntegerLikeLiteral) {
+            int ordinal = ((IntegerLikeLiteral) unbound).getIntValue();
+            if (ordinal >= 1 && ordinal <= boundSelectOutput.size()) {
+                Expression boundSelectItem = boundSelectOutput.get(ordinal - 1);
+                return boundSelectItem instanceof Alias ? boundSelectItem.child(0) : boundSelectItem;
+            } else {
+                return unbound; // bound literal
+            }
+        } else {
+            return analyzer.analyze(unbound);
+        }
     }
 
     private <E extends Expression> E checkBoundExceptLambda(E expression, Plan plan) {
