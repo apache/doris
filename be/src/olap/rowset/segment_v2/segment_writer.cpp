@@ -698,8 +698,9 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 std::string default_value;
                 if (UNLIKELY(_tablet_schema->column(cids_missing[i]).type() ==
                                      FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
-                             to_lower(_tablet_schema->column(cids_missing[i]).default_value()) ==
-                                     to_lower("CURRENT_TIMESTAMP"))) {
+                             to_lower(_tablet_schema->column(cids_missing[i]).default_value())
+                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                     std::string::npos)) {
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
                                       _opts.rowset_ctx->partial_update_info->timezone);
