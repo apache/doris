@@ -1294,6 +1294,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         List<Expression> localAggGroupBy = ImmutableList.copyOf(localAggGroupBySet);
         boolean isGroupByEmptySelectEmpty = localAggGroupBy.isEmpty() && localAggOutput.isEmpty();
+
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
         if (isGroupByEmptySelectEmpty) {
             localAggGroupBy = ImmutableList.of(new NullLiteral(TinyIntType.INSTANCE));
             localAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
@@ -1324,6 +1327,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(nonDistinctAggFunctionToAliasPhase2.values())
                 .build();
 
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
         if (isGroupByEmptySelectEmpty) {
             globalAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
         }
@@ -1693,6 +1698,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         RequireProperties requireAny = RequireProperties.of(PhysicalProperties.ANY);
 
         boolean isGroupByEmptySelectEmpty = localAggGroupBy.isEmpty() && localAggOutput.isEmpty();
+
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
         if (isGroupByEmptySelectEmpty) {
             localAggGroupBy = ImmutableList.of(new NullLiteral(TinyIntType.INSTANCE));
             localAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
@@ -1720,6 +1728,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(nonDistinctAggFunctionToAliasPhase2.values())
                 .build();
 
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
         if (isGroupByEmptySelectEmpty) {
             globalAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
         }
