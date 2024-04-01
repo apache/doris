@@ -623,12 +623,17 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
+            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
