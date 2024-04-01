@@ -272,9 +272,6 @@ public:
 
     bool _eos = false;
     std::shared_ptr<Dependency> _finish_dependency;
-    bool _is_spilling = false;
-    std::mutex _spill_lock;
-    std::condition_variable _spill_cv;
 
     /// Resources in shared state will be released when the operator is closed,
     /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
