@@ -683,14 +683,18 @@ public class VariableMgr {
                     }
                 }
 
-                VarContext varContext = ctxByVarName.get(entry.getKey());
-                if (varContext != null) {
-                    row.add(varContext.defaultValue);
-                    row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
+                VarContext varContext = ctxByDisplayVarName.get(entry.getKey());
+                if (VariableVarConverters.hasConverter(row.get(0))) {
+                    try {
+                        row.add(VariableVarConverters.decode(row.get(0), Long.valueOf(varContext.defaultValue)));
+                    } catch (DdlException e) {
+                        row.add(varContext.defaultValue);
+                        LOG.warn(String.format("encode session variable %s failed", row.get(0)));
+                    }
                 } else {
-                    row.add("-");
-                    row.add("-");
+                    row.add(varContext.defaultValue);
                 }
+                row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
 
                 rows.add(row);
             }
