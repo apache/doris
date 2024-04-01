@@ -91,9 +91,7 @@ public:
         if (arguments.size() == 2 && is_column_const(*block.get_by_position(arguments[0]).column) &&
             is_column_const(*block.get_by_position(arguments[1]).column)) {
             // truncate(ColumnConst, ColumnConst)
-            auto col_general = assert_cast<const ColumnConst&>(*column_general.column)
-                                       .get_data_column()
-                                       .clone_resized(1);
+            auto col_general = assert_cast<const ColumnConst&>(*column_general.column).get_data_column_ptr();
             Int16 scale_arg = 0;
             RETURN_IF_ERROR(FunctionTruncate<Impl>::get_scale_arg(
                     block.get_by_position(arguments[1]), &scale_arg));
@@ -105,8 +103,7 @@ public:
                 if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
                     using FieldType = typename DataType::FieldType;
                     res = Dispatcher<FieldType, RoundingMode::Trunc,
-                                     TieBreakingMode::Auto>::apply_vec_const(std::move(col_general),
-                                                                             scale_arg);
+                                     TieBreakingMode::Auto>::apply_vec_const(col_general, scale_arg);
                     return true;
                 }
 

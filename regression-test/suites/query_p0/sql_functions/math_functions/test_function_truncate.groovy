@@ -24,7 +24,17 @@ suite("test_function_truncate") {
     """
     qt_sql """
         SELECT number, truncate(123.123, 0) FROM numbers("number"="10");
+    """
+
+    // const_const, result scale should be 10
+    qt_sql """
+        SELECT truncate(cast(0 as Decimal(9,8)), 10);
     """  
+
+    // const_const, result scale should be 1
+    qt_sql """
+        SELECT number, truncate(cast(0 as Decimal(9,4)), 1) FROM numbers("number"="5")
+    """
 
     sql """DROP TABLE IF EXISTS test_function_truncate;"""
     sql """DROP TABLE IF EXISTS test_function_truncate_dec128;"""
@@ -58,6 +68,11 @@ suite("test_function_truncate") {
         (3, 12345.123, 123456789.123456789,
              123456789, 12345678.1, 0.123456789,
              123456789.1, 1.123456789, 0.123456789, 1);
+    """
+    sql """
+        INSERT INTO test_function_truncate
+            VALUES
+        (4, 0, 0, 0, 0.0, 0, 0, 0, 0, 1);
     """
     qt_vec_const0 """
         SELECT rid, truncate(flo, 0), truncate(dou, 0) FROM test_function_truncate order by rid;
