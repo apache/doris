@@ -559,7 +559,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
         if (agg_node->is_probe_expr_ctxs_empty() && node->row_desc().num_slots() == 0) {
-            return Status::InternalError( "Illegal aggregate node " +
+            return Status::InternalError("Illegal aggregate node " +
                                          std::to_string(agg_node->id()) +
                                          ": group by and output is empty");
         }
