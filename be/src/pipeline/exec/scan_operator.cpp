@@ -1219,7 +1219,8 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipXScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            state()->scan_queue_mem_limit(), _scan_dependency);
+            state()->scan_queue_mem_limit(), _scan_dependency,
+            p.ignore_data_distribution() ? 1 : state()->query_parallel_instance_num());
     return Status::OK();
 }
 

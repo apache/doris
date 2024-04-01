@@ -333,10 +333,11 @@ public class BindExpression implements AnalysisRuleFactory {
         List<LogicalPlan> relations
                 = Lists.newArrayListWithCapacity(logicalInlineTable.getConstantExprsList().size());
         for (int i = 0; i < logicalInlineTable.getConstantExprsList().size(); i++) {
-            if (logicalInlineTable.getConstantExprsList().get(i).stream()
-                    .anyMatch(DefaultValueSlot.class::isInstance)) {
-                throw new AnalysisException("Default expression"
-                        + " can't exist in SELECT statement at row " + (i + 1));
+            for (NamedExpression constantExpr : logicalInlineTable.getConstantExprsList().get(i)) {
+                if (constantExpr instanceof DefaultValueSlot) {
+                    throw new AnalysisException("Default expression"
+                            + " can't exist in SELECT statement at row " + (i + 1));
+                }
             }
             relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                     logicalInlineTable.getConstantExprsList().get(i)));
@@ -594,7 +595,7 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 filter, cascadesContext, filter.children(), true, true);
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
-                filter.getConjuncts().size() * 2);
+                filter.getConjuncts().size());
         for (Expression conjunct : filter.getConjuncts()) {
             Expression boundConjunct = analyzer.analyze(conjunct);
             boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
@@ -832,15 +833,22 @@ public class BindExpression implements AnalysisRuleFactory {
         if (output.stream().noneMatch(Alias.class::isInstance)) {
             return;
         }
-        List<Alias> aliasList = output.stream().filter(Alias.class::isInstance)
-                .map(Alias.class::cast).collect(Collectors.toList());
+        List<Alias> aliasList = ExpressionUtils.filter(output, Alias.class);
 
         List<NamedExpression> exprAliasList =
                 ExpressionUtils.collectAll(expressions, NamedExpression.class::isInstance);
 
-        boolean isGroupByContainAlias = exprAliasList.stream().anyMatch(ne ->
-                aliasList.stream().anyMatch(alias -> !alias.getExprId().equals(ne.getExprId())
-                        && alias.getName().equals(ne.getName())));
+        boolean isGroupByContainAlias = false;
+        for (NamedExpression ne : exprAliasList) {
+            for (Alias alias : aliasList) {
+                if (!alias.getExprId().equals(ne.getExprId()) && alias.getName().equalsIgnoreCase(ne.getName())) {
+                    isGroupByContainAlias = true;
+                }
+            }
+            if (isGroupByContainAlias) {
+                break;
+            }
+        }
 
         if (isGroupByContainAlias
                 && ConnectContext.get() != null

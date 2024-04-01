@@ -132,6 +132,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
@@ -753,8 +754,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
-        Set<SlotReference> slotSet = catalogRelation.getOutput().stream().filter(SlotReference.class::isInstance)
-                .map(s -> (SlotReference) s).collect(Collectors.toSet());
+        List<Slot> output = catalogRelation.getOutput();
+        ImmutableSet.Builder<SlotReference> slotSetBuilder = ImmutableSet.builderWithExpectedSize(output.size());
+        for (Slot slot : output) {
+            if (slot instanceof SlotReference) {
+                slotSetBuilder.add((SlotReference) slot);
+            }
+        }
+        Set<SlotReference> slotSet = slotSetBuilder.build();
         Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
         TableIf table = catalogRelation.getTable();
         double rowCount = catalogRelation.getTable().getRowCountForNereids();

@@ -53,8 +53,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -116,7 +116,7 @@ public class StructInfo {
         this.predicates = predicates;
         if (predicates == null) {
             // collect predicate from top plan which not in hyper graph
-            Set<Expression> topPlanPredicates = new HashSet<>();
+            Set<Expression> topPlanPredicates = new LinkedHashSet<>();
             topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
             this.predicates = Predicates.of(topPlanPredicates);
         }
@@ -241,7 +241,9 @@ public class StructInfo {
     public static List<StructInfo> of(Plan originalPlan) {
         // TODO only consider the inner join currently, Should support outer join
         // Split plan by the boundary which contains multi child
-        PlanSplitContext planSplitContext = new PlanSplitContext(Sets.newHashSet(LogicalJoin.class));
+        LinkedHashSet<Class<? extends Plan>> set = Sets.newLinkedHashSet();
+        set.add(LogicalJoin.class);
+        PlanSplitContext planSplitContext = new PlanSplitContext(set);
         // if single table without join, the bottom is
         originalPlan.accept(PLAN_SPLITTER, planSplitContext);
 
@@ -261,16 +263,18 @@ public class StructInfo {
                 .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
         // if any of topPlan or bottomPlan is null, split the top plan to two parts by join node
         if (topPlan == null || bottomPlan == null) {
-            PlanSplitContext planSplitContext = new PlanSplitContext(Sets.newHashSet(LogicalJoin.class));
+            Set<Class<? extends Plan>> set = Sets.newLinkedHashSet();
+            set.add(LogicalJoin.class);
+            PlanSplitContext planSplitContext = new PlanSplitContext(set);
             originalPlan.accept(PLAN_SPLITTER, planSplitContext);
             bottomPlan = planSplitContext.getBottomPlan();
             topPlan = planSplitContext.getTopPlan();
         }
         // collect struct info fromGraph
         ImmutableList.Builder<CatalogRelation> relationBuilder = ImmutableList.builder();
-        Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap = new HashMap<>();
-        Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap = new HashMap<>();
-        Map<ExprId, Expression> namedExprIdAndExprMapping = new HashMap<>();
+        Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap = new LinkedHashMap<>();
+        Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap = new LinkedHashMap<>();
+        Map<ExprId, Expression> namedExprIdAndExprMapping = new LinkedHashMap<>();
         boolean valid = collectStructInfoFromGraph(hyperGraph, topPlan, shuttledHashConjunctsToConjunctsMap,
                 namedExprIdAndExprMapping,
                 relationBuilder,

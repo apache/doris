@@ -60,7 +60,6 @@ class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
-class MemTracker;
 class StreamLoadRecorder;
 class TCloneReq;
 class TCreateTabletReq;

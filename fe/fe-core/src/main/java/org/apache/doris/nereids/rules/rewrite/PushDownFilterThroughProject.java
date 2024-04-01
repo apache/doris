@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -49,16 +48,16 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalFilter(logicalProject())
-                        .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
-                                expr -> expr.anyMatch(WindowExpression.class::isInstance)))
+                        .whenNot(filter -> ExpressionUtils.containsWindowExpression(filter.child().getProjects()))
                         .whenNot(filter -> filter.child().hasPushedDownToProjectionFunctions())
                         .then(PushDownFilterThroughProject::pushdownFilterThroughProject)
                         .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT),
                 // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
                 // then we should change filter(limit(project)) to project(filter(limit))
                 logicalFilter(logicalLimit(logicalProject()))
-                        .whenNot(filter -> filter.child().child().getProjects().stream()
-                                .anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance)))
+                        .whenNot(filter ->
+                                ExpressionUtils.containsWindowExpression(filter.child().child().getProjects())
+                        )
                         .whenNot(filter -> filter.child().child().hasPushedDownToProjectionFunctions())
                         .then(PushDownFilterThroughProject::pushdownFilterThroughLimitProject)
                         .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT)
@@ -111,14 +110,14 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             Set<Expression> conjuncts, Set<Slot> childOutputs) {
         Set<Expression> pushDownPredicates = Sets.newLinkedHashSet();
         Set<Expression> remainPredicates = Sets.newLinkedHashSet();
-        conjuncts.forEach(conjunct -> {
+        for (Expression conjunct : conjuncts) {
             Set<Slot> conjunctSlots = conjunct.getInputSlots();
             if (childOutputs.containsAll(conjunctSlots)) {
                 pushDownPredicates.add(conjunct);
             } else {
                 remainPredicates.add(conjunct);
             }
-        });
+        }
         return Pair.of(remainPredicates, pushDownPredicates);
     }
 }

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -59,7 +60,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -89,7 +89,7 @@ public class ExpressionUtils {
     }
 
     public static Set<Expression> extractConjunctionToSet(Expression expr) {
-        Set<Expression> exprSet = Sets.newHashSet();
+        Set<Expression> exprSet = Sets.newLinkedHashSet();
         extract(And.class, expr, exprSet);
         return exprSet;
     }
@@ -162,11 +162,11 @@ public class ExpressionUtils {
     }
 
     public static Expression and(Collection<Expression> expressions) {
-        return combine(And.class, expressions);
+        return combineAsLeftDeepTree(And.class, expressions);
     }
 
     public static Expression and(Expression... expressions) {
-        return combine(And.class, Lists.newArrayList(expressions));
+        return combineAsLeftDeepTree(And.class, Lists.newArrayList(expressions));
     }
 
     public static Optional<Expression> optionalOr(List<Expression> expressions) {
@@ -178,17 +178,18 @@ public class ExpressionUtils {
     }
 
     public static Expression or(Expression... expressions) {
-        return combine(Or.class, Lists.newArrayList(expressions));
+        return combineAsLeftDeepTree(Or.class, Lists.newArrayList(expressions));
     }
 
     public static Expression or(Collection<Expression> expressions) {
-        return combine(Or.class, expressions);
+        return combineAsLeftDeepTree(Or.class, expressions);
     }
 
     /**
      * Use AND/OR to combine expressions together.
      */
-    public static Expression combine(Class<? extends Expression> type, Collection<Expression> expressions) {
+    public static Expression combineAsLeftDeepTree(
+            Class<? extends Expression> type, Collection<Expression> expressions) {
         /*
          *             (AB) (CD) E   ((AB)(CD))  E     (((AB)(CD))E)
          *               ▲   ▲   ▲       ▲       ▲          ▲
@@ -209,9 +210,20 @@ public class ExpressionUtils {
             }
         }
 
-        return distinctExpressions.stream()
-                .reduce(type == And.class ? And::new : Or::new)
-                .orElse(BooleanLiteral.of(type == And.class));
+        if (distinctExpressions.isEmpty()) {
+            return BooleanLiteral.of(type == And.class);
+        }
+        Expression result = null;
+        for (Expression expr : distinctExpressions) {
+            if (result == null) {
+                result = expr;
+            } else if (type == And.class) {
+                result = new And(result, expr);
+            } else {
+                result = new Or(result, expr);
+            }
+        }
+        return result;
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
@@ -316,15 +328,15 @@ public class ExpressionUtils {
      * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
      */
     public static Map<Slot, Expression> generateReplaceMap(List<NamedExpression> namedExpressions) {
-        ImmutableMap.Builder<Slot, Expression> replaceMap = ImmutableMap.builderWithExpectedSize(
-                namedExpressions.size() * 2);
+        Map<Slot, Expression> replaceMap = Maps.newLinkedHashMapWithExpectedSize(namedExpressions.size());
         for (NamedExpression namedExpression : namedExpressions) {
             if (namedExpression instanceof Alias) {
                 // Avoid cast to alias, retrieving the first child expression.
-                replaceMap.put(namedExpression.toSlot(), namedExpression.child(0));
+                Slot slot = namedExpression.toSlot();
+                replaceMap.putIfAbsent(slot, namedExpression.child(0));
             }
         }
-        return replaceMap.build();
+        return replaceMap;
     }
 
     /**
@@ -360,16 +372,20 @@ public class ExpressionUtils {
 
     public static List<Expression> replace(List<Expression> exprs,
             Map<? extends Expression, ? extends Expression> replaceMap) {
-        return exprs.stream()
-                .map(expr -> replace(expr, replaceMap))
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replace(expr, replaceMap));
+        }
+        return result.build();
     }
 
     public static Set<Expression> replace(Set<Expression> exprs,
             Map<? extends Expression, ? extends Expression> replaceMap) {
-        return exprs.stream()
-                .map(expr -> replace(expr, replaceMap))
-                .collect(ImmutableSet.toImmutableSet());
+        ImmutableSet.Builder<Expression> result = ImmutableSet.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replace(expr, replaceMap));
+        }
+        return result.build();
     }
 
     /**
@@ -456,34 +472,60 @@ public class ExpressionUtils {
         return builder.build();
     }
 
+    /** isAllLiteral */
     public static boolean isAllLiteral(List<Expression> children) {
-        return children.stream().allMatch(c -> c instanceof Literal);
+        for (Expression child : children) {
+            if (!(child instanceof Literal)) {
+                return false;
+            }
+        }
+        return true;
     }
 
+    /** matchNumericType */
     public static boolean matchNumericType(List<Expression> children) {
-        return children.stream().allMatch(c -> c.getDataType().isNumericType());
+        for (Expression child : children) {
+            if (!child.getDataType().isNumericType()) {
+                return false;
+            }
+        }
+        return true;
     }
 
+    /** matchDateLikeType */
     public static boolean matchDateLikeType(List<Expression> children) {
-        return children.stream().allMatch(c -> c.getDataType().isDateLikeType());
+        for (Expression child : children) {
+            if (!child.getDataType().isDateLikeType()) {
+                return false;
+            }
+        }
+        return true;
     }
 
+    /** hasNullLiteral */
     public static boolean hasNullLiteral(List<Expression> children) {
-        return children.stream().anyMatch(c -> c instanceof NullLiteral);
+        for (Expression child : children) {
+            if (child instanceof NullLiteral) {
+                return true;
+            }
+        }
+        return false;
     }
 
+    /** hasOnlyMetricType */
     public static boolean hasOnlyMetricType(List<Expression> children) {
-        return children.stream().anyMatch(c -> c.getDataType().isOnlyMetricType());
-    }
-
-    public static boolean isAllNullLiteral(List<Expression> children) {
-        return children.stream().allMatch(c -> c instanceof NullLiteral);
+        for (Expression child : children) {
+            if (child.getDataType().isOnlyMetricType()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
      * canInferNotNullForMarkSlot
      */
-    public static boolean canInferNotNullForMarkSlot(Expression predicate) {
+    public static boolean canInferNotNullForMarkSlot(Expression predicate, ExpressionRewriteContext ctx) {
         /*
          * assume predicate is from LogicalFilter
          * the idea is replacing each mark join slot with null and false literal then run FoldConstant rule
@@ -523,9 +565,10 @@ public class ExpressionUtils {
                 for (int j = 0; j < markSlotSize; ++j) {
                     replaceMap.put(markJoinSlotReferenceList.get(j), literals.get((i >> j) & 1));
                 }
-                Expression evalResult = FoldConstantRule.INSTANCE.rewrite(
+                Expression evalResult = FoldConstantRule.evaluate(
                         ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(null));
+                        ctx
+                );
 
                 if (evalResult.equals(BooleanLiteral.TRUE)) {
                     if (meetNullOrFalse) {
@@ -553,30 +596,33 @@ public class ExpressionUtils {
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
-        Set<Slot> notNullSlots = Sets.newHashSet();
+        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(predicates.size());
         for (Expression predicate : predicates) {
             for (Slot slot : predicate.getInputSlots()) {
                 Map<Expression, Expression> replaceMap = new HashMap<>();
                 Literal nullLiteral = new NullLiteral(slot.getDataType());
                 replaceMap.put(slot, nullLiteral);
-                Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
+                Expression evalExpr = FoldConstantRule.evaluate(
                         ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(cascadesContext));
+                        new ExpressionRewriteContext(cascadesContext)
+                );
                 if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
                     notNullSlots.add(slot);
                 }
             }
         }
-        return notNullSlots;
+        return notNullSlots.build();
     }
 
     /**
      * infer notNulls slot from predicate
      */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
-        return inferNotNullSlots(predicates, cascadesContext).stream()
-                .map(slot -> new Not(new IsNull(slot), false))
-                .collect(Collectors.toSet());
+        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
+        for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
+            newPredicates.add(new Not(new IsNull(slot), false));
+        }
+        return newPredicates.build();
     }
 
     /**
@@ -584,37 +630,90 @@ public class ExpressionUtils {
      */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots,
             CascadesContext cascadesContext) {
-        return inferNotNullSlots(predicates, cascadesContext).stream()
-                .filter(slots::contains)
-                .map(slot -> new Not(new IsNull(slot), true))
-                .collect(Collectors.toSet());
+        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
+        for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
+            if (slots.contains(slot)) {
+                newPredicates.add(new Not(new IsNull(slot), true));
+            }
+        }
+        return newPredicates.build();
     }
 
-    public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressions) {
-        return expressions.stream()
-                .flatMap(List::stream)
-                .collect(ImmutableList.toImmutableList());
+    /** flatExpressions */
+    public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
+        int num = 0;
+        for (List<E> expressionList : expressionLists) {
+            num += expressionList.size();
+        }
+
+        ImmutableList.Builder<E> flatten = ImmutableList.builderWithExpectedSize(num);
+        for (List<E> expressionList : expressionLists) {
+            flatten.addAll(expressionList);
+        }
+        return flatten.build();
     }
 
-    public static boolean anyMatch(List<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
-        return expressions.stream()
-                .anyMatch(expr -> expr.anyMatch(predicate));
+    /** containsType */
+    public static boolean containsType(Collection<? extends Expression> expressions, Class type) {
+        for (Expression expression : expressions) {
+            if (expression.anyMatch(expr -> expr.anyMatch(type::isInstance))) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    public static boolean noneMatch(List<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
-        return expressions.stream()
-                .noneMatch(expr -> expr.anyMatch(predicate));
+    /** allMatch */
+    public static boolean allMatch(
+            Collection<? extends Expression> expressions, Predicate<Expression> predicate) {
+        for (Expression expression : expressions) {
+            if (!predicate.test(expression)) {
+                return false;
+            }
+        }
+        return true;
     }
 
-    public static boolean containsType(List<? extends Expression> expressions, Class type) {
-        return anyMatch(expressions, type::isInstance);
+    /** anyMatch */
+    public static boolean anyMatch(
+            Collection<? extends Expression> expressions, Predicate<Expression> predicate) {
+        for (Expression expression : expressions) {
+            if (predicate.test(expression)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** deapAnyMatch */
+    public static boolean deapAnyMatch(
+            Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
+        for (Expression expression : expressions) {
+            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** deapNoneMatch */
+    public static boolean deapNoneMatch(
+            Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
+        for (Expression expression : expressions) {
+            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static <E> Set<E> collect(Collection<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
-        return expressions.stream()
-                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
-                .collect(ImmutableSet.toImmutableSet());
+        ImmutableSet.Builder<E> set = ImmutableSet.builder();
+        for (Expression expr : expressions) {
+            set.addAll(expr.collectToList(predicate));
+        }
+        return set.build();
     }
 
     /**
@@ -652,11 +751,19 @@ public class ExpressionUtils {
         return set;
     }
 
+    /** collectAll */
     public static <E> List<E> collectAll(Collection<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
-        return expressions.stream()
-                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
-                .collect(ImmutableList.toImmutableList());
+        switch (expressions.size()) {
+            case 0: return ImmutableList.of();
+            default: {
+                ImmutableList.Builder<E> result = ImmutableList.builder();
+                for (Expression expr : expressions) {
+                    result.addAll((Set) expr.collect(predicate));
+                }
+                return result.build();
+            }
+        }
     }
 
     public static List<List<Expression>> rollupToGroupingSets(List<Expression> rollupExpressions) {
@@ -806,5 +913,26 @@ public class ExpressionUtils {
             }
         }
         return distinctSlots.build();
+    }
+
+    /** containsWindowExpression */
+    public static boolean containsWindowExpression(List<NamedExpression> expressions) {
+        for (NamedExpression expression : expressions) {
+            if (expression.anyMatch(WindowExpression.class::isInstance)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** filter */
+    public static <E extends Expression> List<E> filter(List<? extends Expression> expressions, Class<E> clazz) {
+        ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(expressions.size());
+        for (Expression expression : expressions) {
+            if (clazz.isInstance(expression)) {
+                result.add((E) expression);
+            }
+        }
+        return result.build();
     }
 }

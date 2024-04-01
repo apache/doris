@@ -422,7 +422,9 @@ public class Role implements Writable, GsonPostProcessable {
 
     public boolean checkColPriv(String ctl, String db, String tbl, String col, PrivPredicate wanted) {
         Optional<Privilege> colPrivilege = wanted.getColPrivilege();
-        Preconditions.checkState(colPrivilege.isPresent(), "this privPredicate should not use checkColPriv:" + wanted);
+        if (!colPrivilege.isPresent()) {
+            throw new IllegalStateException("this privPredicate should not use checkColPriv:" + wanted);
+        }
         return checkTblPriv(ctl, db, tbl, wanted) || onlyCheckColPriv(ctl, db, tbl, col, colPrivilege.get());
     }
 

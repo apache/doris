@@ -28,6 +28,7 @@
 namespace doris {
 
 class CloudEngineCalcDeleteBitmapTask;
+class MemTrackerLimiter;
 
 class CloudTabletCalcDeleteBitmapTask {
 public:
@@ -46,6 +47,7 @@ private:
     std::shared_ptr<CloudTablet> _tablet;
     int64_t _transaction_id;
     int64_t _version;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 class CloudEngineCalcDeleteBitmapTask : public EngineTask {

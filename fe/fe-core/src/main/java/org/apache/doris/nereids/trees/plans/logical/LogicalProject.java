@@ -116,8 +116,14 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return excepts;
     }
 
+    /** isAllSlots */
     public boolean isAllSlots() {
-        return projects.stream().allMatch(NamedExpression::isSlot);
+        for (NamedExpression project : projects) {
+            if (!project.isSlot()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

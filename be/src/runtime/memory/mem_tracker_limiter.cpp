@@ -163,8 +163,9 @@ void MemTrackerLimiter::refresh_global_counter() {
         std::lock_guard<std::mutex> l(group.group_lock);
         for (auto trackerWptr : group.trackers) {
             auto tracker = trackerWptr.lock();
-            CHECK(tracker != nullptr);
-            type_mem_sum[tracker->type()] += tracker->consumption();
+            if (tracker != nullptr) {
+                type_mem_sum[tracker->type()] += tracker->consumption();
+            }
         }
     }
     for (auto it : type_mem_sum) {
@@ -223,9 +224,10 @@ void MemTrackerLimiter::make_type_snapshots(std::vector<MemTracker::Snapshot>* s
                 ExecEnv::GetInstance()->mem_tracker_limiter_pool[0].group_lock);
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[0].trackers) {
             auto tracker = trackerWptr.lock();
-            CHECK(tracker != nullptr);
-            (*snapshots).emplace_back(tracker->make_snapshot());
-            MemTracker::make_group_snapshot(snapshots, tracker->group_num(), tracker->label());
+            if (tracker != nullptr) {
+                (*snapshots).emplace_back(tracker->make_snapshot());
+                MemTracker::make_group_snapshot(snapshots, tracker->group_num(), tracker->label());
+            }
         }
     } else {
         for (unsigned i = 1; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
@@ -233,8 +235,7 @@ void MemTrackerLimiter::make_type_snapshots(std::vector<MemTracker::Snapshot>* s
                     ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
             for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
                 auto tracker = trackerWptr.lock();
-                CHECK(tracker != nullptr);
-                if (tracker->type() == type) {
+                if (tracker != nullptr && tracker->type() == type) {
                     (*snapshots).emplace_back(tracker->make_snapshot());
                     MemTracker::make_group_snapshot(snapshots, tracker->group_num(),
                                                     tracker->label());
@@ -253,8 +254,9 @@ void MemTrackerLimiter::make_top_consumption_snapshots(std::vector<MemTracker::S
                 ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
             auto tracker = trackerWptr.lock();
-            CHECK(tracker != nullptr);
-            max_pq.emplace(tracker->make_snapshot());
+            if (tracker != nullptr) {
+                max_pq.emplace(tracker->make_snapshot());
+            }
         }
     }
 
@@ -286,8 +288,7 @@ std::string MemTrackerLimiter::type_detail_usage(const std::string& msg, Type ty
                 ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
             auto tracker = trackerWptr.lock();
-            CHECK(tracker != nullptr);
-            if (tracker->type() == type) {
+            if (tracker != nullptr && tracker->type() == type) {
                 detail += "\n    " + MemTrackerLimiter::log_usage(tracker->make_snapshot());
             }
         }
@@ -468,8 +469,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(
             std::lock_guard<std::mutex> l(tracker_groups[i].group_lock);
             for (auto trackerWptr : tracker_groups[i].trackers) {
                 auto tracker = trackerWptr.lock();
-                CHECK(tracker != nullptr);
-                if (tracker->type() == type) {
+                if (tracker != nullptr && tracker->type() == type) {
                     seek_num++;
                     if (tracker->is_query_cancelled()) {
                         canceling_task.push_back(fmt::format("{}:{} Bytes", tracker->label(),
@@ -593,8 +593,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
             std::lock_guard<std::mutex> l(tracker_groups[i].group_lock);
             for (auto trackerWptr : tracker_groups[i].trackers) {
                 auto tracker = trackerWptr.lock();
-                CHECK(tracker != nullptr);
-                if (tracker->type() == type) {
+                if (tracker != nullptr && tracker->type() == type) {
                     seek_num++;
                     // 32M small query does not cancel
                     if (tracker->consumption() <= 33554432 ||

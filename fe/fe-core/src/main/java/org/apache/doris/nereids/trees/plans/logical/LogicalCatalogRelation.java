@@ -22,6 +22,8 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -31,7 +33,6 @@ import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -128,85 +129,80 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         Builder fdBuilder = new Builder();
-        Set<Slot> output = ImmutableSet.copyOf(outputSupplier.get());
+        Set<Slot> outputSet = Utils.fastToImmutableSet(outputSupplier.get());
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
-            ImmutableSet<Slot> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .filter(s -> s.getColumn().isPresent()
-                            && s.getColumn().get().isKey())
-                    .collect(ImmutableSet.toImmutableSet());
-            fdBuilder.addUniqueSlot(slotSet);
+            ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
+            for (Slot slot : outputSet) {
+                if (!(slot instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference slotRef = (SlotReference) slot;
+                if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
+                    uniqSlots.add(slot);
+                }
+            }
+            fdBuilder.addUniqueSlot(uniqSlots.build());
         }
-        table.getPrimaryKeyConstraints().forEach(c -> {
-            Set<Column> columns = c.getPrimaryKeys(this.getTable());
-            ImmutableSet<Slot> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .filter(s -> s.getColumn().isPresent()
-                            && columns.contains(s.getColumn().get()))
-                    .collect(ImmutableSet.toImmutableSet());
-            fdBuilder.addUniqueSlot(slotSet);
-        });
-        table.getUniqueConstraints().forEach(c -> {
-            Set<Column> columns = c.getUniqueKeys(this.getTable());
-            ImmutableSet<Slot> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .filter(s -> s.getColumn().isPresent()
-                            && columns.contains(s.getColumn().get()))
-                    .collect(ImmutableSet.toImmutableSet());
-            fdBuilder.addUniqueSlot(slotSet);
-        });
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        fdBuilder.addFdItems(fdItems);
+
+        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
+            Set<Column> columns = c.getPrimaryKeys(table);
+            fdBuilder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+        }
+
+        for (UniqueConstraint c : table.getUniqueConstraints()) {
+            Set<Column> columns = c.getUniqueKeys(table);
+            fdBuilder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+        }
+        fdBuilder.addFdItems(computeFdItems(outputSet));
         return fdBuilder.build();
     }
 
     @Override
     public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+        return computeFdItems(Utils.fastToImmutableSet(outputSupplier.get()));
+    }
+
+    private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-        table.getPrimaryKeyConstraints().forEach(c -> {
+
+        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
             Set<Column> columns = c.getPrimaryKeys(this.getTable());
-            ImmutableSet<SlotReference> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .filter(s -> s.getColumn().isPresent()
-                            && columns.contains(s.getColumn().get()))
-                    .collect(ImmutableSet.toImmutableSet());
-            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(slotSet, true,
-                    false, ImmutableSet.of(table));
+            ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
+            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
+                    slotSet, true, false, ImmutableSet.of(table));
             builder.add(tableFdItem);
-        });
-        table.getUniqueConstraints().forEach(c -> {
+        }
+
+        for (UniqueConstraint c : table.getUniqueConstraints()) {
             Set<Column> columns = c.getUniqueKeys(this.getTable());
-            boolean allNotNull = columns.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .allMatch(s -> !s.nullable());
-            if (allNotNull) {
-                ImmutableSet<SlotReference> slotSet = output.stream()
-                        .filter(SlotReference.class::isInstance)
-                        .map(SlotReference.class::cast)
-                        .filter(s -> s.getColumn().isPresent()
-                                && columns.contains(s.getColumn().get()))
-                        .collect(ImmutableSet.toImmutableSet());
-                TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(slotSet,
-                        true, false, ImmutableSet.of(table));
-                builder.add(tableFdItem);
-            } else {
-                ImmutableSet<SlotReference> slotSet = output.stream()
-                        .filter(SlotReference.class::isInstance)
-                        .map(SlotReference.class::cast)
-                        .filter(s -> s.getColumn().isPresent()
-                                && columns.contains(s.getColumn().get()))
-                        .collect(ImmutableSet.toImmutableSet());
-                TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(slotSet,
-                        true, true, ImmutableSet.of(table));
-                builder.add(tableFdItem);
+            boolean allNotNull = true;
+
+            for (Column column : columns) {
+                if (column.isAllowNull()) {
+                    allNotNull = false;
+                    break;
+                }
             }
-        });
+
+            ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
+            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
+                    slotSet, true, !allNotNull, ImmutableSet.of(table));
+            builder.add(tableFdItem);
+        }
         return builder.build();
+    }
+
+    private ImmutableSet<SlotReference> findSlotsByColumn(Set<Slot> outputSet, Set<Column> columns) {
+        ImmutableSet.Builder<SlotReference> slotSet = ImmutableSet.builderWithExpectedSize(columns.size());
+        for (Slot slot : outputSet) {
+            if (!(slot instanceof SlotReference)) {
+                continue;
+            }
+            SlotReference slotRef = (SlotReference) slot;
+            if (slotRef.getColumn().isPresent() && columns.contains(slotRef.getColumn().get())) {
+                slotSet.add(slotRef);
+            }
+        }
+        return slotSet.build();
     }
 }

@@ -17,20 +17,25 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * replace varaible to real expression
  */
-public class ReplaceVariableByLiteral extends AbstractExpressionRewriteRule {
-
+public class ReplaceVariableByLiteral implements ExpressionPatternRuleFactory {
     public static ReplaceVariableByLiteral INSTANCE = new ReplaceVariableByLiteral();
 
     @Override
-    public Expression visitVariable(Variable variable, ExpressionRewriteContext context) {
-        return variable.getRealExpression();
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+            matchesType(Variable.class).then(Variable::getRealExpression)
+        );
     }
 }
