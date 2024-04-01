@@ -619,7 +619,7 @@ public class Coordinator implements CoordInterface {
         if (context != null) {
             if (Config.enable_workload_group) {
                 this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
-                if (Config.enable_query_queue) {
+                if (Config.enable_query_queue && !context.getSessionVariable().getBypassWorkloadGroup()) {
                     queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
                     if (queryQueue == null) {
                         // This logic is actually useless, because when could not find query queue, it will
