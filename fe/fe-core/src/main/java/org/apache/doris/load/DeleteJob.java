@@ -537,7 +537,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             DeleteInfo deleteInfo = new DeleteInfo(params.getDb().getId(), params.getTable().getId(),
                     params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()),
                     noPartitionSpecified, partitionIds, partitionNames);
-            DeleteJob deleteJob = ConnectContext.get().isTxnModel()
+            DeleteJob deleteJob = ConnectContext.get() != null && ConnectContext.get().isTxnModel()
                     ? new TxnDeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo)
                     : new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
             long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
