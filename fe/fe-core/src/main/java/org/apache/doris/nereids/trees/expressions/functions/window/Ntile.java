@@ -70,8 +70,8 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType type = getBuckets().getDataType();
-        if (!type.isNumericType()) {
-            throw new AnalysisException("The bucket of NTILE must be a number: " + this.toSql());
+        if (!type.isIntegralType()) {
+            throw new AnalysisException("The bucket of NTILE must be a integer: " + this.toSql());
         }
         if (!getBuckets().isConstant()) {
             throw new AnalysisException(
