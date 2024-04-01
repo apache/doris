@@ -53,12 +53,15 @@ public:
 
     Status set_txn_related_delete_bitmap();
 
+    QueryThreadContext query_thread_context() { return _query_thread_context; }
+
 private:
     // Convert `_rowset_builder` from `BaseRowsetBuilder` to `CloudRowsetBuilder`
     CloudRowsetBuilder* rowset_builder();
 
     bthread::Mutex _mtx;
     CloudStorageEngine& _engine;
+    QueryThreadContext _query_thread_context;
 };
 
 } // namespace doris

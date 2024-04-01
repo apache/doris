@@ -44,9 +44,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudTablet;
-import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -74,6 +72,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
+import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
@@ -82,7 +81,6 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
@@ -111,7 +109,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddPlsqlPackageRequest;
@@ -272,6 +269,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -285,8 +283,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private MasterImpl masterImpl;
     private ExecuteEnv exeEnv;
-    // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
-    private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap =
+    // key is txn id,value is index of plan fragment instance, it's used by multi
+    // table request plan
+    private ConcurrentHashMap<Long, AtomicInteger> multiTableFragmentInstanceIdIndexMap =
             new ConcurrentHashMap<>(64);
 
     private final Map<TUniqueId, ConnectContext> proxyQueryIdToConnCtx =
@@ -352,8 +351,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             // check cooldownMetaId of all replicas are the same
             List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(info.tablet_id);
-            // FIXME(plat1ko): We only delete remote files when tablet is under a stable state: enough replicas and
-            //  all replicas are alive. Are these conditions really sufficient or necessary?
+            // FIXME(plat1ko): We only delete remote files when tablet is under a stable
+            // state: enough replicas and
+            // all replicas are alive. Are these conditions really sufficient or necessary?
             if (replicas.size() < replicaNum) {
                 LOG.info("num replicas are not enough, tablet={}", info.tablet_id);
                 return;
@@ -668,7 +668,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         PatternMatcher finalMatcher = matcher;
-
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> future = executor.submit(() -> {
@@ -1013,7 +1012,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
         }
         ConnectContext context = new ConnectContext(null, true);
-        // Set current connected FE to the client address, so that we can know where this request come from.
+        // Set current connected FE to the client address, so that we can know where
+        // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
@@ -1359,7 +1359,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
             tables.add(table);
         }
-        // if it has multi table, use multi table and update multi table running transaction table ids
+        // if it has multi table, use multi table and update multi table running
+        // transaction table ids
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
             Env.getCurrentGlobalTransactionMgr()
@@ -1555,7 +1556,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    // return true if commit success and publish success, return false if publish timeout
+    // return true if commit success and publish success, return false if publish
+    // timeout
     private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
@@ -1633,7 +1635,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    // return true if commit success and publish success, return false if publish timeout
+    // return true if commit success and publish success, return false if publish
+    // timeout
     private boolean commitTxnImpl(TCommitTxnRequest request) throws UserException {
         /// Check required arg: user, passwd, db, txn_id, commit_infos
         if (!request.isSetUser()) {
@@ -1697,7 +1700,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // Step 4: get timeout
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
-
 
         // Step 5: commit and publish
         return Env.getCurrentGlobalTransactionMgr()
@@ -1898,41 +1900,43 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        // create connect context
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setQueryId(request.getLoadId());
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
-        ctx.setQualifiedUser(request.getUser());
-        ctx.setBackendId(request.getBackendId());
-        ctx.setThreadLocalInfo();
+        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr);
 
         try {
+            streamLoadHandler.setCloudCluster();
+
             List<TPipelineWorkloadGroup> tWorkloadGroupList = null;
             // mysql load request not carry user info, need fix it later.
-            boolean hasUserName = !StringUtils.isEmpty(ctx.getQualifiedUser());
+            boolean hasUserName = !StringUtils.isEmpty(request.getUser());
             if (Config.enable_workload_group && hasUserName) {
+                ConnectContext ctx = ConnectContext.get();
                 tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ctx);
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
-                httpStreamPutImpl(request, result, ctx);
+                httpStreamPutImpl(request, result);
                 if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
                     result.params.setWorkloadGroups(tWorkloadGroupList);
                 }
                 return result;
             } else {
+                streamLoadHandler.generatePlan();
                 if (Config.enable_pipeline_load) {
-                    result.setPipelineParams(pipelineStreamLoadPutImpl(request));
-                    if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
-                        result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
-                    }
+                    result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
                 } else {
-                    result.setParams(streamLoadPutImpl(request, result));
-                    if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
-                        result.params.setWorkloadGroups(tWorkloadGroupList);
-                    }
+                    result.setParams((TExecPlanFragmentParams) streamLoadHandler.getFragmentParams().get(0));
                 }
             }
+            if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
+                if (Config.enable_pipeline_load) {
+                    result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
+                } else {
+                    result.params.setWorkloadGroups(tWorkloadGroupList);
+                }
+            }
+        } catch (MetaNotFoundException e) {
+            LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
+            status.setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
             LOG.warn("failed to get stream load plan: {}", e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
@@ -1948,23 +1952,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    /**
-     * For first-class multi-table scenarios, we should store the mapping between Txn and data source type in a common
-     * place. Since there is only Kafka now, we should do this first.
-     */
-    private void buildMultiTableStreamLoadTask(StreamLoadTask baseTaskInfo, long txnId) {
-        try {
-            RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
-                    .getRoutineLoadJobByMultiLoadTaskTxnId(txnId);
-            if (routineLoadJob == null) {
-                return;
-            }
-            baseTaskInfo.setMultiTableBaseTaskInfo(routineLoadJob);
-        } catch (Exception e) {
-            LOG.warn("failed to build multi table stream load task: {}", e.getMessage());
-        }
-    }
-
     private void deleteMultiTableStreamLoadJobIndex(long txnId) {
         try {
             Env.getCurrentEnv().getRoutineLoadManager().removeMultiLoadTaskTxnIdToRoutineLoadJobId(txnId);
@@ -1975,78 +1962,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStreamLoadMultiTablePutResult streamLoadMultiTablePut(TStreamLoadPutRequest request) {
-        List<OlapTable> olapTables;
-        Database db;
-        String fullDbName;
         TStreamLoadMultiTablePutResult result = new TStreamLoadMultiTablePutResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-        List<String> tableNames = request.getTableNames();
 
-        if (Config.isCloudMode()) {
-            try {
-                ConnectContext ctx = new ConnectContext();
-                ctx.setThreadLocalInfo();
-                ctx.setQualifiedUser(request.getUser());
-                ctx.setRemoteIP(request.getUserIp());
-                String userName = ClusterNamespace.getNameFromFullName(request.getUser());
-                if (userName != null) {
-                    List<UserIdentity> currentUser = Lists.newArrayList();
-                    try {
-                        Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
-                                request.getUserIp(), request.getPasswd(), currentUser);
-                    } catch (AuthenticationException e) {
-                        throw new UserException(e.formatErrMsg());
-                    }
-                    Preconditions.checkState(currentUser.size() == 1);
-                    ctx.setCurrentUserIdentity(currentUser.get(0));
-                }
-                LOG.info("one stream multi table load use cloud cluster {}", request.getCloudCluster());
-                //ctx.setCloudCluster();
-                if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
-                    if (Strings.isNullOrEmpty(request.getUser())) {
-                        ctx.setCloudCluster(request.getCloudCluster());
-                    } else {
-                        ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
-                    }
-                }
-            } catch (UserException e) {
-                LOG.warn("failed to set ConnectContext info: {}", e.getMessage());
-                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-                status.addToErrorMsgs(e.getMessage());
-            }
-        }
-
+        List planFragmentParamsList = new ArrayList<>();
+        multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), new AtomicInteger(1));
+        AtomicInteger index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
+        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
+                                                                    getClientAddrAsString());
         try {
-            if (CollectionUtils.isEmpty(tableNames)) {
-                throw new MetaNotFoundException("table not found");
+            streamLoadHandler.generatePlan();
+            planFragmentParamsList.addAll(streamLoadHandler.getFragmentParams());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("receive stream load multi table put request result: {}", result);
             }
-            fullDbName = request.getDb();
-            db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(fullDbName);
-            if (db == null) {
-                String dbName = fullDbName;
-                if (Strings.isNullOrEmpty(request.getCluster())) {
-                    dbName = request.getDb();
-                }
-                throw new UserException("unknown database, database=" + dbName);
-            }
-            // todo Whether there will be a large amount of data risk
-            List<Table> tables = db.getTablesOrEmpty();
-            if (CollectionUtils.isEmpty(tables)) {
-                throw new MetaNotFoundException("table not found");
-            }
-            olapTables = new ArrayList<>(tableNames.size());
-            Map<String, OlapTable> olapTableMap = tables.stream()
-                    .filter(OlapTable.class::isInstance)
-                    .map(OlapTable.class::cast)
-                    .collect(Collectors.toMap(OlapTable::getName, olapTable -> olapTable));
-            for (String tableName : tableNames) {
-                if (null == olapTableMap.get(tableName)) {
-                    throw new MetaNotFoundException("table not found, table name is " + tableName);
-                }
-                olapTables.add(olapTableMap.get(tableName));
-            }
-        } catch (UserException exception) {
+        }  catch (UserException exception) {
             LOG.warn("failed to get stream load plan: {}", exception.getMessage());
             status = new TStatus(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(exception.getMessage());
@@ -2056,44 +1987,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
                 routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR,
                             "failed to get stream load plan, " + exception.getMessage()), false);
-            } catch (UserException e) {
+            } catch (Throwable e) {
                 LOG.warn("catch update routine load job error.", e);
             }
             return result;
-        }
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
-        List planFragmentParamsList = new ArrayList<>(tableNames.size());
-        // todo: if is multi table, we need consider the lock time and the timeout
-        boolean enablePipelineLoad = Config.enable_pipeline_load;
-        try {
-            multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), 1);
-            for (OlapTable table : olapTables) {
-                int index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
-                if (enablePipelineLoad) {
-                    planFragmentParamsList.add(generatePipelineStreamLoadPut(request, db, fullDbName, table, timeoutMs,
-                            index, true));
-                } else {
-                    TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
-                            table, timeoutMs, index, true);
-
-                    planFragmentParamsList.add(planFragmentParams);
-                }
-                multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("receive stream load multi table put request result: {}", result);
-            }
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
         }
-        if (enablePipelineLoad) {
+        if (Config.enable_pipeline_load) {
             result.setPipelineParams(planFragmentParamsList);
+            LOG.info("receive stream load multi table put request result: {}", result);
             return result;
         }
         result.setParams(planFragmentParamsList);
+        LOG.info("receive stream load multi table put request result: {}", result);
+
         return result;
     }
 
@@ -2112,9 +2023,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             coord.setQueryType(TQueryType.LOAD);
             TableIf table = httpStreamParams.getTable();
             if (table instanceof OlapTable) {
-                boolean isEnableMemtableOnSinkNode =
-                        ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                            ? coord.getQueryOptions().isEnableMemtableOnSinkNode() : false;
+                boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                        ? coord.getQueryOptions().isEnableMemtableOnSinkNode()
+                        : false;
                 coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             }
             httpStreamParams.setParams(coord.getStreamLoadPlan());
@@ -2128,11 +2039,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return httpStreamParams;
     }
 
-    private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result, ConnectContext ctx)
+    private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive http stream put request: {}", request);
         }
+
+        ConnectContext ctx = ConnectContext.get();
+
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
@@ -2172,196 +2086,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);
-        }
-    }
-
-    private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
-            throws UserException {
-        if (request.isSetAuthCode()) {
-            String clientAddr = getClientAddrAsString();
-            ConnectContext ctx = new ConnectContext();
-            ctx.setThreadLocalInfo();
-            ctx.setRemoteIP(clientAddr);
-            long backendId = request.getBackendId();
-            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-            Preconditions.checkNotNull(backend);
-            ctx.setCloudCluster(backend.getCloudClusterName());
-            LOG.info("streamLoadPutImpl set context: cluster {}", ctx.getCloudCluster());
-        } else if (Config.isCloudMode()) {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setThreadLocalInfo();
-            ctx.setQualifiedUser(request.getUser());
-            ctx.setRemoteIP(request.getUserIp());
-            String userName = ClusterNamespace.getNameFromFullName(request.getUser());
-            if (userName != null) {
-                List<UserIdentity> currentUser = Lists.newArrayList();
-                try {
-                    Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
-                            request.getUserIp(), request.getPasswd(), currentUser);
-                } catch (AuthenticationException e) {
-                    throw new UserException(e.formatErrMsg());
-                }
-                Preconditions.checkState(currentUser.size() == 1);
-                ctx.setCurrentUserIdentity(currentUser.get(0));
-            }
-
-            LOG.info("stream load use cloud cluster {}", request.getCloudCluster());
-            if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
-                if (Strings.isNullOrEmpty(request.getUser())) {
-                    // mysql load
-                    ctx.setCloudCluster(request.getCloudCluster());
-                } else {
-                    // stream load
-                    ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
-                }
-            }
-
-            LOG.debug("streamLoadPutImpl set context: cluster {}, setCurrentUserIdentity {}",
-                    ctx.getCloudCluster(), ctx.getCurrentUserIdentity());
-        }
-
-        Env env = Env.getCurrentEnv();
-        String fullDbName = request.getDb();
-        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
-        if (db == null) {
-            String dbName = fullDbName;
-            if (Strings.isNullOrEmpty(request.getCluster())) {
-                dbName = request.getDb();
-            }
-            throw new UserException("unknown database, database=" + dbName);
-        }
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
-        Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw new UserException(
-                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
-        }
-        try {
-            if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                    && (request.getGroupCommitMode() != null
-                    && !request.getGroupCommitMode().equals("off_mode"))) {
-                throw new UserException(
-                        "table light_schema_change is false, can't do stream load with group commit mode");
-            }
-            result.setDbId(db.getId());
-            result.setTableId(table.getId());
-            result.setBaseSchemaVersion(((OlapTable) table).getBaseSchemaVersion());
-            return generatePlanFragmentParams(request, db, fullDbName, (OlapTable) table, timeoutMs);
-        } finally {
-            table.readUnlock();
-        }
-    }
-
-    private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-            String fullDbName, OlapTable table,
-            long timeoutMs) throws UserException {
-        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1, false);
-    }
-
-    private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-            String fullDbName, OlapTable table,
-            long timeoutMs, int multiTableFragmentInstanceIdIndex,
-            boolean isMultiTableRequest)
-            throws UserException {
-        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw new UserException(
-                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
-        }
-        try {
-            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-            if (isMultiTableRequest) {
-                buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
-            }
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
-            TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId(), multiTableFragmentInstanceIdIndex);
-            if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
-                // add table indexes to transaction state
-                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                        .getTransactionState(db.getId(), request.getTxnId());
-                if (txnState == null) {
-                    throw new UserException("txn does not exist: " + request.getTxnId());
-                }
-                txnState.addTableIndexes(table);
-                if (request.isPartialUpdate()) {
-                    txnState.setSchemaForPartialUpdate(table);
-                }
-            }
-            plan.setTableName(table.getName());
-            plan.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-            return plan;
-        } finally {
-            table.readUnlock();
-        }
-    }
-
-    private TPipelineFragmentParams pipelineStreamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
-        Env env = Env.getCurrentEnv();
-        String fullDbName = request.getDb();
-        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
-        if (db == null) {
-            String dbName = fullDbName;
-            if (Strings.isNullOrEmpty(request.getCluster())) {
-                dbName = request.getDb();
-            }
-            throw new UserException("unknown database, database=" + dbName);
-        }
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
-        Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange() && (request.getGroupCommitMode() != null
-                && !request.getGroupCommitMode().equals("off_mode"))) {
-            throw new UserException("table light_schema_change is false, can't do stream load with group commit mode");
-        }
-        return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs,
-                1, false);
-    }
-
-    private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
-            String fullDbName, OlapTable table,
-            long timeoutMs,
-            int multiTableFragmentInstanceIdIndex,
-            boolean isMultiTableRequest)
-            throws UserException {
-        if (db == null) {
-            String dbName = fullDbName;
-            if (Strings.isNullOrEmpty(request.getCluster())) {
-                dbName = request.getDb();
-            }
-            throw new UserException("unknown database, database=" + dbName);
-        }
-        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw new UserException(
-                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
-        }
-        try {
-            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-            if (isMultiTableRequest) {
-                buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
-            }
-
-            StreamLoadPlanner planner = null;
-            if (Config.isCloudMode()) {
-                planner = new CloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());
-            } else {
-                planner = new StreamLoadPlanner(db, table, streamLoadTask);
-            }
-
-            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
-                    multiTableFragmentInstanceIdIndex);
-            if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
-                // add table indexes to transaction state
-                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                        .getTransactionState(db.getId(), request.getTxnId());
-                if (txnState == null) {
-                    throw new UserException("txn does not exist: " + request.getTxnId());
-                }
-                txnState.addTableIndexes(table);
-                if (request.isPartialUpdate()) {
-                    txnState.setSchemaForPartialUpdate(table);
-                }
-            }
-            return plan;
-        } finally {
-            table.readUnlock();
         }
     }
 
@@ -2906,7 +2630,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("prev_commit_seq is not set");
         }
 
-
         // step 1: check auth
         if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -2999,7 +2722,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getSnapshotImpl
     private TGetSnapshotResult getSnapshotImpl(TGetSnapshotRequest request, String clientIp)
             throws UserException {
-        // Step 1: Check all required arg: user, passwd, db, label_name, snapshot_name, snapshot_type
+        // Step 1: Check all required arg: user, passwd, db, label_name, snapshot_name,
+        // snapshot_type
         if (!request.isSetUser()) {
             throw new UserException("user is not set");
         }
@@ -3080,7 +2804,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // restoreSnapshotImpl
     private TRestoreSnapshotResult restoreSnapshotImpl(TRestoreSnapshotRequest request, String clientIp)
             throws UserException {
-        // Step 1: Check all required arg: user, passwd, db, label_name, repo_name, meta, info
+        // Step 1: Check all required arg: user, passwd, db, label_name, repo_name,
+        // meta, info
         if (!request.isSetUser()) {
             throw new UserException("user is not set");
         }
@@ -3347,7 +3072,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("prev_commit_seq is not set");
         }
 
-
         // step 1: check auth
         if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -3597,7 +3321,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TReplacePartitionResult replacePartition(TReplacePartitionRequest request) throws TException {
-        LOG.info("Receive create partition request: {}", request);
+        LOG.info("Receive replace partition request: {}", request);
         long dbId = request.getDbId();
         long tableId = request.getTableId();
         List<Long> partitionIds = request.getPartitionIds();
@@ -3642,8 +3366,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<String> allReqPartNames; // all request partitions
         try {
             taskLock.lock();
-            // we dont lock the table. other thread in this txn will be controled by taskLock.
-            // if we have already replaced. dont do it again, but acquire the recorded new partition directly.
+            // we dont lock the table. other thread in this txn will be controled by
+            // taskLock.
+            // if we have already replaced. dont do it again, but acquire the recorded new
+            // partition directly.
             // if not by this txn, just let it fail naturally is ok.
             List<Long> replacedPartIds = overwriteManager.tryReplacePartitionIds(taskGroupId, partitionIds);
             // here if replacedPartIds still have null. this will throw exception.
@@ -3653,7 +3379,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .filter(i -> partitionIds.get(i) == replacedPartIds.get(i)) // equal means not replaced
                     .mapToObj(partitionIds::get)
                     .collect(Collectors.toList());
-            // from here we ONLY deal the pending partitions. not include the dealed(by others).
+            // from here we ONLY deal the pending partitions. not include the dealed(by
+            // others).
             if (!pendingPartitionIds.isEmpty()) {
                 // below two must have same order inner.
                 List<String> pendingPartitionNames = olapTable.uncheckedGetPartNamesById(pendingPartitionIds);
@@ -3664,7 +3391,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 overwriteManager.registerTaskInGroup(taskGroupId, taskId);
                 InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, tempPartitionNames);
                 InsertOverwriteUtil.replacePartition(olapTable, pendingPartitionNames, tempPartitionNames);
-                // now temp partitions are bumped up and use new names. we get their ids and record them.
+                // now temp partitions are bumped up and use new names. we get their ids and
+                // record them.
                 List<Long> newPartitionIds = new ArrayList<Long>();
                 for (String newPartName : pendingPartitionNames) {
                     newPartitionIds.add(olapTable.getPartition(newPartName).getId());
@@ -3686,8 +3414,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             taskLock.unlock();
         }
 
-        // build partition & tablets. now all partitions in allReqPartNames are replaced an recorded.
-        // so they won't be changed again. if other transaction changing it. just let it fail.
+        // build partition & tablets. now all partitions in allReqPartNames are replaced
+        // an recorded.
+        // so they won't be changed again. if other transaction changing it. just let it
+        // fail.
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         List<TTabletLocation> tablets = Lists.newArrayList();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -3796,7 +3526,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TGetMetaResult getMetaImpl(TGetMetaRequest request, String clientIp)
             throws Exception {
-        //  Step 1: check fields
+        // Step 1: check fields
         if (!request.isSetUser()) {
             throw new UserException("user is not set");
         }
@@ -3868,7 +3598,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw e;
         }
     }
-
 
     @Override
     public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
@@ -3990,12 +3719,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // FE only has one master, this should not be a problem
         if (!Env.getCurrentEnv().isMaster()) {
             LOG.error("failed to handle load stats report: not master, backend:{}",
-                      clientAddr);
+                    clientAddr);
             return new TStatus(TStatusCode.NOT_MASTER);
         }
 
         LOG.info("receive load stats report request: {}, backend: {}, dbId: {}, txnId: {}, label: {}",
-                  request, clientAddr, request.getDbId(), request.getTxnId(), request.getLabel());
+                request, clientAddr, request.getDbId(), request.getTxnId(), request.getLabel());
 
         try {
             byte[] receivedProtobufBytes = request.getPayload();

@@ -88,6 +88,7 @@ Status PartitionedAggLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
+    dec_running_big_mem_op_num(state);
     {
         std::unique_lock<std::mutex> lk(_merge_spill_lock);
         if (_is_merging) {
@@ -128,6 +129,7 @@ Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
@@ -158,7 +160,6 @@ Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    _runtime_state->set_query_mem_tracker(state->query_mem_tracker());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
 

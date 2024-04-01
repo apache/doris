@@ -17,10 +17,6 @@
 
 #include "keys.h"
 
-#include <cassert>
-#include <type_traits>
-#include <variant>
-
 #include "codec.h"
 
 namespace doris::cloud {
@@ -43,7 +39,8 @@ namespace doris::cloud {
 [[maybe_unused]] static const char* TXN_KEY_INFIX_INDEX       = "txn_index";
 [[maybe_unused]] static const char* TXN_KEY_INFIX_RUNNING     = "txn_running";
 
-[[maybe_unused]] static const char* VERSION_KEY_INFIX         = "partition";
+[[maybe_unused]] static const char* PARTITION_VERSION_KEY_INFIX      = "partition";
+[[maybe_unused]] static const char* TABLE_VERSION_KEY_INFIX   = "table";
 
 [[maybe_unused]] static const char* META_KEY_INFIX_ROWSET     = "rowset";
 [[maybe_unused]] static const char* META_KEY_INFIX_ROWSET_TMP = "rowset_tmp";
@@ -114,9 +111,9 @@ static void encode_prefix(const T& t, std::string* key) {
         InstanceKeyInfo,
         TxnLabelKeyInfo, TxnInfoKeyInfo, TxnIndexKeyInfo, TxnRunningKeyInfo,
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
-        MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, VersionKeyInfo,
+        MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
-        StatsTabletKeyInfo,
+        StatsTabletKeyInfo, TableVersionKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo, MetaRowsetSchemaKeyInfo, StorageVaultKeyInfo>);
 
@@ -139,7 +136,8 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaDeleteBitmapUpdateLockInfo>
                       || std::is_same_v<T, MetaPendingDeleteBitmapInfo>) {
         encode_bytes(META_KEY_PREFIX, key);
-    } else if constexpr (std::is_same_v<T, VersionKeyInfo>) {
+    } else if constexpr (std::is_same_v<T, PartitionVersionKeyInfo>
+                      || std::is_same_v<T, TableVersionKeyInfo>) {
         encode_bytes(VERSION_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, RecycleIndexKeyInfo>
                       || std::is_same_v<T, RecyclePartKeyInfo>
@@ -217,9 +215,22 @@ void txn_running_key(const TxnRunningKeyInfo& in, std::string* out) {
 // Version keys
 //==============================================================================
 
-void version_key(const VersionKeyInfo& in, std::string* out) {
+std::string version_key_prefix(std::string_view instance_id) {
+    std::string out;
+    encode_prefix(TableVersionKeyInfo {instance_id, 0, 0}, &out);
+    return out;
+}
+
+void table_version_key(const TableVersionKeyInfo& in, std::string* out) {
     encode_prefix(in, out);               // 0x01 "version" ${instance_id}
-    encode_bytes(VERSION_KEY_INFIX, out); // "partition"
+    encode_bytes(TABLE_VERSION_KEY_INFIX, out); // "table"
+    encode_int64(std::get<1>(in), out);   // db_id
+    encode_int64(std::get<2>(in), out);   // tbl_id
+}
+
+void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);               // 0x01 "version" ${instance_id}
+    encode_bytes(PARTITION_VERSION_KEY_INFIX, out); // "partition"
     encode_int64(std::get<1>(in), out);   // db_id
     encode_int64(std::get<2>(in), out);   // tbl_id
     encode_int64(std::get<3>(in), out);   // partition_id

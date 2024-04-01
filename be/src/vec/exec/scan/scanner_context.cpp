@@ -78,7 +78,6 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
                               : config::doris_scanner_thread_pool_thread_num /
                                         (_local_state ? num_parallel_instances
                                                       : state->query_parallel_instance_num());
-    _max_thread_num *= num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
     // 1. Calculate max concurrency
@@ -87,6 +86,7 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
         (_local_state && _local_state->should_run_serial())) {
         _max_thread_num = 1;
     }
+    _query_thread_context = {_query_id, _state->query_mem_tracker()};
 }
 
 ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VScanNode* parent,

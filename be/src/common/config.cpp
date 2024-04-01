@@ -132,6 +132,8 @@ DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
+DEFINE_mBool(enable_memory_orphan_check, "true");
+
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
@@ -201,10 +203,8 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
 
-// log dir
-DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
+DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
-DEFINE_String(pipeline_tracing_log_dir, "${DORIS_HOME}/log/tracing");
 // INFO, WARNING, ERROR, FATAL
 DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -567,6 +567,9 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
 DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
+
+// Sleep time in milliseconds between refresh iterations of workload group memory statistics
+DEFINE_mInt64(wg_mem_refresh_interval_ms, "50");
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
@@ -1186,6 +1189,8 @@ DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 
 /** Hive sink configurations **/
 DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
+
+DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 // clang-format off
 #ifdef BE_TEST

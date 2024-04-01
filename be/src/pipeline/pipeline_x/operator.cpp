@@ -167,7 +167,7 @@ Status OperatorXBase::close(RuntimeState* state) {
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
-    _origin_block.clear_column_data(_parent->_row_descriptor.num_materialized_slots());
+    _origin_block.clear_column_data(_parent->intermediate_row_desc().num_materialized_slots());
 }
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,

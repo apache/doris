@@ -37,7 +37,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * logical hive table sink for insert command
@@ -47,7 +46,6 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     // bound data sink
     private final HMSExternalDatabase database;
     private final HMSExternalTable targetTable;
-    private final Set<String> hivePartitionKeys;
     private final DMLCommandType dmlCommandType;
 
     /**
@@ -56,7 +54,6 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     public LogicalHiveTableSink(HMSExternalDatabase database,
                                 HMSExternalTable targetTable,
                                 List<Column> cols,
-                                Set<String> hivePartitionKeys,
                                 List<NamedExpression> outputExprs,
                                 DMLCommandType dmlCommandType,
                                 Optional<GroupExpression> groupExpression,
@@ -66,26 +63,25 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
         this.database = Objects.requireNonNull(database, "database != null in LogicalHiveTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalHiveTableSink");
         this.dmlCommandType = dmlCommandType;
-        this.hivePartitionKeys = hivePartitionKeys;
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalHiveTableSink<>(database, targetTable, cols, hivePartitionKeys, output,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, output,
                 dmlCommandType, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalHiveTableSink only accepts one child");
-        return new LogicalHiveTableSink<>(database, targetTable, cols, hivePartitionKeys, outputExprs,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalHiveTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalHiveTableSink<>(database, targetTable, cols, hivePartitionKeys, outputExprs,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), child());
     }
 
@@ -95,10 +91,6 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
 
     public HMSExternalTable getTargetTable() {
         return targetTable;
-    }
-
-    public Set<String> getHivePartitionKeys() {
-        return hivePartitionKeys;
     }
 
     public DMLCommandType getDmlCommandType() {
@@ -134,7 +126,6 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
                 "cols", cols,
-                "hivePartitionKeys", hivePartitionKeys,
                 "dmlCommandType", dmlCommandType
         );
     }
@@ -146,14 +137,14 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalHiveTableSink<>(database, targetTable, cols, hivePartitionKeys, outputExprs,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalHiveTableSink<>(database, targetTable, cols, hivePartitionKeys, outputExprs,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 }

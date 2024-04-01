@@ -64,6 +64,9 @@ Status SpillSortLocalState::close(RuntimeState* state) {
             _merge_spill_cv.wait(lk);
         }
     }
+    if (Base::_shared_state->enable_spill) {
+        dec_running_big_mem_op_num(state);
+    }
     RETURN_IF_ERROR(Base::close(state));
     for (auto& stream : _current_merging_streams) {
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
@@ -200,7 +203,6 @@ Status SpillSortLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    _runtime_state->set_query_mem_tracker(state->query_mem_tracker());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
 
@@ -250,6 +252,9 @@ Status SpillSortSourceOperatorX::close(RuntimeState* state) {
 Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) {
     auto& local_state = get_local_state(state);
+    if (local_state.Base::_shared_state->enable_spill) {
+        local_state.inc_running_big_mem_op_num(state);
+    }
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 

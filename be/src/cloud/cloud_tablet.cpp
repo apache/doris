@@ -593,7 +593,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaciton(
     }
     location_map.clear();
 
-    // 2. calc delete bimap for incremental data
+    // 2. calc delete bitmap for incremental data
     RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
