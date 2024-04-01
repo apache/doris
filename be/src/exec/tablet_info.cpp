@@ -75,6 +75,8 @@ bool VOlapTablePartKeyComparator::operator()(const BlockRowWithIndicator lhs,
     bool l_use_new = std::get<2>(lhs);
     bool r_use_new = std::get<2>(rhs);
 
+    VLOG_TRACE << '\n' << l_block->dump_data() << '\n' << r_block->dump_data();
+
     if (l_row == -1) {
         return false;
     } else if (r_row == -1) {
@@ -93,7 +95,6 @@ bool VOlapTablePartKeyComparator::operator()(const BlockRowWithIndicator lhs,
         DCHECK(_slot_locs.size() == _param_locs.size())
                 << _slot_locs.size() << ' ' << _param_locs.size();
 
-        //TODO: use template to accelerate this for older compiler.
         const std::vector<uint16_t>* l_index = l_use_new ? &_param_locs : &_slot_locs;
         const std::vector<uint16_t>* r_index = r_use_new ? &_param_locs : &_slot_locs;
 

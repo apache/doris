@@ -2085,8 +2085,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         PartitionInfo partitionInfo = null;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
-            PartitionDesc partDesc = partitionDesc;
-            for (SinglePartitionDesc desc : partDesc.getSinglePartitionDescs()) {
+            for (SinglePartitionDesc desc : partitionDesc.getSinglePartitionDescs()) {
                 long partitionId = idGeneratorBuffer.getNextId();
                 partitionNameToId.put(desc.getPartitionName(), partitionId);
             }
