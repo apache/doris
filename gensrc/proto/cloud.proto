@@ -631,6 +631,7 @@ message CommitTxnRequest {
     optional TxnCommitAttachmentPB commit_attachment = 5;
     // merge-on-write table ids
     repeated int64 mow_table_ids = 6;
+    repeated int64 base_tablet_ids= 7; // all tablet from base tables (excluding mv)
 }
 
 // corresponding to TabletStats in meta_service.h and FrontendServiceImpl.java
