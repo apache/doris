@@ -1193,7 +1193,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             ParserRuleContext task = tasks.pop();
             if (task instanceof SetOperationContext) {
                 SetOperationContext childUnion = (SetOperationContext) task;
-                if (childUnion.UNION() != null && getQualifier(childUnion) == qualifier) {
+                Qualifier childQualifier = getQualifier(childUnion);
+                if (childUnion.UNION() != null && (childQualifier == qualifier || childQualifier == Qualifier.ALL)) {
                     tasks.push(childUnion.right);
                     tasks.push(childUnion.left);
                 } else {

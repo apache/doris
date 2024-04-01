@@ -282,13 +282,16 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private LogicalSetOperation bindSetOperation(LogicalSetOperation setOperation) {
-        // check whether the left and right child output columns are the same
-        if (setOperation.child(0).getOutput().size() != setOperation.child(1).getOutput().size()) {
-            throw new AnalysisException("Operands have unequal number of columns:\n"
-                    + "'" + setOperation.child(0).getOutput() + "' has "
-                    + setOperation.child(0).getOutput().size() + " column(s)\n"
-                    + "'" + setOperation.child(1).getOutput() + "' has "
-                    + setOperation.child(1).getOutput().size() + " column(s)");
+        List<Slot> firstChildOutput = setOperation.child(0).getOutput();
+        for (int i = 1; i < setOperation.children().size(); i++) {
+            // check whether the left and right child output columns are the same
+            if (firstChildOutput.size() != setOperation.child(i).getOutput().size()) {
+                throw new AnalysisException("Operands have unequal number of columns:\n"
+                        + "'" + firstChildOutput + "' has "
+                        + firstChildOutput.size() + " column(s)\n"
+                        + "'" + setOperation.child(i).getOutput() + "' has "
+                        + setOperation.child(i).getOutput().size() + " column(s)");
+            }
         }
 
         // INTERSECT and EXCEPT does not support ALL qualified

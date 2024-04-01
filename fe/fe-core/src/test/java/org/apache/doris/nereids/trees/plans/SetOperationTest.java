@@ -96,6 +96,7 @@ public class SetOperationTest extends TestWithFeService {
     @Test
     public void testUnion3() {
         PlanChecker.from(connectContext)
+                .printPlanProcess("select k1 from t1 union select k1 from t3 union select 1;")
                 .checkPlannerResult("select k1 from t1 union select k1 from t3 union select 1;");
     }
 

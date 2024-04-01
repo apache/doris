@@ -41,6 +41,8 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -123,44 +125,64 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
 
     // If the right child is nullable, need to ensure that the left child is also nullable
     private List<Slot> resetNullableForLeftOutputs() {
-        int rightChildOutputSize = child(1).getOutput().size();
-        ImmutableList.Builder<Slot> resetNullableForLeftOutputs
-                = ImmutableList.builderWithExpectedSize(rightChildOutputSize);
-        for (int i = 0; i < rightChildOutputSize; ++i) {
-            if (child(1).getOutput().get(i).nullable() && !child(0).getOutput().get(i).nullable()) {
-                resetNullableForLeftOutputs.add(child(0).getOutput().get(i).withNullable(true));
+        List<Slot> firstChildOutput = child(0).getOutput();
+        List<Plan> children = children();
+        Builder<Slot> resetNullable = ImmutableList.builderWithExpectedSize(firstChildOutput.size());
+        for (int i = 0; i < firstChildOutput.size(); i++) {
+            Slot firstSlot = firstChildOutput.get(i);
+            if (firstSlot.nullable()) {
+                resetNullable.add(firstChildOutput.get(i));
             } else {
-                resetNullableForLeftOutputs.add(child(0).getOutput().get(i));
+                boolean hasNullable = false;
+                for (int j = 1; j < children.size(); j++) {
+                    if (children.get(j).getOutput().get(i).nullable()) {
+                        hasNullable = true;
+                        break;
+                    }
+                }
+                resetNullable.add(hasNullable ? firstSlot.withNullable(true) : firstSlot);
             }
         }
-        return resetNullableForLeftOutputs.build();
+
+        return resetNullable.build();
     }
 
     private List<List<NamedExpression>> castCommonDataTypeOutputs() {
         int childOutputSize = child(0).getOutput().size();
-        ImmutableList.Builder<NamedExpression> newLeftOutputs = ImmutableList.builderWithExpectedSize(
-                childOutputSize);
-        ImmutableList.Builder<NamedExpression> newRightOutputs = ImmutableList.builderWithExpectedSize(
-                childOutputSize
-        );
-        // Ensure that the output types of the left and right children are consistent and expand upward.
-        for (int i = 0; i < childOutputSize; ++i) {
-            Slot left = child(0).getOutput().get(i);
-            Slot right = child(1).getOutput().get(i);
-            DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
-            Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
-            Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
-            if (newLeft instanceof Cast) {
-                newLeft = new Alias(newLeft, left.getName());
-            }
-            if (newRight instanceof Cast) {
-                newRight = new Alias(newRight, right.getName());
-            }
-            newLeftOutputs.add((NamedExpression) newLeft);
-            newRightOutputs.add((NamedExpression) newRight);
+
+        List<List<NamedExpression>> newOutputs = Lists.newArrayListWithCapacity(arity());
+        for (int i = 0; i < arity(); i++) {
+            newOutputs.add(Lists.newArrayListWithCapacity(childOutputSize));
         }
 
-        return ImmutableList.of(newLeftOutputs.build(), newRightOutputs.build());
+        // Ensure that the output types of the left and right children are consistent and expand upward.
+        for (int i = 0; i < childOutputSize; ++i) {
+            Slot firstSlot = child(0).getOutput().get(i);
+
+            DataType compatibleType = firstSlot.getDataType();
+            for (int j = 1; j < arity(); j++) {
+                Slot otherSlot = child(j).getOutput().get(i);
+                compatibleType = getAssignmentCompatibleType(compatibleType, otherSlot.getDataType());
+            }
+
+            Expression cast = TypeCoercionUtils.castIfNotSameTypeStrict(firstSlot, compatibleType);
+            if (cast instanceof Cast) {
+                cast = new Alias(cast, firstSlot.getName());
+            }
+            newOutputs.get(0).add((NamedExpression) cast);
+
+
+            for (int j = 1; j < arity(); j++) {
+                Slot otherSlot = child(j).getOutput().get(i);
+                cast = TypeCoercionUtils.castIfNotSameTypeStrict(otherSlot, compatibleType);
+                if (cast instanceof Cast) {
+                    cast = new Alias(cast, firstSlot.getName());
+                }
+                newOutputs.get(j).add((NamedExpression) cast);
+            }
+        }
+
+        return newOutputs;
     }
 
     @Override
