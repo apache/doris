@@ -875,7 +875,7 @@ public class BindExpression implements AnalysisRuleFactory {
             if (ordinal >= 1 && ordinal <= boundSelectOutput.size()) {
                 Expression boundSelectItem = boundSelectOutput.get(ordinal - 1);
                 return boundSelectItem instanceof Alias ? boundSelectItem.child(0) : boundSelectItem;
-            } else{
+            } else {
                 return unbound; // bound literal
             }
         } else {
