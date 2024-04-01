@@ -1262,7 +1262,7 @@ public class SessionVariable implements Serializable, Writable {
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
     // in nereids for some mistaken modification. You should set it on the
     @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, needForward = true)
-    public boolean enableFallbackToOriginalPlanner = true;
+    public boolean enableFallbackToOriginalPlanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
     public boolean enableNereidsTimeout = true;
