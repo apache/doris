@@ -574,25 +574,26 @@ struct Dispatcher {
         }
 
         const ColumnInt32& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
+        const size_t input_rows_count = col_scale->size();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const Int32 scale_arg = col_scale_i32.get_data()[i];
+
+            if (scale_arg > std::numeric_limits<Int16>::max() ||
+                scale_arg < std::numeric_limits<Int16>::min()) {
+                throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                                        "Scale argument for function is out of bound: {}",
+                                        scale_arg);
+            }
+        }
 
         if constexpr (IsDecimalNumber<T>) {
             const ColumnDecimal<T>& data_col_general =
                     assert_cast<const ColumnDecimal<T>&>(const_col_general->get_data_column());
             const T& general_val = data_col_general.get_data()[0];
             Int32 input_scale = data_col_general.get_scale();
-            const size_t input_rows_count = col_scale->size();
+            
             auto col_res = ColumnDecimal<T>::create(input_rows_count, input_scale);
-
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                const Int32 scale_arg = col_scale_i32.get_data()[i];
-
-                if (scale_arg > std::numeric_limits<Int16>::max() ||
-                    scale_arg < std::numeric_limits<Int16>::min()) {
-                    throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                                           "Scale argument for function is out of bound: {}",
-                                           scale_arg);
-                }
-            }
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>::apply(
@@ -624,12 +625,11 @@ struct Dispatcher {
         } else if constexpr (IsNumber<T>) {
             const ColumnVector<T>& data_col_general =
                     assert_cast<const ColumnVector<T>&>(const_col_general->get_data_column());
-            T general_val = data_col_general.get_data()[0];
-            const size_t intput_rows_cound = col_scale->size();
-            auto col_res = ColumnVector<T>::create(intput_rows_cound);
+            const T& general_val = data_col_general.get_data()[0];
+            auto col_res = ColumnVector<T>::create(input_rows_count);
             typename ColumnVector<T>::Container& vec_res = col_res->get_data();
 
-            for (size_t i = 0; i < intput_rows_cound; ++i) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
                 const Int16 scale_arg = col_scale_i32.get_data()[i];
                 if (scale_arg == 0) {
                     size_t scale = 1;
