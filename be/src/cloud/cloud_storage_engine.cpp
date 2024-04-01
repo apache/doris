@@ -128,7 +128,6 @@ struct RefreshFSVaultVisitor {
 
 Status CloudStorageEngine::open() {
     cloud::StorageVaultInfos vault_infos;
-    int retry_time = 10;
     do {
         auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
         if (st.ok()) {
@@ -137,11 +136,7 @@ Status CloudStorageEngine::open() {
 
         LOG(WARNING) << "failed to get vault info, retry after 5s, err=" << st;
         std::this_thread::sleep_for(5s);
-        retry_time--;
-    } while (vault_infos.empty() || retry_time > 0);
-    if (retry_time == 0) [[unlikely]] {
-        CHECK(false) << "Please check if the instance has set storage vault";
-    }
+    } while (vault_infos.empty());
 
     for (auto& [id, vault_info] : vault_infos) {
         RETURN_IF_ERROR(std::visit(VaultCreateFSVisitor {id}, vault_info));

@@ -408,7 +408,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         };
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
-    case AlterObjStoreInfoRequest::ADD_BUILT_IN_HDFS_INFO:
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (!request->has_hdfs() || !request->hdfs().has_name()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -418,6 +417,15 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     } break;
     case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
         if (!request->has_hdfs() || !request->hdfs().has_name()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "hdfs info is not found " + proto_to_json(*request);
+            return;
+        }
+        break;
+    }
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
+        // It should at least has one hdfs info or obj info
+        if ((!request->has_hdfs() && !request->has_obj())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "hdfs info is not found " + proto_to_json(*request);
             return;
@@ -582,7 +590,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         break;
     }
-    case AlterObjStoreInfoRequest::ADD_BUILT_IN_HDFS_INFO: {
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
         // If the resource ids is empty then it would be the first vault
         if (!instance.resource_ids().empty()) {
             std::stringstream ss;
@@ -591,6 +599,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             msg = ss.str();
             return;
         }
+        // TODO(ByteYue): Also support create s3 obj info vault
         if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
             ret != 0) {
             return;

@@ -252,12 +252,11 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        auto fs = _cloud_storage_engine.get_fs_by_vault_id(sc_params.vault_id);
-        if (fs == nullptr) {
+        context.fs = _cloud_storage_engine.get_fs_by_vault_id(sc_params.vault_id);
+        if (context.fs == nullptr) {
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
                                          sc_params.vault_id);
         }
-        context.fs = std::move(fs);
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
 
