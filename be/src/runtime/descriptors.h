@@ -544,9 +544,7 @@ public:
 
     int num_null_bytes() const { return _num_null_bytes; }
 
-    int num_slots() const {
-        return _num_slots;
-    }
+    int num_slots() const { return _num_slots; }
 
     static const int INVALID_IDX;
 
