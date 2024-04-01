@@ -56,8 +56,8 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
         Configuration conf = getConfiguration();
         initS3Param(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
+        // initialize hadoop catalog
+        Map<String, String> catalogProperties = catalogProperty.getProperties();
         String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
         hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
