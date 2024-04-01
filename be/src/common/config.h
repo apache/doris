@@ -828,6 +828,8 @@ DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
+DECLARE_String(delete_bitmap_dynamic_agg_cache_limit);
+DECLARE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec);
 
 // s3 config
 DECLARE_mInt32(max_remote_storage_count);
