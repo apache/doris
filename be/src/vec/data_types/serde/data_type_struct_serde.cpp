@@ -413,5 +413,32 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
     return Status::OK();
 }
 
+Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                               int end) const {
+    const auto& struct_col = assert_cast<const ColumnStruct&>(column);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::STRUCT);
+    auto tuple_size = struct_col.tuple_size();
+    PValues* child_elements[tuple_size];
+    for (int i = 0; i < tuple_size; ++i) {
+        child_elements[i] = result.add_child_element();
+    }
+    for (int i = 0; i < tuple_size; ++i) {
+        RETURN_IF_ERROR(elemSerDeSPtrs[i]->write_column_to_pb(struct_col.get_column(i),
+                                                              *child_elements[i], start, end));
+    }
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& struct_column = assert_cast<ColumnStruct&>(column);
+    DCHECK_EQ(struct_column.tuple_size(), arg.child_element_size());
+    for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
+        RETURN_IF_ERROR(elemSerDeSPtrs[i]->read_column_from_pb(struct_column.get_column(i),
+                                                               arg.child_element(i)));
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

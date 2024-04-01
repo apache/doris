@@ -216,17 +216,19 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     auto& null_map_data = col.get_null_map_data();
     auto& nested = col.get_nested_column();
+    auto old_size = nested.size();
     if (Status st = nested_serde->read_column_from_pb(nested, arg); !st.ok()) {
         return st;
     }
-    null_map_data.resize(nested.size());
+    auto new_size = nested.size();
+    null_map_data.reserve(new_size);
     if (arg.has_null()) {
         for (int i = 0; i < arg.null_map_size(); ++i) {
-            null_map_data[i] = arg.null_map(i);
+            null_map_data.emplace_back(arg.null_map(i));
         }
     } else {
-        for (int i = 0; i < nested.size(); ++i) {
-            null_map_data[i] = false;
+        for (int i = 0; i < new_size - old_size; ++i) {
+            null_map_data.emplace_back(false);
         }
     }
     return Status::OK();

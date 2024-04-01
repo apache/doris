@@ -88,5 +88,34 @@ Status DataTypeIPv6SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     return Status::OK();
 }
 
+Status DataTypeIPv6SerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                             int end) const {
+    const auto& column_data = assert_cast<const ColumnIPv6&>(column);
+    result.mutable_string_value()->Reserve(end - start);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::IPV6);
+    for (int i = start; i < end; ++i) {
+        IPv6Value ipv6_value(column_data.get_data()[i]);
+        result.add_string_value(ipv6_value.to_string());
+    }
+    return Status::OK();
+};
+
+Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& col_data = static_cast<ColumnIPv6&>(column).get_data();
+    col_data.reserve(arg.string_value_size());
+    for (int i = 0; i < arg.string_value_size(); ++i) {
+        IPv6 ipv6_val;
+        if (!IPv6Value::from_string(ipv6_val, arg.string_value(i).c_str(),
+                                    arg.string_value(i).size())) {
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT, "parse number fail, string: '{}'",
+                    std::string(arg.string_value(i).c_str(), arg.string_value(i).size()).c_str());
+        }
+        col_data.emplace_back(ipv6_val);
+    }
+    return Status::OK();
+};
+
 } // namespace vectorized
 } // namespace doris

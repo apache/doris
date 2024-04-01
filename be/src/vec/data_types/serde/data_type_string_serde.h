@@ -123,7 +123,7 @@ public:
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        result.mutable_bytes_value()->Reserve(end - start);
+        result.mutable_string_value()->Reserve(end - start);
         auto* ptype = result.mutable_type();
         ptype->set_id(PGenericType::STRING);
         for (size_t row_num = start; row_num < end; ++row_num) {
