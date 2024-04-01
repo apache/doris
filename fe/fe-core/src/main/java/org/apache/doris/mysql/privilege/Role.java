@@ -602,6 +602,8 @@ public class Role implements Writable, GsonPostProcessable {
         }
         if (resourcePattern.isClusterResource()) {
             grantCloudClusterPrivs(resourcePattern.getResourceName(), false, false, privs);
+        } else if  (resourcePattern.isStageResource()) {
+            grantCloudStagePrivs(resourcePattern.getResourceName(), false, false, privs);
         } else {
             grantResourcePrivs(resourcePattern.getResourceName(), privs);
         }
