@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #include "io/cache/block_file_cache.h"
+
 #include "common/status.h"
 
 #if defined(__APPLE__)
