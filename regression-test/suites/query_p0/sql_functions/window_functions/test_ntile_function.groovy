@@ -73,12 +73,12 @@ suite("test_ntile_function") {
 
     test {
         sql "select k1, k2, k3, ntile(0) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
-        exception "The bucket parameter of NTILE must be a constant positive integer: ntile(0)"
+        exception "Parameter n in ntile(n) should be positive."
     }
 
     test {
         sql "select k1, k2, k3, ntile(k1) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
-        exception "The bucket of NTILE must be a constant value: ntile(k1)"
+        exception "Parameter n in ntile(n) should be constant positive integer."
     }
 }
 
