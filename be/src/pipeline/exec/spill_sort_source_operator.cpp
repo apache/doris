@@ -58,20 +58,10 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    {
-        std::unique_lock<std::mutex> lk(_merge_spill_lock);
-        if (_is_merging) {
-            _merge_spill_cv.wait(lk);
-        }
-    }
     if (Base::_shared_state->enable_spill) {
         dec_running_big_mem_op_num(state);
     }
     RETURN_IF_ERROR(Base::close(state));
-    for (auto& stream : _current_merging_streams) {
-        (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
-    }
-    _current_merging_streams.clear();
     return Status::OK();
 }
 int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
@@ -81,14 +71,11 @@ int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
 Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* state) {
     auto& parent = Base::_parent->template cast<Parent>();
     LOG(INFO) << "sort node " << _parent->node_id() << " merge spill data";
-    DCHECK(!_is_merging);
-    _is_merging = true;
     _dependency->Dependency::block();
 
     Status status;
     Defer defer {[&]() {
         if (!status.ok()) {
-            _is_merging = false;
             _dependency->Dependency::set_ready();
         }
     }};
@@ -111,12 +98,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
             } else {
                 LOG(INFO) << "sort node " << _parent->node_id() << " merge spill data finish";
             }
-            {
-                std::unique_lock<std::mutex> lk(_merge_spill_lock);
-                _is_merging = false;
-                _dependency->Dependency::set_ready();
-                _merge_spill_cv.notify_one();
-            }
+            _dependency->Dependency::set_ready();
         }};
         vectorized::Block merge_sorted_block;
         vectorized::SpillStreamSPtr tmp_stream;
@@ -258,15 +240,15 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
-    if (!local_state.Base::_shared_state->enable_spill) {
-        RETURN_IF_ERROR(
-                _sort_source_operator->get_block(local_state._runtime_state.get(), block, eos));
-    } else {
+    if (local_state.Base::_shared_state->enable_spill && local_state._shared_state->is_spilled) {
         if (!local_state._merger) {
             return local_state.initiate_merge_sort_spill_streams(state);
         } else {
             RETURN_IF_ERROR(local_state._merger->get_next(block, eos));
         }
+    } else {
+        RETURN_IF_ERROR(
+                _sort_source_operator->get_block(local_state._runtime_state.get(), block, eos));
     }
     local_state.reached_limit(block, eos);
     return Status::OK();
