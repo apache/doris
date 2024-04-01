@@ -326,15 +326,15 @@ suite("bind_priority") {
 
 
     def bindOrderBy = {
-        sql "drop table if exists test_bind_groupby_slots"
+        sql "drop table if exists test_bind_orderby_slots"
 
-        sql """create table test_bind_groupby_slots
+        sql """create table test_bind_orderby_slots
                 (id int, age int)
                 distributed by hash(id)
                 properties('replication_num'='1');
                 """
-        sql "insert into test_bind_groupby_slots values(1, 10), (2, 20), (3, 30);"
+        sql "insert into test_bind_orderby_slots values(1, 10), (2, 20), (3, 30);"
 
-        order_qt_sql "select MIN (LENGTH (cast(age as varchar))), 1 AS col2 from test_bind_groupby_slots order by 2"
+        order_qt_sql "select MIN (LENGTH (cast(age as varchar))), 1 AS col2 from test_bind_orderby_slots order by 2"
     }()
 }
