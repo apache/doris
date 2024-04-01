@@ -145,7 +145,6 @@ import org.apache.doris.nereids.DorisParser.PropertyValueContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
-import org.apache.doris.nereids.DorisParser.QueryTermContext;
 import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
 import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
@@ -464,6 +463,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Stack;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -1158,25 +1158,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitSetOperation(SetOperationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-
             if (ctx.UNION() != null) {
                 Qualifier qualifier = getQualifier(ctx);
-                List<QueryTermContext> contexts = Lists.newArrayList(ctx.right);
-                QueryTermContext current = ctx.left;
-                while (true) {
-                    if (current instanceof SetOperationContext
-                            && getQualifier((SetOperationContext) current) == qualifier
-                            && ((SetOperationContext) current).UNION() != null) {
-                        contexts.add(((SetOperationContext) current).right);
-                        current = ((SetOperationContext) current).left;
-                    } else {
-                        contexts.add(current);
-                        break;
-                    }
-                }
-                Collections.reverse(contexts);
-                List<LogicalPlan> logicalPlans = contexts.stream().map(this::plan).collect(Collectors.toList());
-                return reduceToLogicalPlanTree(0, logicalPlans.size() - 1, logicalPlans, qualifier);
+                ImmutableList.Builder<Plan> children = ImmutableList.builder();
+                flatUnion(ctx, qualifier, children);
+                return new LogicalUnion(qualifier, children.build());
             } else {
                 LogicalPlan leftQuery = plan(ctx.left);
                 LogicalPlan rightQuery = plan(ctx.right);
@@ -1196,6 +1182,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return plan;
             }
         });
+    }
+
+    private void flatUnion(SetOperationContext ctx, Qualifier qualifier, ImmutableList.Builder<Plan> children) {
+        Stack<ParserRuleContext> tasks = new Stack<>();
+        tasks.push(ctx.right);
+        tasks.push(ctx.left);
+
+        while (!tasks.isEmpty()) {
+            ParserRuleContext task = tasks.pop();
+            if (task instanceof SetOperationContext) {
+                SetOperationContext childUnion = (SetOperationContext) task;
+                if (childUnion.UNION() != null && getQualifier(childUnion) == qualifier) {
+                    tasks.push(childUnion.right);
+                    tasks.push(childUnion.left);
+                } else {
+                    children.add((LogicalPlan) childUnion.accept(this));
+                }
+            } else {
+                children.add((LogicalPlan) task.accept(this));
+            }
+        }
     }
 
     private Qualifier getQualifier(SetOperationContext ctx) {
@@ -1500,9 +1507,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // Reverse the contexts to have them in the same sequence as in the SQL statement & turn them
             // into expressions.
             Collections.reverse(contexts);
-            List<Expression> expressions = contexts.stream().map(this::getExpression).collect(Collectors.toList());
+
+            ImmutableList.Builder<Expression> expressions = ImmutableList.builderWithExpectedSize(contexts.size());
+            for (BooleanExpressionContext context : contexts) {
+                expressions.add(getExpression(context));
+            }
             // Create a balanced tree.
-            return reduceToExpressionTree(0, expressions.size() - 1, expressions, ctx);
+            return reduceToExpressionTree(0, contexts.size() - 1, expressions.build(), ctx);
         });
     }
 
@@ -2399,10 +2410,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private <T> List<T> visit(List<? extends ParserRuleContext> contexts, Class<T> clazz) {
-        return contexts.stream()
-                .map(this::visit)
-                .map(clazz::cast)
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<T> result = ImmutableList.builderWithExpectedSize(contexts.size());
+        for (ParserRuleContext context : contexts) {
+            result.add((T) visit(context));
+        }
+        return result.build();
     }
 
     private LogicalPlan plan(ParserRuleContext tree) {

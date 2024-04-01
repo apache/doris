@@ -121,7 +121,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             // two steps: prune current output and prune children
             OutputPrunable outputPrunable = (OutputPrunable) plan;
             plan = pruneOutput(plan, outputPrunable.getOutputs(), outputPrunable::pruneOutputs, context);
-            return pruneChildren(plan);
+            return pruneChildren(plan, ImmutableSet.of());
         } else {
             // e.g.
             //
@@ -206,7 +206,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
         Aggregate fillUpAggr = fillUpGroupByAndOutput(prunedOutputAgg);
 
-        return pruneChildren(fillUpAggr);
+        return pruneChildren(fillUpAggr, ImmutableSet.of());
     }
 
     private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
@@ -315,10 +315,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         } else {
             return union.withNewOutputsAndConstExprsList(prunedOutputs, prunedConstantExprsList.build());
         }
-    }
-
-    private <P extends Plan> P pruneChildren(P plan) {
-        return pruneChildren(plan, ImmutableSet.of());
     }
 
     private <P extends Plan> P pruneChildren(P plan, Set<Slot> parentRequiredSlots) {
