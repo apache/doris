@@ -137,21 +137,15 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     {
         SCOPED_TIMER(_runtime_filter_init_timer);
         RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
-        RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state, hash_table_size));
+        RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
     }
-    if (_should_build_hash_table) {
-        if (hash_table_size > 1) {
-            SCOPED_TIMER(_runtime_filter_compute_timer);
-            _runtime_filter_slots->insert(block);
-        }
-        {
-            SCOPED_TIMER(_publish_runtime_filter_timer);
-            RETURN_IF_ERROR(_runtime_filter_slots->publish());
-        }
-    } else {
-        SCOPED_TIMER(_publish_runtime_filter_timer);
-        RETURN_IF_ERROR(_runtime_filter_slots->publish(true));
+    if (_should_build_hash_table && hash_table_size > 1) {
+        SCOPED_TIMER(_runtime_filter_compute_timer);
+        _runtime_filter_slots->insert(block);
     }
+
+    SCOPED_TIMER(_publish_runtime_filter_timer);
+    RETURN_IF_ERROR(_runtime_filter_slots->publish(!_should_build_hash_table));
     return Status::OK();
 }
 

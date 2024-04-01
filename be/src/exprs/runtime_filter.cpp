@@ -1036,7 +1036,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
         } else {
             if (_has_local_target) {
                 for (auto* filter : local_merge_filters->filters) {
-                    filter->set_global_size(local_merge_filters->local_merged_size);
+                    filter->set_synced_size(local_merge_filters->local_merged_size);
                 }
                 return Status::OK();
             } else {
@@ -1044,7 +1044,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
             }
         }
     } else if (_has_local_target) {
-        set_global_size(local_filter_size);
+        set_synced_size(local_filter_size);
         return Status::OK();
     }
 
@@ -1285,9 +1285,9 @@ void IRuntimeFilter::set_dependency(pipeline::CountedFinishDependency* dependenc
     CHECK(_dependency);
 }
 
-void IRuntimeFilter::set_global_size(uint64_t global_size) {
+void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     CHECK(_dependency);
-    _global_size = global_size;
+    _synced_size = global_size;
     _dependency->sub();
 }
 

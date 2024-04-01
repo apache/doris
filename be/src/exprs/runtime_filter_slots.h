@@ -61,12 +61,13 @@ public:
         return Status::OK();
     }
 
+    // use synced size when this rf has global merged
     static uint64_t get_real_size(IRuntimeFilter* runtime_filter, uint64_t hash_table_size) {
-        return runtime_filter->isset_global_size() ? runtime_filter->get_global_size()
+        return runtime_filter->isset_synced_size() ? runtime_filter->get_synced_size()
                                                    : hash_table_size;
     }
 
-    Status ignore_filters(RuntimeState* state, uint64_t hash_table_size) {
+    Status ignore_filters(RuntimeState* state) {
         // process ignore duplicate IN_FILTER
         std::unordered_set<int> has_in_filter;
         for (auto* filter : _runtime_filters) {
@@ -91,16 +92,17 @@ public:
         return Status::OK();
     }
 
-    Status init_filters(RuntimeState* state, uint64_t hash_table_size) {
+    Status init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
         // process IN_OR_BLOOM_FILTER's real type
         for (auto* filter : _runtime_filters) {
             if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-                get_real_size(filter, hash_table_size) > state->runtime_filter_max_in_num()) {
+                get_real_size(filter, local_hash_table_size) > state->runtime_filter_max_in_num()) {
                 RETURN_IF_ERROR(filter->change_to_bloom_filter());
             }
 
             if (filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-                RETURN_IF_ERROR(filter->init_bloom_filter(get_real_size(filter, hash_table_size)));
+                RETURN_IF_ERROR(
+                        filter->init_bloom_filter(get_real_size(filter, local_hash_table_size)));
             }
         }
         return Status::OK();

@@ -362,13 +362,13 @@ public:
 
     void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
 
-    void set_global_size(uint64_t global_size);
+    void set_synced_size(uint64_t global_size);
 
     void set_dependency(pipeline::CountedFinishDependency* dependency);
 
-    int64_t get_global_size() const { return _global_size; }
+    int64_t get_synced_size() const { return _synced_size; }
 
-    bool isset_global_size() const { return _global_size != -1; }
+    bool isset_synced_size() const { return _synced_size != -1; }
 
 protected:
     // serialize _wrapper to protobuf
@@ -452,7 +452,7 @@ protected:
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
-    int64_t _global_size = -1;
+    int64_t _synced_size = -1;
     pipeline::CountedFinishDependency* _dependency = nullptr;
 };
 

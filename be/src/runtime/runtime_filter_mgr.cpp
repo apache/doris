@@ -362,7 +362,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
     auto* filter = try_get_product_filter(request->filter_id());
     if (filter) {
-        filter->set_global_size(request->filter_size());
+        filter->set_synced_size(request->filter_size());
         return Status::OK();
     }
 
@@ -370,7 +370,7 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
     RETURN_IF_ERROR(get_local_merge_producer_filters(request->filter_id(), &local_merge_filters));
     // first filter size merged filter
     for (size_t i = 1; i < local_merge_filters->filters.size(); i++) {
-        local_merge_filters->filters[i]->set_global_size(request->filter_size());
+        local_merge_filters->filters[i]->set_synced_size(request->filter_size());
     }
     return Status::OK();
 }
