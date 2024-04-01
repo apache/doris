@@ -28,6 +28,7 @@
 #include <runtime/exec_env.h>
 
 #include <memory>
+#include <sstream>
 
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
@@ -124,8 +125,8 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             for (size_t index = origin_size; index <= segid; index++) {
                 mapping->at(index) = _next_segid;
                 _next_segid++;
-                LOG(INFO) << "src_id=" << src_id << ", segid=" << index << " to "
-                          << " segid=" << _next_segid - 1;
+                VLOG_DEBUG << "src_id=" << src_id << ", segid=" << index << " to "
+                           << " segid=" << _next_segid - 1 << ", " << *this;
             }
         }
     }
@@ -383,7 +384,7 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
     }
     _close_load_cnt++;
     LOG(INFO) << "received CLOSE_LOAD from sender " << src_id << ", remaining "
-              << _total_streams - _close_load_cnt << " senders";
+              << _total_streams - _close_load_cnt << " senders, " << *this;
 
     _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
                               tablets_to_commit.end());
@@ -432,14 +433,14 @@ void LoadStream::_report_result(StreamId stream, const Status& status,
         if (st.ok()) {
             response.set_load_stream_profile(buf, len);
         } else {
-            LOG(WARNING) << "load channel TRuntimeProfileTree serialize failed, errmsg=" << st;
+            LOG(WARNING) << "TRuntimeProfileTree serialize failed, errmsg=" << st << ", " << *this;
         }
     }
 
     buf.append(response.SerializeAsString());
     auto wst = _write_stream(stream, buf);
     if (!wst.ok()) {
-        LOG(WARNING) << *this << " report result failed with " << wst;
+        LOG(WARNING) << " report result failed with " << wst << ", " << *this;
     }
 }
 
@@ -465,7 +466,7 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     buf.append(response.SerializeAsString());
     auto wst = _write_stream(stream, buf);
     if (!wst.ok()) {
-        LOG(WARNING) << *this << " report result failed with " << wst;
+        LOG(WARNING) << " report result failed with " << wst << ", " << *this;
     }
 }
 
@@ -593,26 +594,31 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         _report_schema(id, hdr);
     } break;
     default:
-        LOG(WARNING) << "unexpected stream message " << hdr.opcode();
+        LOG(WARNING) << "unexpected stream message " << hdr.opcode() << ", " << *this;
         DCHECK(false);
     }
 }
 
 void LoadStream::on_idle_timeout(StreamId id) {
-    LOG(WARNING) << "closing load stream on idle timeout, load_id=" << print_id(_load_id);
+    LOG(WARNING) << "closing load stream on idle timeout, " << *this;
     brpc::StreamClose(id);
 }
 
 void LoadStream::on_closed(StreamId id) {
+    // `this` may be freed by other threads after increasing `_close_rpc_cnt`,
+    // format string first to prevent use-after-free
+    std::stringstream ss;
+    ss << *this;
     auto remaining_streams = _total_streams - _close_rpc_cnt.fetch_add(1) - 1;
-    LOG(INFO) << "stream " << id << " on_closed, remaining streams = " << remaining_streams;
+    LOG(INFO) << "stream " << id << " on_closed, remaining streams = " << remaining_streams << ", "
+              << ss.str();
     if (remaining_streams == 0) {
         _load_stream_mgr->clear_load(_load_id);
     }
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_stream) {
-    ostr << "load_id=" << UniqueId(load_stream._load_id) << ", txn_id=" << load_stream._txn_id;
+    ostr << "load_id=" << print_id(load_stream._load_id) << ", txn_id=" << load_stream._txn_id;
     return ostr;
 }
 
