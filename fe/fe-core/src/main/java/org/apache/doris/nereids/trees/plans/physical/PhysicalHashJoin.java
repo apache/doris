@@ -240,7 +240,8 @@ public class PhysicalHashJoin<
         Preconditions.checkState(leftNode != null && rightNode != null,
                 "join child node is null");
 
-        Set<Expression> probExprList = Sets.newHashSet(probeExpr);
+        Set<Expression> probExprList = Sets.newLinkedHashSet();
+        probExprList.add(probeExpr);
         Pair<PhysicalRelation, Slot> srcPair = ctx.getAliasTransferMap().get(srcExpr);
         PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
         Pair<PhysicalRelation, Slot> targetPair = ctx.getAliasTransferMap().get(probeExpr);

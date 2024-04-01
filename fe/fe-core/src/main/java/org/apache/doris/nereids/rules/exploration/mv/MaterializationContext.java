@@ -33,11 +33,12 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,7 +68,7 @@ public class MaterializationContext {
     private boolean success = false;
     // if rewrite by mv fail, record the reason, if success the failReason should be empty.
     // The key is the query belonged group expression objectId, the value is the fail reason
-    private final Map<ObjectId, Pair<String, String>> failReason = new HashMap<>();
+    private final Map<ObjectId, Pair<String, String>> failReason = new LinkedHashMap<>();
     private boolean enableRecordFailureDetail = false;
 
     /**
@@ -163,7 +164,6 @@ public class MaterializationContext {
         if (this.success) {
             return;
         }
-        this.success = false;
         this.failReason.put(structInfo.getOriginalPlanId(),
                 Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
     }
@@ -233,7 +233,7 @@ public class MaterializationContext {
         for (MaterializationContext ctx : materializationContexts) {
             if (!ctx.isSuccess()) {
                 Set<String> failReasonSet =
-                        ctx.getFailReason().values().stream().map(Pair::key).collect(Collectors.toSet());
+                        ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
                 builder.append("\n")
                         .append("  Name: ").append(ctx.getMTMV().getName())
                         .append("\n")

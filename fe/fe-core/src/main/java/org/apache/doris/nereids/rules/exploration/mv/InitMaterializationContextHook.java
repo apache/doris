@@ -79,7 +79,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         if (availableMTMVs.isEmpty()) {
             return;
         }
-        availableMTMVs.forEach(materializedView -> {
+        for (MTMV materializedView : availableMTMVs) {
             // generate outside, maybe add partition filter in the future
             LogicalOlapScan mvScan = new LogicalOlapScan(
                     cascadesContext.getStatementContext().getNextRelationId(),
@@ -96,6 +96,6 @@ public class InitMaterializationContextHook implements PlannerHook {
             Plan projectScan = new LogicalProject<Plan>(mvProjects, mvScan);
             cascadesContext.addMaterializationContext(
                     MaterializationContext.fromMaterializedView(materializedView, projectScan, cascadesContext));
-        });
+        }
     }
 }

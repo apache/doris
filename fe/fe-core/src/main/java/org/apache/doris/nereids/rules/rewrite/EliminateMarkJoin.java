@@ -19,9 +19,11 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -38,15 +40,22 @@ public class EliminateMarkJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalJoin().when(
                 join -> join.getJoinType().isSemiJoin() && !join.getMarkJoinConjuncts().isEmpty()))
-                        .when(filter -> canSimplifyMarkJoin(filter.getConjuncts()))
-                        .then(filter -> filter.withChildren(eliminateMarkJoin(filter.child())))
+                        .when(filter -> canSimplifyMarkJoin(filter.getConjuncts(), null))
+                        .thenApply(ctx -> {
+                            LogicalFilter<LogicalJoin<Plan, Plan>> filter = ctx.root;
+                            ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
+                            if (canSimplifyMarkJoin(filter.getConjuncts(), rewriteContext)) {
+                                return filter.withChildren(eliminateMarkJoin(filter.child()));
+                            }
+                            return filter;
+                        })
                         .toRule(RuleType.ELIMINATE_MARK_JOIN);
     }
 
-    private boolean canSimplifyMarkJoin(Set<Expression> predicates) {
+    private boolean canSimplifyMarkJoin(Set<Expression> predicates, ExpressionRewriteContext rewriteContext) {
         return ExpressionUtils
                 .canInferNotNullForMarkSlot(TrySimplifyPredicateWithMarkJoinSlot.INSTANCE
-                        .rewrite(ExpressionUtils.and(predicates), null));
+                        .rewrite(ExpressionUtils.and(predicates), rewriteContext), rewriteContext);
     }
 
     private LogicalJoin<Plan, Plan> eliminateMarkJoin(LogicalJoin<Plan, Plan> join) {

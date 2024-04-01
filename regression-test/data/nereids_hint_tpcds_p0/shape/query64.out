@@ -112,7 +112,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF0 cr_order_number->[cs_order_number];RF1 cr_item_sk->[cs_item_sk]
+----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF0 cr_item_sk->[cs_item_sk];RF1 cr_order_number->[cs_order_number]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
 ------------------------------PhysicalProject
