@@ -297,7 +297,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (unboundFunction.isHighOrder()) {
             unboundFunction = bindHighOrderFunction(unboundFunction, context);
         } else {
-            unboundFunction = (UnboundFunction) rewriteChildren(this, unboundFunction, context);
+            unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }
 
         // bind function

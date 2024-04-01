@@ -1047,11 +1047,20 @@ public class TypeCoercionUtils {
     public static Expression processCompoundPredicate(CompoundPredicate compoundPredicate) {
         // check
         compoundPredicate.checkLegalityBeforeTypeCoercion();
-        List<Expression> children = compoundPredicate.children().stream()
-                .map(e -> e.getDataType().isNullType() ? new NullLiteral(BooleanType.INSTANCE)
-                        : castIfNotSameType(e, BooleanType.INSTANCE))
-                .collect(Collectors.toList());
-        return compoundPredicate.withChildren(children);
+        ImmutableList.Builder<Expression> newChildren
+                = ImmutableList.builderWithExpectedSize(compoundPredicate.arity());
+        boolean changed = false;
+        for (Expression child : compoundPredicate.children()) {
+            Expression newChild;
+            if (child.getDataType().isNullType()) {
+                newChild = new NullLiteral(BooleanType.INSTANCE);
+            } else {
+                newChild = castIfNotSameType(child, BooleanType.INSTANCE);
+            }
+            changed |= child != newChild;
+            newChildren.add(newChild);
+        }
+        return changed ? compoundPredicate.withChildren(newChildren.build()) : compoundPredicate;
     }
 
     private static boolean canCompareDate(DataType t1, DataType t2) {

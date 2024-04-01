@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -50,7 +51,9 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testSimplify() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(SimplifyCastRule.INSTANCE))
+        );
         assertRewriteAfterSimplify("CAST('1' AS STRING)", "'1'", StringType.INSTANCE);
         assertRewriteAfterSimplify("CAST('1' AS VARCHAR)", "'1'",
                 VarcharType.createVarcharType(-1));
@@ -186,7 +189,7 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
 
     private void assertRewriteAfterSimplify(String expr, String expected, DataType expectedType) {
         Expression needRewriteExpression = PARSER.parseExpression(expr);
-        Expression rewritten = SimplifyCastRule.INSTANCE.rewrite(needRewriteExpression, context);
+        Expression rewritten = executor.rewrite(needRewriteExpression, context);
         Expression expectedExpression = PARSER.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewritten.toSql());
         Assertions.assertEquals(expectedType, rewritten.getDataType());

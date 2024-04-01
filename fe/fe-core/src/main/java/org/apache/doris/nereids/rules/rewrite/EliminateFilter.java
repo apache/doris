@@ -43,10 +43,10 @@ public class EliminateFilter implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(logicalFilter().when(
-                filter -> filter.getConjuncts().stream().anyMatch(BooleanLiteral.class::isInstance))
+                filter -> ExpressionUtils.containsType(filter.getConjuncts(), BooleanLiteral.class))
                 .thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
-                    ImmutableSet.Builder newConjuncts = ImmutableSet.builder();
+                    ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
                     for (Expression expression : filter.getConjuncts()) {
                         if (expression == BooleanLiteral.FALSE) {
                             return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
@@ -73,8 +73,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                             new ExpressionRewriteContext(ctx.cascadesContext);
                     for (Expression expression : filter.getConjuncts()) {
                         Expression newExpr = ExpressionUtils.replace(expression, replaceMap);
-                        Expression foldExpression =
-                                FoldConstantRule.INSTANCE.rewrite(newExpr, context);
+                        Expression foldExpression = FoldConstantRule.evaluate(newExpr, context);
 
                         if (foldExpression == BooleanLiteral.FALSE) {
                             return new LogicalEmptyRelation(

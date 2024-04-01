@@ -23,9 +23,9 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /** used to generate pattern for LogicalLeaf. */
-public class LogicalLeafPatternGenerator extends PatternGenerator {
+public class LogicalLeafPatternGenerator extends PlanPatternGenerator {
 
-    public LogicalLeafPatternGenerator(PatternGeneratorAnalyzer analyzer,
+    public LogicalLeafPatternGenerator(PlanPatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
         super(analyzer, opType, parentClass, isMemoPattern);
     }

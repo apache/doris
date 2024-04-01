@@ -42,20 +42,21 @@ public class ExpressionNormalization extends ExpressionRewrite {
     // we should run supportJavaDateFormatter before foldConstantRule or be will fold
     // from_unixtime(timestamp, 'yyyyMMdd') to 'yyyyMMdd'
     public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES = ImmutableList.of(
-            SupportJavaDateFormatter.INSTANCE,
-            ReplaceVariableByLiteral.INSTANCE,
-            NormalizeBinaryPredicatesRule.INSTANCE,
-            InPredicateDedup.INSTANCE,
-            InPredicateToEqualToRule.INSTANCE,
-            SimplifyNotExprRule.INSTANCE,
-            SimplifyArithmeticRule.INSTANCE,
-            FoldConstantRule.INSTANCE,
-            SimplifyCastRule.INSTANCE,
-            DigitalMaskingConvert.INSTANCE,
-            SimplifyArithmeticComparisonRule.INSTANCE,
-            SupportJavaDateFormatter.INSTANCE,
-            ConvertAggStateCast.INSTANCE,
-            CheckCast.INSTANCE
+            bottomUp(
+                ReplaceVariableByLiteral.INSTANCE,
+                SupportJavaDateFormatter.INSTANCE,
+                NormalizeBinaryPredicatesRule.INSTANCE,
+                InPredicateDedup.INSTANCE,
+                InPredicateToEqualToRule.INSTANCE,
+                SimplifyNotExprRule.INSTANCE,
+                SimplifyArithmeticRule.INSTANCE,
+                FoldConstantRule.INSTANCE,
+                SimplifyCastRule.INSTANCE,
+                DigitalMaskingConvert.INSTANCE,
+                SimplifyArithmeticComparisonRule.INSTANCE,
+                ConvertAggStateCast.INSTANCE,
+                CheckCast.INSTANCE
+            )
     );
 
     public ExpressionNormalization() {

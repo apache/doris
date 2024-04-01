@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((item.i_brand_id = t.brand_id) and (item.i_category_id = t.category_id) and (item.i_class_id = t.class_id)) otherCondition=() build RFs:RF6 i_class_id->[i_class_id];RF7 i_category_id->[i_category_id];RF8 i_brand_id->[i_brand_id]
+------hashJoin[INNER_JOIN] hashCondition=((item.i_brand_id = t.brand_id) and (item.i_category_id = t.category_id) and (item.i_class_id = t.class_id)) otherCondition=() build RFs:RF6 i_brand_id->[i_brand_id];RF7 i_class_id->[i_class_id];RF8 i_category_id->[i_category_id]
 --------PhysicalIntersect
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalProject
