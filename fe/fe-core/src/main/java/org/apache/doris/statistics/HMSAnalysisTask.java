@@ -148,7 +148,11 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
                 params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
                 params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
             } else {
-                sb.append(DUJ1_ANALYZE_TEMPLATE);
+                if (col.getType().isStringType()) {
+                    sb.append(DUJ1_ANALYZE_STRING_TEMPLATE);
+                } else {
+                    sb.append(DUJ1_ANALYZE_TEMPLATE);
+                }
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
                 params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
                 params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");
