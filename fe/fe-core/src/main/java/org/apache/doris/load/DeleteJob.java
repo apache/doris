@@ -294,7 +294,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     public void dispatch() throws Exception {
         // task sent to be
         AgentBatchTask batchTask = new AgentBatchTask();
-        String vaultId = (targetTbl.getTableProperty() == null) ? "" : targetTbl.getTableProperty().getStorageVaultId();
+        String vaultId = targetTbl.getStorageVaultId();
         for (Partition partition : partitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 long indexId = index.getId();

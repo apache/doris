@@ -421,7 +421,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         tbl.readLock();
         Map<Object, List<TColumn>> tcloumnsPool  = Maps.newHashMap();
-        String vaultId = (tbl.getTableProperty() == null) ? "" : tbl.getTableProperty().getStorageVaultId();
+        String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Map<String, Column> indexColumnMap = Maps.newHashMap();

@@ -254,11 +254,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         getOrCreatTableProperty().setStorageVaultName(storageVaultName);
     }
 
+    public String getStorageVaultName() {
+        return getOrCreatTableProperty().getStorageVaultName();
+    }
+
     public void setStorageVaultId(String setStorageVaultId) throws DdlException {
         if (setStorageVaultId == null || setStorageVaultId.isEmpty()) {
             throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
         }
         getOrCreatTableProperty().setStorageVaultId(setStorageVaultId);
+    }
+
+    public String getStorageVaultId() {
+        return getOrCreatTableProperty().getStorageVaultId();
     }
 
     public boolean isBeingSynced() {

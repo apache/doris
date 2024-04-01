@@ -451,8 +451,7 @@ public class SparkLoadJob extends BulkLoadJob {
                 for (TableIf table : tableList) {
                     Set<Long> partitionIds = tableToLoadPartitions.get(table.getId());
                     OlapTable olapTable = (OlapTable) table;
-                    String vaultId = (olapTable.getTableProperty() == null) ? "" :
-                            olapTable.getTableProperty().getStorageVaultId();
+                    String vaultId = olapTable.getStorageVaultId();
                     for (long partitionId : partitionIds) {
                         Partition partition = olapTable.getPartition(partitionId);
                         if (partition == null) {

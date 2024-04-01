@@ -121,7 +121,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         long version = partition.getVisibleVersion();
 
-        final String storageVaultName = tbl.getTableProperty().getStorageVaultName();
+        final String storageVaultName = tbl.getStorageVaultName();
         boolean storageVaultIdSet = false;
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
@@ -166,10 +166,14 @@ public class CloudInternalCatalog extends InternalCatalog {
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
             if (resp.hasStorageVaultId() && !storageVaultIdSet) {
-                tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
+                tbl.setStorageVaultId(resp.getStorageVaultId());
                 storageVaultIdSet = true;
                 if (storageVaultName.isEmpty()) {
-                    tbl.getTableProperty().setStorageVaultName(resp.getStorageVaultName());
+                    // If user doesn't specify the vault name for this table, we should set it
+                    // to make the show create table stmt return correct stmt
+                    // TODO(ByteYue): setDefaultStorageVault for vaultMgr might override user's
+                    // defualt vault, maybe we should set it using show default storage vault stmt
+                    tbl.setStorageVaultName(resp.getStorageVaultName());
                     Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
                             Pair.of(resp.getStorageVaultName(), resp.getStorageVaultId()));
                 }
@@ -181,7 +185,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         LOG.info("succeed in creating partition[{}-{}], table : [{}-{}], vault {}", partitionId, partitionName,
-                tbl.getId(), tbl.getName(), tbl.getTableProperty().getStorageVaultName());
+                tbl.getId(), tbl.getName(), tbl.getStorageVaultName());
 
         return partition;
     }
