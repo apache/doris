@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka,mariadb,db2
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,hive3,iceberg,hudi,trino,kafka,mariadb,db2
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
+    COMPONENTS="mysql,es,hive,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb,db2"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,hive3,iceberg,hudi,trino,kafka,mariadb,db2"
         fi
     fi
 fi
@@ -126,6 +126,7 @@ RUN_ORACLE=0
 RUN_SQLSERVER=0
 RUN_CLICKHOUSE=0
 RUN_HIVE=0
+RUN_HIVE3=0;
 RUN_ES=0
 RUN_ICEBERG=0
 RUN_HUDI=0
@@ -150,6 +151,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ES=1
     elif [[ "${element}"x == "hive"x ]]; then
         RUN_HIVE=1
+    elif [[ "${element}"x == "hive3"x ]]; then
+        RUN_HIVE3=1
     elif [[ "${element}"x == "kafka"x ]]; then
         RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
@@ -325,6 +328,36 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+    fi
+fi
+
+if [[ "${RUN_HIVE3}" -eq 1 ]]; then
+    # hive3
+    # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
+    #default value
+    IP_HOST="127.0.0.1"
+    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
+    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+    if [ "_${IP_HOST}" == "_" ];then
+        echo "please set IP_HOST according to your actual situation"
+        exit -1
+    fi
+    # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
+    cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
+    cp "${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl "${ROOT}"/docker-compose/hive/hive-3x.yaml
+    cp "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl.tpl "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-3x.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
+    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-3x.yaml
+    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
+    sed -i "s/\${externalEnvIp}/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
+    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+    sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
+    sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
     fi
 fi
 
