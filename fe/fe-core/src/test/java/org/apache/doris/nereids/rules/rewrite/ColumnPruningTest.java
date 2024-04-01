@@ -70,18 +70,18 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                                         logicalProject()
                                                                 .when(p -> getOutputQualifiedNames(p).containsAll(
                                                                         ImmutableList.of(
-                                                                                "default_cluster:test.student.id",
-                                                                                "default_cluster:test.student.name"))),
+                                                                                "default_cluster:internal.test.student.id",
+                                                                                "default_cluster:internal.test.student.name"))),
                                                         logicalProject().when(
                                                                 p -> getOutputQualifiedNames(p).containsAll(
                                                                         ImmutableList.of(
-                                                                                "default_cluster:test.score.sid",
-                                                                                "default_cluster:test.score.grade")))
+                                                                                "default_cluster:internal.test.score.sid",
+                                                                                "default_cluster:internal.test.score.grade")))
                                                 ))
                                                 .when(p -> getOutputQualifiedNames(p)
                                                         .containsAll(
-                                                                ImmutableList.of("default_cluster:test.student.name",
-                                                                        "default_cluster:test.student.id")))
+                                                                ImmutableList.of("default_cluster:internal.test.student.name",
+                                                                        "default_cluster:internal.test.student.id")))
                                 )
                         )
                 );
@@ -102,18 +102,17 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                                         logicalProject()
                                                                 .when(p -> getOutputQualifiedNames(p).containsAll(
                                                                         ImmutableList.of(
-                                                                                "default_cluster:test.student.id",
-                                                                                "default_cluster:test.student.name",
-                                                                                "default_cluster:test.student.sex"))),
-
+                                                                                "default_cluster:internal.test.student.id",
+                                                                                "default_cluster:internal.test.student.name",
+                                                                                "default_cluster:internal.test.student.sex"))),
                                                         logicalRelation()
                                                 ))
                                                 .when(p -> getOutputQualifiedNames(p)
                                                         .containsAll(
-                                                                ImmutableList.of("default_cluster:test.student.name",
-                                                                        "default_cluster:test.score.cid",
-                                                                        "default_cluster:test.score.grade",
-                                                                        "default_cluster:test.student.sex")))
+                                                                ImmutableList.of("default_cluster:internal.test.student.name",
+                                                                        "default_cluster:internal.test.score.cid",
+                                                                        "default_cluster:internal.test.score.grade",
+                                                                        "default_cluster:internal.test.student.sex")))
                                 )
                         )
                 );
@@ -129,9 +128,9 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                 logicalFilter(
                                         logicalProject().when(p -> getOutputQualifiedNames(p)
                                                 .containsAll(ImmutableList.of(
-                                                        "default_cluster:test.student.name",
-                                                        "default_cluster:test.student.id",
-                                                        "default_cluster:test.student.age")))
+                                                        "default_cluster:internal.test.student.name",
+                                                        "default_cluster:internal.test.student.id",
+                                                        "default_cluster:internal.test.student.age")))
                                 )
                         )
                 );
@@ -155,25 +154,25 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                                                 logicalProject(logicalRelation())
                                                                         .when(p -> getOutputQualifiedNames(
                                                                                 p).containsAll(ImmutableList.of(
-                                                                                "default_cluster:test.student.id",
-                                                                                "default_cluster:test.student.name"))),
+                                                                                "default_cluster:internal.test.student.id",
+                                                                                "default_cluster:internal.test.student.name"))),
                                                                 logicalRelation()
 
                                                         )).when(p -> getOutputQualifiedNames(p)
                                                                 .containsAll(ImmutableList.of(
-                                                                        "default_cluster:test.student.name",
-                                                                        "default_cluster:test.score.cid",
-                                                                        "default_cluster:test.score.grade"))),
+                                                                        "default_cluster:internal.test.student.name",
+                                                                        "default_cluster:internal.test.score.cid",
+                                                                        "default_cluster:internal.test.score.grade"))),
                                                         logicalProject(logicalRelation())
                                                                 .when(p -> getOutputQualifiedNames(p)
                                                                         .containsAll(ImmutableList.of(
-                                                                                "default_cluster:test.course.cid",
-                                                                                "default_cluster:test.course.cname")))
+                                                                                "default_cluster:internal.test.course.cid",
+                                                                                "default_cluster:internal.test.course.cname")))
                                                 )
                                         ).when(p -> getOutputQualifiedNames(p).containsAll(ImmutableList.of(
-                                                "default_cluster:test.student.name",
-                                                "default_cluster:test.course.cname",
-                                                "default_cluster:test.score.grade")))
+                                                "default_cluster:internal.test.student.name",
+                                                "default_cluster:internal.test.course.cname",
+                                                "default_cluster:internal.test.score.grade")))
                                 )
                         )
                 );
@@ -280,12 +279,12 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                             logicalProject(logicalRelation())
                                                     .when(p -> getOutputQualifiedNames(p)
                                                             .containsAll(ImmutableList.of(
-                                                                    "default_cluster:test.student.id",
-                                                                    "default_cluster:test.student.name"))),
+                                                                    "default_cluster:internal.test.student.id",
+                                                                    "default_cluster:internal.test.student.name"))),
                                             logicalProject(logicalRelation())
                                                     .when(p -> getOutputQualifiedNames(p)
                                                             .containsAll(ImmutableList.of(
-                                                                    "default_cluster:test.score.sid")))
+                                                                    "default_cluster:internal.test.score.sid")))
                                     )
                         )
                 );
@@ -304,10 +303,10 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                             logicalProject(
                                                 logicalOlapScan()
                                             ).when(p -> getOutputQualifiedNames(p).equals(
-                                                    ImmutableList.of("default_cluster:test.student.id")
+                                                    ImmutableList.of("default_cluster:internal.test.student.id")
                                             ))
                                         ).when(agg -> getOutputQualifiedNames(agg.getOutputs()).equals(
-                                                ImmutableList.of("default_cluster:test.student.id")
+                                                ImmutableList.of("default_cluster:internal.test.student.id")
                                 )))
                             )
                         )
