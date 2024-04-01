@@ -1,20 +1,27 @@
 name: include what you use Github action
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-      with:
-        ref: v2
+      - name: Set up environment
+        env:
+          ACTIONS_STEP_DEBUG: true
 
-    - name: include what you use
-      uses: EmilGedda/include-what-you-use-action@v1.0
-      with:
-        compilation-database-path: '.' # Use default value or specify a valid path
-        output-format: 'iwyu'         # Use default value or specify 'clang' or 'iwyu'
-        no-error: false               # Use default value or specify true/false
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: v2
+
+      - name: include what you use
+        uses: EmilGedda/include-what-you-use-action@v1.0
+        with:
+          compilation-database-path: '.' # Use default value or specify a valid path
+          output-format: 'iwyu'         # Use default value or specify 'clang' or 'iwyu'
+          no-error: false               # Use default value or specify true/false
