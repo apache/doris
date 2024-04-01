@@ -558,6 +558,11 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         auto* agg_node = dynamic_cast<vectorized::AggregationNode*>(node);
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
+        if (agg_node->is_probe_expr_ctxs_empty() && node->row_desc().num_slots() == 0) {
+            return Status::InternalError(
+                    "Illegal aggregate node " +
+                    std::to_string(agg_node->id()) + ": group by and output is empty");
+        }
         if (agg_node->is_aggregate_evaluators_empty() && !agg_node->is_probe_expr_ctxs_empty()) {
             auto data_queue = std::make_shared<DataQueue>(1);
             OperatorBuilderPtr pre_agg_sink =
