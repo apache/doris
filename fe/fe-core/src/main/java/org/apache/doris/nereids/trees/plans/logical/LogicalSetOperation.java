@@ -171,7 +171,6 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             }
             newOutputs.get(0).add((NamedExpression) cast);
 
-
             for (int j = 1; j < arity(); j++) {
                 Slot otherSlot = child(j).getOutput().get(i);
                 cast = TypeCoercionUtils.castIfNotSameTypeStrict(otherSlot, compatibleType);
