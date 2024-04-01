@@ -158,10 +158,6 @@ public interface Plan extends TreeNode<Plan> {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
     }
 
-    default List<NamedExpression> computeOutputExpression() {
-        throw new IllegalStateException("Not support compute output expression for " + getClass().getName());
-    }
-
     /**
      * Get the input relation ids set of the plan.
      * @return The result is collected from all inputs relations
