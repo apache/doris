@@ -1810,6 +1810,9 @@ public class StmtExecutor {
                         if (!isOutfileQuery) {
                             sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                         } else {
+                            if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
+                                outfileWriteSuccess(queryStmt.getOutFileClause());
+                            }
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
                         isSendFields = true;
@@ -1852,10 +1855,6 @@ public class StmtExecutor {
                 }
             }
 
-            if (isOutfileQuery && !Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
-                outfileWriteSuccess(queryStmt.getOutFileClause());
-            }
-
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime();
@@ -1872,71 +1871,61 @@ public class StmtExecutor {
     }
 
     private void outfileWriteSuccess(OutFileClause outFileClause) throws Exception {
-        if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
-            // 1. set TResultFileSinkOptions
-            TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(outFileClause.getFilePath(),
-                    outFileClause.getFileFormatType());
-            sinkOptions.setSuccessFileName(outFileClause.getSuccessFileName());
-            if (outFileClause.getBrokerDesc() != null) {
-                sinkOptions.setBrokerProperties(outFileClause.getBrokerDesc().getProperties());
-                // broker_addresses of sinkOptions will be set in Coordinator.
-                // Because we need to choose the nearest broker with the result sink node.
-            }
+        // 1. set TResultFileSinkOptions
+        TResultFileSinkOptions sinkOptions = outFileClause.toSinkOptions();
 
-            // set brokerNetAddress
-            List<PlanFragment> fragments = coord.getFragments();
-            Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = coord.getFragmentExecParamsMap();
-            PlanFragmentId topId = fragments.get(0).getFragmentId();
-            FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
-            DataSink topDataSink = topParams.fragment.getSink();
-            TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            if (topDataSink instanceof ResultFileSink
-                    && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
-                // set the broker address for OUTFILE sink
-                ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
-                FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
-                        .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
-                sinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(broker.host, broker.port)));
-            }
+        // 2. set brokerNetAddress
+        List<PlanFragment> fragments = coord.getFragments();
+        Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = coord.getFragmentExecParamsMap();
+        PlanFragmentId topId = fragments.get(0).getFragmentId();
+        FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
+        DataSink topDataSink = topParams.fragment.getSink();
+        TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
+        if (topDataSink instanceof ResultFileSink
+                && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
+            // set the broker address for OUTFILE sink
+            ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
+                    .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+            sinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(broker.host, broker.port)));
+        }
 
-            // 2. set TResultFileSink properties
-            TResultFileSink sink = new TResultFileSink();
-            sink.setFileOptions(sinkOptions);
-            StorageType storageType = outFileClause.getBrokerDesc() == null
-                    ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
-            sink.setStorageBackendType(storageType.toThrift());
+        // 3. set TResultFileSink properties
+        TResultFileSink sink = new TResultFileSink();
+        sink.setFileOptions(sinkOptions);
+        StorageType storageType = outFileClause.getBrokerDesc() == null
+                ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
+        sink.setStorageBackendType(storageType.toThrift());
 
-            POutfileWriteSuccessRequest request = POutfileWriteSuccessRequest.newBuilder()
-                    .setResultFileSink(ByteString.copyFrom(new TSerializer().serialize(sink))).build();
+        // 4. get BE
+        TNetworkAddress address = null;
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+            if (be.isAlive()) {
+                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                break;
+            }
+        }
+        if (address == null) {
+            throw new AnalysisException("No Alive backends");
+        }
 
-            // 3. get BE
-            TNetworkAddress address = null;
-            for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
-                if (be.isAlive()) {
-                    address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-                    break;
-                }
+        // 5. send rpc to BE
+        POutfileWriteSuccessRequest request = POutfileWriteSuccessRequest.newBuilder()
+                .setResultFileSink(ByteString.copyFrom(new TSerializer().serialize(sink))).build();
+        Future<POutfileWriteSuccessResult> future = BackendServiceProxy.getInstance()
+                .outfileWriteSuccessAsync(address, request);
+        InternalService.POutfileWriteSuccessResult result = future.get();
+        TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+        String errMsg;
+        if (code != TStatusCode.OK) {
+            if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                errMsg = result.getStatus().getErrorMsgsList().get(0);
+            } else {
+                errMsg = "Outfile write success file failed. backend address: "
+                        + NetUtils
+                        .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
             }
-            if (address == null) {
-                throw new AnalysisException("No Alive backends");
-            }
-
-            // 4. send rpc to write success file.
-            Future<POutfileWriteSuccessResult> future = BackendServiceProxy.getInstance()
-                    .outfileWriteSuccessAsync(address, request);
-            InternalService.POutfileWriteSuccessResult result = future.get();
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            String errMsg;
-            if (code != TStatusCode.OK) {
-                if (!result.getStatus().getErrorMsgsList().isEmpty()) {
-                    errMsg = result.getStatus().getErrorMsgsList().get(0);
-                } else {
-                    errMsg = "Outfile write success file failed. backend address: "
-                            + NetUtils
-                            .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
-                }
-                throw new AnalysisException(errMsg);
-            }
+            throw new AnalysisException(errMsg);
         }
     }
 
