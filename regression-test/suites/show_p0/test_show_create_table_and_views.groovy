@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_show_create_table_and_views", "show") {
-    sql "SET enable_nereids_planner=false;"
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {

@@ -275,9 +275,4 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public void setBoundStars(List<BoundStar> boundStars) {
         this.boundStars = boundStars;
     }
-
-    @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return projects;
-    }
 }

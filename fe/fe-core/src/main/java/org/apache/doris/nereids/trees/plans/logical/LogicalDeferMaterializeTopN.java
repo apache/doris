@@ -27,7 +27,6 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -116,13 +115,6 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
     @Override
     public List<Slot> computeOutput() {
         return logicalTopN.getOutput().stream()
-                .filter(s -> !(s.getExprId().equals(columnIdSlot.getExprId())))
-                .collect(ImmutableList.toImmutableList());
-    }
-
-    @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return logicalTopN.getOutputExpression().stream()
                 .filter(s -> !(s.getExprId().equals(columnIdSlot.getExprId())))
                 .collect(ImmutableList.toImmutableList());
     }

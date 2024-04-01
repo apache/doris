@@ -24,7 +24,6 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -157,11 +156,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public List<NamedExpression> getOutputExpression() {
-        return getLogicalProperties().getOutputExpression();
-    }
-
-    @Override
     public LogicalProperties getLogicalProperties() {
         // TODO: use bound()?
         if (this instanceof Unbound) {
@@ -187,8 +181,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
                     ? ((LogicalPlan) this).computeFuncDeps(outputSupplier)
                     : FunctionalDependencies.EMPTY_FUNC_DEPS;
-            Supplier<List<NamedExpression>> outputExpressionSupplier = Suppliers.memoize(this::computeOutputExpression);
-            return new LogicalProperties(outputSupplier, fdSupplier, outputExpressionSupplier);
+            return new LogicalProperties(outputSupplier, fdSupplier);
         }
     }
 

@@ -95,11 +95,6 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return projects;
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

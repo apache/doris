@@ -83,11 +83,6 @@ public class LogicalInlineTable extends LogicalLeaf implements BlockFuncDepsProp
     }
 
     @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return ImmutableList.of();
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

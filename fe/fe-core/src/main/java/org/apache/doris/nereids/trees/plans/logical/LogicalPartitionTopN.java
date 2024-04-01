@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -110,11 +109,6 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
-    }
-
-    @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return child().getOutputExpression();
     }
 
     public WindowFuncType getFunction() {

@@ -21,7 +21,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -82,11 +81,6 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
     @Override
     public List<Slot> computeOutput() {
         return right().getOutput();
-    }
-
-    @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return right().getOutputExpression();
     }
 
     public CTEId getCteId() {

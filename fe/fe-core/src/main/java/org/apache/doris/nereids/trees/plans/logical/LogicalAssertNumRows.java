@@ -21,7 +21,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -119,10 +118,4 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     public List<Slot> computeOutput() {
         return child().getOutput().stream().map(o -> o.withNullable(true)).collect(Collectors.toList());
     }
-
-    @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return child().getOutputExpression();
-    }
-
 }

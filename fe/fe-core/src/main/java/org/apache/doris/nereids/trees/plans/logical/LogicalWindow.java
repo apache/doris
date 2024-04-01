@@ -145,15 +145,6 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return new ImmutableList.Builder<NamedExpression>()
-                .addAll(child().getOutputExpression())
-                .addAll(windowExpressions.stream()
-                        .collect(ImmutableList.toImmutableList()))
-                .build();
-    }
-
-    @Override
     public String toString() {
         return Utils.toSqlString("LogicalWindow",
                 "windowExpressions", windowExpressions,

@@ -390,9 +390,4 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
         return builder.build();
     }
-
-    @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return outputExpressions;
-    }
 }

@@ -97,8 +97,6 @@ public interface Plan extends TreeNode<Plan> {
      */
     List<Slot> getOutput();
 
-    List<NamedExpression> getOutputExpression();
-
     /**
      * Get output slot set of the plan.
      */

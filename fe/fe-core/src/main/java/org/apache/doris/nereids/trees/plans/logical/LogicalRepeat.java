@@ -109,11 +109,6 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return outputExpressions;
-    }
-
-    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalRepeat(this, context);
     }

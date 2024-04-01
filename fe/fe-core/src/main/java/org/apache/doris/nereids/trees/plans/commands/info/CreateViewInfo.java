@@ -48,9 +48,7 @@ import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelationForCreateView;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -60,7 +58,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -90,9 +87,8 @@ public class CreateViewInfo {
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
     private final List<Column> finalCols = Lists.newArrayList();
     private final List<Slot> outputs = Lists.newArrayList();
-    private final List<NamedExpression> projects = Lists.newArrayList();
     private Plan analyzedPlan;
-    private Map<Pair<Integer, Integer>, String> relationMap;
+    private Map<Pair<Integer, Integer>, String> rewriteSqlMap;
 
     /** constructor*/
     public CreateViewInfo(boolean ifNotExists, TableNameInfo viewName, String comment, LogicalPlan logicalQuery,
@@ -108,6 +104,16 @@ public class CreateViewInfo {
         this.simpleColumnDefinitions = simpleColumnDefinitions;
     }
 
+    /** init */
+    public void init(ConnectContext ctx) throws UserException {
+        analyzeAndFillRewriteSqlMap(querySql, ctx);
+        OutermostPlanFinder outermostPlanFinder = new OutermostPlanFinder();
+        AtomicReference<Plan> outermostPlan = new AtomicReference<>();
+        analyzedPlan.accept(outermostPlanFinder, outermostPlan);
+        outputs.addAll(outermostPlan.get().getOutput());
+        createFinalCols();
+    }
+
     /**validate*/
     public void validate(ConnectContext ctx) throws UserException {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -121,14 +127,6 @@ public class CreateViewInfo {
                 viewName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
-
-        analyzedPlan = parseAndAnalyzeView(querySql, ctx);
-        OutermostPlanFinder outermostPlanFinder = new OutermostPlanFinder();
-        AtomicReference<Plan> outermostPlan = new AtomicReference<>();
-        analyzedPlan.accept(outermostPlanFinder, outermostPlan);
-        outputs.addAll(outermostPlan.get().getOutput());
-        projects.addAll(outermostPlan.get().getOutputExpression());
-        createFinalCols();
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : finalCols) {
             if (!colSets.add(col.getName())) {
@@ -145,23 +143,20 @@ public class CreateViewInfo {
         }
         CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, viewName.transferToTableName(), cols, comment,
                 null);
-        // expand star(*) in project list
-        Map<Pair<Integer, Integer>, String> indexStringSqlMap = collectBoundStar(analyzedPlan);
-        indexStringSqlMap.putAll(relationMap);
-        String rewrittenSql = rewriteStarToColumn(indexStringSqlMap);
+        // expand star(*) in project list and replace table name with qualifier
+        String rewrittenSql = rewriteSql(rewriteSqlMap);
 
         // rewrite project alias
-        rewrittenSql = rewriteProjectsToUserDefineAlias2(rewrittenSql);
+        rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
 
         createViewStmt.setInlineViewDef(rewrittenSql);
         createViewStmt.setFinalColumns(finalCols);
         return createViewStmt;
     }
 
-    private Plan parseAndAnalyzeView(String ddlSql, ConnectContext ctx) {
+    private void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
         StatementContext stmtCtx = ctx.getStatementContext();
-        LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(ddlSql);
-        // TODO: use a good to do this, such as eliminate UnboundResultSink
+        LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(sql);
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
         }
@@ -170,15 +165,16 @@ public class CreateViewInfo {
         AnalyzerForCreateView analyzer = new AnalyzerForCreateView(viewContext, true);
         analyzer.analyze();
         Plan planForRelation = viewContext.getRewritePlan();
-        relationMap = collectUnBoundRelation(planForRelation);
+        rewriteSqlMap = collectUnBoundRelation(planForRelation);
         CascadesContext viewContextForStar = CascadesContext.initContext(
                 stmtCtx, planForRelation, PhysicalProperties.ANY);
         AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar, false);
         analyzerForStar.analyze();
-        return viewContextForStar.getRewritePlan();
+        analyzedPlan = viewContextForStar.getRewritePlan();
+        rewriteSqlMap.putAll(collectBoundStar(analyzedPlan));
     }
 
-    private String rewriteStarToColumn(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
+    private String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
         StringBuilder builder = new StringBuilder();
         int beg = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
@@ -192,35 +188,6 @@ public class CreateViewInfo {
     }
 
     private String rewriteProjectsToUserDefineAlias(String resSql) {
-        List<Expression> projectExprs = Lists.newArrayList();
-        for (int i = 0; i < projects.size(); i++) {
-            NamedExpression namedExpression = projects.get(i);
-            if (namedExpression instanceof Alias) {
-                projectExprs.add(namedExpression.child(0));
-            } else {
-                projectExprs.add(namedExpression);
-            }
-        }
-        IndexFinder finder = new IndexFinder();
-        ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
-        finder.visit(tree);
-        StringBuilder replaceWithColsBuilder = new StringBuilder();
-        for (int i = 0; i < projectExprs.size(); ++i) {
-            replaceWithColsBuilder.append(projectExprs.get(i).toSql());
-            replaceWithColsBuilder.append(" AS `");
-            String escapeBacktick = finalCols.get(i).getName().replace("`", "``");
-            replaceWithColsBuilder.append(escapeBacktick);
-            replaceWithColsBuilder.append('`');
-            if (i != projectExprs.size() - 1) {
-                replaceWithColsBuilder.append(", ");
-            }
-        }
-        String replaceWithCols = replaceWithColsBuilder.toString();
-        return StringUtils.overlay(resSql, replaceWithCols, finder.getIndex().first,
-                finder.getIndex().second + 1);
-    }
-
-    private String rewriteProjectsToUserDefineAlias2(String resSql) {
         IndexFinder finder = new IndexFinder();
         ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
         finder.visit(tree);
@@ -324,14 +291,6 @@ public class CreateViewInfo {
                 AtomicReference<Plan> target) {
             return null;
         }
-
-        @Override
-        public Void visitLogicalSetOperation(LogicalSetOperation setOperation, AtomicReference<Plan> target) {
-            if (found) {
-                return null;
-            }
-            return super.visit(setOperation, target);
-        }
     }
 
     /** traverse ast to find the outermost project list location information in sql*/
@@ -368,7 +327,6 @@ public class CreateViewInfo {
             stopIndex = ctx.getStop().getStopIndex();
             found = true;
 
-            // 这里默认*已经被替换了，不存在*或者* except
             NamedExpressionSeqContext namedExpressionSeqContext = ctx.namedExpressionSeq();
             namedExpressionContexts = namedExpressionSeqContext.namedExpression();
             return null;

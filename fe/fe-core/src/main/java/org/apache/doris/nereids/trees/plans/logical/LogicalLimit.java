@@ -25,7 +25,6 @@ import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -89,11 +88,6 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
-    }
-
-    @Override
-    public List<NamedExpression> computeOutputExpression() {
-        return child().getOutputExpression();
     }
 
     @Override

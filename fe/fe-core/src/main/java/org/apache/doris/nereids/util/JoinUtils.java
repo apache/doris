@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
@@ -385,24 +384,6 @@ public class JoinUtils {
                 return ImmutableList.<Slot>builder()
                         .addAll(left.getOutput())
                         .addAll(right.getOutput())
-                        .build();
-        }
-    }
-
-    /** getJoinOutputExpression */
-    public static List<NamedExpression> getJoinOutputExpression(JoinType joinType, Plan left, Plan right) {
-        switch (joinType) {
-            case LEFT_SEMI_JOIN:
-            case LEFT_ANTI_JOIN:
-            case NULL_AWARE_LEFT_ANTI_JOIN:
-                return ImmutableList.copyOf(left.getOutputExpression());
-            case RIGHT_SEMI_JOIN:
-            case RIGHT_ANTI_JOIN:
-                return ImmutableList.copyOf(right.getOutputExpression());
-            default:
-                return ImmutableList.<NamedExpression>builder()
-                        .addAll(left.getOutputExpression())
-                        .addAll(right.getOutputExpression())
                         .build();
         }
     }
