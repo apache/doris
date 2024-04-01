@@ -9,6 +9,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
+      with:
+        ref: v2
 
     - name: include what you use
       uses: EmilGedda/include-what-you-use-action@v1.0
