@@ -42,6 +42,7 @@
 #include "olap/utils.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
+#include "util/parse_util.h"
 #include "util/string_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -935,10 +936,13 @@ DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {
     // which can be insufficient and cause performance issues when the amount of user data is large.
     // To mitigate the problem of an inadequate cache,
     // we will take the larger of 5% of the total memory and 100MB as the delete bitmap cache size.
-    int64_t mem =
-            config::delete_bitmap_dynamic_agg_cache_capacity_percentage * MemInfo::physical_mem();
-    _agg_cache.reset(new AggCache(mem > config::delete_bitmap_agg_cache_capacity
-                                          ? mem
+    bool is_percent = false;
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _agg_cache.reset(new AggCache(delete_bitmap_agg_cache_cache_limit >
+                                                  config::delete_bitmap_agg_cache_capacity
+                                          ? delete_bitmap_agg_cache_cache_limit
                                           : config::delete_bitmap_agg_cache_capacity));
 }
 
