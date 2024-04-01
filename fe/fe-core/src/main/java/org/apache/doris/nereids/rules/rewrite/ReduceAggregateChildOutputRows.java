@@ -47,7 +47,7 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
         return logicalAggregate().then(agg -> {
             Set<AggregateFunction> aggFunctions = agg.getAggregateFunctions();
             // check whether we have aggregate(constant) in all aggregateFunctions
-            if (!(agg.child() instanceof LogicalLimit)
+            if (!(agg.child() instanceof LogicalLimit && ((LogicalLimit) agg.child()).getLimit() == 1)
                     || aggFunctions.isEmpty() || !aggFunctions.stream().allMatch(
                         f -> (f instanceof Min || f instanceof Max)
                             && (f.arity() == 1 && f.child(0).isConstant()))) {
