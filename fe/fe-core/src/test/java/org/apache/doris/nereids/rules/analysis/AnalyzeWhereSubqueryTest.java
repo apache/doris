@@ -486,7 +486,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
     public void testSql10AfterScalarToJoin() {
         PlanChecker.from(connectContext).analyze(sql10).rewrite()
                 .matchesNotCheck(
-                        innerLogicalJoin(any(), logicalAggregate(logicalProject())).when(j -> j
+                        innerLogicalJoin(any(), logicalFilter(logicalAggregate(logicalProject()))).when(j -> j
                                 .getOtherJoinConjuncts().equals(ImmutableList
                                         .of(new LessThan(
                                                 new SlotReference(new ExprId(0), "k1",

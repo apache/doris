@@ -38,24 +38,12 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
 
     public static final List<DataType> EXPECTS_INPUT_TYPES = ImmutableList.of(BooleanType.INSTANCE);
 
-    private final boolean isGeneratedIsNotNull;
-
     public Not(Expression child) {
-        this(child, false);
-    }
-
-    public Not(Expression child, boolean isGeneratedIsNotNull) {
         super(ImmutableList.of(child));
-        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
     }
 
-    private Not(List<Expression> child, boolean isGeneratedIsNotNull) {
+    private Not(List<Expression> child) {
         super(child);
-        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
-    }
-
-    public boolean isGeneratedIsNotNull() {
-        return isGeneratedIsNotNull;
     }
 
     @Override
@@ -82,13 +70,12 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
             return false;
         }
         Not other = (Not) o;
-        return Objects.equals(child(), other.child())
-                && isGeneratedIsNotNull == other.isGeneratedIsNotNull;
+        return Objects.equals(child(), other.child());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(child().hashCode(), isGeneratedIsNotNull);
+        return Objects.hash(child().hashCode());
     }
 
     @Override
@@ -104,11 +91,7 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     @Override
     public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Not(children, isGeneratedIsNotNull);
-    }
-
-    public Not withGeneratedIsNotNull(boolean isGeneratedIsNotNull) {
-        return new Not(children, isGeneratedIsNotNull);
+        return new Not(children);
     }
 
     @Override

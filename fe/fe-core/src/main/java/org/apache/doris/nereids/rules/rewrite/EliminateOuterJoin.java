@@ -75,7 +75,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             boolean conjunctsChanged = false;
             if (!notNullSlots.isEmpty()) {
                 for (Slot slot : notNullSlots) {
-                    Not isNotNull = new Not(new IsNull(slot), true);
+                    Not isNotNull = new Not(new IsNull(slot));
                     conjunctsChanged |= conjuncts.add(isNotNull);
                 }
             }
@@ -134,11 +134,11 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
     private boolean createIsNotNullIfNecessary(EqualPredicate swapedEqualTo, Collection<Expression> container) {
         boolean containerChanged = false;
         if (swapedEqualTo.left().nullable()) {
-            Not not = new Not(new IsNull(swapedEqualTo.left()), true);
+            Not not = new Not(new IsNull(swapedEqualTo.left()));
             containerChanged |= container.add(not);
         }
         if (swapedEqualTo.right().nullable()) {
-            Not not = new Not(new IsNull(swapedEqualTo.right()), true);
+            Not not = new Not(new IsNull(swapedEqualTo.right()));
             containerChanged |= container.add(not);
         }
         return containerChanged;
