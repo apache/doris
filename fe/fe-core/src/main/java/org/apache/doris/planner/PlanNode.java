@@ -59,6 +59,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Each PlanNode represents a single relational operator
@@ -155,6 +156,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected int nereidsId = -1;
 
     private List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
+    private List<TupleDescriptor> intermediateOutputTupleDescList = Lists.newArrayList();
+    private List<List<Expr>> intermediateProjectListList = Lists.newArrayList();
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
@@ -536,9 +539,19 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
         }
         if (!CollectionUtils.isEmpty(projectList)) {
-            expBuilder.append(detailPrefix).append("projections: ").append(getExplainString(projectList)).append("\n");
-            expBuilder.append(detailPrefix).append("project output tuple id: ")
+            expBuilder.append(detailPrefix).append("final projections: ")
+                .append(getExplainString(projectList)).append("\n");
+            expBuilder.append(detailPrefix).append("final project output tuple id: ")
                     .append(outputTupleDesc.getId().asInt()).append("\n");
+        }
+        if (!intermediateProjectListList.isEmpty()) {
+            int layers = intermediateProjectListList.size();
+            for (int i = layers - 1; i >= 0; i--) {
+                expBuilder.append(detailPrefix).append("intermediate projections: ")
+                        .append(getExplainString(intermediateProjectListList.get(i))).append("\n");
+                expBuilder.append(detailPrefix).append("intermediate tuple id: ")
+                        .append(intermediateOutputTupleDescList.get(i).getId().asInt()).append("\n");
+            }
         }
         if (!CollectionUtils.isEmpty(childrenDistributeExprLists)) {
             for (List<Expr> distributeExprList : childrenDistributeExprLists) {
@@ -660,6 +673,19 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
                 }
             }
         }
+
+        if (!intermediateOutputTupleDescList.isEmpty()) {
+            intermediateOutputTupleDescList
+                    .forEach(
+                            tupleDescriptor -> msg.addToIntermediateOutputTupleIdList(tupleDescriptor.getId().asInt()));
+        }
+
+        if (!intermediateProjectListList.isEmpty()) {
+            intermediateProjectListList.forEach(
+                    projectList -> msg.addToIntermediateProjectionsList(
+                            projectList.stream().map(expr -> expr.treeToThrift()).collect(Collectors.toList())));
+        }
+
         if (this instanceof ExchangeNode) {
             msg.num_children = 0;
             return;
@@ -1220,5 +1246,13 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setNereidsId(int nereidsId) {
         this.nereidsId = nereidsId;
+    }
+
+    public void addIntermediateOutputTupleDescList(TupleDescriptor tupleDescriptor) {
+        intermediateOutputTupleDescList.add(tupleDescriptor);
+    }
+
+    public void addIntermediateProjectList(List<Expr> exprs) {
+        intermediateProjectListList.add(exprs);
     }
 }
