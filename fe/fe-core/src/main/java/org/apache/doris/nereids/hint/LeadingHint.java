@@ -257,6 +257,12 @@ public class LeadingHint extends Hint {
     public boolean isConditionJoinTypeMatched(List<Expression> conditions, JoinType joinType) {
         for (Expression condition : conditions) {
             JoinType originalJoinType = conditionJoinType.get(condition);
+            if (originalJoinType == null) {
+                if (joinType.isOneSideOuterJoin() || joinType.isSemiJoin() || joinType.isAntiJoin()) {
+                    return false;
+                }
+                continue;
+            }
             if (originalJoinType.equals(joinType)
                     || originalJoinType.isOneSideOuterJoin() && joinType.isOneSideOuterJoin()
                     || originalJoinType.isSemiJoin() && joinType.isSemiJoin()

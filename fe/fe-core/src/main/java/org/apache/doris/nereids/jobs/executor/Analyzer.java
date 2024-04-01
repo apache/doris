@@ -44,7 +44,6 @@ import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
-import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
@@ -174,8 +173,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(
                 new InferAggNotNull(),
                 new InferFilterNotNull(),
-                new InferJoinNotNull(),
-                new EliminateOuterJoin()
+                new InferJoinNotNull()
             ),
             bottomUp(
                     new CollectSubQueryAlias(),
