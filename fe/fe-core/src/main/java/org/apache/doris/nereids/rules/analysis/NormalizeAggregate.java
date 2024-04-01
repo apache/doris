@@ -156,21 +156,30 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // split non-distinct agg child as two part
         // TRUE part 1: need push down itself, if it contains subqury or window expression
         // FALSE part 2: need push down its input slots, if it DOES NOT contain subqury or window expression
-        Map<Boolean, Set<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
+        Map<Boolean, ImmutableSet<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
                 .filter(aggFunc -> !aggFunc.isDistinct())
                 .flatMap(agg -> agg.children().stream())
+                // should not push down literal under aggregate
+                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
+                .filter(arg -> !(arg instanceof Literal))
                 .collect(Collectors.groupingBy(
                         child -> child.containsType(SubqueryExpr.class, WindowExpression.class),
-                        Collectors.toSet()));
+                        ImmutableSet.toImmutableSet()));
 
         // split distinct agg child as two parts
         // TRUE part 1: need push down itself, if it is NOT SlotReference or Literal
         // FALSE part 2: need push down its input slots, if it is SlotReference or Literal
-        Map<Boolean, Set<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
-                .filter(aggFunc -> aggFunc.isDistinct()).flatMap(agg -> agg.children().stream())
-                .collect(Collectors.groupingBy(
-                        child -> !(child instanceof SlotReference || child instanceof Literal),
-                        Collectors.toSet()));
+        Map<Boolean, ImmutableSet<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
+                .filter(aggFunc -> aggFunc.isDistinct())
+                .flatMap(agg -> agg.children().stream())
+                // should not push down literal under aggregate
+                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
+                .filter(arg -> !(arg instanceof Literal))
+                .collect(
+                        Collectors.groupingBy(
+                                child -> !(child instanceof SlotReference),
+                                ImmutableSet.toImmutableSet())
+                );
 
         Set<Expression> needPushSelf = Sets.union(
                 categorizedNoDistinctAggsChildren.getOrDefault(true, new HashSet<>()),
