@@ -19,7 +19,7 @@ suite("test_action") {
     test {
         sql "abcdefg"
         // check exception message contains
-        exception "ParseException"
+        exception "Syntax error in line 1"
     }
 
     test {
