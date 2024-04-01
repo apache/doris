@@ -130,15 +130,15 @@ public class SetOperationTest extends TestWithFeService {
 
         UnboundOneRowRelation second = new UnboundOneRowRelation(
                 RelationId.createGenerator().getNextId(), ImmutableList.of(
-                new UnboundAlias(new UnboundFunction(
-                        "concat",
-                        ImmutableList.of(new StringLiteral("2"), new StringLiteral("2")))
-                )
+                    new UnboundAlias(new UnboundFunction(
+                            "concat",
+                            ImmutableList.of(new StringLiteral("2"), new StringLiteral("2")))
+                    )
         ));
 
         LogicalOneRowRelation third = new LogicalOneRowRelation(
                 RelationId.createGenerator().getNextId(), ImmutableList.of(
-                new Alias(new Concat(new StringLiteral("3"), new StringLiteral("3")))
+                    new Alias(new Concat(new StringLiteral("3"), new StringLiteral("3")))
         ));
 
         LogicalUnion union = new LogicalUnion(Qualifier.ALL, ImmutableList.of(
