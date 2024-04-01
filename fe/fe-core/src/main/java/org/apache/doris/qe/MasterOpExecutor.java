@@ -20,17 +20,15 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPrimitiveType;
-import org.apache.doris.thrift.TTypeAndLiteral;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -307,17 +305,13 @@ public class MasterOpExecutor {
         }
     }
 
-    private Map<String, TTypeAndLiteral> getForwardUserVariables(Map<String, LiteralExpr> userVariables) {
-        Map<String, TTypeAndLiteral> forwardVariables = Maps.newHashMap();
+    private Map<String, TExprNode> getForwardUserVariables(Map<String, LiteralExpr> userVariables) {
+        Map<String, TExprNode> forwardVariables = Maps.newHashMap();
         for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
             LiteralExpr literalExpr = entry.getValue();
-            Type type = literalExpr.getType();
-            PrimitiveType ttype = type.getPrimitiveType();
-            System.out.println(ttype);
-            TPrimitiveType tPrimitiveType = ttype.toThrift();
-            System.out.println(tPrimitiveType);
-            TTypeAndLiteral tTypeAndLiteral = new TTypeAndLiteral(tPrimitiveType, literalExpr.getStringValue());
-            forwardVariables.put(entry.getKey(), tTypeAndLiteral);
+            TExpr tExpr = literalExpr.treeToThrift();
+            TExprNode tExprNode = tExpr.nodes.get(0);
+            forwardVariables.put(entry.getKey(), tExprNode);
         }
         return forwardVariables;
     }

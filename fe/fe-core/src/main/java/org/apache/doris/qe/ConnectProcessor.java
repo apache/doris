@@ -17,20 +17,29 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.IPv4Literal;
+import org.apache.doris.analysis.IPv6Literal;
 import org.apache.doris.analysis.InsertStmt;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.JsonLiteral;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -61,10 +70,10 @@ import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
-import org.apache.doris.thrift.TPrimitiveType;
-import org.apache.doris.thrift.TTypeAndLiteral;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -667,21 +676,36 @@ public abstract class ConnectProcessor {
         throw new NotImplementedException("Not Impl processOnce");
     }
 
-    private Map<String, LiteralExpr> userVariableFromThrift(Map<String, TTypeAndLiteral> thriftMap) throws TException {
+    private Map<String, LiteralExpr> userVariableFromThrift(Map<String, TExprNode> thriftMap) throws TException {
         try {
             Map<String, LiteralExpr> userVariables = Maps.newHashMap();
-            for (Map.Entry<String, TTypeAndLiteral> entry : thriftMap.entrySet()) {
-                TTypeAndLiteral tTypeAndLiteral = entry.getValue();
-                TPrimitiveType tType = tTypeAndLiteral.getType();
-                String value = tTypeAndLiteral.getValue();
-                PrimitiveType primitiveType = PrimitiveType.fromThrift(tType);
-                Type type = Type.fromPrimitiveType(primitiveType);
-                LiteralExpr literalExpr = LiteralExpr.create(value, type);
+            for (Map.Entry<String, TExprNode> entry : thriftMap.entrySet()) {
+                TExprNode tExprNode = entry.getValue();
+                LiteralExpr literalExpr = getLiteralExprFromThrift(tExprNode);
                 userVariables.put(entry.getKey(), literalExpr);
             }
             return userVariables;
         } catch (AnalysisException e) {
             throw new TException(e.getMessage());
+        }
+    }
+
+    private LiteralExpr getLiteralExprFromThrift(TExprNode node) throws AnalysisException {
+        TExprNodeType type = node.node_type;
+        switch (type) {
+            case NULL_LITERAL: return new NullLiteral();
+            case BOOL_LITERAL: return new BoolLiteral(node.bool_literal.value);
+            case INT_LITERAL: return new IntLiteral(node.int_literal.value);
+            case LARGE_INT_LITERAL: return new LargeIntLiteral(node.large_int_literal.value);
+            case FLOAT_LITERAL: return new FloatLiteral(node.float_literal.value);
+            case DECIMAL_LITERAL: return new DecimalLiteral(node.decimal_literal.value);
+            case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
+            case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
+            case DATE_LITERAL: return new DateLiteral(node.date_literal.value);
+            case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
+            case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            default: throw new AnalysisException("Wrong type from thrift;");
+
         }
     }
 }

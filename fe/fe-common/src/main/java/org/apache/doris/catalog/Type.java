@@ -1035,8 +1035,6 @@ public abstract class Type {
                 return Type.QUANTILE_STATE;
             case LAMBDA_FUNCTION:
                 return Type.LAMBDA_FUNCTION;
-            case NULL_TYPE:
-                return Type.NULL;
             default:
                 return null;
         }
