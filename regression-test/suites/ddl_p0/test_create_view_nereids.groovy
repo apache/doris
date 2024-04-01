@@ -260,4 +260,10 @@ suite("test_create_view_nereids") {
     qt_test_star_except "select * from test_view_star_except order by a, b;"
     qt_test_star_except_sql "show create view test_view_star_except;"
 
+    // test create view from view
+    sql "drop view if exists test_view_from_view"
+    sql "create view test_view_from_view(c1,c2,c3) as select * from test_view_with_as"
+    qt_test_create_view_from_view "select * from test_view_from_view order by c1,c2,c3"
+    qt_test_create_view_from_view_sql "show create view test_view_from_view"
+
 }

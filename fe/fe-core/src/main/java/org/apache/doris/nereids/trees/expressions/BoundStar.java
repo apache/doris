@@ -61,10 +61,13 @@ public class BoundStar extends NamedExpression implements PropagateNullable {
     /** toSqlWithBacktick */
     public String toSqlWithBacktick(List<NamedExpression> excepts) {
         List<Expression> outputs = Lists.newArrayList();
-        Set<Expression> exceptSet = Sets.newHashSet();
-        exceptSet.addAll(excepts);
+        Set<String> exceptSet = Sets.newHashSet();
+        for (NamedExpression except : excepts) {
+            exceptSet.add(except.getName());
+        }
         for (Expression child : children) {
-            if (!exceptSet.contains(child)) {
+            SlotReference slot = (SlotReference) child;
+            if (!exceptSet.contains(slot.getName())) {
                 outputs.add(child);
             }
         }

@@ -47,7 +47,7 @@ v1	CREATE VIEW `v1` COMMENT 'VIEW' AS SELECT\n      error_code, \n      1, \n   
 6	7	1
 
 -- !test_with_as_sql --
-test_view_with_as	CREATE VIEW `test_view_with_as` COMMENT 'VIEW' AS (\n            with t1 as (select `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` from mal_test_view),  t2 as (select `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` from mal_test_view),  \n            t3 as (select `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` from mal_test_view) SELECT `t1`.`pk`, `t1`.`a`, `t1`.`b` FROM t1);	utf8mb4	utf8mb4_0900_bin
+test_view_with_as	CREATE VIEW `test_view_with_as` COMMENT 'VIEW' AS (\n            with t1 as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`),  t2 as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`),  \n            t3 as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`) SELECT `t1`.`pk`, `t1`.`a`, `t1`.`b` FROM t1);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_union --
 1	1	2
@@ -86,7 +86,7 @@ test_view_with_as	CREATE VIEW `test_view_with_as` COMMENT 'VIEW' AS (\n         
 6	7	1
 
 -- !test_union_sql --
-test_view_union	CREATE VIEW `test_view_union` COMMENT 'VIEW' AS (select `regression_test_ddl_p0`.`mal_test_view`.`pk` AS `c1`, `regression_test_ddl_p0`.`mal_test_view`.`a` AS `c2`, `regression_test_ddl_p0`.`mal_test_view`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`mal_test_view` Union all SELECT `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` FROM `internal`.`regression_test_ddl_p0`.`mal_test_view`);	utf8mb4	utf8mb4_0900_bin
+test_view_union	CREATE VIEW `test_view_union` COMMENT 'VIEW' AS (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk` AS `c1`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a` AS `c2`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`mal_test_view` Union all SELECT `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` FROM `internal`.`regression_test_ddl_p0`.`mal_test_view`);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_count_star --
 17
@@ -139,24 +139,46 @@ test_view_expression	CREATE VIEW `test_view_expression` COMMENT 'VIEW' AS (selec
 test_view_alias	CREATE VIEW `test_view_alias` COMMENT 'VIEW' AS (\n        select c8 AS `c1`, c2 AS `c2`, c1 AS `c3` from (select a+1 c8,abs(a)+2+1 as c2, cast(b as varchar(10)) as c1 from `internal`.`regression_test_ddl_p0`.`mal_test_view`) t);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_star_except --
-6	\N	6
+\N	6
+1	2
+1	3
+1	4
+1	4
+1	7
+2	8
+3	5
+3	6
+3	9
+4	2
+5	\N
+5	6
+5	6
+5	6
+5	8
+7	1
+
+-- !test_star_except_sql --
+test_view_star_except	CREATE VIEW `test_view_star_except` COMMENT 'VIEW' AS select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_create_view_from_view --
 1	1	2
-2	1	3
 1	1	4
+1	3	6
+2	1	3
 2	1	4
 2	1	7
-3	2	8
 2	3	5
-1	3	6
 2	3	9
 2	4	2
+3	2	8
 3	5	\N
 3	5	6
 3	5	6
-4	5	6
 3	5	8
+4	5	6
+6	\N	6
 6	7	1
 
--- !test_star_except_sql --
-test_view_star_except	CREATE VIEW `test_view_star_except` COMMENT 'VIEW' AS select `regression_test_ddl_p0`.`mal_test_view`.`pk`, `regression_test_ddl_p0`.`mal_test_view`.`a`, `regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`;	utf8mb4	utf8mb4_0900_bin
+-- !test_create_view_from_view_sql --
+test_view_from_view	CREATE VIEW `test_view_from_view` COMMENT 'VIEW' AS select `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`pk` AS `c1`, `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`a` AS `c2`, `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`test_view_with_as`;	utf8mb4	utf8mb4_0900_bin
 

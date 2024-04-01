@@ -475,6 +475,15 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "OptionalGetWithoutIsPresent"})
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
+    private final boolean forCreateView;
+
+    public LogicalPlanBuilder() {
+        forCreateView = false;
+    }
+
+    public LogicalPlanBuilder(boolean forCreateView) {
+        this.forCreateView = forCreateView;
+    }
 
     @SuppressWarnings("unchecked")
     protected <T> T typedVisit(ParseTree ctx) {
@@ -1334,11 +1343,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         MultipartIdentifierContext identifier = ctx.multipartIdentifier();
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
-        LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(
+        UnboundRelation relation = forCreateView ? new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
+                Optional.ofNullable(tableSample), indexName, scanParams,
+                Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex())) :
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample), indexName, scanParams,
-                        Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex())));
+                        Optional.ofNullable(tableSample), indexName, scanParams);
+        LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -1387,7 +1399,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 target = ImmutableList.of();
             }
-            return new UnboundStar(target, Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex()));
+            return forCreateView
+                    ? new UnboundStar(target, Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex())) :
+                    new UnboundStar(target);
         });
     }
 
@@ -2876,9 +2890,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
-                    project = new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of(),
-                            Pair.of(selectColumnCtx.start.getStartIndex(), selectColumnCtx.stop.getStopIndex()))),
-                        expressions, isDistinct, aggregate);
+                    UnboundStar star = forCreateView ? new UnboundStar(ImmutableList.of(),
+                            Pair.of(selectColumnCtx.start.getStartIndex(), selectColumnCtx.stop.getStopIndex())) :
+                            new UnboundStar(ImmutableList.of());
+                    project = new LogicalProject<>(ImmutableList.of(star), expressions, isDistinct, aggregate);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
                     project = new LogicalProject<>(projects, ImmutableList.of(), isDistinct, aggregate);
@@ -3057,9 +3072,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
-                    return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of(),
-                            Pair.of(selectCtx.start.getStartIndex(), selectCtx.stop.getStopIndex()))),
-                            expressions, isDistinct, input);
+                    UnboundStar star = forCreateView ? new UnboundStar(ImmutableList.of(),
+                            Pair.of(selectCtx.start.getStartIndex(), selectCtx.stop.getStopIndex())) :
+                            new UnboundStar(ImmutableList.of());
+                    return new LogicalProject<>(ImmutableList.of(star), expressions, isDistinct, input);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
                     return new LogicalProject<>(projects, Collections.emptyList(), isDistinct, input);

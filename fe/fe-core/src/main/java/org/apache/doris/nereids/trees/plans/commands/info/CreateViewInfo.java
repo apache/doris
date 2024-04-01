@@ -35,7 +35,6 @@ import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
@@ -45,7 +44,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.BindRelationForCreateView;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
@@ -55,9 +53,11 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -156,22 +156,16 @@ public class CreateViewInfo {
 
     private void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
         StatementContext stmtCtx = ctx.getStatementContext();
-        LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(sql);
+        LogicalPlan parsedViewPlan = new NereidsParser().parseForCreateView(sql);
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
         }
-        CascadesContext viewContext = CascadesContext.initContext(
-                stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
-        AnalyzerForCreateView analyzer = new AnalyzerForCreateView(viewContext, true);
-        analyzer.analyze();
-        Plan planForRelation = viewContext.getRewritePlan();
-        rewriteSqlMap = collectUnBoundRelation(planForRelation);
         CascadesContext viewContextForStar = CascadesContext.initContext(
-                stmtCtx, planForRelation, PhysicalProperties.ANY);
-        AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar, false);
+                stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
+        AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar);
         analyzerForStar.analyze();
         analyzedPlan = viewContextForStar.getRewritePlan();
-        rewriteSqlMap.putAll(collectBoundStar(analyzedPlan));
+        rewriteSqlMap = collectStarAndRelationInfo(analyzedPlan);
     }
 
     private String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
@@ -233,31 +227,37 @@ public class CreateViewInfo {
         }
     }
 
-    private Map<Pair<Integer, Integer>, String> collectUnBoundRelation(Plan plan) {
-        TreeMap<Pair<Integer, Integer>, String> result = new TreeMap<>(new Pair.PairComparator<>());
-        plan.foreach(node -> {
-            if (node instanceof UnboundRelation) {
-                UnboundRelation unboundRelation = (UnboundRelation) node;
-                List<String> tableQualifier = unboundRelation.getTableQualifier();
-                result.put(unboundRelation.getIndexInSqlString(), Utils.qualifiedNameWithBacktick(tableQualifier));
-            }
-        });
-        return result;
-    }
-
-    private Map<Pair<Integer, Integer>, String> collectBoundStar(Plan plan) {
+    private Map<Pair<Integer, Integer>, String> collectStarAndRelationInfo(Plan plan) {
         TreeMap<Pair<Integer, Integer>, String> result = new TreeMap<>(new Pair.PairComparator<>());
         plan.foreach(node -> {
             if (node instanceof LogicalProject) {
                 LogicalProject<Plan> project = (LogicalProject) node;
                 if (project.getExcepts().isEmpty()) {
                     for (BoundStar star : project.getBoundStars()) {
+                        if (star.getIndexInSqlString() == null) {
+                            continue;
+                        }
                         result.put(star.getIndexInSqlString(), star.toSqlWithBacktick());
                     }
                 } else {
                     List<NamedExpression> namedExpressions = project.getExcepts();
                     BoundStar star = project.getBoundStars().get(0);
+                    if (star.getIndexInSqlString() == null) {
+                        return;
+                    }
                     result.put(star.getIndexInSqlString(), star.toSqlWithBacktick(namedExpressions));
+                }
+            } else if (node instanceof LogicalCatalogRelation) {
+                LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) node;
+                if (logicalCatalogRelation.getIndexInSqlString() != null) {
+                    result.put(logicalCatalogRelation.getIndexInSqlString(),
+                            Utils.qualifiedNameWithBacktick(logicalCatalogRelation.qualified()));
+                }
+            } else if (node instanceof LogicalSubQueryAlias) {
+                LogicalSubQueryAlias alias = (LogicalSubQueryAlias) node;
+                if (alias.getIndexInSqlString() != null) {
+                    result.put(alias.getIndexInSqlString(),
+                            Utils.qualifiedNameWithBacktick(alias.getQualifier()));
                 }
             }
         });
@@ -344,13 +344,9 @@ public class CreateViewInfo {
     private static class AnalyzerForCreateView extends AbstractBatchJobExecutor {
         private final List<RewriteJob> jobs;
 
-        public AnalyzerForCreateView(CascadesContext cascadesContext, boolean forRelation) {
+        public AnalyzerForCreateView(CascadesContext cascadesContext) {
             super(cascadesContext);
-            if (forRelation) {
-                jobs = buildAnalyzeViewJobsForRelation();
-            } else {
-                jobs = buildAnalyzeViewJobsForStar();
-            }
+            jobs = buildAnalyzeViewJobsForStar();
         }
 
         public void analyze() {
@@ -362,18 +358,10 @@ public class CreateViewInfo {
             return jobs;
         }
 
-        private static List<RewriteJob> buildAnalyzeViewJobsForRelation() {
-            return jobs(
-                    topDown(new AnalyzeCTE()),
-                    topDown(new EliminateLogicalSelectHint()),
-                    bottomUp(
-                            new BindRelationForCreateView()
-                            )
-            );
-        }
-
         private static List<RewriteJob> buildAnalyzeViewJobsForStar() {
             return jobs(
+                    topDown(new EliminateLogicalSelectHint()),
+                    topDown(new AnalyzeCTE()),
                     bottomUp(
                             new BindRelation(),
                             new CheckPolicy(),

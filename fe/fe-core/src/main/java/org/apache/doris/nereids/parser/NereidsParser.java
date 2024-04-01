@@ -164,6 +164,18 @@ public class NereidsParser {
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
+    public LogicalPlan parseForCreateView(String sql) {
+        return parseForCreateViewInternal(sql, null, DorisParser::singleStatement);
+    }
+
+    private <T> T parseForCreateViewInternal(String sql, @Nullable LogicalPlanBuilder logicalPlanBuilder,
+            Function<DorisParser, ParserRuleContext> parseFunction) {
+        ParserRuleContext tree = toAst(sql, parseFunction);
+        LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
+                ? new LogicalPlanBuilder(true) : logicalPlanBuilder;
+        return (T) realLogicalPlanBuilder.visit(tree);
+    }
+
     /** toAst */
     public static ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
