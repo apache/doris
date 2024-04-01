@@ -548,7 +548,7 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
+        DCHECK_EQ(size(), self_row + 1);
         const auto& r = assert_cast<const ColumnString&>(rhs);
         auto data = r.get_data_at(row);
 
