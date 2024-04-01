@@ -775,6 +775,7 @@ nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
 nonterminal TableSnapshot opt_table_snapshot, table_snapshot;
 nonterminal TableName table_name, opt_table_name;
+nonterminal DbName db_name;
 nonterminal FunctionName function_name;
 nonterminal EncryptKeyName encryptkey_name;
 nonterminal Expr pre_filter_clause;
@@ -1771,11 +1772,11 @@ opt_intermediate_type ::=
 // Create Statement
 create_stmt ::=
     /* Database */
-    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db opt_properties:properties
+    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists db_name:db opt_properties:properties
     {:
         RESULT = new CreateDbStmt(ifNotExists, db, properties);
     :}
-    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
+    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists db_name:db
     {:
         RESULT = new CreateDbStmt(ifNotExists, db, null);
     :}
@@ -3015,11 +3016,11 @@ revoke_stmt ::=
 // Drop statement
 drop_stmt ::=
     /* Database */
-    KW_DROP KW_DATABASE opt_if_exists:ifExists ident:db opt_force:force
+    KW_DROP KW_DATABASE opt_if_exists:ifExists db_name:db opt_force:force
     {:
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
-    | KW_DROP KW_SCHEMA opt_if_exists:ifExists ident:db opt_force:force
+    | KW_DROP KW_SCHEMA opt_if_exists:ifExists db_name:db opt_force:force
     {:
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
@@ -5842,6 +5843,13 @@ table_name ::=
     {: RESULT = new TableName(null, db, tbl); :}
     | ident:ctl DOT ident:db DOT ident:tbl
     {: RESULT = new TableName(ctl, db, tbl); :}
+    ;
+
+db_name ::=
+    ident:db
+    {: RESULT = new DbName(null, db); :}
+    | ident:ctl DOT ident:db
+    {: RESULT = new DbName(ctl, db); :}
     ;
 
 colocate_group_name ::=
