@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
@@ -128,9 +129,14 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
                 .map(n -> n.replace("`", "``"))
                 .map(n -> "`" + n + "`")
                 .collect(Collectors.toList());
-        for (List<NamedExpression> row : constantExprsList) {
-            rows.add(InsertUtils.getRowStringValue(row));
+        try {
+            for (List<NamedExpression> row : constantExprsList) {
+                rows.add(InsertUtils.getRowStringValue(row));
+            }
+        } catch (AnalysisException e) {
+            LOG.error("warning when group commit insert. {}", e);
         }
+
         GroupCommitPlanner groupCommitPlanner = EnvFactory.getInstance().createGroupCommitPlanner(
                 physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), columnNames, ctx.queryId(),
@@ -186,7 +192,8 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         try {
             handleGroupCommit(ctx, sink, olapSink, planner);
         } catch (TException | RpcException | ExecutionException | InterruptedException e) {
-            LOG.warn("errors when group commit insert. {}", e);
+            LOG.error("errors when group commit insert. {}", e);
+            throw new UserException("errors when group commit insert. " + e.getMessage(), e);
         }
     }
 

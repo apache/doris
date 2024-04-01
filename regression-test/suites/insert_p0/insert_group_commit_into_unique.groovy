@@ -45,8 +45,8 @@ suite("insert_group_commit_into_unique") {
             logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
         }
         // assertEquals(result, expected_row_count)
-        assertTrue(serverInfo.contains("'status':'PREPARE'") || result == expected_row_count)
-        assertTrue(serverInfo.contains("'label':'group_commit_") || result == expected_row_count)
+        assertTrue(serverInfo.contains("'status':'PREPARE'"))
+        assertTrue(serverInfo.contains("'label':'group_commit_"))
     }
 
     def checkStreamLoadResult = { exception, result, total_rows, loaded_rows, filtered_rows, unselected_rows ->
