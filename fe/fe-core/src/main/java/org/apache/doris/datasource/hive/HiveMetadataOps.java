@@ -27,8 +27,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -40,7 +43,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -99,6 +101,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         String fullDbName = stmt.getFullDbName();
         Map<String, String> properties = stmt.getProperties();
         long dbId = Env.getCurrentEnv().getNextId();
+        if (databaseExist(fullDbName)) {
+            if (stmt.isSetIfNotExists()) {
+                LOG.info("create database[{}] which already exists", fullDbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
+            }
+        }
         try {
             HiveDatabaseMetadata catalogDatabase = new HiveDatabaseMetadata();
             catalogDatabase.setDbName(fullDbName);
@@ -119,6 +129,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
+        if (!databaseExist(dbName)) {
+            if (stmt.isSetIfExists()) {
+                LOG.info("drop database[{}] which does not exist", dbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+            }
+        }
         try {
             client.dropDatabase(dbName);
             catalog.onRefresh(true);
@@ -134,6 +152,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
         if (db == null) {
             throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+        }
+        if (db.getTable(tblName).isPresent()) {
+            if (stmt.isSetIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tblName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tblName);
+            }
         }
         try {
             Map<String, String> props = stmt.getProperties();
@@ -186,23 +212,21 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private static List<FieldSchema> parsePartitionKeys(Map<String, String> props) {
-        List<FieldSchema> parsedKeys = new ArrayList<>();
-        String pkStr = props.getOrDefault("partition_keys", "");
-        if (pkStr.isEmpty()) {
-            return parsedKeys;
-        } else {
-            // TODO: parse string to partition keys list
-            return parsedKeys;
-        }
-    }
-
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         ExternalDatabase<?> db = catalog.getDbNullable(stmt.getDbName());
         if (db == null) {
             throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+        }
+        ExternalTable table = db.getTableNullable(dbName);
+        if (table == null) {
+            if (stmt.isSetIfExists()) {
+                LOG.info("drop table[{}] which does not exist", dbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, dbName, dbName);
+            }
         }
         try {
             client.dropTable(dbName, stmt.getTableName());
@@ -220,6 +244,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean tableExist(String dbName, String tblName) {
         return client.tableExists(dbName, tblName);
+    }
+
+    @Override
+    public boolean databaseExist(String dbName) {
+        return client.getDatabase(dbName) != null;
     }
 
     public List<String> listDatabaseNames() {

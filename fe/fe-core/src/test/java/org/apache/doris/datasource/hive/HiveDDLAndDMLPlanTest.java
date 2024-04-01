@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
@@ -128,6 +129,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         };
         CreateDbStmt createDbStmt = new CreateDbStmt(true, mockedDbName, dbProps);
         Env.getCurrentEnv().createDb(createDbStmt);
+        // checkout ifNotExists
+        Env.getCurrentEnv().createDb(createDbStmt);
         useDatabase(mockedDbName);
 
         // un-partitioned table
@@ -180,7 +183,11 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     @Override
     protected void runAfterAll() throws Exception {
         switchHive();
-        dropDatabase(mockedDbName);
+        String createDbStmtStr = "DROP DATABASE IF EXISTS" + mockedHiveClient;
+        DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
+        Env.getCurrentEnv().dropDb(createDbStmt);
+        // check IF EXISTS
+        Env.getCurrentEnv().dropDb(createDbStmt);
     }
 
     @Test
@@ -191,7 +198,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertTrue(hiveDb.isPresent());
         Assertions.assertTrue(hiveDb.get() instanceof HMSExternalDatabase);
 
-        String createUnPartTable = "CREATE TABLE unpart_tbl(\n"
+        String createUnPartTable = "CREATE TABLE IF NOT EXISTS unpart_tbl(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
                 + "  `col2` INT COMMENT 'col2',\n"
                 + "  `col3` BIGINT COMMENT 'col3',\n"
@@ -203,9 +210,11 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'location_uri'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createUnPartTable, true);
+        // check IF NOT EXISTS
+        createTable(createUnPartTable, true);
         dropTable("unpart_tbl", true);
 
-        String createPartTable = "CREATE TABLE `part_tbl`(\n"
+        String createPartTable = "CREATE TABLE IF NOT EXISTS `part_tbl`(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
                 + "  `col2` INT COMMENT 'col2',\n"
                 + "  `col3` BIGINT COMMENT 'col3',\n"
@@ -219,6 +228,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  'location_uri'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='parquet')";
+        createTable(createPartTable, true);
+        // check IF NOT EXISTS
         createTable(createPartTable, true);
         dropTable("part_tbl", true);
 
