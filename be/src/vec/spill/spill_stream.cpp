@@ -46,6 +46,16 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
             ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool(data_dir->path());
 }
 
+SpillStream::~SpillStream() {
+    bool exists = false;
+    auto status = io::global_local_filesystem()->exists(spill_dir_, &exists);
+    if (status.ok() && exists) {
+        auto gc_dir = fmt::format("{}/{}/{}", get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+                                  std::filesystem::path(spill_dir_).filename().string());
+        (void)io::global_local_filesystem()->rename(spill_dir_, gc_dir);
+    }
+}
+
 Status SpillStream::prepare() {
     writer_ = std::make_unique<SpillWriter>(stream_id_, batch_rows_, data_dir_, spill_dir_);
 
@@ -103,9 +113,9 @@ Status SpillStream::wait_spill() {
     return Status::OK();
 }
 
-Status SpillStream::spill_block(const Block& block, bool eof) {
+Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eof) {
     size_t written_bytes = 0;
-    RETURN_IF_ERROR(writer_->write(block, written_bytes));
+    RETURN_IF_ERROR(writer_->write(state, block, written_bytes));
     if (eof) {
         RETURN_IF_ERROR(writer_->close());
         writer_.reset();

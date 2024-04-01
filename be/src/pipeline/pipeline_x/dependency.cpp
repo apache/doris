@@ -267,11 +267,21 @@ void AggSpillPartition::close() {
 }
 
 void PartitionedAggSharedState::close() {
+    if (is_closed) {
+        return;
+    }
+    is_closed = true;
     for (auto partition : spill_partitions) {
         partition->close();
     }
+    spill_partitions.clear();
 }
-void SpillSortSharedState::clear() {
+
+void SpillSortSharedState::close() {
+    if (is_closed) {
+        return;
+    }
+    is_closed = true;
     for (auto& stream : sorted_streams) {
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
     }

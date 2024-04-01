@@ -195,7 +195,7 @@ Status PartitionedHashJoinProbeLocalState::spill_build_block(RuntimeState* state
                 if (_spill_status_ok) {
                     auto build_block = mutable_block->to_block();
                     DCHECK_EQ(mutable_block->rows(), 0);
-                    auto st = build_spilling_stream->spill_block(build_block, false);
+                    auto st = build_spilling_stream->spill_block(state, build_block, false);
                     if (!st.ok()) {
                         std::unique_lock<std::mutex> lock(_spill_lock);
                         _spill_status_ok = false;
@@ -262,7 +262,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
                         auto block = std::move(blocks.back());
                         blocks.pop_back();
                         if (_spill_status_ok) {
-                            auto st = spilling_stream->spill_block(block, false);
+                            auto st = spilling_stream->spill_block(state, block, false);
                             if (!st.ok()) {
                                 std::unique_lock<std::mutex> lock(_spill_lock);
                                 _spill_status_ok = false;

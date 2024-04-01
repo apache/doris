@@ -131,7 +131,7 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
     if (_spill_status_ok) {
         auto block = partitioned_block->to_block();
         partitioned_block = vectorized::MutableBlock::create_unique(block.clone_empty());
-        auto st = spilling_stream->spill_block(block, false);
+        auto st = spilling_stream->spill_block(state(), block, false);
         if (!st.ok()) {
             _spill_status_ok = false;
             std::lock_guard<std::mutex> l(_spill_status_lock);
