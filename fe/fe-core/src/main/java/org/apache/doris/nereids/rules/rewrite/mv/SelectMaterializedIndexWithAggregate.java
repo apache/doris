@@ -164,7 +164,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             );
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
-                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
+                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan, requiredExpr.stream()
+                                    .map(e -> result.exprRewriteMap.replaceAgg(e)).collect(Collectors.toSet()),
+                                    filter.getConjuncts());
 
                             return new LogicalProject<>(
                                 generateProjectsAlias(agg.getOutputs(), slotContext),
@@ -248,7 +250,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             );
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
-                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
+                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan, requiredExpr.stream()
+                                    .map(e -> result.exprRewriteMap.replaceAgg(e)).collect(Collectors.toSet()),
+                                    filter.getConjuncts());
                             if (result.indexId == scan.getTable().getBaseIndexId()) {
                                 LogicalOlapScan mvPlanWithoutAgg = SelectMaterializedIndexWithoutAggregate.select(scan,
                                         project::getInputSlots, filter::getConjuncts,
@@ -308,7 +312,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             );
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
-                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
+                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan, requiredExpr.stream()
+                                    .map(e -> result.exprRewriteMap.replaceAgg(e)).collect(Collectors.toSet()),
+                                    filter.getConjuncts());
 
                             List<NamedExpression> newProjectList = replaceProjectList(project,
                                     result.exprRewriteMap.projectExprMap);
@@ -387,7 +393,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             );
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
-                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
+                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan, requiredExpr.stream()
+                                    .map(e -> result.exprRewriteMap.replaceAgg(e)).collect(Collectors.toSet()),
+                                    filter.getConjuncts());
 
                             return new LogicalProject<>(
                                 generateProjectsAlias(agg.getOutputs(), slotContext),
@@ -478,7 +486,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             );
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
-                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
+                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan, requiredExpr.stream()
+                                    .map(e -> result.exprRewriteMap.replaceAgg(e)).collect(Collectors.toSet()),
+                                    filter.getConjuncts());
 
                             List<NamedExpression> newProjectList = replaceProjectList(project,
                                     result.exprRewriteMap.projectExprMap);
@@ -528,7 +538,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             );
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
-                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
+                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan, requiredExpr.stream()
+                                    .map(e -> result.exprRewriteMap.replaceAgg(e)).collect(Collectors.toSet()),
+                                    filter.getConjuncts());
 
                             List<NamedExpression> newProjectList = replaceProjectList(project,
                                     result.exprRewriteMap.projectExprMap);
