@@ -99,7 +99,7 @@ public class FrontendServiceImplTest {
                 + "    city_code VARCHAR(100)\n"
                 + ")\n"
                 + "DUPLICATE KEY(event_day, site_id, city_code)\n"
-                + "AUTO PARTITION BY range date_trunc( event_day,'day') (\n"
+                + "AUTO PARTITION BY range (date_trunc( event_day,'day')) (\n"
                 + "\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
