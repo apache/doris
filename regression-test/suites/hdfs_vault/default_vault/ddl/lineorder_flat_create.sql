@@ -41,6 +41,5 @@ CREATE TABLE IF NOT EXISTS `lineorder_flat` (
 UNIQUE KEY(`LO_ORDERDATE`, `LO_ORDERKEY`, `LO_LINENUMBER`)
 DISTRIBUTED BY HASH(`LO_ORDERKEY`) BUCKETS 1
 PROPERTIES (
-"replication_num" = "1",
-"storage_vault" = "multi_vault_ssb_flat_hdfs_vault"
+"replication_num" = "1"
 );

@@ -24,18 +24,20 @@
 suite("load") {
 
     sql """
-        CREATE STORAGE VAULT IF NOT EXISTS ssb_hdfs_vault
+        CREATE STORAGE VAULT IF NOT EXISTS multi_vault_ssb_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}"
+        "fs.defaultFS"="${getHdfsFs()}",
+        "root_prefix" = "multi_vault_ssb_hdfs_vault"
         );
     """
 
     sql """
-        CREATE STORAGE VAULT IF NOT EXISTS ssb_flat_hdfs_vault
+        CREATE STORAGE VAULT IF NOT EXISTS multi_vault_ssb_flat_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}"
+        "fs.defaultFS"="${getHdfsFs()}",
+        "root_prefix" = "multi_vault_ssb_flat_hdfs_vault"
         );
     """
 

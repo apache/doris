@@ -11,6 +11,5 @@ CREATE TABLE IF NOT EXISTS `customer` (
 UNIQUE KEY (`c_custkey`)
 DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
 PROPERTIES (
-"replication_num" = "1",
-"storage_vault" = "multi_vault_ssb_hdfs_vault"
+"replication_num" = "1"
 );

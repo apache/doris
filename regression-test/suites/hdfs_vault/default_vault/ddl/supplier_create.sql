@@ -10,6 +10,5 @@ CREATE TABLE IF NOT EXISTS `supplier` (
 UNIQUE KEY (`s_suppkey`)
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 1
 PROPERTIES (
-"replication_num" = "1",
-"storage_vault" = "ssb_sf1_p2"
+"replication_num" = "1"
 );

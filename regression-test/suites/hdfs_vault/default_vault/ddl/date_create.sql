@@ -20,6 +20,5 @@ CREATE TABLE IF NOT EXISTS `date` (
 UNIQUE KEY (`d_datekey`)
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
-"replication_num" = "1",
-"storage_vault" = "ssb_sf1_p2"
+"replication_num" = "1"
 );
