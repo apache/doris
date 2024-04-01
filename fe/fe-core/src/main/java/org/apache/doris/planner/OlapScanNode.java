@@ -1530,11 +1530,11 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
-        String table_name = olapTable.getName();
+        String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
-            table_name = table_name + "(" + getSelectedIndexName() + ")";
+            tableName = tableName + "(" + getSelectedIndexName() + ")";
         }
-        msg.olap_scan_node.setTableName(table_name);
+        msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
