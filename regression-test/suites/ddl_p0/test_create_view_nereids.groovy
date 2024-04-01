@@ -252,4 +252,12 @@ suite("test_create_view_nereids") {
     qt_test_alias "select * from test_view_alias order by c1,c2,c3;"
     qt_test_alias_sql "show create view test_view_alias;"
 
+    // test * except
+    sql "drop view if exists test_view_star_except;"
+    sql """
+        create view test_view_star_except as select * except(pk) from mal_test_view;
+        """
+    qt_test_star_except "select * from test_view_star_except order by a, b;"
+    qt_test_star_except_sql "show create view test_view_star_except;"
+
 }
