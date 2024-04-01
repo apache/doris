@@ -33,33 +33,6 @@
 namespace doris::vectorized {
 
 template <typename Derived>
-std::vector<IColumn::MutablePtr> IColumn::scatter_impl(ColumnIndex num_columns,
-                                                       const Selector& selector) const {
-    size_t num_rows = size();
-
-    if (num_rows != selector.size()) {
-        LOG(FATAL) << fmt::format("Size of selector: {}, doesn't match size of column:{}",
-                                  selector.size(), num_rows);
-    }
-
-    std::vector<MutablePtr> columns(num_columns);
-    for (auto& column : columns) column = clone_empty();
-
-    {
-        size_t reserve_size =
-                num_rows * 1.1 / num_columns; /// 1.1 is just a guess. Better to use n-sigma rule.
-
-        if (reserve_size > 1)
-            for (auto& column : columns) column->reserve(reserve_size);
-    }
-
-    for (size_t i = 0; i < num_rows; ++i)
-        static_cast<Derived&>(*columns[selector[i]]).insert_from(*this, i);
-
-    return columns;
-}
-
-template <typename Derived>
 void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
     size_t num_rows = size();
 
