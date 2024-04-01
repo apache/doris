@@ -582,8 +582,8 @@ struct Dispatcher {
             if (scale_arg > std::numeric_limits<Int16>::max() ||
                 scale_arg < std::numeric_limits<Int16>::min()) {
                 throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                                        "Scale argument for function is out of bound: {}",
-                                        scale_arg);
+                                       "Scale argument for function is out of bound: {}",
+                                       scale_arg);
             }
         }
 
@@ -592,7 +592,7 @@ struct Dispatcher {
                     assert_cast<const ColumnDecimal<T>&>(const_col_general->get_data_column());
             const T& general_val = data_col_general.get_data()[0];
             Int32 input_scale = data_col_general.get_scale();
-            
+
             auto col_res = ColumnDecimal<T>::create(input_rows_count, input_scale);
 
             for (size_t i = 0; i < input_rows_count; ++i) {
