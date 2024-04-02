@@ -195,7 +195,7 @@ class StatisticsUtilTest {
 
         new MockUp<TableStatsMeta>() {
             @Mock
-            public ColStatsMeta findColumnStatsMeta(String colName) {
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
                 return new ColStatsMeta(0, null, null, null, 0, 0, 0);
             }
         };
@@ -243,7 +243,7 @@ class StatisticsUtilTest {
         };
         new MockUp<TableStatsMeta>() {
             @Mock
-            public ColStatsMeta findColumnStatsMeta(String colName) {
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
                 return new ColStatsMeta(0, null, null, null, 0, 100, 0);
             }
         };
@@ -253,7 +253,7 @@ class StatisticsUtilTest {
         // Test table still empty.
         new MockUp<TableStatsMeta>() {
             @Mock
-            public ColStatsMeta findColumnStatsMeta(String colName) {
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
                 return new ColStatsMeta(0, null, null, null, 0, 0, 0);
             }
         };
@@ -269,7 +269,7 @@ class StatisticsUtilTest {
         };
         new MockUp<TableStatsMeta>() {
             @Mock
-            public ColStatsMeta findColumnStatsMeta(String colName) {
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
                 return new ColStatsMeta(0, null, null, null, 0, 500, 0);
             }
         };
@@ -285,7 +285,7 @@ class StatisticsUtilTest {
         };
         new MockUp<TableStatsMeta>() {
             @Mock
-            public ColStatsMeta findColumnStatsMeta(String colName) {
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
                 return new ColStatsMeta(0, null, null, null, 0, 100, 80);
             }
         };
