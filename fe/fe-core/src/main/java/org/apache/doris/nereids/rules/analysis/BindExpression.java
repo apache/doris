@@ -497,21 +497,75 @@ public class BindExpression implements AnalysisRuleFactory {
                         }
                     }
                     List<Slot> groupBySlots = groupBySlotsBuilder.build();
+                    SlotBinder bindByGroupBy = new SlotBinder(toScope(ctx.cascadesContext, groupBySlots),
+                            ctx.cascadesContext, false, false, true
+                    );
+                    Scope aggOuputScope = toScope(ctx.cascadesContext, childPlan.getOutput());
+                    SlotBinder bindByAggOutput = new SlotBinder(
+                            aggOuputScope,
+                            ctx.cascadesContext, false, true, true
+                    );
+                    SlotBinder bindByAggChild = new SlotBinder(
+                            toScope(ctx.cascadesContext, childPlan.child().getOutput()),
+                            ctx.cascadesContext, false, true, true
+                    );
+
+                    SubExprAnalyzer bindSlot = new SubExprAnalyzer(
+                            aggOuputScope, ctx.cascadesContext) {
+                        private boolean currentIsInAggregateFunction;
+
+                        @Override
+                        public Expression visitAggregateFunction(
+                                AggregateFunction aggregateFunction, CascadesContext context) {
+                            if (!currentIsInAggregateFunction) {
+                                currentIsInAggregateFunction = true;
+                                try {
+                                    return super.visitAggregateFunction(aggregateFunction, context);
+                                } finally {
+                                    currentIsInAggregateFunction = false;
+                                }
+                            } else {
+                                return super.visitAggregateFunction(aggregateFunction, context);
+                            }
+                        }
+
+                        @Override
+                        public Expression visitUnboundFunction(
+                                UnboundFunction unboundFunction, CascadesContext context) {
+                            if (!currentIsInAggregateFunction
+                                    && isAggregateFunction(unboundFunction, functionRegistry)) {
+                                currentIsInAggregateFunction = true;
+                                try {
+                                    return super.visitUnboundFunction(unboundFunction, context);
+                                } finally {
+                                    currentIsInAggregateFunction = false;
+                                }
+                            } else {
+                                return super.visitUnboundFunction(unboundFunction, context);
+                            }
+                        }
+
+                        @Override
+                        public Expression visitUnboundSlot(UnboundSlot unboundSlot, CascadesContext context) {
+                            if (currentIsInAggregateFunction) {
+                                // bind by agg child
+                                return bindSlot(unboundSlot, childPlan.child(), ctx.cascadesContext, false);
+                            } else {
+                                Expression expr = bindByGroupBy.bind(unboundSlot);
+                                if (expr instanceof SlotReference) {
+                                    return expr;
+                                }
+                                expr = bindByAggOutput.bind(expr);
+                                if (expr instanceof SlotReference) {
+                                    return expr;
+                                }
+                                return bindByAggChild.bind(expr);
+                            }
+                        }
+                    };
 
                     Set<Expression> boundConjuncts = having.getConjuncts().stream()
-                            .map(expr -> {
-                                if (hasAggregateFunction(expr, functionRegistry)) {
-                                    expr = bindSlot(expr, childPlan.child(), ctx.cascadesContext, false);
-                                } else {
-                                    expr = new SlotBinder(toScope(ctx.cascadesContext, groupBySlots),
-                                            ctx.cascadesContext, false, false
-                                    ).bind(expr);
-
-                                    expr = bindSlot(expr, childPlan, ctx.cascadesContext, false);
-                                    expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
-                                }
-                                return expr;
-                            })
+                            .map(slot -> slot.accept(bindSlot, null))
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toSet());
@@ -845,6 +899,11 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         });
         return expression;
+    }
+
+    private boolean isAggregateFunction(UnboundFunction unboundFunction, FunctionRegistry functionRegistry) {
+        return functionRegistry.isAggregateFunction(
+                unboundFunction.getDbName(), unboundFunction.getName());
     }
 
     private boolean hasAggregateFunction(Expression expression, FunctionRegistry functionRegistry) {
