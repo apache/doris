@@ -22,6 +22,8 @@ suite("test_agg_partial_update_insert_into", "p0") {
 
     connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
         sql "use ${db};"
+        sql "set enable_agg_key_partial_update=true;"
+        sql "set enable_insert_strict = false;"
         sql "sync;"
 
         def tableName = "agg_partial_update_insert_into"
@@ -37,7 +39,6 @@ suite("test_agg_partial_update_insert_into", "p0") {
 
         sql """insert into ${tableName} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1)"""
         qt_1 """ select * from ${tableName} order by id; """
-        sql "set enable_agg_key_partial_update=true;"
         sql "sync;"
         sql """insert into ${tableName}(id,score) values(2,400),(1,200),(4,400)"""
         qt_2 """ select * from ${tableName} order by id; """
@@ -82,6 +83,7 @@ suite("test_agg_partial_update_insert_into", "p0") {
         sql """ DROP TABLE IF EXISTS ${tableName3}; """
 
         sql "set enable_agg_key_partial_update=false;"
+        sql "set enable_insert_strict = true;"
         sql "sync;"
     }
 }
