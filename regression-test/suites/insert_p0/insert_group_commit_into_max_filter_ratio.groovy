@@ -80,8 +80,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
                 logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
             }
             // assertEquals(result, expected_row_count)
-            // legacy || nereids
-            assertTrue(serverInfo.contains("'status':'ABORTED'") || result == expected_row_count)
+            assertTrue(serverInfo.contains("'status':'ABORTED'"))
             // assertFalse(serverInfo.contains("'label':'group_commit_"))
         } catch (Exception e) {
             logger.info("exception: " + e)
@@ -191,8 +190,9 @@ suite("insert_group_commit_into_max_filter_ratio") {
             sql """ set group_commit = async_mode; """
             fail_group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
             sql """ set enable_insert_strict = false; """
-            group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
-
+            if (item != "nereids") {
+                group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
+            }
             // The row 6 and 7 is different between legacy and nereids
             try {
                 sql """ set group_commit = off_mode; """

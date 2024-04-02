@@ -25,8 +25,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
@@ -48,7 +48,9 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.protobuf.ProtocolStringList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -65,8 +67,10 @@ import java.util.stream.Collectors;
  */
 public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
     public static final Logger LOG = LogManager.getLogger(GroupCommitInsertExecutor.class);
-
+    private static final long INVALID_TXN_ID = -1L;
     protected final NereidsPlanner planner;
+    private long txnId = INVALID_TXN_ID;
+    private TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     public GroupCommitInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
                                      Optional<InsertCommandContext> insertCtx) {
@@ -77,15 +81,14 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
     /**
      * Handle group commit
      */
-    public static boolean groupCommit(ConnectContext ctx, DataSink sink, PhysicalSink physicalSink)
-                throws TException, RpcException, UserException, ExecutionException, InterruptedException {
+    public static boolean canGroupCommit(ConnectContext ctx, DataSink sink, PhysicalSink physicalSink) {
         PhysicalOlapTableSink<?> olapSink = (PhysicalOlapTableSink<?>) physicalSink;
-        boolean can = canGroupCommit(ctx, sink, olapSink);
+        boolean can = analyzeGroupCommit(ctx, sink, olapSink);
         ctx.setGroupCommit(can);
         return can;
     }
 
-    private static boolean canGroupCommit(ConnectContext ctx, DataSink sink,
+    private static boolean analyzeGroupCommit(ConnectContext ctx, DataSink sink,
             PhysicalOlapTableSink<?> physicalOlapTableSink) {
         if (!(sink instanceof OlapTableSink) || !ctx.getSessionVariable().isEnableInsertGroupCommit()
                 || ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
@@ -107,7 +110,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         return child instanceof OneRowRelation || (child instanceof PhysicalUnion && child.arity() == 0);
     }
 
-    private static void handleGroupCommit(ConnectContext ctx, DataSink sink,
+    private void handleGroupCommit(ConnectContext ctx, DataSink sink,
             PhysicalOlapTableSink<?> physicalOlapTableSink, NereidsPlanner planner)
                 throws UserException, TException, RpcException, ExecutionException, InterruptedException {
         // TODO we should refactor this to remove rely on UnionNode
@@ -129,12 +132,8 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
                 .map(n -> n.replace("`", "``"))
                 .map(n -> "`" + n + "`")
                 .collect(Collectors.toList());
-        try {
-            for (List<NamedExpression> row : constantExprsList) {
-                rows.add(InsertUtils.getRowStringValue(row));
-            }
-        } catch (AnalysisException e) {
-            LOG.error("warning when group commit insert. {}", e);
+        for (List<NamedExpression> row : constantExprsList) {
+            rows.add(InsertUtils.getRowStringValue(row));
         }
 
         GroupCommitPlanner groupCommitPlanner = EnvFactory.getInstance().createGroupCommitPlanner(
@@ -143,7 +142,10 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
                 ConnectContext.get().getSessionVariable().getGroupCommit());
         PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
-        if (code == TStatusCode.DATA_QUALITY_ERROR) {
+        ProtocolStringList errorMsgsList = response.getStatus().getErrorMsgsList();
+        // TODO: in legacy, there is a retry, we need to implement
+        if (code == TStatusCode.DATA_QUALITY_ERROR && !errorMsgsList.isEmpty() && errorMsgsList.get(0)
+                .contains("schema version not match")) {
             LOG.info("group commit insert failed. query id: {}, backend id: {}, status: {}, "
                             + "schema version: {}", ctx.queryId(),
                     groupCommitPlanner.getBackend(), response.getStatus(),
@@ -154,7 +156,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
                     + response.getStatus();
             ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
         }
-        TransactionStatus txnStatus = TransactionStatus.PREPARE;
+        txnStatus = TransactionStatus.PREPARE;
         String sb = "{'label':'" + response.getLabel() + "', 'status':'" + txnStatus.name()
                 + "', 'txnId':'" + response.getTxnId() + "'"
                 + "', 'optimizer':'" + "nereids" + "'"
@@ -179,7 +181,8 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void beforeExec() {
-
+        String queryId = DebugUtil.printId(ctx.queryId());
+        LOG.info("start insert [{}] with query id {} and txn id {}", labelName, queryId, txnId);
     }
 
     @Override
@@ -199,11 +202,37 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onFail(Throwable t) {
-
+        errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        sb.append("'status':'").append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
+        // sb.append("', 'txnId':'").append(txnId).append("'");
+        if (!Strings.isNullOrEmpty(errMsg)) {
+            sb.append("', 'err':'").append(errMsg).append("'");
+        }
+        sb.append("}");
+        ctx.getState().setOk(loadedRows, 0, sb.toString());
+        // set insert result in connection context,
+        // so that user can use `show insert result` to get info of the last insert operation.
+        ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
+                txnStatus, loadedRows, 0);
+        // update it, so that user can get loaded rows in fe.audit.log
+        ctx.updateReturnRows((int) loadedRows);
     }
 
     @Override
     protected void afterExec(StmtExecutor executor) {
 
+    }
+
+    @Override
+    public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
+        beforeExec();
+        try {
+            onComplete();
+        } catch (Throwable t) {
+            onFail(t);
+        }
+        afterExec(executor);
     }
 }
