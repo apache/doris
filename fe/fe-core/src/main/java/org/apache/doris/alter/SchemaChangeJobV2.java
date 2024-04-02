@@ -421,6 +421,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         tbl.readLock();
         Map<Object, List<TColumn>> tcloumnsPool  = Maps.newHashMap();
+        String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Map<String, Column> indexColumnMap = Maps.newHashMap();
@@ -480,7 +481,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, tcloumnsPool,
-                                    null, expiration);
+                                    null, expiration, vaultId);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }

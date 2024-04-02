@@ -135,18 +135,25 @@ PipelineFragmentContext::PipelineFragmentContext(
           _create_time(MonotonicNanos()) {
     _fragment_watcher.start();
     _start_time = VecDateTimeValue::local_time();
+    _query_thread_context = {query_id, _query_ctx->query_mem_tracker};
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
+    // The memory released by the query end is recorded in the query mem tracker.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     auto st = _query_ctx->exec_status();
+    _query_ctx.reset();
+    _tasks.clear();
     if (_runtime_state != nullptr) {
-        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         _call_back(_runtime_state.get(), &st);
         _runtime_state.reset();
     } else {
         _call_back(_runtime_state.get(), &st);
     }
+    _root_pipeline.reset();
+    _pipelines.clear();
+    _sink.reset();
+    _multi_cast_stream_sink_senders.clear();
 }
 
 bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
@@ -249,10 +256,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
 
     _runtime_state->set_task_execution_context(shared_from_this());
-    _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
-    SCOPED_ATTACH_TASK(_runtime_state.get());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
     _runtime_state->set_be_number(local_params.backend_num);
 
     if (request.__isset.backend_id) {
@@ -552,7 +558,12 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         auto* agg_node = dynamic_cast<vectorized::AggregationNode*>(node);
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
-        if (agg_node->is_aggregate_evaluators_empty()) {
+        if (agg_node->is_probe_expr_ctxs_empty() && node->row_desc().num_slots() == 0) {
+            return Status::InternalError("Illegal aggregate node " +
+                                         std::to_string(agg_node->id()) +
+                                         ": group by and output is empty");
+        }
+        if (agg_node->is_aggregate_evaluators_empty() && !agg_node->is_probe_expr_ctxs_empty()) {
             auto data_queue = std::make_shared<DataQueue>(1);
             OperatorBuilderPtr pre_agg_sink =
                     std::make_shared<DistinctStreamingAggSinkOperatorBuilder>(node->id(), agg_node,
@@ -563,7 +574,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
                     std::make_shared<DistinctStreamingAggSourceOperatorBuilder>(
                             node->id(), agg_node, data_queue);
             RETURN_IF_ERROR(cur_pipe->add_operator(pre_agg_source));
-        } else if (agg_node->is_streaming_preagg()) {
+        } else if (agg_node->is_streaming_preagg() && !agg_node->is_probe_expr_ctxs_empty()) {
             auto data_queue = std::make_shared<DataQueue>(1);
             OperatorBuilderPtr pre_agg_sink = std::make_shared<StreamingAggSinkOperatorBuilder>(
                     node->id(), agg_node, data_queue);

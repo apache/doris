@@ -119,6 +119,7 @@ public abstract class StorageVault {
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);
         }
+        vault.modifyProperties(stmt.getProperties());
 
         return vault;
     }

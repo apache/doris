@@ -276,6 +276,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         + "Error column: " + selectListItemExpr.toSql());
             }
 
+            if (!isReplay && selectListItemExpr.hasAutoInc()) {
+                throw new AnalysisException("The materialized view can not involved auto increment column");
+            }
+
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;

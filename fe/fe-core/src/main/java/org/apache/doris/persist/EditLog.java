@@ -38,6 +38,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -1200,7 +1202,11 @@ public class EditLog {
                     // TODO: implement this while statistics finished related work.
                     break;
                 }
-                case OperationType.OP_UPDATE_CLOUD_REPLICA:
+                case OperationType.OP_UPDATE_CLOUD_REPLICA: {
+                    UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
+                    ((CloudEnv) env).replayUpdateCloudReplica(info);
+                    break;
+                }
                 case OperationType.OP_MODIFY_TTL_SECONDS:
                 case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
                     // TODO: support cloud replated operation type.
@@ -1561,6 +1567,10 @@ public class EditLog {
 
     public void logExportCreate(ExportJob job) {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
+    }
+
+    public void logUpdateCloudReplica(UpdateCloudReplicaInfo info) {
+        logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, info);
     }
 
     public void logExportUpdateState(long jobId, ExportJobState newState) {

@@ -48,15 +48,27 @@ Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXSinkLocalState::open(state));
     return _partitioner->open(state);
 }
+Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(PipelineXSinkLocalState::exec_time_counter());
+    SCOPED_TIMER(PipelineXSinkLocalState::_close_timer);
+    if (PipelineXSinkLocalState::_closed) {
+        return Status::OK();
+    }
+    dec_running_big_mem_op_num(state);
+    return PipelineXSinkLocalState::close(state, exec_status);
+}
 
 Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
+    LOG(INFO) << "hash join sink " << _parent->id() << " revoke_memory"
+              << ", eos: " << _child_eos;
     DCHECK_EQ(_spilling_streams_count, 0);
     _spilling_streams_count = _shared_state->partitioned_build_blocks.size();
     for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
 
-        if (!mutable_block || mutable_block->rows() < state->batch_size()) {
+        if (!mutable_block ||
+            mutable_block->allocated_bytes() < vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
             --_spilling_streams_count;
             continue;
         }
@@ -99,7 +111,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         if (_spilling_streams_count > 0) {
             _dependency->block();
         } else if (_child_eos) {
-            LOG(INFO) << "sink eos, set_ready_to_read, node id: " << _parent->id()
+            LOG(INFO) << "hash join sink " << _parent->id() << " set_ready_to_read"
                       << ", task id: " << state->task_id();
             _dependency->set_ready_to_read();
         }
@@ -129,7 +141,7 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
         std::unique_lock<std::mutex> lock(_spill_lock);
         _dependency->set_ready();
         if (_child_eos) {
-            LOG(INFO) << "sink eos, set_ready_to_read, node id: " << _parent->id()
+            LOG(INFO) << "hash join sink " << _parent->id() << " set_ready_to_read"
                       << ", task id: " << state()->task_id();
             _dependency->set_ready_to_read();
         }
@@ -176,6 +188,7 @@ Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
 Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                               bool eos) {
     auto& local_state = get_local_state(state);
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (!local_state._spill_status_ok) {
         DCHECK_NE(local_state._spill_status.code(), 0);
@@ -227,7 +240,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     }
 
     if (eos) {
-        LOG(INFO) << "sink eos, set_ready_to_read, node id: " << id()
+        LOG(INFO) << "hash join sink " << id() << " sink eos, set_ready_to_read"
                   << ", task id: " << state->task_id();
         local_state._dependency->set_ready_to_read();
     }
@@ -243,8 +256,11 @@ size_t PartitionedHashJoinSinkOperatorX::revocable_mem_size(RuntimeState* state)
     size_t mem_size = 0;
     for (uint32_t i = 0; i != _partition_count; ++i) {
         auto& block = partitioned_blocks[i];
-        if (block && block->rows() >= state->batch_size()) {
-            mem_size += block->allocated_bytes();
+        if (block) {
+            auto block_bytes = block->allocated_bytes();
+            if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                mem_size += block_bytes;
+            }
         }
     }
     return mem_size;

@@ -88,12 +88,7 @@ Status PartitionedAggLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    {
-        std::unique_lock<std::mutex> lk(_merge_spill_lock);
-        if (_is_merging) {
-            _merge_spill_cv.wait(lk);
-        }
-    }
+    dec_running_big_mem_op_num(state);
     return Base::close(state);
 }
 PartitionedAggSourceOperatorX::PartitionedAggSourceOperatorX(ObjectPool* pool,
@@ -128,16 +123,20 @@ Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
-    RETURN_IF_ERROR(local_state.initiate_merge_spill_partition_agg_data(state));
+    if (local_state._shared_state->is_spilled) {
+        RETURN_IF_ERROR(local_state.initiate_merge_spill_partition_agg_data(state));
 
-    /// When `_is_merging` is true means we are reading spilled data and merging the data into hash table.
-    if (local_state._is_merging) {
-        return Status::OK();
+        /// When `_is_merging` is true means we are reading spilled data and merging the data into hash table.
+        if (local_state._is_merging) {
+            return Status::OK();
+        }
     }
 
+    // not spilled in sink or current partition still has data
     auto* runtime_state = local_state._runtime_state.get();
     RETURN_IF_ERROR(_agg_source_operator->get_block(runtime_state, block, eos));
     if (local_state._runtime_state) {
@@ -146,7 +145,8 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
         local_state.update_profile(source_local_state->profile());
     }
     if (*eos) {
-        if (!local_state._shared_state->spill_partitions.empty()) {
+        if (local_state._shared_state->is_spilled &&
+            !local_state._shared_state->spill_partitions.empty()) {
             *eos = false;
         }
     }
@@ -158,7 +158,6 @@ Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    _runtime_state->set_query_mem_tracker(state->query_mem_tracker());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
 
@@ -219,12 +218,8 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                             }
                             Base::_shared_state->in_mem_shared_state->aggregate_data_container
                                     ->init_once();
-                            {
-                                std::unique_lock<std::mutex> lk(_merge_spill_lock);
-                                _is_merging = false;
-                                _dependency->Dependency::set_ready();
-                                _merge_spill_cv.notify_one();
-                            }
+                            _is_merging = false;
+                            _dependency->Dependency::set_ready();
                         }};
                         bool has_agg_data = false;
                         auto& parent = Base::_parent->template cast<Parent>();

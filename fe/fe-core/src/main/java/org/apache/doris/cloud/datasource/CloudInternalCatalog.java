@@ -41,10 +41,14 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
@@ -55,6 +59,7 @@ import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import doris.segment_v2.SegmentV2;
@@ -74,8 +79,6 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     // BEGIN CREATE TABLE
-
-    // TODO(merge-cloud): merge code with InternalCatalog
     @Override
     protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
                                                    String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
@@ -118,12 +121,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         long version = partition.getVisibleVersion();
 
-        final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
+        final String storageVaultName = tbl.getStorageVaultName();
         boolean storageVaultIdSet = false;
-        // We don't need to set the vault name if the table has no property
-        if (storageVaultName == null || storageVaultName.isEmpty()) {
-            storageVaultIdSet = true;
-        }
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -163,12 +162,21 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
-                    + "indexId: {}",
-                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
+                    + "indexId: {}, vault name {}",
+                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
             if (resp.hasStorageVaultId() && !storageVaultIdSet) {
-                tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
+                tbl.setStorageVaultId(resp.getStorageVaultId());
                 storageVaultIdSet = true;
+                if (storageVaultName.isEmpty()) {
+                    // If user doesn't specify the vault name for this table, we should set it
+                    // to make the show create table stmt return correct stmt
+                    // TODO(ByteYue): setDefaultStorageVault for vaultMgr might override user's
+                    // defualt vault, maybe we should set it using show default storage vault stmt
+                    tbl.setStorageVaultName(resp.getStorageVaultName());
+                    Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
+                            Pair.of(resp.getStorageVaultName(), resp.getStorageVaultId()));
+                }
             }
             if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
@@ -176,8 +184,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
 
-        LOG.info("succeed in creating partition[{}-{}], table : [{}-{}]", partitionId, partitionName,
-                tbl.getId(), tbl.getName());
+        LOG.info("succeed in creating partition[{}-{}], table : [{}-{}], vault {}", partitionId, partitionName,
+                tbl.getId(), tbl.getName(), tbl.getStorageVaultName());
 
         return partition;
     }
@@ -768,6 +776,76 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             }
             throw new DdlException("internal error, try later");
+        }
+    }
+
+    public void replayUpdateCloudReplica(UpdateCloudReplicaInfo info) throws MetaNotFoundException {
+        Database db = getDbNullable(info.getDbId());
+        if (db == null) {
+            LOG.warn("replay update cloud replica, unknown database {}", info.toString());
+            return;
+        }
+        OlapTable olapTable = (OlapTable) db.getTableNullable(info.getTableId());
+        if (olapTable == null) {
+            LOG.warn("replay update cloud replica, unknown table {}", info.toString());
+            return;
+        }
+
+        olapTable.writeLock();
+        try {
+            unprotectUpdateCloudReplica(olapTable, info);
+        } catch (Exception e) {
+            LOG.warn("unexpected exception", e);
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    private void unprotectUpdateCloudReplica(OlapTable olapTable, UpdateCloudReplicaInfo info) {
+        LOG.debug("replay update a cloud replica {}", info);
+        Partition partition = olapTable.getPartition(info.getPartitionId());
+        MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
+
+        try {
+            if (info.getTabletId() != -1) {
+                Tablet tablet = materializedIndex.getTablet(info.getTabletId());
+                Replica replica = tablet.getReplicaById(info.getReplicaId());
+                Preconditions.checkNotNull(replica, info);
+
+                String clusterId = info.getClusterId();
+                String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getCloudClusterIdByName(clusterId);
+                LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
+                if (!Strings.isNullOrEmpty(realClusterId)) {
+                    clusterId = realClusterId;
+                }
+
+                ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeId());
+
+                LOG.debug("update single cloud replica cluster {} replica {} be {}", info.getClusterId(),
+                        replica.getId(), info.getBeId());
+            } else {
+                List<Long> tabletIds = info.getTabletIds();
+                for (int i = 0; i < tabletIds.size(); ++i) {
+                    Tablet tablet = materializedIndex.getTablet(tabletIds.get(i));
+                    Replica replica = tablet.getReplicas().get(0);
+                    Preconditions.checkNotNull(replica, info);
+
+                    String clusterId = info.getClusterId();
+                    String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getCloudClusterIdByName(clusterId);
+                    LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
+                    if (!Strings.isNullOrEmpty(realClusterId)) {
+                        clusterId = realClusterId;
+                    }
+
+                    LOG.debug("update cloud replica cluster {} replica {} be {}", info.getClusterId(),
+                            replica.getId(), info.getBeIds().get(i));
+                    ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeIds().get(i));
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("unexpected exception", e);
         }
     }
 }

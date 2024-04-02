@@ -147,6 +147,7 @@ private:
 
     void construct_skip_inverted_index(RowsetWriterContext& ctx);
 
+    // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
 
     Status do_compact_ordered_rowsets();

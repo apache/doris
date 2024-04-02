@@ -220,6 +220,26 @@ public:
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
     virtual const RowDescriptor& intermediate_row_desc() const { return _row_descriptor; }
+
+    //  input expr -> intermediate_projections[0] -> intermediate_projections[1] -> intermediate_projections[2]    ... ->     final projections         ->         output expr
+    //  prepare        _row_descriptor          intermediate_row_desc[0]             intermediate_row_desc[1]            intermediate_row_desc.end()          _output_row_descriptor
+
+    [[nodiscard]] const RowDescriptor& intermediate_row_desc(int idx) {
+        if (idx == 0) {
+            return intermediate_row_desc();
+        }
+        DCHECK((idx - 1) < _intermediate_output_row_descriptor.size());
+        return _intermediate_output_row_descriptor[idx - 1];
+    }
+
+    [[nodiscard]] const RowDescriptor& projections_row_desc() const {
+        if (_intermediate_output_row_descriptor.empty()) {
+            return intermediate_row_desc();
+        } else {
+            return _intermediate_output_row_descriptor.back();
+        }
+    }
+
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
@@ -269,6 +289,10 @@ protected:
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
     vectorized::VExprContextSPtrs _projections;
+
+    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
+    // Used in common subexpression elimination to compute intermediate results.
+    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;

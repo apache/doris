@@ -32,7 +32,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -42,7 +44,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Select materialized index, i.e., both for rollup and materialized view when aggregate is not present.
@@ -70,11 +71,13 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                             LogicalOlapScan mvPlan = select(
                                     scan, project::getInputSlots, filter::getConjuncts,
-                                    Stream.concat(filter.getExpressions().stream(),
-                                        project.getExpressions().stream()).collect(ImmutableSet.toImmutableSet()));
+                                    Suppliers.memoize(() ->
+                                            Utils.concatToSet(filter.getExpressions(), project.getExpressions())
+                                    )
+                            );
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
-                            return new LogicalProject(
+                            return new LogicalProject<>(
                                     generateProjectsAlias(project.getOutput(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(
                                         project.withChildren(filter.withChildren(mvPlan)), mvPlan));
@@ -90,7 +93,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                             LogicalOlapScan mvPlan = select(
                                     scan, project::getInputSlots, ImmutableSet::of,
-                                    new HashSet<>(project.getExpressions()));
+                                    () -> Utils.fastToImmutableSet(project.getExpressions()));
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
                             return new LogicalProject(
@@ -107,8 +110,10 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             LogicalOlapScan scan = filter.child();
                             LogicalOlapScan mvPlan = select(
                                     scan, filter::getOutputSet, filter::getConjuncts,
-                                    Stream.concat(filter.getExpressions().stream(),
-                                            filter.getOutputSet().stream()).collect(ImmutableSet.toImmutableSet()));
+                                    Suppliers.memoize(() ->
+                                            Utils.concatToSet(filter.getExpressions(), filter.getOutputSet())
+                                    )
+                            );
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
                             return new LogicalProject(
@@ -127,7 +132,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                             LogicalOlapScan mvPlan = select(
                                     scan, project::getInputSlots, ImmutableSet::of,
-                                    new HashSet<>(project.getExpressions()));
+                                    Suppliers.memoize(() -> Utils.fastToImmutableSet(project.getExpressions()))
+                            );
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
                             return new LogicalProject(
@@ -145,7 +151,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                             LogicalOlapScan mvPlan = select(
                                     scan, scan::getOutputSet, ImmutableSet::of,
-                                    scan.getOutputSet());
+                                    () -> (Set) scan.getOutputSet());
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
                             return new LogicalProject(
@@ -169,7 +175,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
             Supplier<Set<Expression>> predicatesSupplier,
-            Set<? extends Expression> requiredExpr) {
+            Supplier<Set<Expression>> requiredExpr) {
         OlapTable table = scan.getTable();
         long baseIndexId = table.getBaseIndexId();
         KeysType keysType = scan.getTable().getKeysType();
@@ -186,21 +192,24 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 throw new RuntimeException("Not supported keys type: " + keysType);
         }
 
-        Set<Slot> requiredSlots = new HashSet<>();
-        requiredSlots.addAll(requiredScanOutputSupplier.get());
-        requiredSlots.addAll(ExpressionUtils.getInputSlotSet(requiredExpr));
-        requiredSlots.addAll(ExpressionUtils.getInputSlotSet(predicatesSupplier.get()));
+        Supplier<Set<Slot>> requiredSlots = Suppliers.memoize(() -> {
+            Set<Slot> set = new HashSet<>();
+            set.addAll(requiredScanOutputSupplier.get());
+            set.addAll(ExpressionUtils.getInputSlotSet(requiredExpr.get()));
+            set.addAll(ExpressionUtils.getInputSlotSet(predicatesSupplier.get()));
+            return set;
+        });
         if (scan.getTable().isDupKeysOrMergeOnWrite()) {
             // Set pre-aggregation to `on` to keep consistency with legacy logic.
             List<MaterializedIndex> candidates = scan
                     .getTable().getVisibleIndex().stream().filter(index -> index.getId() != baseIndexId)
                     .filter(index -> !indexHasAggregate(index, scan)).filter(index -> containAllRequiredColumns(index,
-                            scan, requiredScanOutputSupplier.get(), requiredExpr, predicatesSupplier.get()))
+                            scan, requiredScanOutputSupplier.get(), requiredExpr.get(), predicatesSupplier.get()))
                     .collect(Collectors.toList());
             long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
             // this is fail-safe for select mv
             // select baseIndex if bestIndex's slots' data types are different from baseIndex
-            bestIndex = isSameDataType(scan, bestIndex, requiredSlots) ? bestIndex : baseIndexId;
+            bestIndex = isSameDataType(scan, bestIndex, requiredSlots.get()) ? bestIndex : baseIndexId;
             return scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex);
         } else {
             final PreAggStatus preAggStatus;
@@ -221,7 +230,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
                     .filter(index -> table.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeySize)
                     .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get(),
-                            requiredExpr, predicatesSupplier.get()))
+                            requiredExpr.get(), predicatesSupplier.get()))
                     .collect(Collectors.toList());
 
             if (candidates.size() == 1) {
@@ -231,7 +240,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
                 // this is fail-safe for select mv
                 // select baseIndex if bestIndex's slots' data types are different from baseIndex
-                bestIndex = isSameDataType(scan, bestIndex, requiredSlots) ? bestIndex : baseIndexId;
+                bestIndex = isSameDataType(scan, bestIndex, requiredSlots.get()) ? bestIndex : baseIndexId;
                 return scan.withMaterializedIndexSelected(preAggStatus, bestIndex);
             }
         }

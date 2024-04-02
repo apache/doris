@@ -392,6 +392,7 @@ Status ExecEnv::_init_mem_env() {
     // 1. init mem tracker
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
+    _env_thread_context = thread_context();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     init_hook();
@@ -521,15 +522,26 @@ Status ExecEnv::_init_mem_env() {
 }
 
 void ExecEnv::init_mem_tracker() {
+    mem_tracker_limiter_pool.resize(MEM_TRACKER_GROUP_NUM,
+                                    TrackerLimiterGroup()); // before all mem tracker init.
+    _s_tracking_memory = true;
     _orphan_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "Orphan");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
-    _experimental_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
+    _details_mem_tracker_set =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "DetailsTrackerSet");
     _page_no_cache_mem_tracker =
-            std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
+            std::make_shared<MemTracker>("PageNoCache", _details_mem_tracker_set.get());
     _brpc_iobuf_block_memory_tracker =
-            std::make_shared<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
+            std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
+    _segcompaction_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+    _rowid_storage_reader_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
+    _subcolumns_tree_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SubcolumnsTree");
+    _s3_file_buffer_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
 }
 
 void ExecEnv::_register_metrics() {
@@ -601,12 +613,6 @@ void ExecEnv::destroy() {
 
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
-
-    // shared_ptr maybe no need to be reset
-    // _brpc_iobuf_block_memory_tracker.reset();
-    // _page_no_cache_mem_tracker.reset();
-    // _experimental_mem_tracker.reset();
-    // _orphan_mem_tracker.reset();
 
     SAFE_DELETE(_spill_stream_mgr);
     SAFE_DELETE(_block_spill_mgr);
@@ -683,6 +689,7 @@ void ExecEnv::destroy() {
     // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
     SAFE_DELETE(_without_group_task_scheduler);
 
+    _s_tracking_memory = false;
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

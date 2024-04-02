@@ -213,5 +213,34 @@ suite("txn_insert") {
             order_qt_select23 """select * from ${table}_1"""
             order_qt_select24 """select * from ${table}_2"""
         }
+
+        // 7. update stmt
+        if (use_nereids_planner) {
+            def ut_table = "txn_insert_ut"
+            for (def i in 1..2) {
+                def tableName = ut_table + "_" + i
+                sql """ DROP TABLE IF EXISTS ${tableName} """
+                sql """
+                    CREATE TABLE ${tableName} (
+                        `ID` int(11) NOT NULL,
+                        `NAME` varchar(100) NULL,
+                        `score` int(11) NULL
+                    ) ENGINE=OLAP
+                    unique KEY(`id`)
+                    COMMENT 'OLAP'
+                    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                    PROPERTIES (
+                        "replication_num" = "1"
+                    );
+                """
+            }
+            sql """ insert into ${ut_table}_1 values(1, "a", 100); """
+            sql """ begin; """
+            sql """ insert into ${ut_table}_2 select * from ${ut_table}_1; """
+            sql """ update ${ut_table}_1 set score = 101 where id = 1; """
+            sql """ commit; """
+            order_qt_select25 """select * from ${ut_table}_1 """
+            order_qt_select26 """select * from ${ut_table}_2 """
+        }
     }
 }

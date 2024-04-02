@@ -1646,24 +1646,26 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // Tablet checker and scheduler
-        tabletChecker.start();
-        tabletScheduler.start();
-        // Colocate tables checker and balancer
-        ColocateTableCheckerAndBalancer.getInstance().start();
-        // Publish Version Daemon
-        publishVersionDaemon.start();
-        // Start txn cleaner
-        txnCleaner.start();
+        if (Config.isNotCloudMode()) {
+            // Tablet checker and scheduler
+            tabletChecker.start();
+            tabletScheduler.start();
+            // Colocate tables checker and balancer
+            ColocateTableCheckerAndBalancer.getInstance().start();
+            // Publish Version Daemon
+            publishVersionDaemon.start();
+            // Start txn cleaner
+            txnCleaner.start();
+            // Consistency checker
+            getConsistencyChecker().start();
+            // Backup handler
+            getBackupHandler().start();
+        }
         jobManager.start();
         // transient task manager
         transientTaskManager.start();
         // Alter
         getAlterInstance().start();
-        // Consistency checker
-        getConsistencyChecker().start();
-        // Backup handler
-        getBackupHandler().start();
         // catalog recycle bin
         getRecycleBin().start();
         // time printer
@@ -3503,6 +3505,13 @@ public class Env {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
+            }
+
+            // Storage Vault
+            if (!olapTable.getStorageVaultName().isEmpty()) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_STORAGE_VAULT).append("\" = \"");
+                sb.append(olapTable.getStorageVaultName()).append("\"");
             }
 
             // disable auto compaction
