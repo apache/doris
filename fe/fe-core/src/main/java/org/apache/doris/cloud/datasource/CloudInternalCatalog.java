@@ -48,6 +48,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
@@ -120,12 +121,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         long version = partition.getVisibleVersion();
 
-        final String storageVaultName = tbl.getTableProperty().getStorageVauldName();
+        final String storageVaultName = tbl.getStorageVaultName();
         boolean storageVaultIdSet = false;
-        // We don't need to set the vault name if the table has no property
-        if (storageVaultName == null || storageVaultName.isEmpty()) {
-            storageVaultIdSet = true;
-        }
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -165,12 +162,21 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
-                    + "indexId: {}",
-                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
+                    + "indexId: {}, vault name {}",
+                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
             if (resp.hasStorageVaultId() && !storageVaultIdSet) {
-                tbl.getTableProperty().setStorageVaultId(resp.getStorageVaultId());
+                tbl.setStorageVaultId(resp.getStorageVaultId());
                 storageVaultIdSet = true;
+                if (storageVaultName.isEmpty()) {
+                    // If user doesn't specify the vault name for this table, we should set it
+                    // to make the show create table stmt return correct stmt
+                    // TODO(ByteYue): setDefaultStorageVault for vaultMgr might override user's
+                    // defualt vault, maybe we should set it using show default storage vault stmt
+                    tbl.setStorageVaultName(resp.getStorageVaultName());
+                    Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
+                            Pair.of(resp.getStorageVaultName(), resp.getStorageVaultId()));
+                }
             }
             if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
@@ -178,8 +184,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
 
-        LOG.info("succeed in creating partition[{}-{}], table : [{}-{}]", partitionId, partitionName,
-                tbl.getId(), tbl.getName());
+        LOG.info("succeed in creating partition[{}-{}], table : [{}-{}], vault {}", partitionId, partitionName,
+                tbl.getId(), tbl.getName(), tbl.getStorageVaultName());
 
         return partition;
     }
