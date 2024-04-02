@@ -145,7 +145,6 @@ Status DeltaWriterV2::append(const vectorized::Block* block) {
 
 Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                             bool is_append) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }

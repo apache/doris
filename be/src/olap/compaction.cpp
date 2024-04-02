@@ -75,9 +75,8 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
           _input_row_num(0),
           _input_num_segments(0),
           _input_index_size(0),
-          _state(CompactionState::INITED),
-          _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
+          _state(CompactionState::INITED) {
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label);
     init_profile(label);
 }
 

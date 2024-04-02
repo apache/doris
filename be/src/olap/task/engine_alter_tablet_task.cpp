@@ -44,7 +44,6 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
 }
 
 Status EngineAlterTabletTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
     Status res = Status::OK();
     try {

@@ -40,7 +40,6 @@ public:
     VWalScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _profile = _runtime_state.runtime_profile();
-        _runtime_state.init_mem_trackers();
         WARN_IF_ERROR(_runtime_state.init(_unique_id, _query_options, _query_globals, _env),
                       "fail to init _runtime_state");
     }

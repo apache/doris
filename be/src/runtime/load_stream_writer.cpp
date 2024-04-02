@@ -73,6 +73,7 @@ LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profil
         : _req(*context), _rowset_writer(nullptr) {
     _rowset_builder =
             std::make_unique<RowsetBuilder>(*StorageEngine::instance(), *context, profile);
+    _query_thread_context.init(); // from load stream
 }
 
 LoadStreamWriter::~LoadStreamWriter() = default;
@@ -85,6 +86,7 @@ Status LoadStreamWriter::init() {
 }
 
 Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -119,6 +121,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
 }
 
 Status LoadStreamWriter::close_segment(uint32_t segid) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -152,6 +155,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
 
 Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
                                      TabletSchemaSPtr flush_schema) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -185,6 +189,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
 
 Status LoadStreamWriter::close() {
     std::lock_guard<std::mutex> l(_lock);
+    SCOPED_ATTACH_TASK(_query_thread_context);
     if (!_is_init) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
