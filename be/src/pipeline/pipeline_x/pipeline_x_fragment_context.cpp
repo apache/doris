@@ -140,7 +140,9 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     if (reason == PPlanFragmentCancelReason::TIMEOUT) {
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
+    bool cancel_res = _query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id);
+     std::lock_guard<std::mutex> l(_cancel_lock);
+    if (cancel_res) {
         if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
             _is_report_on_cancel = false;
         } else {

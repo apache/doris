@@ -168,7 +168,6 @@ bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
-    std::lock_guard<std::mutex> l(_cancel_lock);
     LOG_INFO("PipelineFragmentContext::cancel")
             .tag("query_id", print_id(_query_ctx->query_id()))
             .tag("fragment_id", _fragment_id)
@@ -180,7 +179,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // can not be cancelled if other fragments set the query_ctx cancelled, this will
     // make result receiver on fe be stocked on rpc forever until timeout...
     // We need a more detail discussion.
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
+    bool cancel_res = _query_ctx->cancel(true, msg, Status::Cancelled(msg));
+    std::lock_guard<std::mutex> l(_cancel_lock);
+    if (cancel_res) {
         if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
             _is_report_on_cancel = false;
         } else {
