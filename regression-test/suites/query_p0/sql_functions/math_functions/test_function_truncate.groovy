@@ -106,8 +106,7 @@ suite("test_function_truncate") {
         CREATE TABLE test_function_truncate_dec128 (
             rid int, dec190 decimal(19,0), dec199 decimal(19,9), dec1919 decimal(19,19),
                      dec380 decimal(38,0), dec3819 decimal(38,19), dec3838 decimal(38,38),
-                     number int DEFAULT 1
-        )
+                     number int)
         DISTRIBUTED BY HASH(rid)
         PROPERTIES("replication_num" = "1" );
     """
