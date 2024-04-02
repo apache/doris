@@ -80,6 +80,7 @@ protected:
     RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
     RuntimeProfile::Counter* _spill_data_size = nullptr;
     RuntimeProfile::Counter* _spill_block_count = nullptr;
+    RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
 };
 
 class PartitionedHashJoinSinkOperatorX
