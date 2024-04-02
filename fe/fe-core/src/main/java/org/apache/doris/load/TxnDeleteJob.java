@@ -43,6 +43,7 @@ public class TxnDeleteJob extends DeleteJob {
         TransactionEntry txnEntry = ConnectContext.get().getTxnEntry();
         txnEntry.beginTransaction(targetTbl.getDatabase(), targetTbl);
         this.transactionId = txnEntry.getTransactionId();
+        this.label = txnEntry.getLabel();
         return this.transactionId;
     }
 
@@ -62,6 +63,5 @@ public class TxnDeleteJob extends DeleteJob {
 
     @Override
     public void cancel(String reason) {
-
     }
 }

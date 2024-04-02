@@ -98,7 +98,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     // jobId(listenerId). use in beginTransaction to callback function
     private final long id;
     protected long transactionId;
-    protected final String label;
+    protected String label;
     private final Set<Long> totalTablets;
     private final Set<Long> quorumTablets;
     private final Set<Long> finishedTablets;
