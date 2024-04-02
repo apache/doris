@@ -33,7 +33,6 @@ import org.apache.doris.proto.Types.PGenericType;
 import org.apache.doris.proto.Types.PGenericType.TypeId;
 import org.apache.doris.proto.Types.PValues;
 
-import static org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -81,7 +80,9 @@ class LiteralTest {
         resultContentBuilder.setType(typeBuilder.build());
         resultContentBuilder.addChildElement(childValues);
         PValues resultContent = resultContentBuilder.build();
-        List<Literal> resultExpression = getResultExpression(arrayType, resultContent);
+        List<Literal> resultExpression
+                = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(arrayType,
+                resultContent);
         Assertions.assertTrue(resultExpression.get(0).isLiteral());
     }
 
@@ -115,7 +116,9 @@ class LiteralTest {
         outContentBuilder.setType(outTypeBuilder.build());
         outContentBuilder.addChildElement(nestedResultContent);
         PValues resultContent = outContentBuilder.build();
-        List<Literal> resultExpression = getResultExpression(outArrayType, resultContent);
+        List<Literal> resultExpression
+                = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(outArrayType,
+                resultContent);
         // [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
         Assertions.assertTrue(resultExpression.get(0) instanceof ArrayLiteral);
         System.out.println(resultExpression.get(0).toString());
@@ -156,7 +159,9 @@ class LiteralTest {
         outContentBuilder.setType(outTypeBuilder.build());
         outContentBuilder.addChildElement(nestedResultContent);
         PValues resultContent = outContentBuilder.build();
-        List<Literal> resultExpression = getResultExpression(outArrayType, resultContent);
+        List<Literal> resultExpression
+                = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(outArrayType,
+                resultContent);
         // [[0, 2, 4, 6, 8], [1, 3, 5, 7, 9]]
         Assertions.assertTrue(resultExpression.get(0) instanceof ArrayLiteral);
         System.out.println(resultExpression.get(0).toString());
@@ -189,7 +194,9 @@ class LiteralTest {
         resultContentBuilder.setType(typeBuilder.build());
         resultContentBuilder.addChildElement(childValues);
         PValues resultContent = resultContentBuilder.build();
-        List<Literal> resultExpression = getResultExpression(arrayType, resultContent);
+        List<Literal> resultExpression
+                = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(arrayType,
+                resultContent);
         // [0, NULL, 2, NULL, 4, NULL, 6, NULL, 8, NULL]
         Assertions.assertTrue(resultExpression.get(0).isLiteral());
         System.out.println(resultExpression.get(0).toString());
@@ -230,9 +237,11 @@ class LiteralTest {
         resultContentBuilder.addChildElement(childValues1);
         resultContentBuilder.addChildElement(childValues2);
         PValues resultContent = resultContentBuilder.build();
-        List<Literal> resultExpression = getResultExpression(structType, resultContent);
+        List<Literal> resultExpression
+                = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(structType,
+                resultContent);
         Assertions.assertTrue(resultExpression.get(0).isLiteral());
-        //STRUCT('col1':0,'col2':'str1')
+        // STRUCT('col1':0,'col2':'str1')
         System.out.println(resultExpression.get(0).toString());
     }
 
@@ -271,7 +280,6 @@ class LiteralTest {
         arrayChildBuilder1.setType(childTypeBuilder3.build());
         arrayChildBuilder2.setType(childTypeBuilder3.build());
 
-
         PValues childValues1 = childBuilder1.build();
         PValues childValues2 = childBuilder2.build();
         arrayChildBuilder1.addChildElement(childValues1);
@@ -283,9 +291,11 @@ class LiteralTest {
         resultContentBuilder.addChildElement(arrayChildValues1);
         resultContentBuilder.addChildElement(arrayChildValues2);
         PValues resultContent = resultContentBuilder.build();
-        List<Literal> resultExpression = getResultExpression(structType, resultContent);
+        List<Literal> resultExpression
+                = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(structType,
+                resultContent);
         Assertions.assertTrue(resultExpression.get(0).isLiteral());
-        //STRUCT('col1':[0, 2, 4, 6, 8],'col2':['str1', 'str3', 'str5', 'str7', 'str9'])
+        // STRUCT('col1':[0, 2, 4, 6, 8],'col2':['str1', 'str3', 'str5', 'str7', 'str9'])
         System.out.println(resultExpression.get(0).toString());
     }
 }

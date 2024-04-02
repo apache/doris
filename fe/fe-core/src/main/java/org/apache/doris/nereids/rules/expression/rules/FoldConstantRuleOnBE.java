@@ -290,6 +290,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         return resultMap;
     }
 
+    /**
+     * convert PValues which from BE to Expression of nereids
+     */
     public static List<Literal> getResultExpression(DataType type, PValues resultContent) {
         List<Literal> res = new ArrayList<>();
         if (type.isBooleanType()) {
