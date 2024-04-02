@@ -1646,24 +1646,26 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // Tablet checker and scheduler
-        tabletChecker.start();
-        tabletScheduler.start();
-        // Colocate tables checker and balancer
-        ColocateTableCheckerAndBalancer.getInstance().start();
-        // Publish Version Daemon
-        publishVersionDaemon.start();
-        // Start txn cleaner
-        txnCleaner.start();
+        if (Config.isNotCloudMode()) {
+            // Tablet checker and scheduler
+            tabletChecker.start();
+            tabletScheduler.start();
+            // Colocate tables checker and balancer
+            ColocateTableCheckerAndBalancer.getInstance().start();
+            // Publish Version Daemon
+            publishVersionDaemon.start();
+            // Start txn cleaner
+            txnCleaner.start();
+            // Consistency checker
+            getConsistencyChecker().start();
+            // Backup handler
+            getBackupHandler().start();
+        }
         jobManager.start();
         // transient task manager
         transientTaskManager.start();
         // Alter
         getAlterInstance().start();
-        // Consistency checker
-        getConsistencyChecker().start();
-        // Backup handler
-        getBackupHandler().start();
         // catalog recycle bin
         getRecycleBin().start();
         // time printer

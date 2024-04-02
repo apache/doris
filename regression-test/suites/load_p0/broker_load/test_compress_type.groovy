@@ -32,6 +32,12 @@ suite("test_compress_type", "load_p0") {
             "",
             "",
             "",
+            "COMPRESS_TYPE AS \"GZ\"",
+            "COMPRESS_TYPE AS \"BZ2\"",
+            "COMPRESS_TYPE AS \"LZ4FRAME\"",
+            "",
+            "",
+            "",
     ]
 
     def fileFormat = [
@@ -46,7 +52,13 @@ suite("test_compress_type", "load_p0") {
             "FORMAT AS \"CSV\"",
             "",
             "",
-            ""
+            "",
+            "FORMAT AS \"JSON\"",
+            "FORMAT AS \"JSON\"",
+            "FORMAT AS \"JSON\"",
+            "FORMAT AS \"JSON\"",
+            "FORMAT AS \"JSON\"",
+            "FORMAT AS \"JSON\"",
     ]
 
     def paths = [
@@ -61,7 +73,13 @@ suite("test_compress_type", "load_p0") {
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4"
+            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
+            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.gz",
+            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.bz2",
+            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.lz4",
+            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.gz",
+            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.bz2",
+            "s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json.lz4",
     ]
     def labels = []
 

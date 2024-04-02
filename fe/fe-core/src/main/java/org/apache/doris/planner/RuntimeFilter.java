@@ -685,7 +685,7 @@ public final class RuntimeFilter {
         if (node instanceof HashJoinNode) {
             setIsBroadcast(((HashJoinNode) node).getDistributionMode() == HashJoinNode.DistributionMode.BROADCAST);
         } else {
-            setIsBroadcast(false);
+            setIsBroadcast(true);
         }
         if (LOG.isTraceEnabled()) {
             LOG.trace("Runtime filter: " + debugString());
