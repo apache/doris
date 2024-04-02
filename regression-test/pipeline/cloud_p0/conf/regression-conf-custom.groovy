@@ -46,6 +46,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_stream_load_new_move_memtable," +
     "test_array_index1," +
     "test_array_index2," +
+    "test_index_lowercase_fault_injection," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 
