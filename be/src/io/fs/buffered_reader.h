@@ -189,8 +189,6 @@ public:
 
     bool closed() const override { return _closed; }
 
-    std::shared_ptr<io::FileSystem> fs() const override { return _reader->fs(); }
-
     // for test only
     size_t buffer_remaining() const { return _remaining; }
 
@@ -269,10 +267,9 @@ class DelegateReader {
 public:
     enum AccessMode { SEQUENTIAL, RANDOM };
 
-    static Status create_file_reader(
+    static Result<io::FileReaderSPtr> create_file_reader(
             RuntimeProfile* profile, const FileSystemProperties& system_properties,
             const FileDescription& file_description, const io::FileReaderOptions& reader_options,
-            std::shared_ptr<io::FileSystem>* file_system, io::FileReaderSPtr* file_reader,
             AccessMode access_mode = SEQUENTIAL, const IOContext* io_ctx = nullptr,
             const PrefetchRange file_range = PrefetchRange(0, 0));
 };
@@ -381,7 +378,7 @@ constexpr int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
  * The data is prefetched order by the random_access_ranges. If some adjacent ranges is small, the underlying reader
  * will merge them.
  */
-class PrefetchBufferedReader : public io::FileReader {
+class PrefetchBufferedReader final : public io::FileReader {
 public:
     PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
                            PrefetchRange file_range, const IOContext* io_ctx = nullptr,
@@ -402,8 +399,6 @@ public:
             _pre_buffer->set_random_access_ranges(random_access_ranges);
         }
     }
-
-    std::shared_ptr<io::FileSystem> fs() const override { return _reader->fs(); }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -444,7 +439,7 @@ private:
  * When a file is small(<8MB), InMemoryFileReader can effectively reduce the number of file accesses
  * and greatly improve the access speed of small files.
  */
-class InMemoryFileReader : public io::FileReader {
+class InMemoryFileReader final : public io::FileReader {
 public:
     InMemoryFileReader(io::FileReaderSPtr reader);
 
@@ -457,8 +452,6 @@ public:
     size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
-
-    std::shared_ptr<io::FileSystem> fs() const override { return _reader->fs(); }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

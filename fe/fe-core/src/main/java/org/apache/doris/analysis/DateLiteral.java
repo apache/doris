@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -570,11 +569,14 @@ public class DateLiteral extends LiteralExpr {
         switch (type.getPrimitiveType()) {
             case DATE:
             case DATEV2:
-                return this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
             case DATETIME:
-                return this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
             case DATETIMEV2:
-                return this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
             default:
                 return false;
         }
@@ -794,12 +796,9 @@ public class DateLiteral extends LiteralExpr {
         try {
             checkValueValid();
         } catch (AnalysisException e) {
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().getState().reset();
-            }
-            // If date value is invalid, set this to null
-            msg.node_type = TExprNodeType.NULL_LITERAL;
-            msg.setIsNullable(true);
+            // we must check before here. when we think we are ready to send thrift msg,
+            // the invalid value is not acceptable. we can't properly deal with it.
+            LOG.warn("meet invalid value when plan to translate " + toString() + " to thrift node");
         }
     }
 

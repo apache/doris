@@ -369,6 +369,9 @@ struct OlapReaderStatistics {
 
     io::FileCacheStatistics file_cache_stats;
     int64_t load_segments_timer = 0;
+
+    int64_t collect_iterator_merge_next_timer = 0;
+    int64_t collect_iterator_normal_next_timer = 0;
 };
 
 using ColumnId = uint32_t;

@@ -21,8 +21,6 @@
 #include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
 #include <glog/logging.h>
-#include <limits.h>
-#include <stdint.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
@@ -38,14 +36,13 @@
 #include "common/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
-#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/data_dir.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 namespace {
 
 Status sync_dir(const io::Path& dirname) {
@@ -70,15 +67,15 @@ Status sync_dir(const io::Path& dirname) {
 
 } // namespace
 
-LocalFileWriter::LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data)
-        : FileWriter(std::move(path), fs), _fd(fd), _sync_data(sync_data) {
-    _opened = true;
+LocalFileWriter::LocalFileWriter(Path path, int fd, bool sync_data)
+        : _path(std::move(path)), _fd(fd), _sync_data(sync_data) {
     DorisMetrics::instance()->local_file_open_writing->increment(1);
     DorisMetrics::instance()->local_file_writer_total->increment(1);
 }
 
-LocalFileWriter::LocalFileWriter(Path path, int fd)
-        : LocalFileWriter(path, fd, global_local_filesystem()) {}
+size_t LocalFileWriter::bytes_appended() const {
+    return _bytes_appended;
+}
 
 LocalFileWriter::~LocalFileWriter() {
     if (!_closed) {
@@ -166,7 +163,7 @@ Status LocalFileWriter::finalize() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
                                       Status::IOError("inject io error"));
     if (_closed) [[unlikely]] {
-        return Status::InternalError("finalize closed file: ", _path.native());
+        return Status::InternalError("finalize closed file: {}", _path.native());
     }
 
     if (_dirty) {
@@ -216,5 +213,4 @@ Status LocalFileWriter::_close(bool sync) {
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

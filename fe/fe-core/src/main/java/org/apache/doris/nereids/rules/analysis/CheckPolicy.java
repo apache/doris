@@ -24,14 +24,16 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy.RelatedPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -60,7 +62,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 return ctx.root.child();
                             }
                             LogicalRelation relation = (LogicalRelation) child;
-                            Set<Expression> combineFilter = new HashSet<>();
+                            Set<Expression> combineFilter = new LinkedHashSet<>();
 
                             // replace incremental params as AND expression
                             if (relation instanceof LogicalFileScan) {
@@ -72,18 +74,20 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 }
                             }
 
-                            // row policy
-                            checkPolicy.getFilter(relation, ctx.connectContext)
-                                    .ifPresent(expression -> combineFilter.addAll(
+                            RelatedPolicy relatedPolicy = checkPolicy.findPolicy(relation, ctx.cascadesContext);
+                            relatedPolicy.rowPolicyFilter.ifPresent(expression -> combineFilter.addAll(
                                             ExpressionUtils.extractConjunctionToSet(expression)));
-
-                            if (combineFilter.isEmpty()) {
-                                return ctx.root.child();
-                            }
+                            Plan result = relation;
                             if (upperFilter != null) {
                                 combineFilter.addAll(upperFilter.getConjuncts());
                             }
-                            return new LogicalFilter<>(combineFilter, relation);
+                            if (!combineFilter.isEmpty()) {
+                                result = new LogicalFilter<>(combineFilter, relation);
+                            }
+                            if (relatedPolicy.dataMaskProjects.isPresent()) {
+                                result = new LogicalProject<>(relatedPolicy.dataMaskProjects.get(), result);
+                            }
+                            return result;
                         })
                 )
         );

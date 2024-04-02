@@ -361,8 +361,22 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     }
                     return;
                 }
+
+                std::vector<vectorized::DataTypePtr> data_types;
+                for (size_t i = 0; i != _build_expr_ctxs.size(); ++i) {
+                    auto& ctx = _build_expr_ctxs[i];
+                    auto data_type = ctx->root()->data_type();
+
+                    /// For 'null safe equal' join,
+                    /// the build key column maybe be converted to nullable from non-nullable.
+                    if (p._should_convert_to_nullable[i]) {
+                        data_type = vectorized::make_nullable(data_type);
+                    }
+                    data_types.emplace_back(std::move(data_type));
+                }
+
                 if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32>(
-                            *_shared_state->hash_table_variants, _build_expr_ctxs)) {
+                            *_shared_state->hash_table_variants, data_types)) {
                     _shared_state->hash_table_variants
                             ->emplace<vectorized::SerializedHashTableContext>();
                 }

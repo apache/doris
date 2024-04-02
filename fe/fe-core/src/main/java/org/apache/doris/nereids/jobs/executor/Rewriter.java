@@ -30,7 +30,7 @@ import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProj
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
-import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
@@ -69,7 +69,6 @@ import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubqueryOrView;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
-import org.apache.doris.nereids.rules.rewrite.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.ExtractFilterFromCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractSingleTableExpressionFromDisjunction;
@@ -121,6 +120,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoin;
@@ -152,8 +152,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             //   such as group by key matching and replaced
                             //   but we need to do some normalization before subquery unnesting,
                             //   such as extract common expression.
-                            new ExpressionNormalization(),
-                            new ExpressionOptimization(),
+                            new ExpressionNormalizationAndOptimization(),
                             new AvgDistinctToSumDivCount(),
                             new CountDistinctRewrite(),
                             new ExtractFilterFromCrossJoin()
@@ -240,7 +239,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // efficient because it can find the new plans and apply transform wherever it is
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     // after push down, some new filters are generated, which needs to be optimized. (example: tpch q19)
-                    topDown(new ExpressionOptimization()),
+                    // topDown(new ExpressionOptimization()),
                     topDown(
                             new MergeFilters(),
                             new ReorderJoin(),
@@ -389,11 +388,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
                     bottomUp(new EliminateEmptyRelation())
             ),
-
+            topic("agg rewrite",
+                // these rules should be put after mv optimization to avoid mv matching fail
+                topDown(new SumLiteralRewrite())
+            ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
                     custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
-                    custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
                     topDown(new PushDownFilterThroughProject(), new MergeProjects()),
                     custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     bottomUp(

@@ -80,6 +80,8 @@ public class HMSCommitter {
     private final Queue<DirectoryCleanUpTask> directoryCleanUpTasksForAbort = new ConcurrentLinkedQueue<>();
     // when aborted, we need restore directory
     private final List<RenameDirectoryTask> renameDirectoryTasksForAbort = new ArrayList<>();
+    // when finished, we need clear some directories
+    private final List<String> clearDirsForFinish = new ArrayList<>();
     Executor fileSystemExecutor = Executors.newFixedThreadPool(16);
 
     public HMSCommitter(HiveMetadataOps hiveOps, RemoteFileSystem fs, Table table) {
@@ -105,6 +107,8 @@ public class HMSCommitter {
                 t.addSuppressed(new Exception("Failed to roll back after commit failure", e));
             }
             throw t;
+        } finally {
+            runClearPathsForFinish();
         }
     }
 
@@ -250,7 +254,38 @@ public class HMSCommitter {
     }
 
     public void prepareOverwriteTable(THivePartitionUpdate pu, HivePartitionStatistics ps) {
+        String targetPath = pu.getLocation().getTargetPath();
+        String writePath = pu.getLocation().getWritePath();
+        if (!targetPath.equals(writePath)) {
+            Path path = new Path(targetPath);
+            String oldTablePath = new Path(path.getParent(), "_temp_" + path.getName()).toString();
+            Status status = fs.renameDir(
+                    targetPath,
+                    oldTablePath,
+                    () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldTablePath, targetPath)));
+            if (!status.ok()) {
+                throw new RuntimeException(
+                    "Error to rename dir from " + targetPath + " to " + oldTablePath + status.getErrMsg());
+            }
+            clearDirsForFinish.add(oldTablePath);
 
+            status =  fs.renameDir(
+                writePath,
+                targetPath,
+                () -> directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true)));
+            if (!status.ok()) {
+                throw new RuntimeException(
+                    "Error to rename dir from " + writePath + " to " + targetPath + ":" + status.getErrMsg());
+            }
+        }
+        updateStatisticsTasks.add(
+            new UpdateStatisticsTask(
+                table.getDbName(),
+                table.getTableName(),
+                Optional.empty(),
+                ps,
+                false
+            ));
     }
 
     public void prepareCreateNewPartition(THivePartitionUpdate pu, HivePartitionStatistics ps) {
@@ -335,7 +370,38 @@ public class HMSCommitter {
 
 
     public void prepareOverwritePartition(THivePartitionUpdate pu, HivePartitionStatistics ps) {
+        String targetPath = pu.getLocation().getTargetPath();
+        String writePath = pu.getLocation().getWritePath();
+        if (!targetPath.equals(writePath)) {
+            Path path = new Path(targetPath);
+            String oldPartitionPath = new Path(path.getParent(), "_temp_" + path.getName()).toString();
+            Status status = fs.renameDir(
+                    targetPath,
+                    oldPartitionPath,
+                    () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldPartitionPath, targetPath)));
+            if (!status.ok()) {
+                throw new RuntimeException(
+                    "Error to rename dir from " + targetPath + " to " + oldPartitionPath + ":" + status.getErrMsg());
+            }
+            clearDirsForFinish.add(oldPartitionPath);
 
+            status = fs.renameDir(
+                    writePath,
+                    targetPath,
+                    () -> directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true)));
+            if (!status.ok()) {
+                throw new RuntimeException(
+                    "Error to rename dir from " + writePath + " to " + targetPath + ":" + status.getErrMsg());
+            }
+        }
+        updateStatisticsTasks.add(
+            new UpdateStatisticsTask(
+                table.getDbName(),
+                table.getTableName(),
+                Optional.of(pu.getName()),
+                ps,
+                false
+            ));
     }
 
 
@@ -481,7 +547,7 @@ public class HMSCommitter {
                         createdPartitionValues.add(partition.getPartition().getPartitionValues());
                     }
                 } catch (Throwable t) {
-                    LOG.error("Failed to add partition", t);
+                    LOG.warn("Failed to add partition", t);
                     throw t;
                 }
             }
@@ -583,7 +649,27 @@ public class HMSCommitter {
     }
 
     private void runRenameDirTasksForAbort() {
-        // TODO abort
+        Status status;
+        for (RenameDirectoryTask task : renameDirectoryTasksForAbort) {
+            status = fs.exists(task.getRenameFrom());
+            if (status.ok()) {
+                status = fs.renameDir(task.getRenameFrom(), task.getRenameTo(), () -> {});
+                if (!status.ok()) {
+                    LOG.warn("Failed to abort rename dir from {} to {}:{}",
+                            task.getRenameFrom(), task.getRenameTo(), status.getErrMsg());
+                }
+            }
+        }
+    }
+
+    private void runClearPathsForFinish() {
+        Status status;
+        for (String path : clearDirsForFinish) {
+            status = fs.delete(path);
+            if (!status.ok()) {
+                LOG.warn("Failed to recursively delete path {}:{}", path, status.getErrCode());
+            }
+        }
     }
 
 
@@ -591,10 +677,10 @@ public class HMSCommitter {
         DeleteRecursivelyResult deleteResult = recursiveDeleteFiles(directory, deleteEmptyDir);
 
         if (!deleteResult.getNotDeletedEligibleItems().isEmpty()) {
-            LOG.error("Failed to delete directory {}. Some eligible items can't be deleted: {}.",
+            LOG.warn("Failed to delete directory {}. Some eligible items can't be deleted: {}.",
                     directory.toString(), deleteResult.getNotDeletedEligibleItems());
         } else if (deleteEmptyDir && !deleteResult.dirNotExists()) {
-            LOG.error("Failed to delete directory {} due to dir isn't empty", directory.toString());
+            LOG.warn("Failed to delete directory {} due to dir isn't empty", directory.toString());
         }
     }
 

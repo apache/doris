@@ -68,7 +68,8 @@ public:
     FileReader() = default;
     virtual ~FileReader() = default;
 
-    DISALLOW_COPY_AND_ASSIGN(FileReader);
+    FileReader(const FileReader&) = delete;
+    const FileReader& operator=(const FileReader&) = delete;
 
     /// If io_ctx is not null,
     /// the caller must ensure that the IOContext exists during the left cycle of read_at()
@@ -83,14 +84,15 @@ public:
 
     virtual bool closed() const = 0;
 
-    virtual std::shared_ptr<FileSystem> fs() const = 0;
-
 protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                 const IOContext* io_ctx) = 0;
 };
 
 using FileReaderSPtr = std::shared_ptr<FileReader>;
+
+Result<FileReaderSPtr> create_cached_file_reader(FileReaderSPtr raw_reader,
+                                                 const FileReaderOptions& opts);
 
 } // namespace io
 } // namespace doris

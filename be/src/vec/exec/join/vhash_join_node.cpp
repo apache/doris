@@ -563,6 +563,9 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 
 void HashJoinNode::_add_tuple_is_null_column(Block* block) {
     DCHECK(_is_outer_join);
+    if (!_use_specific_projections) {
+        return;
+    }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
     auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
     auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
@@ -1053,8 +1056,18 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     return;
                 }
 
+                std::vector<DataTypePtr> data_types;
+                for (size_t i = 0; i != _build_expr_ctxs.size(); ++i) {
+                    auto& ctx = _build_expr_ctxs[i];
+                    auto data_type = ctx->root()->data_type();
+                    if (_should_convert_build_side_to_nullable[i]) {
+                        data_type = make_nullable(data_type);
+                    }
+                    data_types.emplace_back(std::move(data_type));
+                }
+
                 if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32>(*_hash_table_variants,
-                                                                            _build_expr_ctxs)) {
+                                                                            data_types)) {
                     _hash_table_variants->emplace<SerializedHashTableContext>();
                 }
             },

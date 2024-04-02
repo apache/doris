@@ -2,18 +2,17 @@
 -- !select1 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3) and (t1.c1 = t4.c4)) otherCondition=()
---------NestedLoopJoin[CROSS_JOIN]
-----------PhysicalOlapScan[t1]
-----------PhysicalDistribute[DistributionSpecReplicated]
-------------filter((t2.c2 = t2.c2))
---------------PhysicalOlapScan[t2]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
-------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalOlapScan[t4]
+----hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3) and (t1.c1 = t4.c4)) otherCondition=()
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalOlapScan[t1]
+--------PhysicalDistribute[DistributionSpecReplicated]
+----------filter((t2.c2 = t2.c2))
+------------PhysicalOlapScan[t2]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
+----------PhysicalOlapScan[t3]
+----------PhysicalDistribute[DistributionSpecHash]
+------------PhysicalOlapScan[t4]
 
 Hint log:
 Used: leading({ t1 t2 } { t3 t4 } )

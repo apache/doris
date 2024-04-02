@@ -93,7 +93,7 @@ protected:
 
 public:
     FSIndexOutput() = default;
-    void init(const io::FileSystemSPtr& fileSystem, const char* path);
+    void init(const io::FileSystemSPtr& fs, const char* path);
     ~FSIndexOutput() override;
     void close() override;
     int64_t length() const override;
@@ -229,9 +229,8 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
     _handle->_fpos = _pos;
 }
 
-void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem, const char* path) {
-    io::FileWriterOptions opts {.create_empty_file = false};
-    Status status = fileSystem->create_file(path, &_writer, &opts);
+void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fs, const char* path) {
+    Status status = fs->create_file(path, &_writer);
     DBUG_EXECUTE_IF(
             "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
             "init",
@@ -342,11 +341,7 @@ void DorisFSDirectory::FSIndexOutput::close() {
 
 int64_t DorisFSDirectory::FSIndexOutput::length() const {
     CND_PRECONDITION(_writer != nullptr, "file is not open");
-    int64_t ret;
-    if (!_writer->fs()->file_size(_writer->path(), &ret).ok()) {
-        return -1;
-    }
-    return ret;
+    return _writer->bytes_appended();
 }
 
 DorisFSDirectory::DorisFSDirectory() {

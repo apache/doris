@@ -35,6 +35,8 @@ class TListPrivilegesResult;
 class TListTableStatusResult;
 class TShowVariableRequest;
 class TShowVariableResult;
+class TShowProcessListRequest;
+class TShowProcessListResult;
 
 Status SchemaHelper::get_db_names(const std::string& ip, const int32_t port,
                                   const TGetDbsParams& request, TGetDbsResult* result) {
@@ -121,6 +123,15 @@ std::string SchemaHelper::extract_db_name(const std::string& full_name) {
     }
     found++;
     return std::string(full_name.c_str() + found, full_name.size() - found);
+}
+
+Status SchemaHelper::show_process_list(const std::string& ip, const int32_t port,
+                                       const TShowProcessListRequest& request,
+                                       TShowProcessListResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->showProcessList(*result, request);
+            });
 }
 
 } // namespace doris

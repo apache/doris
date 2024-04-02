@@ -375,7 +375,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         if (isNullLiteral()) {
             return false;
         }
-        if (dataType.isSmallIntType() || dataType.isTinyIntType() || dataType.isIntegerType()) {
+        if (dataType.isTinyIntType()) {
+            return getValue().equals((byte) 0);
+        } else if (dataType.isSmallIntType()) {
+            return getValue().equals((short) 0);
+        } else if (dataType.isIntegerType()) {
             return getValue().equals(0);
         } else if (dataType.isBigIntType()) {
             return getValue().equals(0L);

@@ -97,7 +97,11 @@ public class OriginalPlanner extends Planner {
 
     public void plan(StatementBase queryStmt, TQueryOptions queryOptions)
             throws UserException {
+        this.queryOptions = queryOptions;
         createPlanFragments(queryStmt, analyzer, queryOptions);
+
+        // update scan nodes visible version at the end of plan phase.
+        ScanNode.setVisibleVersionForOlapScanNodes(getScanNodes());
     }
 
     @Override
@@ -299,6 +303,7 @@ public class OriginalPlanner extends Planner {
                     // Cache them for later request better performance
                     analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
                     analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
+                    analyzer.getPrepareStmt().cacheSerializedQueryOptions(queryOptions);
                 }
             } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`

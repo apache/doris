@@ -1086,6 +1086,12 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
+    // only support DUP_KEYS and UNIQUE_KEYS with MOW
+    if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
+           (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
+            _opts.enable_unique_key_merge_on_write)))) {
+        return true;
+    }
     // if there is delete predicate, we always need to read data
     if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
         return true;
@@ -1269,9 +1275,10 @@ Status SegmentIterator::_init_inverted_index_iterators() {
     }
     for (auto cid : _schema->column_ids()) {
         if (_inverted_index_iterators[cid] == nullptr) {
+            // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid),
-                    _opts.tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
+                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
                     _opts, &_inverted_index_iterators[cid]));
         }
     }
@@ -1770,13 +1777,13 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
     return Status::OK();
 }
 
-void SegmentIterator::_init_current_block(
+Status SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
     block->clear_column_data(_schema->num_column_ids());
 
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
-        auto column_desc = _schema->column(cid);
+        const auto* column_desc = _schema->column(cid);
         if (!_is_pred_column[cid] &&
             !_segment->same_with_storage_type(
                     cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
@@ -1796,6 +1803,11 @@ void SegmentIterator::_init_current_block(
             // the column in block must clear() here to insert new data
             if (_is_pred_column[cid] ||
                 i >= block->columns()) { //todo(wb) maybe we can release it after output block
+                if (current_columns[cid].get() == nullptr) {
+                    return Status::InternalError(
+                            "SegmentIterator meet invalid column, id={}, name={}", cid,
+                            _schema->column(cid)->name());
+                }
                 current_columns[cid]->clear();
             } else { // non-predicate column
                 current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
@@ -1809,6 +1821,7 @@ void SegmentIterator::_init_current_block(
             }
         }
     }
+    return Status::OK();
 }
 
 void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
@@ -2200,7 +2213,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
     }
-    _init_current_block(block, _current_return_columns);
+    RETURN_IF_ERROR(_init_current_block(block, _current_return_columns));
     _converted_column_ids.assign(_schema->columns().size(), 0);
 
     _current_batch_rows_read = 0;

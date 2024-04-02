@@ -27,6 +27,8 @@ import java.util.List;
  * This class used to build BoundFunction(Builtin or Combinator) by a list of Expressions.
  */
 public abstract class FunctionBuilder {
+    public abstract Class<? extends BoundFunction> functionClass();
+
     /** check whether arguments can apply to the constructor */
     public abstract boolean canApply(List<? extends Object> arguments);
 

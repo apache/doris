@@ -28,6 +28,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
@@ -261,7 +262,7 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 Status ColumnReader::new_inverted_index_iterator(
         std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta,
         const StorageReadOptions& read_options, std::unique_ptr<InvertedIndexIterator>* iterator) {
-    RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_file_reader, index_meta));
+    RETURN_IF_ERROR(_ensure_inverted_index_loaded(std::move(index_file_reader), index_meta));
     if (_inverted_index) {
         RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
                                                       read_options.runtime_state, iterator));

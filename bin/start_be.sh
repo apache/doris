@@ -89,9 +89,13 @@ fi
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
 
+DORIS_PRELOAD_JAR=
 for preload_jar_dir in "${preload_jars[@]}"; do
     for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
-        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+        if [[ "${f}" == *"preload-extensions-project.jar" ]]; then
+            DORIS_PRELOAD_JAR="${f}"
+            continue
+        elif [[ -z "${DORIS_CLASSPATH}" ]]; then
             export DORIS_CLASSPATH="${f}"
         else
             export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
@@ -122,6 +126,10 @@ if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     done
 fi
 
+# make sure the preload-extensions-project.jar is at first order, so that some classed
+# with same qualified name can be loaded priority from preload-extensions-project.jar.
+DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
+
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
     export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
@@ -131,6 +139,8 @@ fi
 export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
+
+#echo ${DORIS_CLASSPATH}
 
 export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
 
@@ -197,6 +207,8 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     # shellcheck disable=1091
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
+
+export PPROF_TMPDIR="${LOG_DIR}"
 
 if [[ -z "${JAVA_HOME}" ]]; then
     echo "The JAVA_HOME environment variable is not defined correctly"

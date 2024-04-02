@@ -21,6 +21,7 @@
 #include <errno.h> // IWYU pragma: keep
 
 #include <filesystem>
+#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -197,7 +198,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
     writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
-            _context.max_rows_per_segment, writer_options, _context.mow_context);
+            _context.max_rows_per_segment, writer_options, _context.mow_context, _context.fs);
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
@@ -225,7 +226,7 @@ Status SegmentFlusher::_create_segment_writer(
     const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
-            _context.max_rows_per_segment, writer_options, _context.mow_context);
+            _context.max_rows_per_segment, writer_options, _context.mow_context, _context.fs);
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {

@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <optional>
+#include <thread>
 
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"

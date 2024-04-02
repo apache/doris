@@ -37,7 +37,7 @@ suite("test_external_credit_data", "p2,external,hive,external_remote,external_re
         // Table crdmm_data shows the credit card data after desensitization.
         // The query includes the conversion of string types to other types,
         // and the processing of materialized columns for nested subqueries.
-        qt_credit_data """
+        order_qt_credit_data """
         select
         substring(begin_time, 1, 7) as dt,
         case

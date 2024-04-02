@@ -17,12 +17,13 @@
 
 package org.apache.doris.scheduler.disruptor;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.WorkHandler;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 
 /**
  * This class represents a work handler for processing event tasks consumed by a Disruptor.
@@ -31,15 +32,9 @@ import lombok.extern.slf4j.Slf4j;
  * If the event job execution fails, the work handler logs an error message and pauses the event job.
  * The work handler also handles system events by scheduling batch scheduler tasks.
  */
-@Slf4j
+@Log4j2
 public class TaskHandler implements WorkHandler<TaskEvent> {
 
-
-    private TransientTaskManager transientTaskManager;
-
-    public TaskHandler(TransientTaskManager transientTaskManager) {
-        this.transientTaskManager = transientTaskManager;
-    }
 
     /**
      * Processes an event task by retrieving the associated event job and executing it if it is running.
@@ -62,6 +57,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
 
     public void onTransientTaskHandle(TaskEvent taskEvent) {
         Long taskId = taskEvent.getId();
+        TransientTaskManager transientTaskManager = Env.getCurrentEnv().getTransientTaskManager();
         TransientTaskExecutor taskExecutor = transientTaskManager.getMemoryTaskExecutor(taskId);
         if (taskExecutor == null) {
             log.info("Memory task executor is null, task id: {}", taskId);

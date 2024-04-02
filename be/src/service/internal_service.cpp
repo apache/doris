@@ -643,6 +643,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
 
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                fmt::format("{}#{}", params.format_type, params.file_type));
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
+
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
@@ -685,13 +690,17 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            static_cast<void>(
-                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
+            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }

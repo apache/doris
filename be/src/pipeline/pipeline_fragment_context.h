@@ -190,6 +190,8 @@ protected:
 
     std::shared_ptr<QueryContext> _query_ctx;
 
+    QueryThreadContext _query_thread_context;
+
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer = nullptr;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
@@ -213,6 +215,7 @@ protected:
 
     VecDateTimeValue _start_time;
     int _timeout = -1;
+    std::mutex _cancel_lock;
 
 private:
     std::vector<std::unique_ptr<PipelineTask>> _tasks;

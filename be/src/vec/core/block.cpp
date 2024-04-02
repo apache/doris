@@ -719,6 +719,15 @@ void Block::swap(Block&& other) noexcept {
     row_same_bit = std::move(other.row_same_bit);
 }
 
+void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
+    Container tmp_data;
+    tmp_data.reserve(result_column_ids.size());
+    for (const int result_column_id : result_column_ids) {
+        tmp_data.push_back(data[result_column_id]);
+    }
+    swap(Block {tmp_data});
+}
+
 void Block::update_hash(SipHash& hash) const {
     for (size_t row_no = 0, num_rows = rows(); row_no < num_rows; ++row_no) {
         for (const auto& col : data) {
@@ -868,9 +877,9 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
     *uncompressed_bytes = content_uncompressed_size;
-    const size_t serialize_bytes = buf - column_values.data();
+    const size_t serialize_bytes = buf - column_values.data() + STREAMVBYTE_PADDING;
     *compressed_bytes = serialize_bytes;
-    column_values.resize(serialize_bytes + STREAMVBYTE_PADDING);
+    column_values.resize(serialize_bytes);
 
     // compress
     if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {

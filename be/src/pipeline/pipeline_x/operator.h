@@ -135,6 +135,9 @@ protected:
     RuntimeState* _state = nullptr;
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
+    // Used in common subexpression elimination to compute intermediate results.
+    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
+
     bool _closed = false;
     vectorized::Block _origin_block;
 };
@@ -154,6 +157,22 @@ public:
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
+        }
+        if (tnode.__isset.output_tuple_id) {
+            _output_row_descriptor = std::make_unique<RowDescriptor>(
+                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+        }
+        if (!tnode.intermediate_output_tuple_id_list.empty()) {
+            DCHECK(tnode.__isset.output_tuple_id) << " no final output tuple id";
+            // common subexpression elimination
+            DCHECK_EQ(tnode.intermediate_output_tuple_id_list.size(),
+                      tnode.intermediate_projections_list.size());
+            _intermediate_output_row_descriptor.reserve(
+                    tnode.intermediate_output_tuple_id_list.size());
+            for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
+                _intermediate_output_row_descriptor.push_back(
+                        RowDescriptor(descs, std::vector {output_tuple_id}, std::vector {true}));
+            }
         }
     }
 
@@ -247,6 +266,25 @@ public:
         return _row_descriptor;
     }
 
+    //  input expr -> intermediate_projections[0] -> intermediate_projections[1] -> intermediate_projections[2]    ... ->     final projections         ->         output expr
+    //  prepare        _row_descriptor          intermediate_row_desc[0]             intermediate_row_desc[1]            intermediate_row_desc.end()          _output_row_descriptor
+
+    [[nodiscard]] const RowDescriptor& intermediate_row_desc(int idx) {
+        if (idx == 0) {
+            return intermediate_row_desc();
+        }
+        DCHECK((idx - 1) < _intermediate_output_row_descriptor.size());
+        return _intermediate_output_row_descriptor[idx - 1];
+    }
+
+    [[nodiscard]] const RowDescriptor& projections_row_desc() const {
+        if (_intermediate_output_row_descriptor.empty()) {
+            return intermediate_row_desc();
+        } else {
+            return _intermediate_output_row_descriptor.back();
+        }
+    }
+
     [[nodiscard]] std::string debug_string() const override { return ""; }
 
     virtual std::string debug_string(int indentation_level = 0) const;
@@ -318,6 +356,10 @@ protected:
     std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
     vectorized::VExprContextSPtrs _projections;
 
+    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
+    // Used in common subexpression elimination to compute intermediate results.
+    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
+
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;
 
@@ -326,6 +368,10 @@ protected:
     std::string _op_name;
     bool _ignore_data_distribution = false;
     int _parallel_tasks = 0;
+
+    //_keep_origin is used to avoid copying during projection,
+    // currently set to false only in the nestloop join.
+    bool _keep_origin = true;
 };
 
 template <typename LocalStateType>
@@ -367,9 +413,27 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
+    void inc_running_big_mem_op_num(RuntimeState* state) {
+        if (!_big_mem_op_num_added) {
+            state->get_query_ctx()->inc_running_big_mem_op_num();
+            _big_mem_op_num_added = true;
+        }
+    }
+
+    void dec_running_big_mem_op_num(RuntimeState* state) {
+        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
+            state->get_query_ctx()->dec_running_big_mem_op_num();
+            _big_mem_op_num_deced = true;
+        }
+    }
+
 protected:
     Dependency* _dependency = nullptr;
     SharedStateArg* _shared_state = nullptr;
+
+private:
+    bool _big_mem_op_num_added = false;
+    bool _big_mem_op_num_deced = false;
 };
 
 template <typename SharedStateArg>
@@ -662,9 +726,27 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
+    void inc_running_big_mem_op_num(RuntimeState* state) {
+        if (!_big_mem_op_num_added) {
+            state->get_query_ctx()->inc_running_big_mem_op_num();
+            _big_mem_op_num_added = true;
+        }
+    }
+
+    void dec_running_big_mem_op_num(RuntimeState* state) {
+        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
+            state->get_query_ctx()->dec_running_big_mem_op_num();
+            _big_mem_op_num_deced = true;
+        }
+    }
+
 protected:
     Dependency* _dependency = nullptr;
     SharedStateType* _shared_state = nullptr;
+
+private:
+    bool _big_mem_op_num_added = false;
+    bool _big_mem_op_num_deced = false;
 };
 
 template <typename SharedStateArg>

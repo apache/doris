@@ -33,7 +33,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
-#include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array.h"
@@ -85,12 +84,12 @@ private:
 
 /// A ColumnVector for Decimals
 template <typename T>
-class ColumnDecimal final : public COWHelper<ColumnVectorHelper, ColumnDecimal<T>> {
+class ColumnDecimal final : public COWHelper<IColumn, ColumnDecimal<T>> {
     static_assert(IsDecimalNumber<T>);
 
 private:
     using Self = ColumnDecimal;
-    friend class COWHelper<ColumnVectorHelper, Self>;
+    friend class COWHelper<IColumn, Self>;
 
 public:
     using value_type = T;

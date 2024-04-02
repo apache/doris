@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
@@ -35,7 +36,6 @@ import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.DomainResolver;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -152,7 +152,6 @@ public class AuthTest {
         };
 
         resolver = new MockDomainResolver(auth);
-        Config.enable_col_auth = true;
     }
 
     @Test
@@ -891,7 +890,7 @@ public class AuthTest {
         }
 
         // 24.1 create role again with IF NOT EXISTS
-        roleStmt = new CreateRoleStmt(true, "role1");
+        roleStmt = new CreateRoleStmt(true, "role1", "");
         try {
             roleStmt.analyze(analyzer);
         } catch (UserException e1) {
@@ -907,7 +906,7 @@ public class AuthTest {
         }
 
         // 24.2 create role again without IF NOT EXISTS
-        roleStmt = new CreateRoleStmt(false, "role1");
+        roleStmt = new CreateRoleStmt(false, "role1", "");
         try {
             roleStmt.analyze(analyzer);
         } catch (UserException e1) {
@@ -1679,15 +1678,17 @@ public class AuthTest {
     }
 
     @Test
-    public void testResource() {
+    public void testResource() throws UserException {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
         String role = "role0";
         String resourceName = "spark0";
         ResourcePattern resourcePattern = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
-        String anyResource = "*";
+        String anyResource = "%";
         ResourcePattern anyResourcePattern = new ResourcePattern(anyResource, ResourceTypeEnum.GENERAL);
         List<AccessPrivilegeWithCols> usagePrivileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
+        List<AccessPrivilegeWithCols> grantPrivileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.GRANT_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
 
         // ------ grant|revoke resource to|from user ------
@@ -1702,7 +1703,8 @@ public class AuthTest {
         }
 
         // 2. grant usage_priv on resource 'spark0' to 'testUser'@'%'
-        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges,
+                ResourceTypeEnum.GENERAL);
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1714,7 +1716,8 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource 'spark0' from 'testUser'@'%'
-        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
+        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges,
+                ResourceTypeEnum.GENERAL);
         try {
             revokeStmt.analyze(analyzer);
             auth.revoke(revokeStmt);
@@ -1729,7 +1732,8 @@ public class AuthTest {
             List<AccessPrivilegeWithCols> notAllowedPrivileges = Lists
                     .newArrayList(new AccessPrivilegeWithCols(
                             AccessPrivilege.fromName(Privilege.notBelongToResourcePrivileges[i].getName())));
-            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges, ResourceTypeEnum.GENERAL);
+            grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges,
+                    ResourceTypeEnum.GENERAL);
             try {
                 grantStmt.analyze(analyzer);
                 Assert.fail(String.format("Can not grant/revoke %s to/from any other users or roles",
@@ -1832,8 +1836,9 @@ public class AuthTest {
             Assert.fail();
         }
         Assert.assertTrue(accessManager.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
-        Assert.assertTrue(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
-        Assert.assertTrue(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
+        // anyResource not belong to global auth
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 3. revoke usage_priv on resource '*' from 'testUser'@'%'
@@ -1890,7 +1895,7 @@ public class AuthTest {
             Assert.fail();
         }
         Assert.assertTrue(accessManager.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
-        Assert.assertTrue(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on resource '*' from role 'role0'
         revokeStmt = new RevokeStmt(null, role, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL);
@@ -1952,17 +1957,35 @@ public class AuthTest {
         TablePattern tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt2 = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt2.analyze(analyzer));
+                "Can not grant/revoke Usage_priv to/from any other users or roles",
+                () -> grantStmt2.analyze(analyzer));
 
         // 3. grant resource prov to role on db.table
         tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
+                "Can not grant/revoke Usage_priv to/from any other users or roles",
+                () -> grantStmt3.analyze(analyzer));
+
+        // 4.drop user
+        dropUser(userIdentity);
+
+        // -------- test anyPattern has usage_priv and g1 has grant_priv  ----------
+        // 1. create user with no role
+        createUser(userIdentity);
+        // 2. grant usage_priv on workload group '%' to user
+        grant(new GrantStmt(userIdentity, null, anyResourcePattern, usagePrivileges, ResourceTypeEnum.GENERAL));
+        // 3.grant grant_priv on workload group g1
+        grant(new GrantStmt(userIdentity, null, resourcePattern, grantPrivileges, ResourceTypeEnum.GENERAL));
+        Assert.assertTrue(accessManager.checkResourcePriv(userIdentity, resourceName,
+                PrivPredicate.of(PrivBitSet.of(Privilege.USAGE_PRIV, Privilege.GRANT_PRIV),
+                        Operator.AND)));
+        // 4. drop user
+        dropUser(userIdentity);
     }
 
     @Test
-    public void testWorkloadGroupPriv() {
+    public void testWorkloadGroupPriv() throws UserException {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
         String role = "role0";
         String workloadGroupName = "g1";
@@ -1971,6 +1994,8 @@ public class AuthTest {
         WorkloadGroupPattern anyWorkloadGroupPattern = new WorkloadGroupPattern(anyWorkloadGroup);
         List<AccessPrivilegeWithCols> usagePrivileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
+        List<AccessPrivilegeWithCols> grantPrivileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.GRANT_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
 
         // ------ grant|revoke workload group to|from user ------
@@ -2236,13 +2261,35 @@ public class AuthTest {
         TablePattern tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt2 = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt2.analyze(analyzer));
+                "Can not grant/revoke Usage_priv to/from any other users or roles", () -> grantStmt2.analyze(analyzer));
 
         // 3. grant workload group prov to role on db.table
         tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
+                "Can not grant/revoke Usage_priv to/from any other users or roles", () -> grantStmt3.analyze(analyzer));
+
+        // 4.drop user
+        dropUser(userIdentity);
+
+        // -------- test anyPattern has usage_priv and g1 has grant_priv  ----------
+        // 1. create user with no role
+        createUser(userIdentity);
+        // 2. grant usage_priv on workload group '%' to user
+        grant(new GrantStmt(userIdentity, null, anyWorkloadGroupPattern, usagePrivileges));
+        // 3.grant grant_priv on workload group g1
+        grant(new GrantStmt(userIdentity, null, workloadGroupPattern, grantPrivileges));
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName,
+                PrivPredicate.of(PrivBitSet.of(Privilege.USAGE_PRIV, Privilege.GRANT_PRIV),
+                        Operator.AND)));
+        // 4. drop user
+        dropUser(userIdentity);
+    }
+
+    private void dropUser(UserIdentity userIdentity) throws UserException {
+        DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
+        dropUserStmt.analyze(analyzer);
+        auth.dropUser(dropUserStmt);
     }
 
     private void createUser(UserIdentity userIdentity) throws UserException {

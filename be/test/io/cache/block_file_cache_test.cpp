@@ -1143,7 +1143,7 @@ int get_disk_info(const char* const (&argv)[N], int* percent) {
         std::cerr << "Error creating pipe" << std::endl;
         return -1;
     }
-    pid_t pid = ::vfork();
+    pid_t pid = ::fork();
     if (pid == -1) {
         std::cerr << "Error forking process" << std::endl;
         return -1;
@@ -2806,7 +2806,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
     EXPECT_EQ(local_reader->path().native(), reader.path().native());
-    EXPECT_EQ(global_local_filesystem()->id(), reader.fs()->id());
     EXPECT_EQ(local_reader->size(), reader.size());
     EXPECT_FALSE(reader.closed());
     EXPECT_EQ(local_reader->path().native(), reader.get_remote_reader()->path().native());

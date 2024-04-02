@@ -135,10 +135,40 @@ struct AggregateFunctionMapAggData {
                                                        num_rows);
         dst_key_column.get_nested_column().insert_range_from(*_key_column, 0, num_rows);
         dst.get_values().insert_range_from(*_value_column, 0, num_rows);
-        if (offsets.size() == 0) {
+        if (offsets.empty()) {
             offsets.push_back(num_rows);
         } else {
             offsets.push_back(offsets.back() + num_rows);
+        }
+    }
+
+    void write(BufferWritable& buf) const {
+        const size_t size = _key_column->size();
+        write_binary(size, buf);
+        for (size_t i = 0; i < size; i++) {
+            write_binary(assert_cast<KeyColumnType&>(*_key_column).get_data_at(i), buf);
+        }
+        for (size_t i = 0; i < size; i++) {
+            write_binary(_value_column->get_data_at(i), buf);
+        }
+    }
+
+    void read(BufferReadable& buf) {
+        size_t size = 0;
+        read_binary(size, buf);
+        StringRef key;
+        for (size_t i = 0; i < size; i++) {
+            read_binary(key, buf);
+            if (_map.find(key) != _map.cend()) {
+                continue;
+            }
+            key.data = _arena.insert(key.data, key.size);
+            assert_cast<KeyColumnType&>(*_key_column).insert_data(key.data, key.size);
+        }
+        StringRef val;
+        for (size_t i = 0; i < size; i++) {
+            read_binary(val, buf);
+            _value_column->insert_data(val.data, val.size);
         }
     }
 
@@ -205,16 +235,13 @@ public:
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr /* __restrict place */,
-                   BufferWritable& /* buf */) const override {
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr /* __restrict place */, BufferReadable& /* buf */,
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+        this->data(place).read(buf);
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,

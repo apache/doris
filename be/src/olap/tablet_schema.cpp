@@ -796,9 +796,24 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
     index->set_index_type(_index_type);
     for (const auto& kv : _properties) {
+        DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", {
+            if (kv.first == INVERTED_INDEX_PARSER_LOWERCASE_KEY) {
+                continue;
+            }
+        })
         (*index->mutable_properties())[kv.first] = kv.second;
     }
     index->set_index_suffix_name(_escaped_index_suffix_path);
+
+    DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", { return; })
+
+    // lowercase by default
+    if (!_properties.empty()) {
+        if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
+            (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =
+                    INVERTED_INDEX_PARSER_TRUE;
+        }
+    }
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
