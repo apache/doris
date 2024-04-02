@@ -179,32 +179,30 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // can not be cancelled if other fragments set the query_ctx cancelled, this will
     // make result receiver on fe be stocked on rpc forever until timeout...
     // We need a more detail discussion.
-    bool cancel_res = _query_ctx->cancel(true, msg, Status::Cancelled(msg));
+    _query_ctx->cancel(msg, Status::Cancelled(msg));
     std::lock_guard<std::mutex> l(_cancel_lock);
-    if (cancel_res) {
-        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
-            _is_report_on_cancel = false;
-        } else {
-            LOG(WARNING) << "PipelineFragmentContext "
-                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << " is canceled, cancel message: " << msg;
-        }
-
-        _runtime_state->set_process_status(_query_ctx->exec_status());
-        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
-        // For stream load the fragment's query_id == load id, it is set in FE.
-        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
-        if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(msg);
-        }
-
-        // must close stream_mgr to avoid dead lock in Exchange Node
-        // TODO bug llj  fix this other instance will not cancel
-        _exec_env->vstream_mgr()->cancel(_fragment_instance_id, Status::Cancelled(msg));
-        // Cancel the result queue manager used by spark doris connector
-        // TODO pipeline incomp
-        // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
+    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+        _is_report_on_cancel = false;
+    } else {
+        LOG(WARNING) << "PipelineFragmentContext "
+                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                     << " is canceled, cancel message: " << msg;
     }
+
+    _runtime_state->set_process_status(_query_ctx->exec_status());
+    // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+    // For stream load the fragment's query_id == load id, it is set in FE.
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+    if (stream_load_ctx != nullptr) {
+        stream_load_ctx->pipe->cancel(msg);
+    }
+
+    // must close stream_mgr to avoid dead lock in Exchange Node
+    // TODO bug llj  fix this other instance will not cancel
+    _exec_env->vstream_mgr()->cancel(_fragment_instance_id, Status::Cancelled(msg));
+    // Cancel the result queue manager used by spark doris connector
+    // TODO pipeline incomp
+    // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
 }
 
 PipelinePtr PipelineFragmentContext::add_pipeline() {
