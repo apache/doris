@@ -149,7 +149,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         properties2.put(WorkloadGroup.CPU_SHARE, "1024");
         properties2.put(WorkloadGroup.MEMORY_LIMIT, "5%");
         properties2.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-        properties2.put(WorkloadGroup.SCAN_THREAD_NUM, "4");
+        properties2.put(WorkloadGroup.SCAN_THREAD_NUM, "8");
         properties2.put(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM, "2");
         properties2.put(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM, "1");
         WorkloadGroup backgroundTaskGroup = new WorkloadGroup(2, "bg_group", properties2);
@@ -519,7 +519,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         properties2.put(WorkloadGroup.CPU_SHARE, "1024");
         properties2.put(WorkloadGroup.MEMORY_LIMIT, "5%");
         properties2.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-        properties2.put(WorkloadGroup.SCAN_THREAD_NUM, "2");
+        properties2.put(WorkloadGroup.SCAN_THREAD_NUM, "8");
         properties2.put(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM, "2");
         properties2.put(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM, "1");
         WorkloadGroup backgroundTaskGroup = new WorkloadGroup(2, "bg_group", properties2);
