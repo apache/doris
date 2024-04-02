@@ -409,6 +409,8 @@ public abstract class JdbcClient {
     protected Set<String> getFilterInternalDatabases() {
         return ImmutableSet.<String>builder()
                 .add("information_schema")
+                .add("performance_schema")
+                .add("mysql")
                 .build();
     }
 
