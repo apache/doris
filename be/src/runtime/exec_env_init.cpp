@@ -386,7 +386,6 @@ void ExecEnv::_destroy() {
     if (!_is_init) {
         return;
     }
-    SAFE_DELETE(_dns_cache);
 
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
@@ -429,6 +428,9 @@ void ExecEnv::_destroy() {
     InvertedIndexSearcherCache::reset_global_instance();
 
     SAFE_DELETE(_runtime_query_statistics_mgr);
+
+    // dns cache is a global instance and need to be released at last
+    SAFE_DELETE(_dns_cache);
     _is_init = false;
 }
 
