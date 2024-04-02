@@ -17,40 +17,30 @@
 
 #pragma once
 
-#include <memory>
+#ifdef USE_HADOOP_HDFS
+#include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
+#else
+#include <hdfs/hdfs.h> // IWYU pragma: export
+#endif
 
 #include "recycler/obj_store_accessor.h"
 
-namespace Aws::S3 {
-class S3Client;
-} // namespace Aws::S3
-
 namespace doris::cloud {
 
-struct S3Conf {
-    std::string ak;
-    std::string sk;
-    std::string endpoint;
-    std::string region;
-    std::string bucket;
-    std::string prefix;
-};
+class HdfsVaultInfo;
 
-class S3Accessor : public ObjStoreAccessor {
+class HdfsAccessor final : public ObjStoreAccessor {
 public:
-    explicit S3Accessor(S3Conf conf);
-    ~S3Accessor() override;
+    explicit HdfsAccessor(const HdfsVaultInfo& info);
 
-    const std::string& path() const override { return path_; }
+    ~HdfsAccessor() override;
 
-    const std::shared_ptr<Aws::S3::S3Client>& s3_client() const { return s3_client_; }
-
-    const S3Conf& conf() const { return conf_; }
+    const std::string& path() const override { return uri_; }
 
     // returns 0 for success otherwise error
     int init() override;
 
-    // returns 0 for success, returns 1 for http FORBIDDEN error, negative for other errors
+    // returns 0 for success, negative for other errors
     int delete_objects_by_prefix(const std::string& relative_path) override;
 
     // returns 0 for success otherwise error
@@ -69,25 +59,17 @@ public:
     // return 0 if object exists, 1 if object is not found, negative for error
     int exist(const std::string& relative_path) override;
 
-    // delete objects which last modified time is less than the input expired time and under the input relative path
-    // returns 0 for success otherwise error
-    virtual int delete_expired_objects(const std::string& relative_path, int64_t expired_time);
-
-    // returns 0 for success otherwise error
-    virtual int get_bucket_lifecycle(int64_t* expiration_days);
-
-    // returns 0 for enabling bucket versioning, otherwise error
-    virtual int check_bucket_versioning();
-
 private:
-    std::string get_key(const std::string& relative_path) const;
-    // return empty string if the input key does not start with the prefix of S3 conf
-    std::string get_relative_path(const std::string& key) const;
+    std::string fs_path(const std::string& relative_path);
 
-private:
-    std::shared_ptr<Aws::S3::S3Client> s3_client_;
-    S3Conf conf_;
-    std::string path_;
+    std::string uri(const std::string& relative_path);
+
+    const HdfsVaultInfo& info_; // Only use when init
+
+    hdfsFS fs_ = nullptr;
+
+    std::string prefix_; // Start with '/'
+    std::string uri_;
 };
 
 } // namespace doris::cloud
