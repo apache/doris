@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.ldap;
+package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
