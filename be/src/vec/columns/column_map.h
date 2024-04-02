@@ -137,7 +137,7 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(self_row == 0 || (self_row != 0 && size() == self_row + 1));
+        DCHECK(size() > self_row);
         const auto& r = assert_cast<const ColumnMap&>(rhs);
         const size_t nested_row_size = r.size_at(row);
         const size_t r_key_nested_start_off = r.offset_at(row);

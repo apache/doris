@@ -550,9 +550,9 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         // we check this column size and self_row because we need to make sure when we call
         // replace_column_data() with a batch column data.
-        // and this column is cleared at the every beginning. next we replace column one by one, so
-        // the self_row is only equals size() - 1.
-        DCHECK(self_row == 0 || (self_row != 0 && size() == self_row + 1));
+        // and this column data is cleared at the every beginning.
+        // next we replace column one by one.
+        DCHECK(size() > self_row);
         const auto& r = assert_cast<const ColumnString&>(rhs);
         auto data = r.get_data_at(row);
 
