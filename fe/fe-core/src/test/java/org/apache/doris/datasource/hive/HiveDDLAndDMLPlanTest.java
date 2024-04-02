@@ -140,6 +140,11 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             }
 
             @Mock
+            public boolean tableExists(String dbName, String tblName) {
+                return createdTables.contains(tblName);
+            }
+
+            @Mock
             public List<String> getAllDatabases() {
                 return new ArrayList<>(createdDbs);
             }

@@ -31,7 +31,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 
 import org.apache.iceberg.PartitionSpec;
@@ -132,7 +131,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
         }
         String tableName = stmt.getTableName();
-        if (db.getTable(tableName).isPresent()) {
+        if (tableExist(dbName, tableName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
                 return;
@@ -163,8 +162,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
         }
         String tableName = stmt.getTableName();
-        ExternalTable table = db.getTableNullable(tableName);
-        if (table == null) {
+        if (!tableExist(dbName, tableName)) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;

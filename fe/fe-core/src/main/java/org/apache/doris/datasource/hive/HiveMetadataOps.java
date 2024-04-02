@@ -31,7 +31,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -153,7 +152,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         if (db == null) {
             throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
         }
-        if (db.getTable(tblName).isPresent()) {
+        if (tableExist(dbName, tblName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tblName);
                 return;
@@ -219,8 +218,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         if (db == null) {
             throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
         }
-        ExternalTable table = db.getTableNullable(stmt.getTableName());
-        if (table == null) {
+        if (!tableExist(dbName, stmt.getTableName())) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;
