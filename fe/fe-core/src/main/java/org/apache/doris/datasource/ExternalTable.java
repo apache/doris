@@ -47,7 +47,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -320,7 +319,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
                 continue;
             }
             // External table put table name as index name.
-            ret.add(Pair.of(String.valueOf(name), column.toLowerCase(Locale.ROOT)));
+            ret.add(Pair.of(String.valueOf(name), column));
         }
         return ret;
     }

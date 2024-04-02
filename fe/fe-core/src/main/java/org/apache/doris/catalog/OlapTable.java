@@ -99,7 +99,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -1319,7 +1318,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
                     continue;
                 }
-                ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column.toLowerCase(Locale.ROOT)));
+                ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column));
             }
         }
         return ret;

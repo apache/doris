@@ -218,7 +218,7 @@ public class AnalysisManager implements Writable {
     // Each analyze stmt corresponding to an analysis job.
     public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException {
         // Using auto analyzer if user specifies.
-        if (stmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
+        if ("true".equalsIgnoreCase(stmt.getAnalyzeProperties().getProperties().get("use.auto.analyzer"))) {
             Env.getCurrentEnv().getStatisticsAutoCollector()
                     .processOneJob(stmt.getTable(),
                             stmt.getTable().getColumnIndexPairs(stmt.getColumnNames()), JobPriority.HIGH);
