@@ -774,30 +774,8 @@ public class BindExpression implements AnalysisRuleFactory {
                     return self.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
                 });
 
-        ImmutableList.Builder<Slot> outputSlots = ImmutableList.builder();
-        if (finalInput instanceof LogicalAggregate) {
-            LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) finalInput;
-            List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
-            for (NamedExpression outputExpr : outputExpressions) {
-                if (!outputExpr.anyMatch(expr -> expr instanceof AggregateFunction)) {
-                    outputSlots.add(outputExpr.toSlot());
-                }
-            }
-        }
-        Scope outputWithoutAggFunc = toScope(cascadesContext, outputSlots.build());
-        SimpleExprAnalyzer bindInInputChildScope = buildCustomSlotBinderAnalyzer(
-                sort, cascadesContext, inputScope, true, false,
-                (analyzer, unboundSlot) -> {
-                    if (finalInput instanceof LogicalAggregate) {
-                        List<Slot> boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(unboundSlot,
-                                outputWithoutAggFunc);
-                        if (!boundInOutputWithoutAggFunc.isEmpty()) {
-                            return ImmutableList.of(boundInOutputWithoutAggFunc.get(0));
-                        }
-                    }
-                    return analyzer.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
-                });
-
+        SimpleExprAnalyzer bindInInputChildScope = getAnalyzerForOrderByAggFunc(finalInput, cascadesContext, sort,
+                inputChildrenScope, inputScope);
         Builder<OrderKey> boundOrderKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
         FunctionRegistry functionRegistry = cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
         for (OrderKey orderKey : sort.getOrderKeys()) {
@@ -1011,5 +989,33 @@ public class BindExpression implements AnalysisRuleFactory {
             }
             return false;
         });
+    }
+
+    private SimpleExprAnalyzer getAnalyzerForOrderByAggFunc(Plan finalInput, CascadesContext cascadesContext,
+            LogicalSort<Plan> sort, Supplier<Scope> inputChildrenScope, Scope inputScope) {
+        ImmutableList.Builder<Slot> outputSlots = ImmutableList.builder();
+        if (finalInput instanceof LogicalAggregate) {
+            LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) finalInput;
+            List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+            for (NamedExpression outputExpr : outputExpressions) {
+                if (!outputExpr.anyMatch(expr -> expr instanceof AggregateFunction)) {
+                    outputSlots.add(outputExpr.toSlot());
+                }
+            }
+        }
+        Scope outputWithoutAggFunc = toScope(cascadesContext, outputSlots.build());
+        SimpleExprAnalyzer bindInInputChildScope = buildCustomSlotBinderAnalyzer(
+                sort, cascadesContext, inputScope, true, false,
+                (analyzer, unboundSlot) -> {
+                    if (finalInput instanceof LogicalAggregate) {
+                        List<Slot> boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(unboundSlot,
+                                outputWithoutAggFunc);
+                        if (!boundInOutputWithoutAggFunc.isEmpty()) {
+                            return ImmutableList.of(boundInOutputWithoutAggFunc.get(0));
+                        }
+                    }
+                    return analyzer.bindExactSlotsByThisScope(unboundSlot, inputChildrenScope.get());
+                });
+        return bindInInputChildScope;
     }
 }
