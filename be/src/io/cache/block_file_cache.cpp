@@ -265,7 +265,6 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
             FileCacheType origin_type = cell.file_block->cache_type();
             Status st = cell.file_block->change_cache_type_by_mgr(FileCacheType::TTL);
             if (st.ok()) {
-                CHECK(origin_type == FileCacheType::TTL);
                 auto& queue = get_queue(origin_type);
                 queue.remove(cell.queue_iterator.value(), cache_lock);
                 cell.queue_iterator.reset();
