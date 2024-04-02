@@ -24,6 +24,7 @@
 #include <chrono>
 #include <numeric>
 #include <string>
+#include <tuple>
 
 #include "common/encryption_util.h"
 #include "common/logging.h"
@@ -38,6 +39,9 @@
 using namespace std::chrono;
 
 namespace doris::cloud {
+
+const static char* BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
+const static char* BUILT_IN_STORAGE_VAULT_ID = "1";
 
 static void* run_bthread_work(void* arg) {
     auto f = reinterpret_cast<std::function<void()>*>(arg);
@@ -259,7 +263,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
             while (it->has_next()) {
                 auto [k, v] = it->next();
-                auto *vault = response->add_storage_vault();
+                auto* vault = response->add_storage_vault();
                 if (!vault->ParseFromArray(v.data(), v.size())) {
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                     msg = fmt::format("malformed storage vault, unable to deserialize key={}",
@@ -323,6 +327,11 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     std::string vault_id = next_available_vault_id(instance);
     storage_vault_key({instance.instance_id(), vault_id}, &key);
     hdfs_param.set_id(vault_id);
+    if (vault_id == BUILT_IN_STORAGE_VAULT_ID) {
+        hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME);
+        instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
+    }
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
     LOG_INFO("try to put storage vault_id={}, vault_name={}", vault_id, hdfs_param.name());
@@ -406,6 +415,23 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
     } break;
+    case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
+        if (!request->has_hdfs() || !request->hdfs().has_name()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "hdfs info is not found " + proto_to_json(*request);
+            return;
+        }
+        break;
+    }
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
+        // It should at least has one hdfs info or obj info
+        if ((!request->has_hdfs() && !request->has_obj())) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "hdfs info is not found " + proto_to_json(*request);
+            return;
+        }
+        break;
+    }
     case AlterObjStoreInfoRequest::UNKNOWN: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "Unknown alter info " + proto_to_json(*request);
@@ -550,6 +576,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_region(region);
         last_item.set_provider(request->obj().provider());
         last_item.set_sse_enabled(instance.sse_enabled());
+        if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
+            last_item.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+            instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+            instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
+        }
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
@@ -559,11 +590,44 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         break;
     }
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
+        // If the resource ids is empty then it would be the first vault
+        if (!instance.resource_ids().empty()) {
+            std::stringstream ss;
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "Default vault can not be modified";
+            msg = ss.str();
+            return;
+        }
+        // TODO(ByteYue): Also support create s3 obj info vault
+        if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
+            ret != 0) {
+            return;
+        }
+        return;
+    }
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
             ret != 0) {
             return;
         }
+        break;
+    }
+    case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
+        const auto& name = request->hdfs().name();
+        auto name_itr = std::find_if(instance.storage_vault_names().begin(),
+                                     instance.storage_vault_names().end(),
+                                     [&](const auto& vault_name) { return name == vault_name; });
+        if (name_itr == instance.storage_vault_names().end()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "invalid storage vault name, name =" << name;
+            msg = ss.str();
+            return;
+        }
+        auto pos = name_itr - instance.storage_vault_names().begin();
+        auto id_itr = instance.resource_ids().begin() + pos;
+        instance.set_default_storage_vault_id(*id_itr);
+        instance.set_default_storage_vault_name(name);
         break;
     }
     default: {
@@ -812,8 +876,13 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     }
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
-    if (encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code, msg) !=
-        0) {
+    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
+                                    msg);
+    {
+        [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
+        TEST_SYNC_POINT_CALLBACK("create_instance_with_object_info", &ak_sk_ret);
+    }
+    if (ret != 0) {
         return -1;
     }
 
@@ -839,6 +908,11 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     obj_info.set_ctime(time);
     obj_info.set_mtime(time);
     obj_info.set_sse_enabled(sse_enabled);
+    if (obj_info.id() == BUILT_IN_STORAGE_VAULT_ID) {
+        obj_info.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
+    }
     instance.mutable_obj_info()->Add(std::move(obj_info));
     return 0;
 }

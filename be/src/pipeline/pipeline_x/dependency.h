@@ -441,6 +441,7 @@ struct PartitionedAggSharedState : public BasicSharedState,
     size_t partition_count;
     size_t max_partition_index;
     Status sink_status;
+    bool is_spilled = false;
     std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
 
     size_t get_partition_index(size_t hash_value) const {
@@ -514,6 +515,7 @@ struct SpillSortSharedState : public BasicSharedState,
 
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
+    bool is_spilled = false;
     Status sink_status;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 

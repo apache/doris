@@ -46,7 +46,7 @@
 #include "util/string_util.h"
 #include "vec/columns/column.h"
 // NOLINTNEXTLINE(unused-includes)
-#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_context.h" // IWYU pragma: keep
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -75,6 +75,8 @@ bool VOlapTablePartKeyComparator::operator()(const BlockRowWithIndicator& lhs,
     bool l_use_new = std::get<2>(lhs);
     bool r_use_new = std::get<2>(rhs);
 
+    VLOG_TRACE << '\n' << l_block->dump_data() << '\n' << r_block->dump_data();
+
     if (l_row == -1) {
         return false;
     } else if (r_row == -1) {
@@ -93,7 +95,6 @@ bool VOlapTablePartKeyComparator::operator()(const BlockRowWithIndicator& lhs,
         DCHECK(_slot_locs.size() == _param_locs.size())
                 << _slot_locs.size() << ' ' << _param_locs.size();
 
-        //TODO: use template to accelerate this for older compiler.
         const std::vector<uint16_t>* l_index = l_use_new ? &_param_locs : &_slot_locs;
         const std::vector<uint16_t>* r_index = r_use_new ? &_param_locs : &_slot_locs;
 
@@ -121,6 +122,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     if (_is_partial_update) {
         _auto_increment_column = pschema.auto_increment_column();
     }
+    _timestamp_ms = pschema.timestamp_ms();
+    _timezone = pschema.timezone();
 
     for (const auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
@@ -255,6 +258,8 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_partial_update(_is_partial_update);
     pschema->set_is_strict_mode(_is_strict_mode);
     pschema->set_auto_increment_column(_auto_increment_column);
+    pschema->set_timestamp_ms(_timestamp_ms);
+    pschema->set_timezone(_timezone);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }
@@ -330,6 +335,7 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
                                          slot->get_data_type_ptr(), slot->col_name()});
             }
         }
+        VLOG_TRACE << _partition_block.dump_structure();
     } else {
         // we insert all. but not all will be used. it will controlled by _partition_slot_locs
         for (auto* slot : _slots) {
