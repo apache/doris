@@ -98,6 +98,16 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         private ValueDesc buildRange(ComparisonPredicate predicate) {
             Expression rewrite = ExpressionRuleExecutor.normalize(predicate);
             Expression right = rewrite.child(1);
+            if (right.isNullLiteral()) {
+                // it's safe to return empty value if >, >=, <, <= and = with null
+                if ((predicate instanceof GreaterThan || predicate instanceof GreaterThanEqual
+                        || predicate instanceof LessThan || predicate instanceof LessThanEqual
+                        || predicate instanceof EqualTo)) {
+                    return new EmptyValue(rewrite.child(0), rewrite);
+                } else {
+                    return new UnknownValue(predicate);
+                }
+            }
             // only handle `NumericType`
             if (right.isLiteral() && right.getDataType().isNumericType()) {
                 return ValueDesc.range((ComparisonPredicate) rewrite);
