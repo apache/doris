@@ -32,17 +32,23 @@ import com.google.common.base.Strings;
 // DROP DB表达式
 public class DropDbStmt extends DdlStmt {
     private boolean ifExists;
+    private String ctlName;
     private String dbName;
     private boolean forceDrop;
 
-    public DropDbStmt(boolean ifExists, String dbName, boolean forceDrop) {
+    public DropDbStmt(boolean ifExists, DbName dbName, boolean forceDrop) {
         this.ifExists = ifExists;
-        this.dbName = dbName;
+        this.ctlName = dbName.getCtl();
+        this.dbName = dbName.getDb();
         this.forceDrop = forceDrop;
     }
 
     public boolean isSetIfExists() {
         return ifExists;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public String getDbName() {
