@@ -65,14 +65,11 @@ Status CloudRowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
-    // New loaded data is always written to latest shared storage
-    // TODO(AlexYue): use the passed resource id to retrive the corresponding
-    // fs to pass to the RowsetWriterContext
-    if (_req.storage_vault_id.empty()) {
-        context.fs = _engine.latest_fs();
-    } else {
-        // TODO(ByteYue): What if the corresponding fs does not exists temporarily?
-        context.fs = get_filesystem(_req.storage_vault_id);
+    context.file_cache_ttl_sec = _tablet->ttl_seconds();
+    context.fs = _engine.get_fs_by_vault_id(_req.storage_vault_id);
+    if (context.fs == nullptr) {
+        return Status::InternalError("vault id not found, maybe not sync, vault id {}",
+                                     _req.storage_vault_id);
     }
     context.rowset_dir = _tablet->tablet_path();
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));

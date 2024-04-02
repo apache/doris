@@ -32,6 +32,7 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -647,7 +648,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DYNAMIC_PARTITION:
-            case OperationType.OP_MODIFY_IN_MEMORY:
+            case OperationType.OP_MODIFY_TABLE_PROPERTIES:
             case OperationType.OP_MODIFY_REPLICATION_NUM:
             case OperationType.OP_UPDATE_BINLOG_CONFIG: {
                 data = ModifyTablePropertyOperationLog.read(in);
@@ -945,6 +946,17 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_LOG_NEW_PARTITION_LOADED: {
                 data = NewPartitionLoadedEvent.read(in);
+                isRead = true;
+                break;
+            }
+            // FIXME: support cloud related operation types.
+            case OperationType.OP_UPDATE_CLOUD_REPLICA: {
+                data = UpdateCloudReplicaInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_TTL_SECONDS:
+            case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
                 isRead = true;
                 break;
             }

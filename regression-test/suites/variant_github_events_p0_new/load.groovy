@@ -80,4 +80,21 @@ suite("regression_test_variant_github_events_p0", "nonConcurrent"){
     // TODO fix compaction issue, this case could be stable
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
+
+    sql """DROP TABLE IF EXISTS github_events_2"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `github_events_2` (
+        `k` BIGINT NULL,
+        `v` text NULL,
+        INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+        ) ENGINE = OLAP DUPLICATE KEY(`k`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`k`) BUCKETS 4 PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into github_events_2 select 1, cast(v["repo"]["name"] as string) FROM github_events;
+    """
+
+    qt_sql_select_count """ select count(*) from github_events_2; """
 }

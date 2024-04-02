@@ -347,7 +347,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                         assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
 
                 new_nullable_col->change_nested_column(ref_col);
-                new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
+                new_nullable_col->get_null_map_data().resize_fill(ref_col->size());
             } else {
                 // nullable to not nullable:
                 // suppose column `c_phone` is originally varchar(16) NOT NULL,
@@ -394,11 +394,22 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                 return Status::DataQualityError("Null data is changed to not nullable");
             }
         } else {
-            const auto* new_null_map =
+            const auto& null_map_column =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
-                            ->get_null_map_column()
-                            .get_data()
-                            .data();
+                            ->get_null_map_column();
+            const auto& nested_column =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                            ->get_nested_column();
+            const auto* new_null_map = null_map_column.get_data().data();
+
+            if (null_map_column.size() != new_column->size() ||
+                nested_column.size() != new_column->size()) {
+                DCHECK(false);
+                return Status::InternalError(
+                        "null_map_column size is changed, null_map_column_size={}, "
+                        "new_column_size={}",
+                        null_map_column.size(), new_column->size());
+            }
 
             bool is_changed = false;
             for (size_t i = 0; i < ref_column->size(); i++) {
@@ -713,7 +724,7 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
 }
 
 SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
-                                 const TAlterTabletReqV2& request)
+                                 const TAlterTabletReqV2& request, const std::string& job_id)
         : _local_storage_engine(local_storage_engine) {
     _base_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.base_tablet_id);
     _new_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.new_tablet_id);
@@ -726,6 +737,7 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
         // the complete variant is constructed by reading all the sub-columns of the variant.
         _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_extracted_columns();
     }
+    _job_id = job_id;
 }
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
@@ -1017,7 +1029,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
                                                     int64_t* real_alter_version) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << _base_tablet->tablet_id()
-              << ", new_tablet=" << _new_tablet->tablet_id();
+              << ", new_tablet=" << _new_tablet->tablet_id() << ", job_id=" << _job_id;
 
     // find end version
     int32_t end_version = -1;
@@ -1291,6 +1303,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
     // use directly schema change instead.
     if (!(*sc_directly) && !(*sc_sorting)) {
         // check has remote rowset
+        // work for cloud and cold storage
         for (const auto& rs_reader : sc_params.ref_rowset_readers) {
             if (!rs_reader->rowset()->is_local()) {
                 *sc_directly = true;

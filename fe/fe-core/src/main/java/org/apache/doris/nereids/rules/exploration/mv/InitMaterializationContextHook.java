@@ -66,9 +66,9 @@ public class InitMaterializationContextHook implements PlannerHook {
             return;
         }
         Plan rewritePlan = cascadesContext.getRewritePlan();
-        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet());
+        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), true);
         rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
-        List<TableIf> collectedTables = collectorContext.getCollectedTables();
+        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         if (collectedTables.isEmpty()) {
             return;
         }
@@ -79,7 +79,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         if (availableMTMVs.isEmpty()) {
             return;
         }
-        availableMTMVs.forEach(materializedView -> {
+        for (MTMV materializedView : availableMTMVs) {
             // generate outside, maybe add partition filter in the future
             LogicalOlapScan mvScan = new LogicalOlapScan(
                     cascadesContext.getStatementContext().getNextRelationId(),
@@ -96,6 +96,6 @@ public class InitMaterializationContextHook implements PlannerHook {
             Plan projectScan = new LogicalProject<Plan>(mvProjects, mvScan);
             cascadesContext.addMaterializationContext(
                     MaterializationContext.fromMaterializedView(materializedView, projectScan, cascadesContext));
-        });
+        }
     }
 }

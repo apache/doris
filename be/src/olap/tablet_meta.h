@@ -273,6 +273,16 @@ public:
         return _time_series_compaction_level_threshold;
     }
 
+    int64_t ttl_seconds() const {
+        std::shared_lock rlock(_meta_lock);
+        return _ttl_seconds;
+    }
+
+    void set_ttl_seconds(int64_t ttl_seconds) {
+        std::lock_guard wlock(_meta_lock);
+        _ttl_seconds = ttl_seconds;
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -327,6 +337,9 @@ private:
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
     int64_t _time_series_compaction_level_threshold = 0;
+
+    // cloud
+    int64_t _ttl_seconds = 0;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -384,13 +397,13 @@ public:
     DeleteBitmap& operator=(DeleteBitmap&& r);
 
     /**
-     * Makes a snapshot of delete bimap, read lock will be acquired in this
+     * Makes a snapshot of delete bitmap, read lock will be acquired in this
      * process
      */
     DeleteBitmap snapshot() const;
 
     /**
-     * Makes a snapshot of delete bimap on given version, read lock will be
+     * Makes a snapshot of delete bitmap on given version, read lock will be
      * acquired temporary in this process
      */
     DeleteBitmap snapshot(Version version) const;
@@ -403,7 +416,7 @@ public:
     /**
      * Clears the deletetion mark specific row
      *
-     * @return non-zero if the associated delete bimap does not exist
+     * @return non-zero if the associated delete bitmap does not exist
      */
     int remove(const BitmapKey& bmk, uint32_t row_id);
 
@@ -437,7 +450,7 @@ public:
      * Gets a copy of specific delete bmk
      *
      * @param segment_delete_bitmap output param
-     * @return non-zero if the associated delete bimap does not exist
+     * @return non-zero if the associated delete bitmap does not exist
      */
     int get(const BitmapKey& bmk, roaring::Roaring* segment_delete_bitmap) const;
 

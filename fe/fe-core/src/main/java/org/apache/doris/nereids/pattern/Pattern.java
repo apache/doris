@@ -152,6 +152,10 @@ public class Pattern<TYPE extends Plan>
         if (this instanceof SubTreePattern) {
             return matchPredicates((TYPE) plan);
         }
+        return matchChildrenAndSelfPredicates(plan, childPatternNum);
+    }
+
+    private boolean matchChildrenAndSelfPredicates(Plan plan, int childPatternNum) {
         List<Plan> childrenPlan = plan.children();
         for (int i = 0; i < childrenPlan.size(); i++) {
             Plan child = childrenPlan.get(i);

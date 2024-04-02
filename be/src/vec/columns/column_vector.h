@@ -41,7 +41,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
-#include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
@@ -129,12 +128,12 @@ struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
 /** A template for columns that use a simple array to store.
  */
 template <typename T>
-class ColumnVector final : public COWHelper<ColumnVectorHelper, ColumnVector<T>> {
+class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(!IsDecimalNumber<T>);
 
 private:
     using Self = ColumnVector;
-    friend class COWHelper<ColumnVectorHelper, Self>;
+    friend class COWHelper<IColumn, Self>;
 
     struct less;
     struct greater;
@@ -239,11 +238,7 @@ public:
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
-        if constexpr (std::is_same_v<T, vectorized::Int128>) {
-            insert_many_in_copy_way(pos, num);
-        } else {
-            insert_many_default_type(pos, num);
-        }
+        insert_many_in_copy_way(pos, num);
     }
 
     void insert_default() override { data.push_back(T()); }

@@ -180,7 +180,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         Expression predicate = ExpressionUtils.and(expressions);
         // The partition without can be the first partition of LESS THAN PARTITIONS
         // The null value can insert into this partition, so we need to add or is null condition
-        if (!range.hasLowerBound()) {
+        if (!range.hasLowerBound() || range.lowerEndpoint().isMinValue()) {
             predicate = ExpressionUtils.or(predicate, new IsNull(col));
         }
         return predicate;

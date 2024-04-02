@@ -43,8 +43,25 @@ Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _profile = profile;
 
     for (int i = 0; i < _t_sink.hive_table_sink.columns.size(); ++i) {
-        if (_t_sink.hive_table_sink.columns[i].column_type == THiveColumnType::PARTITION_KEY) {
+        switch (_t_sink.hive_table_sink.columns[i].column_type) {
+        case THiveColumnType::PARTITION_KEY: {
             _partition_columns_input_index.emplace_back(i);
+            _non_write_columns_indices.insert(i);
+            break;
+        }
+        case THiveColumnType::REGULAR: {
+            _write_output_vexpr_ctxs.push_back(_vec_output_expr_ctxs[i]);
+            break;
+        }
+        case THiveColumnType::SYNTHESIZED: {
+            _non_write_columns_indices.insert(i);
+            break;
+        }
+        default: {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Illegal hive column type {}, it should not be here.",
+                                   to_string(_t_sink.hive_table_sink.columns[i].column_type));
+        }
         }
     }
     return Status::OK();
@@ -76,7 +93,6 @@ Status VHiveTableWriter::write(vectorized::Block& block) {
                     writer = _create_partition_writer(block, -1);
                     _partitions_to_writers.insert({"", writer});
                     RETURN_IF_ERROR(writer->open(_state, _profile));
-                    RETURN_IF_ERROR(writer->write(block));
                 } catch (doris::Exception& e) {
                     return e.to_status();
                 }
@@ -233,7 +249,8 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
 
     return std::make_shared<VHivePartitionWriter>(
             _t_sink, std::move(partition_name), update_mode, _vec_output_expr_ctxs,
-            hive_table_sink.columns, std::move(write_info),
+            _write_output_vexpr_ctxs, _non_write_columns_indices, hive_table_sink.columns,
+            std::move(write_info),
             fmt::format("{}{}", _compute_file_name(),
                         _get_file_extension(file_format_type, write_compress_type)),
             file_format_type, write_compress_type, hive_table_sink.hadoop_config);

@@ -71,16 +71,17 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.security.Identity;
 import io.trino.spi.transaction.IsolationLevel;
+import io.trino.spi.type.TimeZoneKey;
 import io.trino.sql.gen.JoinCompiler;
 import io.trino.sql.planner.OptimizerConfig;
 import io.trino.testing.TestingAccessControlManager;
-import io.trino.testing.TestingSession;
 import io.trino.transaction.NoOpTransactionManager;
 import io.trino.type.InternalTypeManager;
 import io.trino.util.EmbedVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -101,6 +102,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
     private CatalogHandle trinoCatalogHandle;
     private Connector connector;
+    private ConnectorName connectorName;
     private Session trinoSession;
 
     public TrinoConnectorExternalCatalog(long catalogId, String name, String resource,
@@ -138,7 +140,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                 .setSource("test")
                 .setCatalog("catalog")
                 .setSchema("schema")
-                .setTimeZoneKey(TestingSession.DEFAULT_TIME_ZONE_KEY)
+                .setTimeZoneKey(TimeZoneKey.getTimeZoneKey(ZoneId.systemDefault().toString()))
                 .setLocale(Locale.ENGLISH)
                 .setClientCapabilities(Arrays.stream(ClientCapabilities.values()).map(Enum::name)
                         .collect(ImmutableSet.toImmutableSet()))
@@ -196,7 +198,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                     deprecatedConnectorName, connectorNameString);
         }
 
-        ConnectorName connectorName = new ConnectorName(connectorNameString);
+        this.connectorName = new ConnectorName(connectorNameString);
 
         // 2. create CatalogFactory
         LazyCatalogFactory catalogFactory = new LazyCatalogFactory();
@@ -298,6 +300,10 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
     public Connector getConnector() {
         return connector;
+    }
+
+    public ConnectorName getConnectorName() {
+        return connectorName;
     }
 
     public CatalogHandle getTrinoCatalogHandle() {

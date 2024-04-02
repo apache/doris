@@ -60,7 +60,7 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "10");
+CONF_mInt32(instance_recycler_worker_pool_size, "1");
 CONF_Bool(enable_checker, "false");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
@@ -69,11 +69,17 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 
+CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
+CONF_mInt64(recycle_task_threshold_seconds, "10800");    // 3h
+
 CONF_String(test_s3_ak, "ak");
 CONF_String(test_s3_sk, "sk");
 CONF_String(test_s3_endpoint, "endpoint");
 CONF_String(test_s3_region, "region");
 CONF_String(test_s3_bucket, "bucket");
+
+CONF_String(test_hdfs_prefix, "prefix");
+CONF_String(test_hdfs_fs_name, "fs_name");
 // CONF_Int64(a, "1073741824");
 // CONF_Bool(b, "true");
 
@@ -149,5 +155,10 @@ CONF_Bool(enable_retry_txn_conflict, "true");
 
 // The secondary package name of the MetaService.
 CONF_String(secondary_package_name, "");
+
+// Allow to specify kerberos credentials cache path.
+CONF_String(kerberos_ccache_path, "");
+// set krb5.conf path, use "/etc/krb5.conf" by default
+CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 } // namespace doris::cloud::config

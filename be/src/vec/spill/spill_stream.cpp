@@ -68,8 +68,14 @@ void SpillStream::close() {
         read_promise_.reset();
     }
 
-    (void)writer_->close();
-    (void)reader_->close();
+    if (writer_) {
+        (void)writer_->close();
+        writer_.reset();
+    }
+    if (reader_) {
+        (void)reader_->close();
+        reader_.reset();
+    }
 }
 
 const std::string& SpillStream::get_spill_root_dir() const {
@@ -100,13 +106,16 @@ Status SpillStream::spill_block(const Block& block, bool eof) {
     size_t written_bytes = 0;
     RETURN_IF_ERROR(writer_->write(block, written_bytes));
     if (eof) {
-        return writer_->close();
+        RETURN_IF_ERROR(writer_->close());
+        writer_.reset();
     }
     return Status::OK();
 }
 
 Status SpillStream::spill_eof() {
-    return writer_->close();
+    RETURN_IF_ERROR(writer_->close());
+    writer_.reset();
+    return Status::OK();
 }
 
 Status SpillStream::read_next_block_sync(Block* block, bool* eos) {

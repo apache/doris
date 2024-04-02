@@ -44,6 +44,8 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+extern bvar::Adder<uint64_t> g_fragment_executing_count;
+extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
 namespace pipeline {
 class PipelineFragmentContext;
@@ -136,6 +138,8 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
+    std::shared_ptr<QueryContext> get_query_context(const TUniqueId& query_id);
+
     int32_t running_query_num() {
         std::unique_lock<std::mutex> ctx_lock(_lock);
         return _query_ctx_map.size();
@@ -201,5 +205,8 @@ private:
     std::unique_ptr<ThreadPool> _async_report_thread_pool =
             nullptr; // used for pipeliine context report
 };
+
+uint64_t get_fragment_executing_count();
+uint64_t get_fragment_last_active_time();
 
 } // namespace doris

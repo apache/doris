@@ -156,11 +156,11 @@ private:
     // process will log fatal.
     Status _check_incompatible_old_format_tablet();
 
-    std::vector<std::string> _perform_path_scan();
+    int _path_gc_step {0};
 
-    void _perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths);
+    void _perform_tablet_gc(const std::string& tablet_schema_hash_path);
 
-    void _perform_path_gc_by_rowset(const std::vector<std::string>& tablet_paths);
+    void _perform_rowset_gc(const std::string& tablet_schema_hash_path);
 
 private:
     std::atomic<bool> _stop_bg_worker = false;
