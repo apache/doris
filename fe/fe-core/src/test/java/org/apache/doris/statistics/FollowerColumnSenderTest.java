@@ -17,6 +17,11 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
 
@@ -26,6 +31,7 @@ import org.eclipse.jetty.util.BlockingArrayQueue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.Queue;
 import java.util.Set;
 
@@ -33,12 +39,29 @@ public class FollowerColumnSenderTest {
 
     @Test
     public void testGetNeedAnalyzeColumns() {
+        new MockUp<OlapTable>() {
+            @Mock
+            public Column getColumn(String name) {
+                return new Column("col", PrimitiveType.INT);
+            }
+
+            @Mock
+            public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+                return Collections.singleton(Pair.of("mockIndex", "mockCol"));
+            }
+        };
+
         new MockUp<StatisticsUtil>() {
             boolean[] result = {false, true, false, true, true};
             int i = 0;
             @Mock
-            public boolean needAnalyzeColumn(QueryColumn column) {
+            public boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {
                 return result[i++];
+            }
+
+            @Mock
+            public TableIf findTable(long catalogId, long dbId, long tblId) {
+                return new OlapTable();
             }
         };
         QueryColumn column1 = new QueryColumn(1, 2, 3, "col1");

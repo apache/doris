@@ -118,7 +118,8 @@ public class FollowerColumnSender extends MasterDaemon {
     protected Set<TQueryColumn> getNeedAnalyzeColumns(Queue<QueryColumn> columnQueue) {
         Set<TQueryColumn> ret = Sets.newHashSet();
         TableIf table;
-        for (int i = 0; i < columnQueue.size(); i++) {
+        int size = columnQueue.size();
+        for (int i = 0; i < size; i++) {
             QueryColumn column = columnQueue.poll();
             if (column == null) {
                 continue;

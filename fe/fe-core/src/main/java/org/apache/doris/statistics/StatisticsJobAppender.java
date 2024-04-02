@@ -155,6 +155,9 @@ public class StatisticsJobAppender extends MasterDaemon {
                 if (!(t instanceof OlapTable) || t.getId() <= currentTableId) {
                     continue;
                 }
+                if (t.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
+                    continue;
+                }
                 Set<Pair<String, String>> columnIndexPairs = t.getColumnIndexPairs(
                         t.getSchemaAllIndexes(false).stream()
                                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))

@@ -80,7 +80,7 @@ public class AnalysisJobTest {
 
         new MockUp<AnalysisJob>() {
             @Mock
-            protected void writeBuf() {
+            protected void flushBuffer() {
                 writeBufInvokeTimes.incrementAndGet();
             }
 
@@ -111,7 +111,7 @@ public class AnalysisJobTest {
 
         new MockUp<AnalysisJob>() {
             @Mock
-            protected void writeBuf() {
+            protected void flushBuffer() {
                 writeBufInvokeTimes.incrementAndGet();
             }
 

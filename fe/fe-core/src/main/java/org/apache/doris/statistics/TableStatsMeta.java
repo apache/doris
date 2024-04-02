@@ -148,7 +148,7 @@ public class TableStatsMeta implements Writable {
             if (tableIf instanceof OlapTable) {
                 rowCount = analyzedJob.rowCount;
             }
-            if (rowCount == 0 && analyzedJob.analysisMethod.equals(AnalysisMethod.SAMPLE)) {
+            if (rowCount == 0 && AnalysisMethod.SAMPLE.equals(analyzedJob.analysisMethod)) {
                 return;
             }
             if (analyzedJob.jobColumns.containsAll(

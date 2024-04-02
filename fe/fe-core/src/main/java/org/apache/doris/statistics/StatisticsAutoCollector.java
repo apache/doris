@@ -234,8 +234,4 @@ public class StatisticsAutoCollector extends MasterDaemon {
             future.get();
         }
     }
-
-    protected AnalysisInfo getNeedAnalyzeColumns(AnalysisInfo jobInfo) {
-        return jobInfo;
-    }
 }
