@@ -28,6 +28,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/schema.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -461,7 +462,7 @@ void internal_create_tablet(MetaServiceCode& code, std::string& msg,
         return;
     }
     txn->put(key, val);
-    LOG(INFO) << "xxx put tablet_key=" << hex(key);
+    LOG(INFO) << "xxx put tablet_key=" << hex(key) << " tablet id " << tablet_id;
 
     // Index tablet_id -> table_id, index_id, partition_id
     std::string key1;
@@ -528,7 +529,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
-    if (request->has_storage_vault_name() && !request->storage_vault_name().empty()) {
+    for (; request->has_storage_vault_name();) {
         InstanceInfoPB instance;
         std::unique_ptr<Transaction> txn0;
         TxnErrorCode err = txn_kv_->create_txn(&txn0);
@@ -543,20 +544,50 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         if (c0 != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get instance, info={}", m0);
+            return;
+        }
+
+        std::string_view name = request->storage_vault_name();
+
+        // Try to use the default vault name if user doesn't specify the vault name
+        // for correspoding table
+        if (name.empty()) {
+            if (!instance.has_default_storage_vault_name()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format("You must supply at least one default vault");
+                return;
+            }
+            name = instance.default_storage_vault_name();
         }
 
         auto vault_name = std::find_if(
                 instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
-                [&](const auto& name) { return name == request->storage_vault_name(); });
+                [&](const auto& candidate_name) { return candidate_name == name; });
         if (vault_name != instance.storage_vault_names().end()) {
             auto idx = vault_name - instance.storage_vault_names().begin();
             response->set_storage_vault_id(instance.resource_ids().at(idx));
-        } else {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get vault id, vault name={}",
-                              request->storage_vault_name());
-            return;
+            response->set_storage_vault_name(*vault_name);
+            break;
         }
+
+        // The S3 vault would be stored inside the instance.obj_info
+        auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
+                                   [&](const ObjectStoreInfoPB& obj) {
+                                       if (!obj.has_vault_name()) {
+                                           return false;
+                                       }
+                                       return obj.vault_name() == name;
+                                   });
+
+        if (s3_obj != instance.obj_info().end()) {
+            response->set_storage_vault_id(s3_obj->id());
+            response->set_storage_vault_name(s3_obj->vault_name());
+            break;
+        }
+
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("failed to get vault id, vault name={}", name);
+        return;
     }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
@@ -1038,8 +1069,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         std::string schema_key;
         if (rowset_meta.has_variant_type_in_schema()) {
             // encodes schema in a seperate kv, since variant schema is volatile
-            schema_key = meta_rowset_schema_key({instance_id,
-                    rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+            schema_key = meta_rowset_schema_key(
+                    {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
         } else {
             schema_key = meta_schema_key(
                     {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
