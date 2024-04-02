@@ -247,6 +247,29 @@ public:
 
     bool is_nereids() const { return _is_nereids; }
 
+    WorkloadGroupPtr workload_group() const { return _workload_group; }
+
+    void inc_running_big_mem_op_num() {
+        _running_big_mem_op_num.fetch_add(1, std::memory_order_relaxed);
+    }
+    void dec_running_big_mem_op_num() {
+        _running_big_mem_op_num.fetch_sub(1, std::memory_order_relaxed);
+    }
+    int32_t get_running_big_mem_op_num() {
+        return _running_big_mem_op_num.load(std::memory_order_relaxed);
+    }
+
+    void set_weighted_mem(int64_t weighted_limit, int64_t weighted_consumption) {
+        std::lock_guard<std::mutex> l(_weighted_mem_lock);
+        _weighted_consumption = weighted_consumption;
+        _weighted_limit = weighted_limit;
+    }
+    void get_weighted_mem_info(int64_t& weighted_limit, int64_t& weighted_consumption) {
+        std::lock_guard<std::mutex> l(_weighted_mem_lock);
+        weighted_limit = _weighted_limit;
+        weighted_consumption = _weighted_consumption;
+    }
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -280,6 +303,7 @@ private:
     int64_t _bytes_limit = 0;
     bool _is_pipeline = false;
     bool _is_nereids = false;
+    std::atomic<int> _running_big_mem_op_num = 0;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -323,6 +347,10 @@ private:
 
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
+
+    std::mutex _weighted_mem_lock;
+    int64_t _weighted_consumption = 0;
+    int64_t _weighted_limit = 0;
 };
 
 } // namespace doris

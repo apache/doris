@@ -319,6 +319,12 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         _tablet->enable_unique_key_merge_on_write()) {
         return false;
     }
+
+    if (_tablet->tablet_meta()->tablet_schema()->skip_write_index_on_load()) {
+        // Expected to create index through normal compaction
+        return false;
+    }
+
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
@@ -346,6 +352,11 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     // most rowset of current compaction is nonoverlapping
     // just handle nonoverlappint rowsets
     auto st = do_compact_ordered_rowsets();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to compact ordered rowsets: " << st;
+        _pending_rs_guard.drop();
+    }
+
     return st.ok();
 }
 
@@ -1061,10 +1072,16 @@ Status CloudCompactionMixin::modify_rowsets() {
 }
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
-    if (_engine.latest_fs() == nullptr) [[unlikely]] {
-        return Status::IOError("Invalid latest fs");
+    // Use the vault id of the previous rowset
+    for (const auto& rs : _input_rowsets) {
+        if (nullptr != rs->rowset_meta()->fs()) {
+            ctx.fs = rs->rowset_meta()->fs();
+            break;
+        }
     }
-    ctx.fs = _engine.latest_fs();
+    if (nullptr == ctx.fs) [[unlikely]] {
+        return Status::InternalError("Failed to find fs");
+    }
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
     ctx.txn_expiration = _expiration;

@@ -26,6 +26,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -64,6 +65,13 @@ public:
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() { return *_txn_delete_bitmap_cache; }
     std::unique_ptr<ThreadPool>& calc_tablet_delete_bitmap_task_thread_pool() {
         return _calc_tablet_delete_bitmap_task_thread_pool;
+    }
+
+    io::FileSystemSPtr get_fs_by_vault_id(const std::string& vault_id) const {
+        if (vault_id.empty()) {
+            return latest_fs();
+        }
+        return get_filesystem(vault_id);
     }
 
     io::FileSystemSPtr latest_fs() const {

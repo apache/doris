@@ -264,6 +264,7 @@ Status FSFileCacheStorage::rebuild_data_structure() const {
     auto rebuild_dir = [&](std::filesystem::directory_iterator& upgrade_key_it) -> Status {
         for (; upgrade_key_it != std::filesystem::directory_iterator(); ++upgrade_key_it) {
             if (upgrade_key_it->path().filename().native().find('_') == std::string::npos) {
+                RETURN_IF_ERROR(fs->delete_directory(upgrade_key_it->path().native() + "_0"));
                 RETURN_IF_ERROR(
                         fs->rename(upgrade_key_it->path(), upgrade_key_it->path().native() + "_0"));
             }

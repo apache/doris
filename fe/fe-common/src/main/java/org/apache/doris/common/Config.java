@@ -2213,11 +2213,6 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "启用外表DDL",
-            "Enable external table DDL"})
-    public static boolean enable_external_ddl = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
             "Enable external hive bucket table"})
     public static boolean enable_create_hive_bucket_table = false;
@@ -2640,6 +2635,35 @@ public class Config extends ConfigBase {
     @ConfField
     public static int drop_user_notify_ms_max_times = 86400;
 
+    @ConfField(mutable = true)
+    public static long cloud_tablet_rebalancer_interval_second = 20;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_partition_balance = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_table_balance = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_global_balance = true;
+
+    @ConfField(mutable = true)
+    public static int cloud_pre_heating_time_limit_sec = 300;
+
+    @ConfField(mutable = true)
+    public static double cloud_rebalance_percent_threshold = 0.05;
+
+    @ConfField(mutable = true)
+    public static long cloud_rebalance_number_threshold = 2;
+
+    @ConfField(mutable = true)
+    public static double cloud_balance_tablet_percent_per_run = 0.05;
+
+    @ConfField(mutable = true)
+    public static int cloud_min_balance_tablet_num_per_run = 2;
+
+    @ConfField(mutable = true)
+    public static boolean cloud_preheating_enabled = true;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

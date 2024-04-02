@@ -24,15 +24,28 @@ import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.TableMetadata;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.DistributionSpecTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecTableSinkRandomPartitioned;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
@@ -45,9 +58,11 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     private static final String mockedDbName = "mockedDb";
@@ -61,10 +76,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        connectContext.getSessionVariable().enableNereidsTimeout = false;
         connectContext.getSessionVariable().enableNereidsDML = true;
         Config.enable_query_hive_views = false;
-        Config.enable_external_ddl = true;
         // create test internal table
         createDatabase(mockedDbName);
         useDatabase(mockedDbName);
@@ -91,7 +104,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
         // create external catalog and switch it
         CreateCatalogStmt hiveCatalog = createStmt("create catalog hive properties('type' = 'hms',"
-                        + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');");
+                + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');");
         Env.getCurrentEnv().getCatalogMgr().createCatalog(hiveCatalog);
         switchHive();
 
@@ -367,32 +380,144 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertEquals(16, stmt2.getDistributionDesc().getBuckets());
     }
 
+    private static void mockTargetTable(List<Column> schema, Set<String> partNames) {
+        new MockUp<HMSExternalTable>(HMSExternalTable.class) {
+            @Mock
+            public boolean isView() {
+                return false;
+            }
+
+            @Mock
+            public List<Column> getFullSchema() {
+                return schema;
+            }
+
+            @Mock
+            public Set<String> getPartitionColumnNames() {
+                return partNames;
+            }
+        };
+    }
+
     @Test
     public void testInsertIntoPlanSql() throws Exception {
         switchHive();
         useDatabase(mockedDbName);
-        String insertSql = "INSERT INTO unpart_ctas_src values(1, 'v1')";
-        LogicalPlan plan = nereidsParser.parseSingle(insertSql);
-        Assertions.assertTrue(plan instanceof InsertIntoTableCommand);
-        // TODO check plan node, exchange node
+        String insertTable = "insert_table";
+        createTargetTable(insertTable);
 
-        String insertSql2 = "INSERT INTO part_ctas_src values(1, 'v1', 'v2')";
-        LogicalPlan plan2 = nereidsParser.parseSingle(insertSql2);
-        Assertions.assertTrue(plan2 instanceof InsertIntoTableCommand);
+        // test un-partitioned table
+        List<Column> schema = new ArrayList<Column>() {
+            {
+                add(new Column("col1", PrimitiveType.INT));
+                add(new Column("col2", PrimitiveType.STRING));
+                add(new Column("col3", PrimitiveType.DECIMAL32));
+                add(new Column("col4", PrimitiveType.CHAR));
+            }
+        };
+
+        mockTargetTable(schema, new HashSet<>());
+        String unPartTargetTable = "unpart_" + insertTable;
+        String insertSql = "INSERT INTO " + unPartTargetTable + " values(1, 'v1', 32.1, 'aabb')";
+        PhysicalPlan physicalSink = getPhysicalPlan(insertSql, PhysicalProperties.SINK_RANDOM_PARTITIONED,
+                false);
+        checkUnpartTableSinkPlan(schema, unPartTargetTable, physicalSink);
+
+        String insertOverwriteSql = "INSERT OVERWRITE TABLE " + unPartTargetTable + " values(1, 'v1', 32.1, 'aabb')";
+        PhysicalPlan physicalOverwriteSink = getPhysicalPlan(insertOverwriteSql, PhysicalProperties.SINK_RANDOM_PARTITIONED,
+                true);
+        checkUnpartTableSinkPlan(schema, unPartTargetTable, physicalOverwriteSink);
+
+        // test partitioned table
+        schema = new ArrayList<Column>() {
+            {
+                add(new Column("col1", PrimitiveType.INT));
+                add(new Column("pt1", PrimitiveType.VARCHAR));
+                add(new Column("pt2", PrimitiveType.STRING));
+                add(new Column("pt3", PrimitiveType.DATE));
+            }
+        };
+        Set<String> parts = new HashSet<String>() {
+            {
+                add("pt1");
+                add("pt2");
+                add("pt3");
+            }
+        };
+        mockTargetTable(schema, parts);
+        String partTargetTable = "part_" + insertTable;
+
+        String insertSql2 = "INSERT INTO " + partTargetTable + " values(1, 'v1', 'v2', '2020-03-13')";
+        PhysicalPlan physicalSink2 = getPhysicalPlan(insertSql2,
+                new PhysicalProperties(new DistributionSpecTableSinkHashPartitioned()), false);
+        checkPartTableSinkPlan(schema, partTargetTable, physicalSink2);
+
+        String insertOverwrite2 = "INSERT OVERWRITE TABLE " + partTargetTable + " values(1, 'v1', 'v2', '2020-03-13')";
+        PhysicalPlan physicalOverwriteSink2 = getPhysicalPlan(insertOverwrite2,
+                new PhysicalProperties(new DistributionSpecTableSinkHashPartitioned()), true);
+        checkPartTableSinkPlan(schema, partTargetTable, physicalOverwriteSink2);
     }
 
-    @Test
-    public void testInsertOverwritePlanSql() throws Exception {
-        switchHive();
-        useDatabase(mockedDbName);
-        String insertSql = "INSERT OVERWRITE TABLE unpart_ctas_src values(2, 'v2')";
-        LogicalPlan plan = nereidsParser.parseSingle(insertSql);
-        Assertions.assertTrue(plan instanceof InsertOverwriteTableCommand);
-        // TODO check plan node, exchange node
+    private static void checkUnpartTableSinkPlan(List<Column> schema, String unPartTargetTable, PhysicalPlan physicalSink) {
+        Assertions.assertSame(physicalSink.getType(), PlanType.PHYSICAL_DISTRIBUTE);
+        // check exchange
+        PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) physicalSink;
+        Assertions.assertTrue(distribute.getDistributionSpec() instanceof DistributionSpecTableSinkRandomPartitioned);
+        Assertions.assertSame(distribute.child(0).getType(), PlanType.PHYSICAL_HIVE_TABLE_SINK);
+        // check sink
+        PhysicalHiveTableSink<?> physicalHiveSink = (PhysicalHiveTableSink<?>) physicalSink.child(0);
+        Assertions.assertEquals(unPartTargetTable, physicalHiveSink.getTargetTable().getName());
+        Assertions.assertEquals(schema.size(), physicalHiveSink.getOutput().size());
+    }
 
-        String insertSql2 = "INSERT OVERWRITE TABLE part_ctas_src values(2, 'v3', 'v4')";
-        LogicalPlan plan2 = nereidsParser.parseSingle(insertSql2);
-        Assertions.assertTrue(plan2 instanceof InsertOverwriteTableCommand);
+    private static void checkPartTableSinkPlan(List<Column> schema, String unPartTargetTable, PhysicalPlan physicalSink) {
+        Assertions.assertSame(physicalSink.getType(), PlanType.PHYSICAL_DISTRIBUTE);
+        // check exchange
+        PhysicalDistribute<?> distribute2 = (PhysicalDistribute<?>) physicalSink;
+        Assertions.assertTrue(distribute2.getDistributionSpec() instanceof DistributionSpecTableSinkHashPartitioned);
+        Assertions.assertSame(distribute2.child(0).getType(), PlanType.PHYSICAL_HIVE_TABLE_SINK);
+        // check sink
+        PhysicalHiveTableSink<?> physicalHiveSink2 = (PhysicalHiveTableSink<?>) physicalSink.child(0);
+        Assertions.assertEquals(unPartTargetTable, physicalHiveSink2.getTargetTable().getName());
+        Assertions.assertEquals(schema.size(), physicalHiveSink2.getOutput().size());
+    }
+
+    private void createTargetTable(String tableName) throws Exception {
+        String createInsertTable = "CREATE TABLE `unpart_" + tableName + "`(\n"
+                + "  `col1` INT COMMENT 'col1',\n"
+                + "  `col2` STRING COMMENT 'col2',\n"
+                + "  `col3` DECIMAL(3,1) COMMENT 'col3',\n"
+                + "  `col4` CHAR(11) COMMENT 'col4'\n"
+                + ")  ENGINE=hive\n"
+                + "PROPERTIES ('file_format'='orc')";
+        createTable(createInsertTable, true);
+
+        String createInsertPTable = "CREATE TABLE `part_" + tableName + "`(\n"
+                + "  `col1` INT COMMENT 'col1',\n"
+                + "  `pt1` VARCHAR(16) COMMENT 'pt1',\n"
+                + "  `pt2` STRING COMMENT 'pt2',\n"
+                + "  `pt3` DATE COMMENT 'pt3'\n"
+                + ")  ENGINE=hive\n"
+                + "PARTITION BY LIST (pt1, pt2, pt3) ()\n"
+                + "PROPERTIES ('file_format'='orc')";
+        createTable(createInsertPTable, true);
+    }
+
+    private PhysicalPlan getPhysicalPlan(String insertSql, PhysicalProperties physicalProperties,
+                                         boolean isOverwrite) {
+        LogicalPlan plan = nereidsParser.parseSingle(insertSql);
+        StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, insertSql);
+        Plan exPlan;
+        if (isOverwrite) {
+            Assertions.assertTrue(plan instanceof InsertOverwriteTableCommand);
+            exPlan = ((InsertOverwriteTableCommand) plan).getExplainPlan(connectContext);
+        } else {
+            Assertions.assertTrue(plan instanceof InsertIntoTableCommand);
+            exPlan = ((InsertIntoTableCommand) plan).getExplainPlan(connectContext);
+        }
+        Assertions.assertTrue(exPlan instanceof UnboundLogicalSink);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        return planner.plan((UnboundLogicalSink<?>) exPlan, physicalProperties);
     }
 
     @Test

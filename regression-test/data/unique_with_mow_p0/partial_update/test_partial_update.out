@@ -35,6 +35,9 @@
 3	"stranger"	500	\N	4321
 4	"foreigner"	600	\N	4321
 
+-- !select_timestamp --
+1
+
 -- !select_default --
 1	doris	200	123	1
 2	doris2	400	223	1
@@ -70,4 +73,7 @@
 2	doris2	2222	223	1
 3	"stranger"	500	\N	4321
 4	"foreigner"	600	\N	4321
+
+-- !select_timestamp --
+1
 
