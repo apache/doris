@@ -262,6 +262,7 @@ public:
     void set_dummy_lru_cache(std::shared_ptr<DummyLRUCache> dummy_lru_cache) {
         this->_dummy_lru_cache = dummy_lru_cache;
     }
+    void set_write_cooldown_meta_executors();
 
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
