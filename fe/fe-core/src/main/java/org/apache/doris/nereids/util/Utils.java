@@ -130,12 +130,9 @@ public class Utils {
 
     /** get qualified name with Backtick */
     public static String qualifiedNameWithBacktick(List<String> qualifiers, String name) {
-        List<String> qualifierWithBacktick = Lists.newArrayListWithCapacity(qualifiers.size());
-        for (String qualifier : qualifiers) {
-            qualifierWithBacktick.add('`' + qualifier + '`');
-        }
-        String nameWithBacktick = '`' + name + '`';
-        return StringUtils.join(qualifiedNameParts(qualifierWithBacktick, nameWithBacktick), ".");
+        List<String> fullName = new ArrayList<>(qualifiers);
+        fullName.add(name);
+        return qualifiedNameWithBacktick(fullName);
     }
 
     public static String qualifiedNameWithBacktick(List<String> qualifiers) {

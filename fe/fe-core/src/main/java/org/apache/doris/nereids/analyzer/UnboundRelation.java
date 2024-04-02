@@ -202,12 +202,4 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     public Pair<Integer, Integer> getIndexInSqlString() {
         return indexInSqlString;
     }
-
-    public List<String> getTableQualifier() {
-        return tableQualifier;
-    }
-
-    public void setTableQualifier(List<String> tableQualifier) {
-        this.tableQualifier = tableQualifier;
-    }
 }

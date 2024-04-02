@@ -49,7 +49,6 @@ public class BaseViewStmt extends DdlStmt {
     protected QueryStmt cloneStmt;
 
     public BaseViewStmt(TableName tableName, List<ColWithComment> cols, QueryStmt queryStmt) {
-        // Preconditions.checkNotNull(queryStmt);
         this.tableName = tableName;
         this.cols = cols;
         this.viewDefStmt = queryStmt;
