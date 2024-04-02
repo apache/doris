@@ -95,6 +95,7 @@ void SpillStream::end_spill(const Status& status) {
 
 Status SpillStream::wait_spill() {
     if (spill_promise_) {
+        SCOPED_TIMER(write_wait_io_timer_);
         auto status = spill_future_.get();
         spill_promise_.reset();
         return status;
@@ -141,7 +142,10 @@ Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
         return status;
     }
 
-    status = read_future_.get();
+    {
+        SCOPED_TIMER(read_wait_io_timer_);
+        status = read_future_.get();
+    }
     read_promise_.reset();
     return status;
 }

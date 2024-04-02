@@ -73,6 +73,10 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
                                                          "SpillAndPartition", 1);
     _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
                                                      TUnit::BYTES, "SpillAndPartition", 1);
+    _spill_write_wait_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime",
+                                                            "SpillAndPartition", 1);
+    _spill_read_wait_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime",
+                                                           "SpillAndPartition", 1);
 
     // Build phase
     _build_phase_label = ADD_LABEL_COUNTER(profile(), "BuildPhase");
@@ -175,7 +179,8 @@ Status PartitionedHashJoinProbeLocalState::spill_build_block(RuntimeState* state
                 std::numeric_limits<size_t>::max(), _runtime_profile.get()));
         RETURN_IF_ERROR(build_spilling_stream->prepare_spill());
         build_spilling_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
-                                                  _spill_data_size, _spill_write_disk_timer);
+                                                  _spill_data_size, _spill_write_disk_timer,
+                                                  _spill_write_wait_io_timer);
     }
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool(
@@ -225,7 +230,8 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
                 _runtime_profile.get()));
         RETURN_IF_ERROR(spilling_stream->prepare_spill());
         spilling_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
-                                            _spill_data_size, _spill_write_disk_timer);
+                                            _spill_data_size, _spill_write_disk_timer,
+                                            _spill_write_wait_io_timer);
     }
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool(
@@ -294,7 +300,7 @@ Status PartitionedHashJoinProbeLocalState::finish_spilling(uint32_t partition_in
         build_spilling_stream->end_spill(Status::OK());
         RETURN_IF_ERROR(build_spilling_stream->spill_eof());
         build_spilling_stream->set_read_counters(_spill_read_data_time, _spill_deserialize_time,
-                                                 _spill_read_bytes);
+                                                 _spill_read_bytes, _spill_read_wait_io_timer);
     }
 
     auto& probe_spilling_stream = _probe_spilling_streams[partition_index];
@@ -303,7 +309,7 @@ Status PartitionedHashJoinProbeLocalState::finish_spilling(uint32_t partition_in
         probe_spilling_stream->end_spill(Status::OK());
         RETURN_IF_ERROR(probe_spilling_stream->spill_eof());
         probe_spilling_stream->set_read_counters(_spill_read_data_time, _spill_deserialize_time,
-                                                 _spill_read_bytes);
+                                                 _spill_read_bytes, _spill_read_wait_io_timer);
     }
 
     return Status::OK();
