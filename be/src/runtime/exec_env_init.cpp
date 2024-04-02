@@ -26,12 +26,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
@@ -40,11 +37,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
-#include "io/fs/s3_file_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -250,6 +245,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
+    _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
     _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -597,6 +593,7 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
     _file_cache_open_fd_cache.reset();
+    _write_cooldown_meta_executors.reset();
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
     // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
