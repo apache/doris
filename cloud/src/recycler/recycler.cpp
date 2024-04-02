@@ -31,8 +31,10 @@
 
 #include "common/stopwatch.h"
 #include "meta-service/meta_service_schema.h"
+#include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 #include "recycler/checker.h"
+#include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
 #ifdef UNIT_TEST
 #include "../test/mock_accessor.h"
@@ -444,8 +446,8 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
 
 InstanceRecycler::~InstanceRecycler() = default;
 
-int InstanceRecycler::init() {
-    for (auto& obj_info : instance_info_.obj_info()) {
+int InstanceRecycler::init_obj_store_accessors() {
+    for (const auto& obj_info : instance_info_.obj_info()) {
         S3Conf s3_conf;
         s3_conf.ak = obj_info.ak();
         s3_conf.sk = obj_info.sk();
@@ -466,7 +468,7 @@ int InstanceRecycler::init() {
         s3_conf.bucket = obj_info.bucket();
         s3_conf.prefix = obj_info.prefix();
 #ifdef UNIT_TEST
-        auto accessor = std::make_shared<MockAccessor>(s3_conf);
+        auto accessor = std::make_shared<MockS3Accessor>(s3_conf);
 #else
         auto accessor = std::make_shared<S3Accessor>(std::move(s3_conf));
 #endif
@@ -476,7 +478,65 @@ int InstanceRecycler::init() {
         }
         accessor_map_.emplace(obj_info.id(), std::move(accessor));
     }
+
     return 0;
+}
+
+int InstanceRecycler::init_storage_vault_accessors() {
+    if (instance_info_.resource_ids().empty()) {
+        return 0;
+    }
+
+    std::string storage_vault_start = storage_vault_key({instance_id_, ""});
+    std::string storage_vault_end = storage_vault_key({instance_id_, "\xff"});
+    std::unique_ptr<RangeGetIterator> it;
+
+    do {
+        int ret = txn_get(txn_kv_.get(), storage_vault_start, storage_vault_end, it);
+        if (ret != 0) {
+            LOG(WARNING) << "failed to get storage vault, instance_id=" << instance_id_;
+            return ret;
+        }
+
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            StorageVaultPB vault;
+            if (!vault.ParseFromArray(v.data(), v.size())) {
+                LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
+                return -1;
+            }
+
+            if (vault.has_hdfs_info()) {
+                auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
+                ret = accessor->init();
+                if (ret != 0) {
+                    LOG(WARNING) << "failed to init hdfs accessor. instance_id=" << instance_id_
+                                 << " resource_id=" << vault.id() << " name=" << vault.name();
+                    return ret;
+                }
+
+                accessor_map_.emplace(vault.id(), std::move(accessor));
+            }
+            // TODO: more vault type
+
+            if (!it->has_next()) {
+                storage_vault_start = k;
+            }
+        }
+        storage_vault_start.push_back('\x00'); // Update to next smallest key for iteration
+
+    } while (it->more());
+
+    return 0;
+}
+
+int InstanceRecycler::init() {
+    int ret = init_obj_store_accessors();
+    if (ret != 0) {
+        return ret;
+    }
+
+    return init_storage_vault_accessors();
 }
 
 int InstanceRecycler::do_recycle() {
@@ -1467,7 +1527,8 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
-            auto schema_key = meta_rowset_schema_key({instance_id_, rowset_meta->tablet_id(), rowset_meta->rowset_id_v2()});
+            auto schema_key = meta_rowset_schema_key(
+                    {instance_id_, rowset_meta->tablet_id(), rowset_meta->rowset_id_v2()});
             rowset_schema_keys.push_back(std::move(schema_key));
             rowset_keys.push_back(std::string(k));
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
@@ -1486,7 +1547,8 @@ int InstanceRecycler::recycle_rowsets() {
         rowsets_to_delete.swap(rowsets);
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
                              rowsets_to_delete = std::move(rowsets_to_delete),
-                             rowset_schema_keys_to_delete = std::move(rowset_schema_keys_to_delete)]() {
+                             rowset_schema_keys_to_delete =
+                                     std::move(rowset_schema_keys_to_delete)]() {
             if (delete_rowset_data(rowsets_to_delete) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
                 return;
@@ -1589,9 +1651,9 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             return 0;
         }
         if (rowset.has_variant_type_in_schema()) {
-            auto schema_key = meta_rowset_schema_key({instance_id_,
-                    rowset.tablet_id(), rowset.rowset_id_v2()});
-            tmp_rowset_schema_keys.push_back(std::move(schema_key)); 
+            auto schema_key = meta_rowset_schema_key(
+                    {instance_id_, rowset.tablet_id(), rowset.rowset_id_v2()});
+            tmp_rowset_schema_keys.push_back(std::move(schema_key));
         }
         // TODO(plat1ko): check rowset not referenced
         LOG(INFO) << "delete rowset data, instance_id=" << instance_id_
@@ -1606,8 +1668,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         return 0;
     };
 
-    auto loop_done = [&tmp_rowset_keys, &tmp_rowsets,
-            &num_recycled, &tmp_rowset_schema_keys, this]() -> int {
+    auto loop_done = [&tmp_rowset_keys, &tmp_rowsets, &num_recycled, &tmp_rowset_schema_keys,
+                      this]() -> int {
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
             tmp_rowset_keys.clear();
             tmp_rowsets.clear();
@@ -2428,8 +2490,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         s3_conf.region = old_obj.region();
         s3_conf.bucket = old_obj.bucket();
         s3_conf.prefix = stage.obj_info().prefix();
-        std::shared_ptr<ObjStoreAccessor> accessor =
-                std::make_shared<S3Accessor>(std::move(s3_conf));
+        auto accessor = std::make_shared<S3Accessor>(std::move(s3_conf));
         auto ret1 = accessor->init();
         if (ret1 != 0) {
             LOG(WARNING) << "failed to init s3 accessor ret=" << ret1;
