@@ -163,6 +163,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 }
 
                 try {
+                    TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                     for (Partition partition : olapTable.getAllPartitions()) {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
@@ -172,7 +173,13 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 long tabletSegmentCount = 0L;
                                 long tabletRowCount = 0L;
 
-                                for (Replica replica : tablet.getReplicas()) {
+                                long tabletId = tablet.getId();
+                                if (invertedIndex.getTabletMeta(tablet.getId()) == null) {
+                                    continue;
+                                }
+                                List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
+
+                                for (Replica replica : replicas) {
                                     if (replica.getDataSize() > tabletDataSize) {
                                         tabletDataSize = replica.getDataSize();
                                     }
