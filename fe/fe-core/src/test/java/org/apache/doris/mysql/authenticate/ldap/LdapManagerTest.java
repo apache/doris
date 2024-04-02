@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.ldap;
+package org.apache.doris.mysql.authenticate.ldap;
 
-import org.apache.doris.common.LdapConfig;
+import org.apache.doris.common.Config;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -37,7 +37,7 @@ public class LdapManagerTest {
 
     @Before
     public void setUp() {
-        LdapConfig.ldap_authentication_enabled = true;
+        Config.authentication_type = "ldap";
     }
 
     private void mockClient(boolean userExist, boolean passwd) {
