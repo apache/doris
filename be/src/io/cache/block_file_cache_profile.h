@@ -42,8 +42,7 @@ struct AtomicStatistics {
 struct FileCacheProfile;
 
 struct FileCacheMetric {
-    FileCacheMetric(FileCacheProfile* profile)
-            : profile(profile) {}
+    FileCacheMetric(FileCacheProfile* profile) : profile(profile) {}
 
     void register_entity();
     void update_table_metrics() const;
