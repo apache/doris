@@ -22,7 +22,9 @@ import org.apache.doris.analysis.ExprId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -34,17 +36,35 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
-import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PConstantExprResult;
 import org.apache.doris.proto.Types.PScalarType;
+import org.apache.doris.proto.Types.PStructField;
+import org.apache.doris.proto.Types.PTypeDesc;
+import org.apache.doris.proto.Types.PTypeNode;
+import org.apache.doris.proto.Types.PValues;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
@@ -55,12 +75,14 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,7 +90,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -219,6 +240,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setRepeatMaxNum(context.getSessionVariable().repeatMaxNum);
+            tQueryOptions.setBeExecVersion(Config.be_exec_version);
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(true);
@@ -234,42 +256,18 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             if (result.getStatus().getStatusCode() == 0) {
                 for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMapMap().entrySet()) {
                     for (Entry<String, InternalService.PExprResult> e1 : e.getValue().getMapMap().entrySet()) {
-                        PScalarType pScalarType = e1.getValue().getType();
-                        TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(pScalarType.getType());
-                        PrimitiveType primitiveType = PrimitiveType.fromThrift(Objects.requireNonNull(tPrimitiveType));
                         Expression ret;
                         if (e1.getValue().getSuccess()) {
-                            DataType type;
-                            if (PrimitiveType.ARRAY == primitiveType
-                                    || PrimitiveType.MAP == primitiveType
-                                    || PrimitiveType.STRUCT == primitiveType
-                                    || PrimitiveType.AGG_STATE == primitiveType) {
+                            PTypeDesc pTypeDesc = e1.getValue().getTypeDesc();
+                            DataType type = convertToNereidsType(pTypeDesc.getTypesList(), 0).key();
+                            PValues resultContent = e1.getValue().getResultContent();
+                            List<Literal> resultExpression = getResultExpression(type, resultContent);
+                            if (resultExpression.isEmpty()) {
                                 ret = constMap.get(e1.getKey());
+                                LOG.info("Be constant folding convert {} to {} failed query_id: {}", e1.getKey(), ret,
+                                        DebugUtil.printId(context.queryId()));
                             } else {
-                                if (primitiveType == PrimitiveType.CHAR) {
-                                    Preconditions.checkState(pScalarType.hasLen(),
-                                            "be return char type without len");
-                                    type = CharType.createCharType(pScalarType.getLen());
-                                } else if (primitiveType == PrimitiveType.VARCHAR) {
-                                    Preconditions.checkState(pScalarType.hasLen(),
-                                            "be return varchar type without len");
-                                    type = VarcharType.createVarcharType(pScalarType.getLen());
-                                } else if (primitiveType == PrimitiveType.DECIMALV2) {
-                                    type = DecimalV2Type.createDecimalV2Type(
-                                            pScalarType.getPrecision(), pScalarType.getScale());
-                                } else if (primitiveType == PrimitiveType.DATETIMEV2) {
-                                    type = DateTimeV2Type.of(pScalarType.getScale());
-                                } else if (primitiveType == PrimitiveType.DECIMAL32
-                                        || primitiveType == PrimitiveType.DECIMAL64
-                                        || primitiveType == PrimitiveType.DECIMAL128
-                                        || primitiveType == PrimitiveType.DECIMAL256) {
-                                    type = DecimalV3Type.createDecimalV3TypeLooseCheck(
-                                            pScalarType.getPrecision(), pScalarType.getScale());
-                                } else {
-                                    type = DataType.fromCatalogType(ScalarType.createType(
-                                            PrimitiveType.fromThrift(tPrimitiveType)));
-                                }
-                                ret = Literal.of(e1.getValue().getContent()).castTo(type);
+                                ret = resultExpression.get(0);
                             }
                         } else {
                             ret = constMap.get(e1.getKey());
@@ -290,5 +288,154 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                     DebugUtil.printId(context.queryId()), e.getMessage());
         }
         return resultMap;
+    }
+
+    public static List<Literal> getResultExpression(DataType type, PValues resultContent) {
+        List<Literal> res = new ArrayList<>();
+        if (type.isBooleanType()) {
+            int num = resultContent.getUint32ValueCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = BooleanLiteral.of(resultContent.getUint32Value(i) == 1);
+                res.add(literal);
+            }
+        } else if (type.isTinyIntType()) {
+            int num = resultContent.getInt32ValueCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = new TinyIntLiteral((byte) resultContent.getInt32Value(i));
+                res.add(literal);
+            }
+        } else if (type.isSmallIntType()) {
+            int num = resultContent.getInt32ValueCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = new SmallIntLiteral((short) resultContent.getInt32Value(i));
+                res.add(literal);
+            }
+        } else if (type.isIntegerType()) {
+            int num = resultContent.getInt32ValueCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = new IntegerLiteral(resultContent.getInt32Value(i));
+                res.add(literal);
+            }
+        } else if (type.isBigIntType()) {
+            int num = resultContent.getInt64ValueCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = new BigIntLiteral(resultContent.getInt64Value(i));
+                res.add(literal);
+            }
+        } else if (type.isLargeIntType()) {
+            int num = resultContent.getBytesValueCount();
+            for (int i = 0; i < num; ++i) {
+                ByteString bytesValue = resultContent.getBytesValue(i);
+                BigInteger convertedBigInteger = new BigInteger(bytesValue.toByteArray());
+                Literal literal = new LargeIntLiteral(convertedBigInteger);
+                res.add(literal);
+            }
+        } else if (type.isFloatType()) {
+            int num = resultContent.getFloatValueCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = new FloatLiteral(resultContent.getFloatValue(i));
+                res.add(literal);
+            }
+        } else if (type.isDoubleType()) {
+            int num = resultContent.getDoubleValueCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = new DoubleLiteral(resultContent.getDoubleValue(i));
+                res.add(literal);
+            }
+        } else if (type.isDecimalV3Type() || type.isDecimalV2Type()) {
+            int num = resultContent.getBytesValueCount();
+            for (int i = 0; i < num; ++i) {
+                ByteString bytesValue = resultContent.getBytesValue(i);
+                BigDecimal bigDecimal = new BigDecimal(bytesValue.toStringUtf8());
+                Literal literal;
+                if (Config.enable_decimal_conversion) {
+                    literal = new DecimalV3Literal(bigDecimal);
+                } else {
+                    literal = new DecimalLiteral(bigDecimal);
+                }
+                res.add(literal);
+            }
+        } else if (type.isStringLikeType()) {
+            int num = resultContent.getStringValueCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = new StringLiteral(resultContent.getStringValue(i));
+                res.add(literal);
+            }
+        } else if (type.isArrayType()) {
+            ArrayType arrayType = (ArrayType) type;
+            int childCount = resultContent.getChildElementCount();
+            for (int i = 0; i < childCount; ++i) {
+                List<Literal> childLiteral = getResultExpression(arrayType.getItemType(),
+                        resultContent.getChildElement(i));
+                ArrayLiteral arrayLiteral = new ArrayLiteral(childLiteral, arrayType);
+                res.add(arrayLiteral);
+            }
+        } else if (type.isMapType()) {
+            MapType mapType = (MapType) type;
+            int childCount = resultContent.getChildElementCount();
+            for (int i = 0; i < childCount; i = i + 2) {
+                List<Literal> keyLiteral = getResultExpression(mapType.getKeyType(),
+                        resultContent.getChildElement(i));
+                List<Literal> valueLiteral = getResultExpression(mapType.getValueType(),
+                        resultContent.getChildElement(i + 1));
+                MapLiteral mapLiteral = new MapLiteral(keyLiteral, valueLiteral);
+                res.add(mapLiteral);
+            }
+        } else if (type.isStructType()) {
+            StructType structType = (StructType) type;
+            int childCount = resultContent.getChildElementCount();
+            List<Literal> fields = new ArrayList<>(childCount);
+            for (int i = 0; i < childCount; ++i) {
+                fields.add(getResultExpression(structType.getFields().get(i).getDataType(),
+                        resultContent.getChildElement(i)).get(0));
+            }
+            StructLiteral structLiteral = new StructLiteral(fields);
+            res.add(structLiteral);
+        } else {
+            LOG.warn("the type: {} is not support, should implement it", type.toString());
+        }
+        if (resultContent.hasHasNull()) {
+            for (int i = 0; i < resultContent.getNullMapCount(); ++i) {
+                if (resultContent.getNullMap(i)) {
+                    res.set(i, new NullLiteral());
+                }
+            }
+        }
+        return res;
+    }
+
+    private static Pair<DataType, Integer> convertToNereidsType(List<PTypeNode> typeNodes, int start) {
+        PScalarType pScalarType = typeNodes.get(start).getScalarType();
+        boolean containsNull = typeNodes.get(start).getContainsNull();
+        TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(pScalarType.getType());
+        DataType type;
+        int parsedNodes;
+        if (tPrimitiveType == TPrimitiveType.ARRAY) {
+            Pair<DataType, Integer> itemType = convertToNereidsType(typeNodes, start + 1);
+            type = ArrayType.of(itemType.key(), containsNull);
+            parsedNodes = 1 + itemType.value();
+        } else if (tPrimitiveType == TPrimitiveType.MAP) {
+            Pair<DataType, Integer> keyType = convertToNereidsType(typeNodes, start + 1);
+            Pair<DataType, Integer> valueType = convertToNereidsType(typeNodes, start + 1 + keyType.value());
+            type = MapType.of(keyType.key(), valueType.key());
+            parsedNodes = 1 + keyType.value() + valueType.value();
+        } else if (tPrimitiveType == TPrimitiveType.STRUCT) {
+            parsedNodes = 1;
+            ArrayList<StructField> fields = new ArrayList<>();
+            for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
+                Pair<DataType, Integer> fieldType = convertToNereidsType(typeNodes, start + parsedNodes);
+                PStructField structField = typeNodes.get(start).getStructFields(i);
+                fields.add(new StructField(structField.getName(), fieldType.key(),
+                        structField.getContainsNull(),
+                        structField.getComment() == null ? "" : structField.getComment()));
+                parsedNodes += fieldType.value();
+            }
+            type = new StructType(fields);
+        } else {
+            type = DataType.fromCatalogType(ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
+                    pScalarType.getLen(), pScalarType.getPrecision(), pScalarType.getScale()));
+            parsedNodes = 1;
+        }
+        return Pair.of(type, parsedNodes);
     }
 }
