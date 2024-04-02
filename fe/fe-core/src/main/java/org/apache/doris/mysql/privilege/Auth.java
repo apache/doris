@@ -80,6 +80,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -1960,4 +1961,97 @@ public class Auth implements Writable {
         return cluster;
     }
     // ====== END CLOUD ======
+
+    // for mysql.user table
+    public List<List<String>> getAllUserInfo() {
+        List<List<String>> userInfos = Lists.newArrayList();
+        readLock();
+        try {
+            Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
+            for (List<User> users : nameToUsers.values()) {
+                for (User user : users) {
+                    if (!user.isSetByDomainResolver()) {
+                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(32, ""));
+                        UserIdentity userIdent = user.getUserIdentity();
+                        userInfo.set(0, userIdent.getHost());
+                        userInfo.set(1, userIdent.getQualifiedUser());
+                        for (int i = 2; i <= 13; i++) {
+                            userInfo.set(i, "N");
+                        }
+
+                        PrivTable privTable = getUserGlobalPrivTable(userIdent);
+                        if (!privTable.entries.isEmpty()) {
+                            PrivEntry privEntry = privTable.entries.get(0);
+                            if (!privEntry.getPrivSet().isEmpty()) {
+                                boolean isAdmin = false;
+                                for (Privilege globalPriv : privEntry.getPrivSet().toPrivilegeList()) {
+                                    switch (globalPriv) {
+                                        case NODE_PRIV:
+                                            userInfo.set(2, "Y");
+                                            break;
+                                        case ADMIN_PRIV:
+                                            isAdmin = true;
+                                            userInfo.set(3, "Y");
+                                            break;
+                                        case GRANT_PRIV:
+                                            userInfo.set(4, "Y");
+                                            break;
+                                        case SELECT_PRIV:
+                                            userInfo.set(5, "Y");
+                                            break;
+                                        case LOAD_PRIV:
+                                            userInfo.set(6, "Y");
+                                            break;
+                                        case ALTER_PRIV:
+                                            userInfo.set(7, "Y");
+                                            break;
+                                        case CREATE_PRIV:
+                                            userInfo.set(8, "Y");
+                                            break;
+                                        case DROP_PRIV:
+                                            userInfo.set(9, "Y");
+                                            break;
+                                        case USAGE_PRIV:
+                                            userInfo.set(10, "Y");
+                                            break;
+                                        case SHOW_VIEW_PRIV:
+                                            userInfo.set(11, "Y");
+                                            break;
+                                        case CLUSTER_USAGE_PRIV:
+                                            userInfo.set(12, "Y");
+                                            break;
+                                        case STAGE_USAGE_PRIV:
+                                            userInfo.set(13, "Y");
+                                            break;
+                                        default:
+                                            break;
+                                    }
+                                }
+
+                                // If the user is admin, set all permissions to 'Y' except Node_priv
+                                if (isAdmin) {
+                                    for (int i = 4; i <= 13; i++) {
+                                        userInfo.set(i, "Y");
+                                    }
+                                }
+                            }
+                        }
+
+                        // Set password policy info
+                        userInfo.set(21, String.valueOf(getMaxConn(userIdent.getQualifiedUser())));
+                        List<List<String>> passWordPolicyInfo = getPasswdPolicyInfo(userIdent);
+                        if (passWordPolicyInfo.size() == 8) {
+                            for (int i = 0; i < passWordPolicyInfo.size(); i++) {
+                                userInfo.set(24 + i, passWordPolicyInfo.get(i).get(1));
+                            }
+                        }
+                        userInfos.add(userInfo);
+                    }
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return userInfos;
+    }
 }
