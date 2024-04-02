@@ -70,16 +70,16 @@ public:
         MemCounter() : _current_value(0), _peak_value(0) {}
 
         void add(int64_t delta) {
-            auto value = _current_value.fetch_add(delta, std::memory_order_relaxed) + delta;
+            auto value = _current_value.fetch_add(delta, std::memory_order_seq_cst) + delta;
             update_peak(value);
         }
 
         void add_no_update_peak(int64_t delta) {
-            _current_value.fetch_add(delta, std::memory_order_relaxed);
+            _current_value.fetch_add(delta, std::memory_order_seq_cst);
         }
 
         bool try_add(int64_t delta, int64_t max) {
-            auto cur_val = _current_value.load(std::memory_order_relaxed);
+            auto cur_val = _current_value.load(std::memory_order_seq_cst);
             auto new_val = 0;
             do {
                 new_val = cur_val + delta;
@@ -87,27 +87,27 @@ public:
                     return false;
                 }
             } while (UNLIKELY(!_current_value.compare_exchange_weak(cur_val, new_val,
-                                                                    std::memory_order_relaxed)));
+                                                                    std::memory_order_seq_cst)));
             update_peak(new_val);
             return true;
         }
 
-        void sub(int64_t delta) { _current_value.fetch_sub(delta, std::memory_order_relaxed); }
+        void sub(int64_t delta) { _current_value.fetch_sub(delta, std::memory_order_seq_cst); }
 
         void set(int64_t v) {
-            _current_value.store(v, std::memory_order_relaxed);
+            _current_value.store(v, std::memory_order_seq_cst);
             update_peak(v);
         }
 
         void update_peak(int64_t value) {
-            auto pre_value = _peak_value.load(std::memory_order_relaxed);
+            auto pre_value = _peak_value.load(std::memory_order_seq_cst);
             while (value > pre_value && !_peak_value.compare_exchange_weak(
-                                                pre_value, value, std::memory_order_relaxed)) {
+                                                pre_value, value, std::memory_order_seq_cst)) {
             }
         }
 
-        int64_t current_value() const { return _current_value.load(std::memory_order_relaxed); }
-        int64_t peak_value() const { return _peak_value.load(std::memory_order_relaxed); }
+        int64_t current_value() const { return _current_value.load(std::memory_order_seq_cst); }
+        int64_t peak_value() const { return _peak_value.load(std::memory_order_seq_cst); }
 
     private:
         std::atomic<int64_t> _current_value;

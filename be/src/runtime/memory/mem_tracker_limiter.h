@@ -131,6 +131,41 @@ public:
 
     static bool sys_mem_exceed_limit_check(int64_t bytes);
 
+    void consume(int64_t bytes) {
+        if (UNLIKELY(bytes == 0)) {
+            return;
+        }
+        _consumption->add(bytes);
+        if (_consumption->current_value() < 0 && _type == Type::QUERY) {
+            LOG(FATAL) << "test_no_equal_0_query consume, mem tracker label: " << _label
+                       << ", consumption: " << _consumption->current_value()
+                       << ", peak consumption: " << _consumption->peak_value();
+        }
+
+        if (_query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+            _query_statistics->set_current_used_memory_bytes(_consumption->current_value());
+        }
+    }
+
+    void consume_no_update_peak(int64_t bytes) { // need extreme fast
+        _consumption->add_no_update_peak(bytes);
+        if (_consumption->current_value() < 0 && _type == Type::QUERY) {
+            LOG(FATAL) << "test_no_equal_0_query consume_no_update_peak, mem tracker label: "
+                       << _label << ", consumption: " << _consumption->current_value()
+                       << ", peak consumption: " << _consumption->peak_value();
+        }
+    }
+
+    void release(int64_t bytes) {
+        _consumption->sub(bytes);
+        if (_consumption->current_value() < 0 && _type == Type::QUERY) {
+            LOG(FATAL) << "test_no_equal_0_query release, mem tracker label: " << _label
+                       << ", consumption: " << _consumption->current_value()
+                       << ", peak consumption: " << _consumption->peak_value();
+        }
+    }
+
     void set_consumption() { LOG(FATAL) << "MemTrackerLimiter set_consumption not supported"; }
     Type type() const { return _type; }
     int64_t group_num() const { return _group_num; }
