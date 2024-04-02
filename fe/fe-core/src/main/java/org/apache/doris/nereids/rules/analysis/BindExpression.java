@@ -500,8 +500,9 @@ public class BindExpression implements AnalysisRuleFactory {
                     SlotBinder bindByGroupBy = new SlotBinder(toScope(ctx.cascadesContext, groupBySlots),
                             ctx.cascadesContext, false, false, true
                     );
+                    Scope aggOuputScope = toScope(ctx.cascadesContext, childPlan.getOutput());
                     SlotBinder bindByAggOutput = new SlotBinder(
-                            toScope(ctx.cascadesContext, childPlan.getOutput()),
+                            aggOuputScope,
                             ctx.cascadesContext, false, true, true
                     );
                     SlotBinder bindByAggChild = new SlotBinder(
@@ -509,11 +510,13 @@ public class BindExpression implements AnalysisRuleFactory {
                             ctx.cascadesContext, false, true, true
                     );
 
-                    DefaultExpressionRewriter<Void> bindSlot = new DefaultExpressionRewriter<Void>() {
+                    SubExprAnalyzer bindSlot = new SubExprAnalyzer(
+                            aggOuputScope, ctx.cascadesContext) {
                         private boolean currentIsInAggregateFunction;
 
                         @Override
-                        public Expression visitAggregateFunction(AggregateFunction aggregateFunction, Void context) {
+                        public Expression visitAggregateFunction(
+                                AggregateFunction aggregateFunction, CascadesContext context) {
                             if (!currentIsInAggregateFunction) {
                                 currentIsInAggregateFunction = true;
                                 try {
@@ -527,7 +530,8 @@ public class BindExpression implements AnalysisRuleFactory {
                         }
 
                         @Override
-                        public Expression visitUnboundFunction(UnboundFunction unboundFunction, Void context) {
+                        public Expression visitUnboundFunction(
+                                UnboundFunction unboundFunction, CascadesContext context) {
                             if (!currentIsInAggregateFunction
                                     && isAggregateFunction(unboundFunction, functionRegistry)) {
                                 currentIsInAggregateFunction = true;
@@ -542,7 +546,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         }
 
                         @Override
-                        public Expression visitUnboundSlot(UnboundSlot unboundSlot, Void context) {
+                        public Expression visitUnboundSlot(UnboundSlot unboundSlot, CascadesContext context) {
                             if (currentIsInAggregateFunction) {
                                 // bind by agg child
                                 return bindSlot(unboundSlot, childPlan.child(), ctx.cascadesContext, false);
