@@ -21,16 +21,53 @@
 #include "vec/aggregate_functions/aggregate_function_group_array_intersect.h"
 
 namespace doris::vectorized {
+
+IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
+                                            const DataTypes& argument_types) {
+    WhichDataType which(nested_type);
+    if (which.idx == TypeIndex::Date || which.idx == TypeIndex::DateV2)
+        return new AggregateFunctionGroupArrayIntersect<DateV2>(argument_types);
+    else if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::DateTimeV2)
+        return new AggregateFunctionGroupArrayIntersect<DateTimeV2>(argument_types);
+    else {
+        /// Check that we can use plain version of AggregateFunctionGroupArrayIntersectGeneric
+        if (nested_type->is_value_unambiguously_represented_in_contiguous_memory_region())
+            return new AggregateFunctionGroupArrayIntersectGeneric<true>(argument_types);
+        else
+            return new AggregateFunctionGroupArrayIntersectGeneric<false>(argument_types);
+    }
+}
+
+inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+    const auto& nested_type = remove_nullable(
+            dynamic_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
+    AggregateFunctionPtr res = nullptr;
+
+    WhichDataType which(nested_type);
+#define DISPATCH(TYPE)                                                                  \
+    if (which.idx == TypeIndex::TYPE)                                                   \
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE>>( \
+                argument_types, result_is_nullable);
+    FOR_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
+
+    if (!res) {
+        res = AggregateFunctionPtr(create_with_extra_types(nested_type, argument_types));
+    }
+
+    if (!res)
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Illegal type {} of argument for aggregate function {}",
+                        argument_types[0]->get_name(), name);
+
+    return res;
+}
+
 AggregateFunctionPtr create_aggregate_function_group_array_intersect(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
     assert_unary(name, argument_types);
-    std::string demangled_name_before = boost::core::demangle(typeid((argument_types[0])).name());
-    LOG(INFO) << "in the cpp, before remove, name of argument_types[0]: " << demangled_name_before;
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
-
-    std::string demangled_name_argument_type = boost::core::demangle(typeid(argument_type).name());
-    LOG(INFO) << "in the cpp, after remove, name of argument_type: "
-              << demangled_name_argument_type;
 
     if (!WhichDataType(argument_type).is_array())
         throw Exception(ErrorCode::INVALID_ARGUMENT,
