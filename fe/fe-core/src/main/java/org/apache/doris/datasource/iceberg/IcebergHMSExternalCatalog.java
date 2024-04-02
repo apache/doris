@@ -24,7 +24,6 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.hive.HiveCatalog;
 
-import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {

@@ -27,7 +27,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
-import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
