@@ -219,13 +219,13 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         if (db == null) {
             throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
         }
-        ExternalTable table = db.getTableNullable(dbName);
+        ExternalTable table = db.getTableNullable(stmt.getTableName());
         if (table == null) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, dbName, dbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, stmt.getTableName(), dbName);
             }
         }
         try {

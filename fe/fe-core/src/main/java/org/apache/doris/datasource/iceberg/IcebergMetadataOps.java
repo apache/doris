@@ -162,16 +162,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (db == null) {
             throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
         }
-        ExternalTable table = db.getTableNullable(dbName);
+        String tableName = stmt.getTableName();
+        ExternalTable table = db.getTableNullable(tableName);
         if (table == null) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, dbName, dbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         }
-        String tableName = stmt.getTableName();
         catalog.dropTable(TableIdentifier.of(dbName, tableName));
         db.setUnInitialized(true);
     }

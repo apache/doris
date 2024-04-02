@@ -141,6 +141,13 @@ public class HiveMetadataOpsTest {
 
     @Test
     public void testCreateAndDropAll() throws UserException {
+        new MockUp<HMSExternalDatabase>(HMSExternalDatabase.class) {
+            // create table if getTableNullable return null
+            @Mock
+            HMSExternalTable getTableNullable(String tableName) {
+                return null;
+            }
+        };
         Map<String, String> dbProps = new HashMap<>();
         dbProps.put(HiveMetadataOps.LOCATION_URI_KEY, "file://loc/db");
         createDb("mockedDb", dbProps);
