@@ -291,9 +291,8 @@ public:
               _column_return_type(column_type),
               _filter_type(type),
               _filter_id(filter_id),
-              _build_bf_exactly(build_bf_exactly) {
-        _context = std::make_shared<RuntimeFilterContext>();
-    }
+              _build_bf_exactly(build_bf_exactly),
+              _context(new RuntimeFilterContext()) {}
 
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
