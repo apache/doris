@@ -395,7 +395,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 if (Config.ignore_backup_not_support_table_type) {
                     LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
-                        tblName, tbl.getType().toString());
+                            tblName, tbl.getType().toString());
                     tblRefsNotSupport.add(tblRef);
                     continue;
                 } else {
