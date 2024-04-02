@@ -26,16 +26,14 @@ services:
     env_file:
       - ./hadoop-hive.env
     container_name: doris--namenode
-    expose:
-      - "9870"
-      - "8020"
-      - "9000"
+    ports:
+      - "9870:9870"
+      - "9820:9820"
     healthcheck:
       test: [ "CMD", "curl", "http://localhost:9870/" ]
       interval: 5s
       timeout: 120s
       retries: 120
-    network_mode: "host"
 
   doris--datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
@@ -44,14 +42,13 @@ services:
     environment:
       SERVICE_PRECONDITION: "externalEnvIp:9870"
     container_name: doris--datanode
-    expose:
-      - "9864"
+    ports:
+      - "9864:9864"
     healthcheck:
       test: [ "CMD", "curl", "http://localhost:9864" ]
       interval: 5s
       timeout: 60s
       retries: 120
-    network_mode: "host"
 
   doris--hive-server:
     image: lishizhen/hive:3.1.2-postgresql-metastore
@@ -61,8 +58,8 @@ services:
       HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://externalEnvIp:5432/metastore"
       SERVICE_PRECONDITION: "externalEnvIp:9083"
     container_name: doris--hive-server
-    expose:
-      - "10000"
+    ports:
+      - "10000:10000"
     depends_on:
       - doris--datanode
       - doris--namenode
@@ -71,7 +68,6 @@ services:
       interval: 10s
       timeout: 120s
       retries: 120
-    network_mode: "host"
 
 
   doris--hive-metastore:
@@ -83,23 +79,21 @@ services:
     environment:
       SERVICE_PRECONDITION: "externalEnvIp:9870 externalEnvIp:9864 externalEnvIp:5432"
     container_name: doris--hive-metastore
-    expose:
-      - "9083"
+    ports:
+      - "9083:9083"
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
       - doris--hive-metastore-postgresql
-    network_mode: "host"
 
   doris--hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:3.1.0
     restart: always
     container_name: doris--hive-metastore-postgresql
-    expose:
-      - "5432"
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 60s
       retries: 120
-    network_mode: "host"
