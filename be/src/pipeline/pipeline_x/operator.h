@@ -455,6 +455,10 @@ public:
                 ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", "Spill", 1);
         _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
                                                          TUnit::BYTES, "Spill", 1);
+        _spill_write_wait_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
+        _spill_read_wait_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
         return Status::OK();
     }
 
@@ -463,6 +467,8 @@ public:
     RuntimeProfile::Counter* _spill_read_data_time;
     RuntimeProfile::Counter* _spill_deserialize_time;
     RuntimeProfile::Counter* _spill_read_bytes;
+    RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
+    RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
 };
 
 class DataSinkOperatorXBase;
@@ -770,6 +776,10 @@ public:
                                                         TUnit::BYTES, "Spill", 1);
         _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
                                                           TUnit::UNIT, "Spill", 1);
+        _spill_write_wait_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
+        _spill_read_wait_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
         return Status::OK();
     }
 
@@ -779,6 +789,8 @@ public:
     RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
     RuntimeProfile::Counter* _spill_data_size = nullptr;
     RuntimeProfile::Counter* _spill_block_count = nullptr;
+    RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
+    RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
 };
 
 /**

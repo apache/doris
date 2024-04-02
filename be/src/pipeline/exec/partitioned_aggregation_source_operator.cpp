@@ -227,9 +227,9 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                                !_shared_state->spill_partitions.empty()) {
                             for (auto& stream :
                                  _shared_state->spill_partitions[0]->spill_streams_) {
-                                stream->set_read_counters(Base::_spill_read_data_time,
-                                                          Base::_spill_deserialize_time,
-                                                          Base::_spill_read_bytes);
+                                stream->set_read_counters(
+                                        Base::_spill_read_data_time, Base::_spill_deserialize_time,
+                                        Base::_spill_read_bytes, Base::_spill_read_wait_io_timer);
                                 vectorized::Block block;
                                 bool eos = false;
                                 while (!eos) {
