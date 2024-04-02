@@ -20,6 +20,7 @@
 #include <type_traits>
 
 #include "common/object_pool.h"
+#include "exprs/runtime_filter.h"
 #include "runtime/type_limit.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -36,7 +37,7 @@ public:
     // assign minmax data
     virtual Status assign(void* min_data, void* max_data) = 0;
     // merge from other minmax_func
-    virtual Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) = 0;
+    virtual Status merge(MinMaxFuncBase* minmax_func) = 0;
     virtual ~MinMaxFuncBase() = default;
 
     bool contain_null() const { return _null_aware && _contain_null; }
@@ -126,25 +127,16 @@ public:
         }
     }
 
-    Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
+    Status merge(MinMaxFuncBase* minmax_func) override {
         if constexpr (std::is_same_v<T, StringRef>) {
             auto* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
             if constexpr (NeedMin) {
-                if (other_minmax->_min < _min) {
-                    auto& other_min = other_minmax->_min;
-                    auto* str = pool->add(new std::string(other_min.data, other_min.size));
-                    _min.data = str->data();
-                    _min.size = str->length();
-                }
+                _min = std::min(_min, other_minmax->_min);
             }
             if constexpr (NeedMax) {
-                if (other_minmax->_max > _max) {
-                    auto& other_max = other_minmax->_max;
-                    auto* str = pool->add(new std::string(other_max.data, other_max.size));
-                    _max.data = str->data();
-                    _max.size = str->length();
-                }
+                _max = std::max(_max, other_minmax->_max);
             }
+            store_string_ref();
         } else {
             auto* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
             if constexpr (NeedMin) {

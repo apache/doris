@@ -490,8 +490,7 @@ public:
         case RuntimeFilterType::MIN_FILTER:
         case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
-            RETURN_IF_ERROR(
-                    _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool));
+            RETURN_IF_ERROR(_context.minmax_func->merge(wrapper->_context.minmax_func.get()));
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
