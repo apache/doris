@@ -246,7 +246,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean databaseExist(String dbName) {
-        return client.getDatabase(dbName) != null;
+        return listDatabaseNames().contains(dbName);
     }
 
     public List<String> listDatabaseNames() {
