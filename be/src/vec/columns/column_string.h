@@ -106,7 +106,7 @@ private:
 
 public:
     void sanity_check() const;
-
+    bool is_variable_length() const override { return true; }
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -548,11 +548,17 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK_EQ(size(), self_row + 1);
+        // we check this column size and self_row because we need to make sure when we call
+        // replace_column_data() with a batch column data.
+        // and this column is cleared at the every beginning. next we replace column one by one, so
+        // the self_row is only equals size() - 1.
+        DCHECK(self_row != 0 && size() == self_row + 1);
         const auto& r = assert_cast<const ColumnString&>(rhs);
         auto data = r.get_data_at(row);
 
         if (!self_row) {
+            // self_row == 0 means we first call replace_column_data() with batch column data. so we
+            // should clean last batch column data.
             chars.clear();
             offsets[self_row] = data.size;
         } else {

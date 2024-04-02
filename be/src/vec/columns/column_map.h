@@ -94,6 +94,7 @@ public:
     ColumnPtr convert_to_full_column_if_const() const override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
+    bool is_variable_length() const override { return true; }
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
@@ -136,7 +137,7 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
+        DCHECK(self_row != 0 && size() == self_row + 1);
         const auto& r = assert_cast<const ColumnMap&>(rhs);
         const size_t nested_row_size = r.size_at(row);
         const size_t r_key_nested_start_off = r.offset_at(row);

@@ -126,6 +126,7 @@ public:
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
+    bool is_variable_length() const override { return true; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
@@ -219,7 +220,7 @@ public:
                              const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK_EQ(size(), self_row + 1);
+        DCHECK(self_row != 0 && size() == self_row + 1);
         const auto& r = assert_cast<const ColumnArray&>(rhs);
         const size_t nested_row_size = r.size_at(row);
         const size_t r_nested_start_off = r.offset_at(row);
