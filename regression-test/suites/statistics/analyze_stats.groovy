@@ -23,6 +23,7 @@ suite("test_analyze") {
 
     String tbl = "analyzetestlimited_duplicate_all"
 
+    sql """set global force_sample_analyze=false"""
     sql """
         DROP DATABASE IF EXISTS `${db}`
     """
