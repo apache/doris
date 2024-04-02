@@ -232,6 +232,7 @@ suite("bind_priority") {
 
 
 
+
         sql "drop table if exists test_bind_having_slots2"
         sql """create table test_bind_having_slots2
                 (id int)
@@ -286,6 +287,27 @@ suite("bind_priority") {
                 FROM test_bind_having_slots3  tbl_alias1
                 GROUP by pk + 6
                 HAVING  pk = 3
+                """
+
+        order_qt_having_bind_group_by """
+                select pk + 1 as pk, pk + 2 as pk, count(*)
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 4;
+                """
+
+        order_qt_having_bind_group_by """
+                select count(*) pk, pk + 1 as pk
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 1;
+                """
+
+        order_qt_having_bind_group_by """
+                select pk + 1 as pk, count(*) pk
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 2;
                 """
     }()
 }

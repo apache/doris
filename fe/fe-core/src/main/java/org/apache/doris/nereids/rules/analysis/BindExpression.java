@@ -498,7 +498,15 @@ public class BindExpression implements AnalysisRuleFactory {
                     }
                     List<Slot> groupBySlots = groupBySlotsBuilder.build();
                     SlotBinder bindByGroupBy = new SlotBinder(toScope(ctx.cascadesContext, groupBySlots),
-                            ctx.cascadesContext, false, false
+                            ctx.cascadesContext, false, false, true
+                    );
+                    SlotBinder bindByAggOutput = new SlotBinder(
+                            toScope(ctx.cascadesContext, childPlan.getOutput()),
+                            ctx.cascadesContext, false, true, true
+                    );
+                    SlotBinder bindByAggChild = new SlotBinder(
+                            toScope(ctx.cascadesContext, childPlan.child().getOutput()),
+                            ctx.cascadesContext, false, true, true
                     );
 
                     DefaultExpressionRewriter<Void> bindSlot = new DefaultExpressionRewriter<Void>() {
@@ -520,7 +528,8 @@ public class BindExpression implements AnalysisRuleFactory {
 
                         @Override
                         public Expression visitUnboundFunction(UnboundFunction unboundFunction, Void context) {
-                            if (!currentIsInAggregateFunction && isAggregateFunction(unboundFunction, functionRegistry)) {
+                            if (!currentIsInAggregateFunction
+                                    && isAggregateFunction(unboundFunction, functionRegistry)) {
                                 currentIsInAggregateFunction = true;
                                 try {
                                     return super.visitUnboundFunction(unboundFunction, context);
@@ -542,15 +551,11 @@ public class BindExpression implements AnalysisRuleFactory {
                                 if (expr instanceof SlotReference) {
                                     return expr;
                                 }
-                                expr = bindSlot(expr, childPlan, ctx.cascadesContext, false);
+                                expr = bindByAggOutput.bind(expr);
                                 if (expr instanceof SlotReference) {
                                     return expr;
                                 }
-                                expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
-                                if (expr instanceof SlotReference) {
-                                    return expr;
-                                }
-                                return expr;
+                                return bindByAggChild.bind(expr);
                             }
                         }
                     };
