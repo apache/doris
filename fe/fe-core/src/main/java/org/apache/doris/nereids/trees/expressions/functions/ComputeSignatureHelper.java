@@ -38,6 +38,8 @@ import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -413,9 +415,12 @@ public class ComputeSignatureHelper {
             return signature;
         }
         DateTimeV2Type argType = finalType;
-        List<DataType> newArgTypes = signature.argumentsTypes.stream()
-                .map(at -> TypeCoercionUtils.replaceDateTimeV2WithTarget(at, argType))
-                .collect(Collectors.toList());
+
+        ImmutableList.Builder<DataType> newArgTypesBuilder = ImmutableList.builderWithExpectedSize(signature.arity);
+        for (DataType at : signature.argumentsTypes) {
+            newArgTypesBuilder.add(TypeCoercionUtils.replaceDateTimeV2WithTarget(at, argType));
+        }
+        List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DateTimeV2Type) {

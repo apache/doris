@@ -42,8 +42,13 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     }
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i], false,
-                                                                &_runtime_filters[i], false));
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(
+                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i], false));
+        if (!_runtime_filters[i]->is_broadcast_join()) {
+            return Status::InternalError(
+                    "runtime filter({}) on NestedLoopJoin should be set to is_broadcast_join,",
+                    _runtime_filters[i]->get_name());
+        }
     }
     return Status::OK();
 }
@@ -51,9 +56,11 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
                                                                    int operator_id,
                                                                    const TPlanNode& tnode,
-                                                                   const DescriptorTbl& descs)
+                                                                   const DescriptorTbl& descs,
+                                                                   bool need_local_merge)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
                                                                     descs),
+          _need_local_merge(need_local_merge),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}

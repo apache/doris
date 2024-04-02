@@ -132,7 +132,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             sql "set enable_unique_key_partial_update=true;"
             test {
                 sql "insert into ${tableName}(c0,c1,c2,c8) values(1,1,1,10);"
-                exception "Unknown column 'c8' in 'test_partial_update_insert_light_schema_change_delete_column'"
+                exception "Unknown column 'c8' in"
             }
             sql "insert into ${tableName}(c0,c1,c2) values(1,1,1);"
             sql "set enable_unique_key_partial_update=false;"

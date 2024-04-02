@@ -38,6 +38,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/txn_manager.h"
+#include "util/debug_points.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -75,6 +76,10 @@ Status CloudTablet::capture_consistent_rowsets_unlocked(
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
                                        std::vector<RowSetSplits>* rs_splits,
                                        bool skip_missing_version) {
+    DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
+        LOG_WARNING("CloudTablet.capture_rs_readers.return e-230").tag("tablet_id", tablet_id());
+        return Status::Error<false>(-230, "injected error");
+    });
     Versions version_path;
     std::shared_lock rlock(_meta_lock);
     auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
@@ -588,7 +593,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaciton(
     }
     location_map.clear();
 
-    // 2. calc delete bimap for incremental data
+    // 2. calc delete bitmap for incremental data
     RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));

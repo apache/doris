@@ -48,6 +48,11 @@ private:
 
     friend class SpillSortSinkOperatorX;
 
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::shared_ptr<SpillSortSharedState> _shared_state_holder;
+
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _partial_sort_timer = nullptr;
@@ -57,11 +62,8 @@ private:
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 
     bool _eos = false;
-    bool _is_spilling = false;
     vectorized::SpillStreamSPtr _spilling_stream;
     std::shared_ptr<Dependency> _finish_dependency;
-    std::mutex _spill_lock;
-    std::condition_variable _spill_cv;
 };
 
 class SpillSortSinkOperatorX final : public DataSinkOperatorX<SpillSortSinkLocalState> {

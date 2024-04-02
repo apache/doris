@@ -71,7 +71,8 @@ public class ExternalMetaCacheMgr {
                 "ExternalMetaCacheMgr", 120, true);
         hudiPartitionMgr = HudiPartitionMgr.get(executor);
         fsCache = new FileSystemCache(executor);
-        rowCountCache = new ExternalRowCountCache(executor);
+        rowCountCache = new ExternalRowCountCache(executor,
+                Config.external_cache_expire_time_minutes_after_access * 60, null);
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr();
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
     }

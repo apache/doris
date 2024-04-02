@@ -151,7 +151,7 @@ public:
     /// @TEMPORARY: for be_exec_version=3
     template <class Function>
     void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_3_0"};
+        static std::string suffix {"_old_for_version_before_4_0"};
         function_to_replace[Function::name] = Function::name + suffix;
         register_function(Function::name + suffix, &createDefaultFunction<Function>);
     }

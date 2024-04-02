@@ -864,7 +864,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         int64_t table_id = tablet_ids[tablet_id].table_id();
         int64_t partition_id = i.partition_id();
 
-        std::string ver_key = version_key({instance_id, db_id, table_id, partition_id});
+        std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
         int64_t version = -1;
         std::string ver_val_str;
         int64_t new_version = -1;
@@ -983,11 +983,11 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
 
         txn->put(i.first, ver_val);
         put_size += i.first.size() + ver_val.size();
-        LOG(INFO) << "xxx put version_key=" << hex(i.first) << " version:" << i.second
+        LOG(INFO) << "xxx put partition_version_key=" << hex(i.first) << " version:" << i.second
                   << " txn_id=" << txn_id;
 
         std::string_view ver_key = i.first;
-        //VersionKeyInfo  {instance_id, db_id, table_id, partition_id}
+        //PartitionVersionKeyInfo  {instance_id, db_id, table_id, partition_id}
         ver_key.remove_prefix(1); // Remove key space
         std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
         int ret = decode_key(&ver_key, &out);
@@ -1007,6 +1007,15 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         response->add_table_ids(table_id);
         response->add_partition_ids(partition_id);
         response->add_versions(i.second);
+    }
+
+    // Save table versions
+    num_put_keys += table_id_tablet_ids.size();
+    for (auto& i : table_id_tablet_ids) {
+        std::string ver_key = table_version_key({instance_id, db_id, i.first});
+        txn->atomic_add(ver_key, 1);
+        put_size += ver_key.size();
+        LOG(INFO) << "xxx atomic add table_version_key=" << hex(ver_key) << " txn_id=" << txn_id;
     }
 
     LOG(INFO) << " before update txn_info=" << txn_info.ShortDebugString();

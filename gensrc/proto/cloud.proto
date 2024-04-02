@@ -76,6 +76,8 @@ message InstanceInfoPB {
 
     repeated string resource_ids = 100;
     repeated string storage_vault_names = 101;
+    optional string default_storage_vault_id = 102;
+    optional string default_storage_vault_name = 103;
 }
 
 message StagePB {
@@ -188,12 +190,18 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional string vault_name = 16;
 }
 
 message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
+}
+
+message DefaultStorageVaultInfo {
+    optional string id = 1;
+    optional string name = 2;
 }
 
 message HdfsBuildConf {
@@ -718,6 +726,9 @@ message GetVersionRequest {
     repeated int64 db_ids = 6;
     repeated int64 table_ids = 7;
     repeated int64 partition_ids = 8;
+
+    // True if get table version
+    optional bool is_table_version = 9;
 };
 
 message GetVersionResponse {
@@ -745,6 +756,9 @@ message AlterObjStoreInfoRequest {
 
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
+        ADD_BUILT_IN_VAULT = 102;
+
+        SET_DEFAULT_VAULT = 200;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
@@ -782,6 +796,7 @@ message CreateTabletsRequest {
 message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
+    optional string storage_vault_name = 3;
 }
 
 message UpdateTabletRequest {
@@ -853,6 +868,8 @@ message IndexRequest {
     repeated int64 index_ids = 2;
     optional int64 table_id = 3;
     optional int64 expiration = 4;
+    optional int64 db_id = 5;
+    optional bool is_new_table = 6;
 }
 
 message IndexResponse {
