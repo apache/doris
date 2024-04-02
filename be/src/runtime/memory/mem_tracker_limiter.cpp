@@ -203,7 +203,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     (*snapshots).emplace_back(snapshot);
 
 #ifdef ADDRESS_SANITIZER
-    snapshot.type = "[ASAN]" + "process resident memory"; // from /proc VmRSS VmHWM
+    snapshot.type = "[ASAN]process resident memory"; // from /proc VmRSS VmHWM
 #else
     snapshot.type = "process resident memory"; // from /proc VmRSS VmHWM
 #endif
