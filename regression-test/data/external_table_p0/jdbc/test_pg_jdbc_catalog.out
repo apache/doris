@@ -3,6 +3,7 @@
 catalog_pg_test
 doris_test
 information_schema
+mysql
 pg_catalog
 public
 
@@ -2274,19 +2275,23 @@ varchar_value	TEXT	Yes	false	\N	NONE
 -- !specified_database_1 --
 doris_test
 information_schema
+mysql
 
 -- !specified_database_2 --
 doris_test
 information_schema
+mysql
 
 -- !specified_database_3 --
 catalog_pg_test
 information_schema
+mysql
 pg_catalog
 public
 
 -- !specified_database_4 --
 information_schema
+mysql
 
 -- !test_old --
 123	abc

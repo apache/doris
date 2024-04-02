@@ -39,6 +39,8 @@ class TShowVariableRequest;
 class TShowVariableResult;
 class TShowProcessListRequest;
 class TShowProcessListResult;
+class TShowUserRequest;
+class TShowUserResult;
 
 // this class is a helper for getting schema info from FE
 class SchemaHelper {
@@ -82,6 +84,8 @@ public:
     static Status show_process_list(const std::string& ip, const int32_t port,
                                     const TShowProcessListRequest& request,
                                     TShowProcessListResult* result);
+    static Status show_user(const std::string& ip, const int32_t port,
+                            const TShowUserRequest& request, TShowUserResult* result);
 };
 
 } // namespace doris
