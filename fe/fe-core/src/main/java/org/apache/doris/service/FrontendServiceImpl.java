@@ -212,6 +212,8 @@ import org.apache.doris.thrift.TRollbackTxnResult;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
+import org.apache.doris.thrift.TShowUserRequest;
+import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
@@ -3843,4 +3845,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    @Override
+    public TShowUserResult showUser(TShowUserRequest request) {
+        List<List<String>> userInfo = Env.getCurrentEnv().getAuth().getAllUserInfo();
+        TShowUserResult result = new TShowUserResult();
+        result.setUserinfoList(userInfo);
+        return result;
+    }
 }
