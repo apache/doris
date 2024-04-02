@@ -196,7 +196,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                     }
                 }
                 Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
-                if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, newProbeSlot)) {
+                if (!RuntimeFilterGenerator.checkProbeSlot(ctx, newProbeSlot)) {
                     return false;
                 }
                 scan = ctx.getAliasTransferPair(newProbeSlot).first;
