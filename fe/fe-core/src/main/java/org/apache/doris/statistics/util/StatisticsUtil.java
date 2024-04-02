@@ -191,7 +191,7 @@ public class StatisticsUtil {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
-        sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
+        sessionVariable.workloadGroup = "bg_group";
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.enablePageCache = false;
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;

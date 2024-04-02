@@ -144,6 +144,17 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(1, DEFAULT_GROUP_NAME, properties);
         nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
         idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
+
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(WorkloadGroup.CPU_SHARE, "1024");
+        properties2.put(WorkloadGroup.MEMORY_LIMIT, "5%");
+        properties2.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+        properties2.put(WorkloadGroup.SCAN_THREAD_NUM, "2");
+        properties2.put(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM, "2");
+        properties2.put(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM, "1");
+        WorkloadGroup backgroundTaskGroup = new WorkloadGroup(2, "bg_group", properties2);
+        nameToWorkloadGroup.put(backgroundTaskGroup.getName(), backgroundTaskGroup);
+        idToWorkloadGroup.put(backgroundTaskGroup.getId(), backgroundTaskGroup);
     }
 
     public static WorkloadGroupMgr read(DataInput in) throws IOException {
@@ -504,6 +515,16 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(WorkloadGroup.CPU_SHARE, "1024");
+        properties2.put(WorkloadGroup.MEMORY_LIMIT, "5%");
+        properties2.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+        properties2.put(WorkloadGroup.SCAN_THREAD_NUM, "2");
+        properties2.put(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM, "2");
+        properties2.put(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM, "1");
+        WorkloadGroup backgroundTaskGroup = new WorkloadGroup(2, "bg_group", properties2);
+        idToWorkloadGroup.put(backgroundTaskGroup.getId(), backgroundTaskGroup);
+
         idToWorkloadGroup.forEach(
                 (id, workloadGroup) -> nameToWorkloadGroup.put(workloadGroup.getName(), workloadGroup));
     }
