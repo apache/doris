@@ -29,7 +29,6 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
@@ -615,9 +614,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createDb not implemented");
@@ -633,9 +629,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropDb not implemented");
@@ -651,9 +644,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void createTable(CreateTableStmt stmt) throws UserException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createTable not implemented");
@@ -669,9 +659,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropTable not implemented");

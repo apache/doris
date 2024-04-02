@@ -34,6 +34,8 @@ class SpillDataDir;
 
 class SpillStream {
 public:
+    // to avoid too many small file writes
+    static constexpr int MIN_SPILL_WRITE_BATCH_MEM = 32 * 1024;
     SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                 std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                 RuntimeProfile* profile);

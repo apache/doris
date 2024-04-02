@@ -728,7 +728,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         _send_block_callback->cntl_->http_request().set_content_type("application/json");
 
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(
                     send_block_closure->cntl_.get(), nullptr, send_block_closure->response_.get(),
                     send_block_closure.get());
@@ -737,7 +736,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     } else {
         _send_block_callback->cntl_->http_request().Clear();
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_block(
                     send_block_closure->cntl_.get(), send_block_closure->request_.get(),
                     send_block_closure->response_.get(), send_block_closure.get());
@@ -1136,6 +1134,8 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _write_file_cache = table_sink.write_file_cache;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
+    _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
     if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {

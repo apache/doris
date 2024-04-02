@@ -127,8 +127,10 @@ suite ("test_rename_column") {
         PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "false")
         """
     test {
-        sql """ ALTER table ${tableName} RENAME COLUMN  date new_date """
-        exception "not implemented"
+        if (!isCloudMode()) {
+            sql """ ALTER table ${tableName} RENAME COLUMN  date new_date """
+            exception "not implemented"
+        }
     }
     sql """ DROP TABLE ${tableName} """
 

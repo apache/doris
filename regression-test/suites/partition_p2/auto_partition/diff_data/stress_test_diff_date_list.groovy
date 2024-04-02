@@ -86,6 +86,7 @@ suite("stress_test_diff_date_list", "p2,nonConcurrent") {
         file.write(content)
     }
 
+    def load_result
     def doris_dbgen_stream_load_data = { db_name, tb_name, part_type, i ->
         def list = []
         def dir = new File("""${context.file.parent}""" + "/" + part_type + "_" + i)
@@ -109,6 +110,9 @@ suite("stress_test_diff_date_list", "p2,nonConcurrent") {
                 }
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
+                if (json.Status.toLowerCase() != "success" || 0 != json.NumberFilteredRows) {
+                    load_result = result
+                }
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(0, json.NumberFilteredRows)
             }
@@ -168,6 +172,13 @@ suite("stress_test_diff_date_list", "p2,nonConcurrent") {
     }
     thread3.join()
     thread4.join()
+
+    if (load_result != null) {
+        def json = parseJson(load_result)
+        log.info("Stream load failed. ${load_result}".toString())
+        assertEquals("success", json.Status.toLowerCase())
+        assertEquals(0, json.NumberFilteredRows)
+    }
 
     // TEST-BODY
     def origin_count = sql """select count(*) from ${database_name}.${tb_name1}"""

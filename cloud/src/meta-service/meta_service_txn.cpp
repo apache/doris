@@ -35,12 +35,12 @@ struct TableStats {
 
     TableStats() = default;
 
-    TableStats(int64_t num_rows): updated_row_count(num_rows) {}
+    TableStats(int64_t num_rows) : updated_row_count(num_rows) {}
 
     std::string to_string() const {
-            std::stringstream ss;
-            ss << "updated_row_count: " << updated_row_count;
-            return ss.str();
+        std::stringstream ss;
+        ss << "updated_row_count: " << updated_row_count;
+        return ss.str();
     }
 };
 
@@ -50,9 +50,17 @@ static void get_pb_from_tablestats(TableStats& stats, TableStatsPB* stats_pb) {
 
 static void calc_table_stats(std::map<int64_t, TabletIndexPB>& tablet_ids,
                              std::map<int64_t, TabletStats>& tablet_stats,
-                             std::map<int64_t, TableStats>& table_stats) {
+                             std::map<int64_t, TableStats>& table_stats,
+                             std::vector<int64_t> base_tablet_ids) {
     int64_t table_id;
+
+    VLOG_DEBUG << "base_tablet_ids size: " << base_tablet_ids.size();
     for (auto& [tablet_id, tablet_stat] : tablet_stats) {
+        // if tablet_id not in base_tablet_ids then skip it
+        if (std::find(base_tablet_ids.begin(), base_tablet_ids.end(), tablet_id) ==
+            base_tablet_ids.end()) {
+            continue;
+        }
         table_id = tablet_ids[tablet_id].table_id();
         if (table_stats.find(table_id) == table_stats.end()) {
             table_stats[table_id] = TableStats(tablet_stat.num_rows);
@@ -479,14 +487,12 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
 }
 
 void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
-                               const std::string& instance_id,
-                               const CommitTxnRequest* request,
+                               const std::string& instance_id, const CommitTxnRequest* request,
                                Transaction* txn, int64_t db_id) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
     if (!request->has_commit_attachment()) {
-        ss << "failed to get commit attachment from req, db_id=" << db_id
-           << " txn_id=" << txn_id;
+        ss << "failed to get commit attachment from req, db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
         return;
     }
@@ -518,8 +524,7 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
     if (prev_progress_existed) {
         if (!prev_progress_info.ParseFromString(rl_progress_val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            ss << "failed to parse routine load progress, db_id=" << db_id
-               << " txn_id=" << txn_id;
+            ss << "failed to parse routine load progress, db_id=" << db_id << " txn_id=" << txn_id;
             msg = ss.str();
             return;
         }
@@ -540,11 +545,17 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
     if (prev_progress_info.has_stat()) {
         const RoutineLoadJobStatisticPB& prev_statistic_info = prev_progress_info.stat();
 
-        new_statistic_info->set_filtered_rows(prev_statistic_info.filtered_rows() + commit_attachment.filtered_rows());
-        new_statistic_info->set_loaded_rows(prev_statistic_info.loaded_rows() + commit_attachment.loaded_rows());
-        new_statistic_info->set_unselected_rows(prev_statistic_info.unselected_rows() + commit_attachment.unselected_rows());
-        new_statistic_info->set_received_bytes(prev_statistic_info.received_bytes() + commit_attachment.received_bytes());
-        new_statistic_info->set_task_execution_time_ms(prev_statistic_info.task_execution_time_ms() + commit_attachment.task_execution_time_ms());
+        new_statistic_info->set_filtered_rows(prev_statistic_info.filtered_rows() +
+                                              commit_attachment.filtered_rows());
+        new_statistic_info->set_loaded_rows(prev_statistic_info.loaded_rows() +
+                                            commit_attachment.loaded_rows());
+        new_statistic_info->set_unselected_rows(prev_statistic_info.unselected_rows() +
+                                                commit_attachment.unselected_rows());
+        new_statistic_info->set_received_bytes(prev_statistic_info.received_bytes() +
+                                               commit_attachment.received_bytes());
+        new_statistic_info->set_task_execution_time_ms(
+                prev_statistic_info.task_execution_time_ms() +
+                commit_attachment.task_execution_time_ms());
     } else {
         new_statistic_info->set_filtered_rows(commit_attachment.filtered_rows());
         new_statistic_info->set_loaded_rows(commit_attachment.loaded_rows());
@@ -604,14 +615,13 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     err = txn->get(rl_progress_key, &rl_progress_val);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND;
-        ss << "pregress info not found, db_id=" << db_id
-           << " job_id=" << job_id << " err=" << err;
+        ss << "pregress info not found, db_id=" << db_id << " job_id=" << job_id << " err=" << err;
         msg = ss.str();
         return;
     } else if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
-        ss << "failed to get pregress info, db_id=" << db_id
-           << " job_id=" << job_id << " err=" << err;
+        ss << "failed to get pregress info, db_id=" << db_id << " job_id=" << job_id
+           << " err=" << err;
         msg = ss.str();
         return;
     }
@@ -829,7 +839,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     std::vector<std::pair<std::string, std::string>> rowsets;
     std::map<std::string, uint64_t> new_versions;
     std::map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
-    std::map<int64_t, TabletIndexPB> tablet_ids;  // tablet_id -> {table/index/partition}_id
+    std::map<int64_t, TabletIndexPB> tablet_ids; // tablet_id -> {table/index/partition}_id
     std::map<int64_t, std::vector<int64_t>> table_id_tablet_ids; // table_id -> tablets_ids
     rowsets.reserve(tmp_rowsets_meta.size());
     for (auto& [_, i] : tmp_rowsets_meta) {
@@ -864,7 +874,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         int64_t table_id = tablet_ids[tablet_id].table_id();
         int64_t partition_id = i.partition_id();
 
-        std::string ver_key = version_key({instance_id, db_id, table_id, partition_id});
+        std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
         int64_t version = -1;
         std::string ver_val_str;
         int64_t new_version = -1;
@@ -983,11 +993,11 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
 
         txn->put(i.first, ver_val);
         put_size += i.first.size() + ver_val.size();
-        LOG(INFO) << "xxx put version_key=" << hex(i.first) << " version:" << i.second
+        LOG(INFO) << "xxx put partition_version_key=" << hex(i.first) << " version:" << i.second
                   << " txn_id=" << txn_id;
 
         std::string_view ver_key = i.first;
-        //VersionKeyInfo  {instance_id, db_id, table_id, partition_id}
+        //PartitionVersionKeyInfo  {instance_id, db_id, table_id, partition_id}
         ver_key.remove_prefix(1); // Remove key space
         std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
         int ret = decode_key(&ver_key, &out);
@@ -1007,6 +1017,15 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         response->add_table_ids(table_id);
         response->add_partition_ids(partition_id);
         response->add_versions(i.second);
+    }
+
+    // Save table versions
+    num_put_keys += table_id_tablet_ids.size();
+    for (auto& i : table_id_tablet_ids) {
+        std::string ver_key = table_version_key({instance_id, db_id, i.first});
+        txn->atomic_add(ver_key, 1);
+        put_size += ver_key.size();
+        LOG(INFO) << "xxx atomic add table_version_key=" << hex(ver_key) << " txn_id=" << txn_id;
     }
 
     LOG(INFO) << " before update txn_info=" << txn_info.ShortDebugString();
@@ -1152,8 +1171,10 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     // calculate table stats from tablets stats
-    std::map<int64_t/*table_id*/, TableStats> table_stats;
-    calc_table_stats(tablet_ids, tablet_stats, table_stats);
+    std::map<int64_t /*table_id*/, TableStats> table_stats;
+    std::vector<int64_t> base_tablet_ids(request->base_tablet_ids().begin(),
+                                         request->base_tablet_ids().end());
+    calc_table_stats(tablet_ids, tablet_stats, table_stats, base_tablet_ids);
     for (const auto& pair : table_stats) {
         TableStatsPB* stats_pb = response->add_table_stats();
         auto table_id = pair.first;

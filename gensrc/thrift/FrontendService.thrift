@@ -925,6 +925,7 @@ enum TSchemaTableName {
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
   WORKLOAD_GROUPS = 3, // db information_schema's table
+  ROUTINES_INFO = 4, // db information_schema's table
 }
 
 struct TMetadataTableRequestParams {

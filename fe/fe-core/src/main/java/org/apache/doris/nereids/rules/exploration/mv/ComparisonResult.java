@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
@@ -27,6 +28,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * comparison result of view and query
@@ -111,8 +113,14 @@ public class ComparisonResult {
             return this;
         }
 
-        public Builder addViewNoNullableSlot(Set<Slot> viewNoNullableSlot) {
-            viewNoNullableSlotBuilder.add(ImmutableSet.copyOf(viewNoNullableSlot));
+        /**Add slots which should reject null slots in view*/
+        public Builder addViewNoNullableSlot(Pair<Set<Slot>, Set<Slot>> viewNoNullableSlotsPair) {
+            if (!viewNoNullableSlotsPair.first.isEmpty()) {
+                viewNoNullableSlotBuilder.add(viewNoNullableSlotsPair.first);
+            }
+            if (!viewNoNullableSlotsPair.second.isEmpty()) {
+                viewNoNullableSlotBuilder.add(viewNoNullableSlotsPair.second);
+            }
             return this;
         }
 
@@ -127,7 +135,9 @@ public class ComparisonResult {
 
         public ComparisonResult build() {
             Preconditions.checkArgument(valid, "Comparison result must be valid");
-            return new ComparisonResult(queryBuilder.build(), queryAllPulledUpExpressionsBuilder.build(),
+            return new ComparisonResult(queryBuilder.build(),
+                    queryAllPulledUpExpressionsBuilder.build().stream()
+                            .filter(expr -> !expr.isInferred()).collect(Collectors.toList()),
                     viewBuilder.build(), viewNoNullableSlotBuilder.build(), valid, "");
         }
     }

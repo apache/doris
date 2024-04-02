@@ -19,39 +19,42 @@
 
 #include <strings.h>
 
+#include <memory>
 #include <ostream>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
 
 namespace doris {
 
-Status Decompressor::create_decompressor(CompressType type, Decompressor** decompressor) {
+Status Decompressor::create_decompressor(CompressType type,
+                                         std::unique_ptr<Decompressor>* decompressor) {
     switch (type) {
     case CompressType::UNCOMPRESSED:
-        *decompressor = nullptr;
+        decompressor->reset(nullptr);
         break;
     case CompressType::GZIP:
-        *decompressor = new GzipDecompressor(false);
+        decompressor->reset(new GzipDecompressor(false));
         break;
     case CompressType::DEFLATE:
-        *decompressor = new GzipDecompressor(true);
+        decompressor->reset(new GzipDecompressor(true));
         break;
     case CompressType::BZIP2:
-        *decompressor = new Bzip2Decompressor();
+        decompressor->reset(new Bzip2Decompressor());
         break;
     case CompressType::LZ4FRAME:
-        *decompressor = new Lz4FrameDecompressor();
+        decompressor->reset(new Lz4FrameDecompressor());
         break;
     case CompressType::LZ4BLOCK:
-        *decompressor = new Lz4BlockDecompressor();
+        decompressor->reset(new Lz4BlockDecompressor());
         break;
     case CompressType::SNAPPYBLOCK:
-        *decompressor = new SnappyBlockDecompressor();
+        decompressor->reset(new SnappyBlockDecompressor());
         break;
     case CompressType::LZOP:
-        *decompressor = new LzopDecompressor();
+        decompressor->reset(new LzopDecompressor());
         break;
     default:
         return Status::InternalError("Unknown compress type: {}", type);
@@ -63,6 +66,82 @@ Status Decompressor::create_decompressor(CompressType type, Decompressor** decom
     }
 
     return st;
+}
+
+Status Decompressor::create_decompressor(TFileCompressType::type type,
+                                         std::unique_ptr<Decompressor>* decompressor) {
+    CompressType compress_type;
+    switch (type) {
+    case TFileCompressType::PLAIN:
+    case TFileCompressType::UNKNOWN:
+        compress_type = CompressType::UNCOMPRESSED;
+        break;
+    case TFileCompressType::GZ:
+        compress_type = CompressType::GZIP;
+        break;
+    case TFileCompressType::LZO:
+    case TFileCompressType::LZOP:
+        compress_type = CompressType::LZOP;
+        break;
+    case TFileCompressType::BZ2:
+        compress_type = CompressType::BZIP2;
+        break;
+    case TFileCompressType::LZ4FRAME:
+        compress_type = CompressType::LZ4FRAME;
+        break;
+    case TFileCompressType::LZ4BLOCK:
+        compress_type = CompressType::LZ4BLOCK;
+        break;
+    case TFileCompressType::DEFLATE:
+        compress_type = CompressType::DEFLATE;
+        break;
+    case TFileCompressType::SNAPPYBLOCK:
+        compress_type = CompressType::SNAPPYBLOCK;
+        break;
+    default:
+        return Status::InternalError<false>("unknown compress type: {}", type);
+    }
+    RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, decompressor));
+
+    return Status::OK();
+}
+
+Status Decompressor::create_decompressor(TFileFormatType::type type,
+                                         std::unique_ptr<Decompressor>* decompressor) {
+    CompressType compress_type;
+    switch (type) {
+    case TFileFormatType::FORMAT_PROTO:
+        [[fallthrough]];
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+        compress_type = CompressType::UNCOMPRESSED;
+        break;
+    case TFileFormatType::FORMAT_CSV_GZ:
+        compress_type = CompressType::GZIP;
+        break;
+    case TFileFormatType::FORMAT_CSV_BZ2:
+        compress_type = CompressType::BZIP2;
+        break;
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        compress_type = CompressType::LZ4FRAME;
+        break;
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        compress_type = CompressType::LZ4BLOCK;
+        break;
+    case TFileFormatType::FORMAT_CSV_LZOP:
+        compress_type = CompressType::LZOP;
+        break;
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+        compress_type = CompressType::DEFLATE;
+        break;
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        compress_type = CompressType::SNAPPYBLOCK;
+        break;
+    default:
+        return Status::InternalError<false>("unknown compress type: {}", type);
+    }
+    RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, decompressor));
+
+    return Status::OK();
 }
 
 uint32_t Decompressor::_read_int32(uint8_t* buf) {

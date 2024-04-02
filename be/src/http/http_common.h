@@ -66,5 +66,6 @@ static const std::string HTTP_MEMTABLE_ON_SINKNODE = "memtable_on_sink_node";
 static const std::string HTTP_WAL_ID_KY = "wal_id";
 static const std::string HTTP_AUTH_CODE = "auth_code";
 static const std::string HTTP_GROUP_COMMIT = "group_commit";
+static const std::string HTTP_CLOUD_CLUSTER = "cloud_cluster";
 
 } // namespace doris

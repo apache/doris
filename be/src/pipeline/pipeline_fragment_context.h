@@ -190,6 +190,8 @@ protected:
 
     std::shared_ptr<QueryContext> _query_ctx;
 
+    QueryThreadContext _query_thread_context;
+
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer = nullptr;
     RuntimeProfile::Counter* _prepare_timer = nullptr;

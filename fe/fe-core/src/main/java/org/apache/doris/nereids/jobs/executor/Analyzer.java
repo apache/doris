@@ -43,7 +43,6 @@ import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
-import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
@@ -147,7 +146,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // please see rule BindSlotReference or BindFunction for example
                 new EliminateDistinctConstant(),
                 new ProjectWithDistinctToAggregate(),
-                new ResolveOrdinalInOrderByAndGroupBy(),
                 new ReplaceExpressionByChildOutput(),
                 new OneRowRelationExtractAggregate()
             ),

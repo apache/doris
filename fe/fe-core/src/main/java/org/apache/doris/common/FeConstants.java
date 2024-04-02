@@ -83,4 +83,8 @@ public class FeConstants {
     public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
 
     public static String METADATA_FAILURE_RECOVERY_KEY = "metadata_failure_recovery";
+
+    public static String CLOUD_RETRY_E230 = "E-230";
+
+    public static String BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
 }
