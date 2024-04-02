@@ -37,6 +37,8 @@ class TShowVariableRequest;
 class TShowVariableResult;
 class TShowProcessListRequest;
 class TShowProcessListResult;
+class TShowUserRequest;
+class TShowUserResult;
 
 Status SchemaHelper::get_db_names(const std::string& ip, const int32_t port,
                                   const TGetDbsParams& request, TGetDbsResult* result) {
@@ -131,6 +133,14 @@ Status SchemaHelper::show_process_list(const std::string& ip, const int32_t port
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
             ip, port, [&request, &result](FrontendServiceConnection& client) {
                 client->showProcessList(*result, request);
+            });
+}
+
+Status SchemaHelper::show_user(const std::string& ip, const int32_t port,
+                               const TShowUserRequest& request, TShowUserResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->showUser(*result, request);
             });
 }
 

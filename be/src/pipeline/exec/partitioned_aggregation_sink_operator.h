@@ -131,7 +131,8 @@ public:
         RETURN_IF_ERROR(status);
         spill_stream->set_write_counters(Base::_spill_serialize_block_timer,
                                          Base::_spill_block_count, Base::_spill_data_size,
-                                         Base::_spill_write_disk_timer);
+                                         Base::_spill_write_disk_timer,
+                                         Base::_spill_write_wait_io_timer);
 
         status = to_block(context, keys, values, null_key_data);
         RETURN_IF_ERROR(status);
