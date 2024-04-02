@@ -1497,6 +1497,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids, &succ_tablets,
                                              &discontinuous_version_tablets,
                                              &table_id_to_num_delta_rows);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
         if (status.ok()) {
             break;
@@ -1695,6 +1696,7 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
 
     std::vector<TTabletInfo> tablet_infos;
     EngineCloneTask engine_task(clone_req, master_info, req.signature, &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
     // Return result to fe
     TFinishTaskRequest finish_task_request;

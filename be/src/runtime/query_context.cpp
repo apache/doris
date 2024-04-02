@@ -23,6 +23,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_query_statistics_mgr.h"
+#include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
 
@@ -46,6 +47,8 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
           _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
           _query_options(query_options) {
+    _init_query_mem_tracker();
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
     this->coord_addr = coord_addr;
     _start_time = VecDateTimeValue::local_time();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
@@ -53,12 +56,17 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
     _execution_dependency =
             pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this));
+            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
 
     timeout_second = query_options.execution_timeout;
 
-    bool has_query_mem_tracker = query_options.__isset.mem_limit && (query_options.mem_limit > 0);
-    int64_t _bytes_limit = has_query_mem_tracker ? query_options.mem_limit : -1;
+    register_memory_statistics();
+    register_cpu_statistics();
+}
+
+void QueryContext::_init_query_mem_tracker() {
+    bool has_query_mem_limit = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
+    int64_t _bytes_limit = has_query_mem_limit ? _query_options.mem_limit : -1;
     if (_bytes_limit > MemInfo::mem_limit()) {
         VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(_bytes_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
@@ -66,28 +74,26 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
                     << ". Using process memory limit instead";
         _bytes_limit = MemInfo::mem_limit();
     }
-    if (query_options.query_type == TQueryType::SELECT) {
-        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+    if (_query_options.query_type == TQueryType::SELECT) {
+        query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::QUERY, fmt::format("Query#Id={}", print_id(_query_id)),
                 _bytes_limit);
-    } else if (query_options.query_type == TQueryType::LOAD) {
-        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+    } else if (_query_options.query_type == TQueryType::LOAD) {
+        query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
                 _bytes_limit);
     } else { // EXTERNAL
-        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+        query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD, fmt::format("External#Id={}", print_id(_query_id)),
                 _bytes_limit);
     }
-    if (query_options.__isset.is_report_success && query_options.is_report_success) {
+    if (_query_options.__isset.is_report_success && _query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
     }
-
-    register_memory_statistics();
-    register_cpu_statistics();
 }
 
 QueryContext::~QueryContext() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
     // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
     // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
     // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
@@ -127,6 +133,13 @@ QueryContext::~QueryContext() {
             LOG(WARNING) << "Dump trace log failed bacause " << e.what();
         }
     }
+    _runtime_filter_mgr.reset();
+    _execution_dependency.reset();
+    _shared_hash_table_controller.reset();
+    _shared_scanner_controller.reset();
+    _runtime_predicates.clear();
+    file_scan_range_params_map.clear();
+    obj_pool.clear();
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
