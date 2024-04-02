@@ -134,7 +134,8 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 
                 bool eos = false;
                 tmp_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
-                                               _spill_data_size, _spill_write_disk_timer);
+                                               _spill_data_size, _spill_write_disk_timer,
+                                               _spill_write_wait_io_timer);
                 while (!eos && !state->is_cancelled()) {
                     merge_sorted_block.clear_column_data();
                     {
@@ -170,7 +171,7 @@ Status SpillSortLocalState::_create_intermediate_merger(
     for (int i = 0; i < num_blocks && !_shared_state->sorted_streams.empty(); ++i) {
         auto stream = _shared_state->sorted_streams.front();
         stream->set_read_counters(Base::_spill_read_data_time, Base::_spill_deserialize_time,
-                                  Base::_spill_read_bytes);
+                                  Base::_spill_read_bytes, Base::_spill_read_wait_io_timer);
         _current_merging_streams.emplace_back(stream);
         child_block_suppliers.emplace_back(
                 std::bind(std::mem_fn(&vectorized::SpillStream::read_next_block_sync), stream.get(),
