@@ -81,6 +81,7 @@ public:
                     _max = std::max(_max, column_string.get_data_at(i));
                 }
             }
+            store_string_ref();
         } else {
             const T* data = (T*)column->get_raw_data().data;
             for (size_t i = start; i < size; i++) {
@@ -109,6 +110,7 @@ public:
                     }
                 }
             }
+            store_string_ref();
         } else {
             const T* data = (T*)column->get_raw_data().data;
             for (size_t i = start; i < size; i++) {
@@ -171,9 +173,24 @@ public:
         return Status::OK();
     }
 
+    void store_string_ref() {
+        if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (NeedMin) {
+                _stored_min = _min.to_string();
+                _min = StringRef(_stored_min);
+            }
+            if constexpr (NeedMax) {
+                _stored_max = _max.to_string();
+                _max = StringRef(_stored_max);
+            }
+        }
+    }
+
 protected:
     T _max = type_limit<T>::min();
     T _min = type_limit<T>::max();
+    std::string _stored_min;
+    std::string _stored_max;
 };
 
 template <class T>
