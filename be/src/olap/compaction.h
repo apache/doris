@@ -171,14 +171,14 @@ public:
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
+    virtual void garbage_collection();
+
     CloudStorageEngine& _engine;
 
     int64_t _expiration = 0;
 
 private:
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
-
-    virtual void garbage_collection() {};
 
     Status execute_compact_impl(int64_t permits);
 
