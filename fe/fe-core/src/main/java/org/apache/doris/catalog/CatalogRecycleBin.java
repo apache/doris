@@ -569,7 +569,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime.remove(partitionId);
 
         if (partitionInfo == null) {
-            LOG.error("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+            LOG.warn("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+            return;
         }
 
         Partition partition = partitionInfo.getPartition();
