@@ -187,6 +187,25 @@ suite("test_primary_key_partial_update", "p0") {
 
             // drop drop
             sql """ DROP TABLE IF EXISTS ${tableName} """
+
+            sql """ CREATE TABLE ${tableName} (
+                        `name` VARCHAR(600) NULL,
+                        `userid` INT NOT NULL,
+                        `seq` BIGINT NOT NULL AUTO_INCREMENT(1),
+                        `ctime` DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
+                        `rtime` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+                        `corp_name` VARCHAR(600) NOT NULL
+                        ) ENGINE = OLAP UNIQUE KEY(`name`, `userid`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`name`) BUCKETS 10 
+                        PROPERTIES ("replication_num" = "1",
+                                    "enable_unique_key_merge_on_write" = "true",
+                                    "store_row_column" = "${use_row_store}"); """
+
+            sql "set enable_unique_key_partial_update=true;" 
+            sql "set enable_insert_strict=false;"
+
+            sql "INSERT INTO ${tableName}(`name`, `userid`, `corp_name`) VALUES ('test1', 1234567, 'A');"
+
+            qt_select_timestamp "select count(*) from ${tableName} where `ctime` > \"1970-01-01\""
         }
     }
 }
