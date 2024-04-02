@@ -411,27 +411,56 @@ template <typename DataType>
 constexpr bool IsDataTypeDecimalOrNumber =
         IsDataTypeDecimal<DataType> || IsDataTypeNumber<DataType>;
 
-// only for casting between other integral types and decimals
-// in addition, this function also handles cast from data/datetime to decimals
+// This function handles cast from data/datetime/integral types to decimals
 template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
           bool narrow_integral, typename RealFrom, typename RealTo>
-    requires IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>
+    requires(IsDataTypeDecimal<FromDataType> || IsDateV2Type<FromDataType> ||
+             IsDateTimeV2Type<FromDataType>) &&
+            IsDataTypeDecimal<ToDataType>
 void convert_to_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from, UInt32 scale_to,
                          const typename ToDataType::FieldType& min_result,
-                         const typename ToDataType::FieldType& max_result, size_t size,
-                         bool is_from_date, bool is_from_datetime) {
+                         const typename ToDataType::FieldType& max_result, size_t size) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
-    using MaxFieldType = std::conditional_t<(sizeof(FromFieldType) > sizeof(ToFieldType)),
-                                            FromFieldType, ToFieldType>;
+    using DecimalFrom = std::conditional_t<
+            std::is_same_v<FromFieldType, Int128>, Decimal128V2,
+            std::conditional_t<std::is_same_v<FromFieldType, wide::Int256>, Decimal256, Decimal64>>;
+    using MaxFieldType = std::conditional_t<(sizeof(DecimalFrom) > sizeof(ToFieldType)),
+                                            DecimalFrom, ToFieldType>;
     DCHECK_GE(scale_to, scale_from);
-    // from integer to decimal
     MaxFieldType multiplier =
             DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
     MaxFieldType tmp;
-    for (size_t i = 0; i < size; i++) {
-        uint32_t datetime_offset = 0;
-        if (UNLIKELY(is_from_datetime)) {
+    if constexpr (IsDateV2Type<FromDataType>) {
+        // cast from datev2 to decimal
+        for (size_t i = 0; i < size; i++) {
+            if constexpr (multiply_may_overflow) {
+                typename FromDataType::FieldType res =
+                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(src[i]).to_int64();
+                if (common::mul_overflow(static_cast<MaxFieldType>(res).value, multiplier.value,
+                                         tmp.value)) {
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                }
+
+                if constexpr (narrow_integral) {
+                    if (tmp.value < min_result.value || tmp.value > max_result.value) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow, convert failed from {}, "
+                                        "expected data is [{}, {}]",
+                                        tmp.value, min_result.value, max_result.value);
+                    }
+                }
+                dst[i].value = tmp.value;
+            } else {
+                typename FromDataType::FieldType res =
+                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(src[i]).to_int64();
+                dst[i].value = multiplier.value * static_cast<MaxFieldType>(res).value;
+            }
+        }
+    } else if constexpr (IsDateTimeV2Type<FromDataType>) {
+        // cast from datetimev2 to decimal
+        for (size_t i = 0; i < size; i++) {
+            uint32_t datetime_offset = 0;
             uint32_t datetime_microsecond =
                     reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(src[i]).microsecond();
             if (scale_to < 6) {
@@ -443,52 +472,49 @@ void convert_to_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from, UI
                         datetime_microsecond *
                         DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - 6).value;
             }
-        }
-        if constexpr (multiply_may_overflow) {
-            // check cast from date/datetime
-            if (is_from_date) {
-                typename FromDataType::FieldType res =
-                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(src[i]).to_int64();
-                if (common::mul_overflow(static_cast<MaxFieldType>(res).value, multiplier.value,
-                                         tmp.value)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-                }
-            } else if (is_from_datetime) {
-                typename FromDataType::FieldType res =
+            if constexpr (multiply_may_overflow) {
+                typename DataTypeDecimal<DecimalFrom>::FieldType res =
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(src[i])
                                 .to_int64();
                 if (common::mul_overflow(static_cast<MaxFieldType>(res).value, multiplier.value,
                                          tmp.value)) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
                 }
+                if constexpr (narrow_integral) {
+                    if (tmp.value + datetime_offset < min_result.value ||
+                        tmp.value + datetime_offset > max_result.value) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow, convert failed from {}, "
+                                        "expected data is [{}, {}]",
+                                        tmp.value, min_result.value, max_result.value);
+                    }
+                }
+                dst[i].value = tmp.value + datetime_offset;
             } else {
-                if (common::mul_overflow(static_cast<MaxFieldType>(src[i]).value, multiplier.value,
-                                         tmp.value)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-                }
-            }
-
-            if constexpr (narrow_integral) {
-                if (tmp.value + datetime_offset < min_result.value ||
-                    tmp.value + datetime_offset > max_result.value) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                    "Arithmetic overflow, convert failed from {}, "
-                                    "expected data is [{}, {}]",
-                                    tmp.value, min_result.value, max_result.value);
-                }
-            }
-            dst[i].value = tmp.value + datetime_offset;
-        } else {
-            if (is_from_date) {
-                typename FromDataType::FieldType res =
-                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(src[i]).to_int64();
-                dst[i].value = multiplier.value * static_cast<MaxFieldType>(res).value;
-            } else if (is_from_datetime) {
-                typename FromDataType::FieldType res =
+                typename DataTypeDecimal<DecimalFrom>::FieldType res =
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(src[i])
                                 .to_int64();
                 dst[i].value =
                         multiplier.value * static_cast<MaxFieldType>(res).value + datetime_offset;
+            }
+        }
+    } else {
+        // cast from integral numbers to decimal
+        for (size_t i = 0; i < size; i++) {
+            if constexpr (multiply_may_overflow) {
+                if (common::mul_overflow(static_cast<MaxFieldType>(src[i]).value, multiplier.value,
+                                         tmp.value)) {
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                }
+                if constexpr (narrow_integral) {
+                    if (tmp.value < min_result.value || tmp.value > max_result.value) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow, convert failed from {}, "
+                                        "expected data is [{}, {}]",
+                                        tmp.value, min_result.value, max_result.value);
+                    }
+                }
+                dst[i].value = tmp.value;
             } else {
                 dst[i].value = multiplier.value * static_cast<MaxFieldType>(src[i]).value;
             }
@@ -703,6 +729,9 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
         for (size_t i = 0; i < size; ++i) {
             dst[i].value = FromFieldType(src[i] * multiplier.value + ((src[i] >= 0) ? 0.5 : -0.5));
         }
+    } else if constexpr (IsDateV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>) {
+        convert_to_decimals<FromDataType, ToDataType, multiply_may_overflow, narrow_integral>(
+                dst, src, from_scale, to_scale, min_result, max_result, size);
     } else {
         using DecimalFrom =
                 std::conditional_t<std::is_same_v<FromFieldType, Int128>, Decimal128V2,
@@ -710,8 +739,7 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
                                                       Decimal256, Decimal64>>;
         convert_to_decimals<DataTypeDecimal<DecimalFrom>, ToDataType, multiply_may_overflow,
                             narrow_integral>(dst, src, from_scale, to_scale, min_result, max_result,
-                                             size, IsDateV2Type<FromDataType>,
-                                             IsDateTimeV2Type<FromDataType>);
+                                             size);
     }
 }
 

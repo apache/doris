@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cast_from_datetime_to_decimalt") {
+suite("test_cast_from_datetime_to_decimal") {
     // test cast from datetime to decimal
     qt_sql """select cast(a as decimal(30, 9)) from (select cast("2000-01-01" as datetime) a) t1;"""
 
