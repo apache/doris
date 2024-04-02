@@ -93,6 +93,7 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t size) const override;
+    bool is_variable_length() const override { return true; }
 
     bool can_be_inside_nullable() const override { return true; }
 
@@ -140,7 +141,7 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
+        DCHECK(self_row != 0 && size() == self_row + 1);
         const auto& r = assert_cast<const ColumnMap&>(rhs);
         const size_t nested_row_size = r.size_at(row);
         const size_t r_key_nested_start_off = r.offset_at(row);
