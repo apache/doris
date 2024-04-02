@@ -593,7 +593,7 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
     _file_cache_open_fd_cache.reset();
-    _write_cooldown_meta_executors.reset();
+    SAFE_STOP(_write_cooldown_meta_executors);
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
     // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
@@ -655,6 +655,7 @@ void ExecEnv::destroy() {
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _file_cache_open_fd_cache.reset(nullptr);
+    _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);

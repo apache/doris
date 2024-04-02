@@ -83,7 +83,7 @@ static inline constexpr auto TRACE_TABLET_LOCK_THRESHOLD = std::chrono::seconds(
 struct WriteCooldownMetaExecutors {
     WriteCooldownMetaExecutors(size_t executor_nums = 5);
 
-    ~WriteCooldownMetaExecutors();
+    void stop();
 
     void submit(TabletSharedPtr tablet);
     size_t _get_executor_pos(int64_t tablet_id) const {

@@ -181,7 +181,7 @@ WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
     }
 }
 
-WriteCooldownMetaExecutors::~WriteCooldownMetaExecutors() {
+void WriteCooldownMetaExecutors::stop() {
     for (auto& pool_ptr : _executors) {
         if (pool_ptr) {
             pool_ptr->shutdown();
