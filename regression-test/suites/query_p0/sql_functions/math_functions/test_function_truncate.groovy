@@ -43,7 +43,7 @@ suite("test_function_truncate") {
             rid int, flo float, dou double,
             dec90 decimal(9, 0), dec91 decimal(9, 1), dec99 decimal(9, 9),
             dec100 decimal(10,0), dec109 decimal(10,9), dec1010 decimal(10,10),
-            number int DEFAULT 1)
+            number int)
         DISTRIBUTED BY HASH(rid)
         PROPERTIES("replication_num" = "1" );
         """
