@@ -408,6 +408,7 @@ void BlockFileCache::recycle_deleted_blocks() {
                         break;
                     }
                     auto* cell = get_cell(entry_key, entry_offset, cache_lock);
+                    if (!cell) continue;
                     if (!cell->is_deleted) {
                         end = true;
                         break;
