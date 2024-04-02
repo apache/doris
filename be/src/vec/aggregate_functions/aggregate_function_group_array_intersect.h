@@ -71,9 +71,8 @@ constexpr PrimitiveType TypeToPrimitiveType() {
     } else if constexpr (std::is_same_v<T, DateTimeV2>) {
         return TYPE_DATETIMEV2;
     } else {
-        throw Exception(
-                ErrorCode::INVALID_ARGUMENT,
-                "Only for changing Numeric type or Date(DateTime)V2 type to PrimitiveType");
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Only for changing Numeric type or Date(DateTime)V2 type to PrimitiveType");
     }
 }
 
@@ -255,7 +254,6 @@ public:
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
-        set->change_contains_null_value(rhs_set->contain_null());
 
         LOG(INFO) << "merge: place set size = " << set->size();
 
@@ -268,8 +266,8 @@ public:
         LOG(INFO) << "merge: version = " << version;
 
         if (version == 0) {
+            set->change_contains_null_value(rhs_set->contain_null());
             LOG(INFO) << "Copying rhs set to place set";
-            const auto& rhs_set = this->data(rhs).value;
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
                 const void* value = it->get_value();
@@ -286,12 +284,14 @@ public:
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
                 while (it->has_next()) {
                     const void* value = it->get_value();
-                    bool found = (rhs_val->find(value) || (rhs_val->contain_null() && value == nullptr));
+                    bool found = (rhs_val->find(value));
                     if (found) {
                         new_set->insert(value);
                     }
                     it->next();
                 }
+                new_set->change_contains_null_value(lhs_val->contain_null() &&
+                                                    rhs_val->contain_null());
                 return new_set;
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
@@ -493,9 +493,9 @@ class AggregateFunctionGroupArrayIntersectGeneric
         : public IAggregateFunctionDataHelper<
                   AggregateFunctionGroupArrayIntersectGenericData,
                   AggregateFunctionGroupArrayIntersectGeneric<is_plain_column>> {
-    const DataTypePtr& input_data_type;
-
+private:
     using State = AggregateFunctionGroupArrayIntersectGenericData;
+    DataTypePtr input_data_type;
 
 public:
     AggregateFunctionGroupArrayIntersectGeneric(const DataTypes& input_data_type_)
@@ -510,6 +510,8 @@ public:
     // DataTypePtr get_return_type() const override { return input_data_type; }
     DataTypePtr get_return_type() const override {
         // return std::make_shared<DataTypeArray>(make_nullable(input_data_type));
+        LOG(INFO) << "in the get_return_type, name of input_data_type: "
+                  << boost::core::demangle(typeid(input_data_type).name());
         return input_data_type;
     }
 
@@ -541,17 +543,18 @@ public:
 
         bool is_column_data_nullable = column_data.is_nullable();
         ColumnNullable* col_null = nullptr;
-        const ColumnArray* nested_column_data = nullptr;
+        // const ColumnArray* nested_column_data = nullptr;
 
         if (is_column_data_nullable) {
             LOG(INFO) << "nested_col is nullable. ";
             auto const_col_data = const_cast<IColumn*>(&column_data);
             col_null = static_cast<ColumnNullable*>(const_col_data);
-            nested_column_data = &assert_cast<const ColumnArray&>(col_null->get_nested_column());
+            // nested_column_data = &assert_cast<const ColumnArray&>(col_null->get_nested_column());
         } else {
             LOG(INFO) << "nested_col is not nullable. ";
-            nested_column_data = &static_cast<const ColumnArray&>(column_data);
+            // nested_column_data = &static_cast<const ColumnArray&>(column_data);
         }
+        auto nested_column_data = data_column;
 
         ++version;
         if (version == 1) {
@@ -562,30 +565,32 @@ public:
 
                 StringRef src = StringRef();
                 if constexpr (is_plain_column) {
+                    LOG(INFO) << "is_plain_column is true";
                     src = nested_column_data->get_data_at(offset + i);
-                    src.data = arena->insert(src.data, src.size);
+                    LOG(INFO) << "we get src";
                 } else {
+                    LOG(INFO) << "is_plain_column is false";
                     const char* begin = nullptr;
                     src = nested_column_data->serialize_value_into_arena(offset + i, *arena, begin);
-                    src.data = arena->insert(src.data, src.size);
+                    LOG(INFO) << "we get src";
                 }
 
-                const auto* src_data = is_null_element ? nullptr : src.data;
+                src.data = is_null_element ? nullptr : arena->insert(src.data, src.size);
 
                 if (is_null_element) {
-                    LOG(INFO) << "src_data is null!!!!";
+                    LOG(INFO) << "src.data is null!!!!";
                     // src_data.data = nullptr;
                 } else {
-                    LOG(INFO) << "src_data is not null";
-                    LOG(INFO) << "Inserting value: " << *(src_data);
+                    LOG(INFO) << "src.data is not null";
+                    LOG(INFO) << "Inserting value: " << *(src.data);
                 }
 
-                if (src_data == nullptr) {
-                    LOG(INFO) << "src_data==nullptr is true. ";
+                if (src.data == nullptr) {
+                    LOG(INFO) << "src.data==nullptr is true. ";
                 }
 
                 // set->insert(src_data.data);
-                set->insert(src_data);
+                set->insert((void*)src.data, src.size);
                 LOG(INFO) << "After inserting value.";
             }
 
@@ -604,32 +609,30 @@ public:
                 StringRef src = StringRef();
                 if constexpr (is_plain_column) {
                     src = nested_column_data->get_data_at(offset + i);
-                    src.data = arena->insert(src.data, src.size);
                 } else {
                     const char* begin = nullptr;
                     src = nested_column_data->serialize_value_into_arena(offset + i, *arena, begin);
-                    src.data = arena->insert(src.data, src.size);
                 }
 
-                const auto* src_data = is_null_element ? nullptr : src.data;
+                src.data = is_null_element ? nullptr : arena->insert(src.data, src.size);
 
                 if (is_null_element) {
-                    LOG(INFO) << "src_data is null again ~";
+                    LOG(INFO) << "src.data is null again ~";
                     // src_data.data = nullptr;
                 } else {
-                    LOG(INFO) << "Inserting value: " << *src_data;
+                    LOG(INFO) << "Inserting value: " << *(src.data);
                 }
 
-                if (src_data == nullptr) {
+                if (src.data == nullptr) {
                     LOG(INFO) << "src_data==nullptr is true. ";
                 }
-                if (set->find(src_data) || (set->contain_null() && src_data == nullptr)) {
-                    if (set->find(src_data)) {
-                        LOG(INFO) << "we can find set's value: " << *src_data;
+                if (set->find(src.data, src.size) || (set->contain_null() && src.data == nullptr)) {
+                    if (set->find(src.data, src.size)) {
+                        LOG(INFO) << "we can find set's value: " << *(src.data);
                     } else {
                         LOG(INFO) << "src_data is null again ";
                     }
-                    new_set->insert(src_data);
+                    new_set->insert((void*)src.data, src.size);
                     LOG(INFO) << "After inserting value.";
                 }
             }
@@ -649,48 +652,53 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena*) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
-        set->change_contains_null_value(rhs_set->contain_null());
 
         LOG(INFO) << "merge: place set size = " << set->size();
 
         if (this->data(rhs).version == 0) {
             LOG(INFO) << "rhs version is 0, skipping merge";
             return;
+        } else {
+            LOG(INFO) << "rhs version is: " << this->data(rhs).version;
         }
 
         UInt64 version = data.version++;
         LOG(INFO) << "merge: version = " << version;
 
         if (version == 0) {
+            set->change_contains_null_value(rhs_set->contain_null());
             LOG(INFO) << "Copying rhs set to place set";
-            const auto& rhs_set = this->data(rhs).value;
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
-                const void* value = it->get_value();
-                set->insert(value);
+                const StringRef* value = reinterpret_cast<const StringRef*>(it->get_value());
+                LOG(INFO) << "before inserting...";
+                LOG(INFO) << "inserting: " << *(char*)(value->data);
+                set->insert((void*)(value->data), value->size);
+                LOG(INFO) << "after inserting...";
                 it->next();
+                LOG(INFO) << "after next...";
             }
-            return;
-        }
-
-        if (set->size() != 0) {
+        } else if (set->size() != 0) {
             LOG(INFO) << "Merging place set and rhs set";
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
                 typename State::Set new_set;
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
                 while (it->has_next()) {
-                    const void* value = it->get_value();
-                    bool found =
-                            (rhs_val->find(value) || (rhs_val->contain_null() && value == nullptr));
+                    const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
+                    bool found = (rhs_val->find(value));
+                    LOG(INFO) << "before inserting...";
                     if (found) {
-                        new_set->insert(value);
+                        new_set->insert((void*)value->data, value->size);
                     }
+                    LOG(INFO) << "after inserting...";
                     it->next();
                 }
+                new_set->change_contains_null_value(lhs_val->contain_null() &&
+                                                    rhs_val->contain_null());
                 return new_set;
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
@@ -698,14 +706,14 @@ public:
             set = std::move(new_set);
         }
 
-        LOG(INFO) << "After merge: set = {";
-        HybridSetBase::IteratorBase* it = set->begin();
-        while (it->has_next()) {
-            auto* value = it->get_value();
-            LOG(INFO) << value << " ";
-            it->next();
-        }
-        LOG(INFO) << "}";
+        // LOG(INFO) << "After merge: set = {";
+        // HybridSetBase::IteratorBase* it = set->begin();
+        // while (it->has_next()) {
+        //     auto* value = reinterpret_cast<const StringRef*>(it->get_value());
+        //     LOG(INFO) << (*value).to_string() << " ";
+        //     it->next();
+        // }
+        // LOG(INFO) << "}";
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -738,12 +746,14 @@ public:
         while (it->has_next()) {
             if (it->get_value() == nullptr) {
                 LOG(INFO) << "during writing of serialize, the it->get_value() is nullptr.";
+            } else {
+                LOG(INFO) << "the it->get_value() is not null ";
             }
-            const auto* value_ptr = reinterpret_cast<const StringRef*>(it->get_value());
+            const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
             // const StringRef* str_ref = reinterpret_cast<const StringRef*>(value_ptr);
-            LOG(INFO) << "Serializing element: " << *(value_ptr->data);
+            LOG(INFO) << "Serializing element: " << (*(value)).to_string();
             LOG(INFO) << "after writing element... ";
-            write_string_binary(*(value_ptr), buf);
+            write_string_binary(*value, buf);
             it->next();
         }
     }
@@ -769,8 +779,8 @@ public:
         StringRef element;
         for (size_t i = 0; i < size; ++i) {
             element = read_string_binary_into(*arena, buf);
-            LOG(INFO) << "derializing element: " << element.to_string();
-            data.value->insert(element.data);
+            LOG(INFO) << "derializing element: " << *(element.data);
+            data.value->insert((void*)element.data, element.size);
         }
         LOG(INFO) << "}";
 
@@ -790,7 +800,7 @@ public:
         LOG(INFO) << "nested_col is nullable. ";
         auto& data_to = arr_to.get_data();
         auto col_null = reinterpret_cast<ColumnNullable*>(&data_to);
-        auto& null_map_data = col_null->get_null_map_data();
+        // auto& null_map_data = col_null->get_null_map_data();
 
         const auto& set = this->data(place).value;
         LOG(INFO) << "insert_result_into: set size = " << set->size();
@@ -809,20 +819,25 @@ public:
             offsets_to.push_back(offsets_to.back() + res_size);
         }
 
-        data_to.resize(res_size);
+        // data_to.resize(res_size);
 
         HybridSetBase::IteratorBase* it = set->begin();
         while (it->has_next()) {
-            const auto* value =
-                    reinterpret_cast<const StringRef*>(it->get_value());
+            const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
             if constexpr (is_plain_column) {
                 data_to.insert_data(value->data, value->size);
             } else {
                 std::ignore = data_to.deserialize_and_insert_from_arena(value->data);
             }
-            null_map_data.push_back(0);
+            // null_map_data.push_back(0);
             it->next();
         }
+
+        LOG(INFO) << "res_size size = " << res_size;
+        LOG(INFO) << "offsets_to size = " << offsets_to.size();
+        LOG(INFO) << "set size = " << set->size();
+        LOG(INFO) << "data_to size = " << data_to.size();
+
         LOG(INFO) << "After making value to data_to, leaving...";
     }
 };
@@ -855,7 +870,7 @@ IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
         return new AggregateFunctionGroupArrayIntersectDateTimeV2(argument_types);
     else {
         /// Check that we can use plain version of AggregateFunctionGroupArrayIntersectGeneric
-        if (argument_types[0]->is_value_unambiguously_represented_in_contiguous_memory_region())
+        if (nested_type->is_value_unambiguously_represented_in_contiguous_memory_region())
             return new AggregateFunctionGroupArrayIntersectGeneric<true>(argument_types);
         else
             return new AggregateFunctionGroupArrayIntersectGeneric<false>(argument_types);
