@@ -48,6 +48,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -187,6 +188,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             if (stmt.getPartitionDesc() != null) {
                 partitionColNames.addAll(stmt.getPartitionDesc().getPartitionColNames());
             }
+            Optional<String> location = Optional.ofNullable(props.getOrDefault(LOCATION_URI_KEY, null));
             HiveTableMetadata hiveTableMeta;
             DistributionDesc bucketInfo = stmt.getDistributionDesc();
             if (bucketInfo != null) {
@@ -194,6 +196,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                     if (bucketInfo instanceof HashDistributionDesc) {
                         hiveTableMeta = HiveTableMetadata.of(dbName,
                                 tblName,
+                                location,
                                 stmt.getColumns(),
                                 partitionColNames,
                                 ((HashDistributionDesc) bucketInfo).getDistributionColumnNames(),
@@ -210,6 +213,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             } else {
                 hiveTableMeta = HiveTableMetadata.of(dbName,
                         tblName,
+                        location,
                         stmt.getColumns(),
                         partitionColNames,
                         ddlProps,

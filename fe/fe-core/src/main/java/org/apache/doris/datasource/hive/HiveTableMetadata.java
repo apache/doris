@@ -23,10 +23,12 @@ import org.apache.doris.datasource.TableMetadata;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class HiveTableMetadata implements TableMetadata {
     private final String dbName;
     private final String tableName;
+    private final Optional<String> location;
     private final List<Column> columns;
     private final List<String> partitionKeys;
     private final String fileFormat;
@@ -37,14 +39,16 @@ public class HiveTableMetadata implements TableMetadata {
 
     public HiveTableMetadata(String dbName,
                              String tblName,
+                             Optional<String> location,
                              List<Column> columns,
                              List<String> partitionKeys,
                              Map<String, String> props,
                              String fileFormat) {
-        this(dbName, tblName, columns, partitionKeys, new ArrayList<>(), 0, props, fileFormat);
+        this(dbName, tblName, location, columns, partitionKeys, new ArrayList<>(), 0, props, fileFormat);
     }
 
     public HiveTableMetadata(String dbName, String tableName,
+                             Optional<String> location,
                              List<Column> columns,
                              List<String> partitionKeys,
                              List<String> bucketCols,
@@ -59,6 +63,7 @@ public class HiveTableMetadata implements TableMetadata {
         this.numBuckets = numBuckets;
         this.properties = props;
         this.fileFormat = fileFormat;
+        this.location = location;
     }
 
     @Override
@@ -69,6 +74,10 @@ public class HiveTableMetadata implements TableMetadata {
     @Override
     public String getTableName() {
         return tableName;
+    }
+
+    public Optional<String> getLocation() {
+        return location;
     }
 
     @Override
@@ -98,22 +107,24 @@ public class HiveTableMetadata implements TableMetadata {
 
     public static HiveTableMetadata of(String dbName,
                                        String tblName,
+                                       Optional<String> location,
                                        List<Column> columns,
                                        List<String> partitionKeys,
                                        Map<String, String> props,
                                        String fileFormat) {
-        return new HiveTableMetadata(dbName, tblName, columns, partitionKeys, props, fileFormat);
+        return new HiveTableMetadata(dbName, tblName, location, columns, partitionKeys, props, fileFormat);
     }
 
     public static HiveTableMetadata of(String dbName,
                                        String tblName,
+                                       Optional<String> location,
                                        List<Column> columns,
                                        List<String> partitionKeys,
                                        List<String> bucketCols,
                                        int numBuckets,
                                        Map<String, String> props,
                                        String fileFormat) {
-        return new HiveTableMetadata(dbName, tblName, columns, partitionKeys,
+        return new HiveTableMetadata(dbName, tblName, location, columns, partitionKeys,
                 bucketCols, numBuckets, props, fileFormat);
     }
 }
