@@ -37,6 +37,7 @@
 #endif
 #include <algorithm>
 
+#include "common/compiler_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/core/call_on_type_index.h"
