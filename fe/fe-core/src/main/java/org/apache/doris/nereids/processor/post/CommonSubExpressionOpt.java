@@ -51,7 +51,7 @@ import java.util.Set;
 public class CommonSubExpressionOpt extends PlanPostProcessor {
     @Override
     public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
-
+        project.child().accept(this, ctx);
         List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
                 project.getInputSlots(), project.getProjects());
         project.setMultiLayerProjects(multiLayers);
