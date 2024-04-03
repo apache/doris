@@ -991,7 +991,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             cur_pipe->set_num_tasks(request.parallel_instances);
         }
         break;
-    }
+    }//
     case TPlanNodeType::AGGREGATION_NODE: {
         if (tnode.agg_node.grouping_exprs.empty() &&
             descs.get_tuple_descriptor(tnode.agg_node.output_tuple_id)->slots().empty()) {
