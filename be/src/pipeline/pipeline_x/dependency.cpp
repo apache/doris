@@ -267,10 +267,13 @@ void AggSpillPartition::close() {
 }
 
 void PartitionedAggSharedState::close() {
-    if (is_closed) {
+    // need to use CAS instead of only `if (!is_closed)` statement,
+    // to avoid concurrent entry of close() both pass the if statement
+    bool false_close = false;
+    if (!is_closed.compare_exchange_strong(false_close, true)) {
         return;
     }
-    is_closed = true;
+    DCHECK(!false_close && is_closed);
     for (auto partition : spill_partitions) {
         partition->close();
     }
@@ -278,10 +281,13 @@ void PartitionedAggSharedState::close() {
 }
 
 void SpillSortSharedState::close() {
-    if (is_closed) {
+    // need to use CAS instead of only `if (!is_closed)` statement,
+    // to avoid concurrent entry of close() both pass the if statement
+    bool false_close = false;
+    if (!is_closed.compare_exchange_strong(false_close, true)) {
         return;
     }
-    is_closed = true;
+    DCHECK(!false_close && is_closed);
     for (auto& stream : sorted_streams) {
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
     }
