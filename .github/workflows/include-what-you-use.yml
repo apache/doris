@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      
 
 jobs:
   build:
@@ -11,6 +12,7 @@ jobs:
 
     steps:
       - name: Set up environment
+        uses: actions/setup-python@v2
         env:
           ACTIONS_STEP_DEBUG: true
 
