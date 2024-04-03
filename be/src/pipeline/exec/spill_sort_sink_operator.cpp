@@ -55,6 +55,9 @@ void SpillSortSinkLocalState::_init_counters() {
 
     _spill_merge_sort_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SpillMergeSortTime", "Spill", 1);
+
+    _spill_wait_in_queue_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillWaitInQueueTime", "Spill", 1);
 }
 #define UPDATE_PROFILE(counter, name)                           \
     do {                                                        \
@@ -210,9 +213,9 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
             SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES, profile());
     RETURN_IF_ERROR(status);
 
-    _spilling_stream->set_write_counters(Base::_spill_serialize_block_timer,
-                                         Base::_spill_block_count, Base::_spill_data_size,
-                                         Base::_spill_write_disk_timer);
+    _spilling_stream->set_write_counters(
+            Base::_spill_serialize_block_timer, Base::_spill_block_count, Base::_spill_data_size,
+            Base::_spill_write_disk_timer, Base::_spill_write_wait_io_timer);
 
     status = _spilling_stream->prepare_spill();
     RETURN_IF_ERROR(status);
@@ -227,17 +230,22 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
+
+    MonotonicStopWatch submit_timer;
+    submit_timer.start();
+
     status =
             ExecEnv::GetInstance()
                     ->spill_stream_mgr()
                     ->get_spill_io_thread_pool(_spilling_stream->get_spill_root_dir())
-                    ->submit_func([this, state, &parent, execution_context] {
+                    ->submit_func([this, state, &parent, execution_context, submit_timer] {
                         auto execution_context_lock = execution_context.lock();
                         if (!execution_context_lock) {
                             LOG(INFO) << "execution_context released, maybe query was cancelled.";
                             return Status::OK();
                         }
 
+                        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
                         SCOPED_ATTACH_TASK(state);
                         Defer defer {[&]() {
                             if (!_shared_state->sink_status.ok()) {

@@ -310,29 +310,6 @@ MutableColumnPtr ColumnStruct::get_shrinked_column() {
     return ColumnStruct::create(std::move(new_columns));
 }
 
-MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {
-    const size_t tuple_size = columns.size();
-    std::vector<MutableColumns> scattered_tuple_elements(tuple_size);
-
-    for (size_t tuple_element_idx = 0; tuple_element_idx < tuple_size; ++tuple_element_idx) {
-        scattered_tuple_elements[tuple_element_idx] =
-                columns[tuple_element_idx]->scatter(num_columns, selector);
-    }
-
-    MutableColumns res(num_columns);
-
-    for (size_t scattered_idx = 0; scattered_idx < num_columns; ++scattered_idx) {
-        MutableColumns new_columns(tuple_size);
-        for (size_t tuple_element_idx = 0; tuple_element_idx < tuple_size; ++tuple_element_idx) {
-            new_columns[tuple_element_idx] =
-                    std::move(scattered_tuple_elements[tuple_element_idx][scattered_idx]);
-        }
-        res[scattered_idx] = ColumnStruct::create(std::move(new_columns));
-    }
-
-    return res;
-}
-
 void ColumnStruct::reserve(size_t n) {
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {

@@ -25,7 +25,7 @@ namespace doris::pipeline {
 
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::pipeline::LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
+    RETURN_IF_ERROR(PipelineXSpillSinkLocalState::init(state, info));
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->partitioned_build_blocks.resize(p._partition_count);
     _shared_state->spilled_streams.resize(p._partition_count);
@@ -33,29 +33,26 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
     _partitioner = std::make_unique<PartitionerType>(p._partition_count);
     RETURN_IF_ERROR(_partitioner->init(p._build_exprs));
 
-    _partition_timer = ADD_TIMER(profile(), "PartitionTime");
-    _partition_shuffle_timer = ADD_TIMER(profile(), "PartitionShuffleTime");
-
-    _spill_serialize_block_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillSerializeBlockTime", 1);
-    _spill_write_disk_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillWriteDiskTime", 1);
-    _spill_data_size = ADD_COUNTER_WITH_LEVEL(profile(), "SpillWriteDataSize", TUnit::BYTES, 1);
-    _spill_block_count = ADD_COUNTER_WITH_LEVEL(profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
+    _partition_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionTime", "Spill", 1);
+    _partition_shuffle_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionShuffleTime", "Spill", 1);
+    _spill_build_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillBuildTime", "Spill", 1);
 
     return _partitioner->prepare(state, p._child_x->row_desc());
 }
 
 Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState::open(state));
+    RETURN_IF_ERROR(PipelineXSpillSinkLocalState::open(state));
     return _partitioner->open(state);
 }
 Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec_status) {
-    SCOPED_TIMER(PipelineXSinkLocalState::exec_time_counter());
-    SCOPED_TIMER(PipelineXSinkLocalState::_close_timer);
-    if (PipelineXSinkLocalState::_closed) {
+    SCOPED_TIMER(PipelineXSpillSinkLocalState::exec_time_counter());
+    SCOPED_TIMER(PipelineXSpillSinkLocalState::_close_timer);
+    if (PipelineXSpillSinkLocalState::_closed) {
         return Status::OK();
     }
     dec_running_big_mem_op_num(state);
-    return PipelineXSinkLocalState::close(state, exec_status);
+    return PipelineXSpillSinkLocalState::close(state, exec_status);
 }
 
 Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
@@ -80,7 +77,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
                     std::numeric_limits<size_t>::max(), _profile));
             RETURN_IF_ERROR(spilling_stream->prepare_spill());
             spilling_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
-                                                _spill_data_size, _spill_write_disk_timer);
+                                                _spill_data_size, _spill_write_disk_timer,
+                                                _spill_write_wait_io_timer);
         }
 
         auto* spill_io_pool =
@@ -88,16 +86,23 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         DCHECK(spill_io_pool != nullptr);
         auto execution_context = state->get_task_execution_context();
         _shared_state_holder = _shared_state->shared_from_this();
-        auto st = spill_io_pool->submit_func([this, execution_context, state, spilling_stream, i] {
-            auto execution_context_lock = execution_context.lock();
-            if (!execution_context_lock) {
-                LOG(INFO) << "execution_context released, maybe query was cancelled.";
-                return;
-            }
-            (void)state; // avoid ut compile error
-            SCOPED_ATTACH_TASK(state);
-            _spill_to_disk(i, spilling_stream);
-        });
+
+        MonotonicStopWatch submit_timer;
+        submit_timer.start();
+
+        auto st = spill_io_pool->submit_func(
+                [this, execution_context, state, spilling_stream, i, submit_timer] {
+                    auto execution_context_lock = execution_context.lock();
+                    if (!execution_context_lock) {
+                        LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                        return;
+                    }
+                    _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+                    SCOPED_TIMER(_spill_build_timer);
+                    (void)state; // avoid ut compile error
+                    SCOPED_ATTACH_TASK(state);
+                    _spill_to_disk(i, spilling_stream);
+                });
 
         if (!st.ok()) {
             --_spilling_streams_count;

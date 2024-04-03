@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -225,7 +226,7 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(TNetworkAddress address,
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(TNetworkAddress address,
             TUniqueId finstId, Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest =
                 InternalService.PCancelPlanFragmentRequest.newBuilder()
@@ -241,8 +242,8 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(TNetworkAddress address,
-            PlanFragmentId fragmentId, TUniqueId queryId,
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(
+            TNetworkAddress address, PlanFragmentId fragmentId, TUniqueId queryId,
             Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()

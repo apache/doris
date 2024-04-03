@@ -66,7 +66,7 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 } else if (value < min_value) {
                     _backup_int[i] = min_value;
                 } else {
-                    _backup_int[i] = value;
+                    _backup_int[i] = long(value);
                 }
                 _data[i] = &_backup_int[i];
             } else {

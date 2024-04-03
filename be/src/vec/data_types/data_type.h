@@ -57,7 +57,7 @@ using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
 constexpr auto SERIALIZED_MEM_SIZE_LIMIT = 256;
 inline size_t upper_int32(size_t size) {
-    return (3 + size) / 4.0;
+    return size_t((3 + size) / 4.0);
 }
 
 /** Properties of data type.

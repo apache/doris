@@ -39,7 +39,7 @@ using PartitionerType = vectorized::XXHashPartitioner<LocalExchangeChannelIds>;
 class PartitionedHashJoinSinkOperatorX;
 
 class PartitionedHashJoinSinkLocalState
-        : public PipelineXSinkLocalState<PartitionedHashJoinSharedState> {
+        : public PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState> {
 public:
     using Parent = PartitionedHashJoinSinkOperatorX;
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinSinkLocalState);
@@ -51,7 +51,7 @@ public:
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
+            : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
     void _spill_to_disk(uint32_t partition_index,
                         const vectorized::SpillStreamSPtr& spilling_stream);
@@ -76,10 +76,7 @@ protected:
 
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
-    RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
-    RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
-    RuntimeProfile::Counter* _spill_data_size = nullptr;
-    RuntimeProfile::Counter* _spill_block_count = nullptr;
+    RuntimeProfile::Counter* _spill_build_timer = nullptr;
 };
 
 class PartitionedHashJoinSinkOperatorX
