@@ -81,33 +81,36 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
     /**
      * Handle group commit
      */
-    public static boolean canGroupCommit(ConnectContext ctx, DataSink sink, PhysicalSink physicalSink) {
+    public static boolean canGroupCommit(ConnectContext ctx, DataSink sink,
+                                         PhysicalSink physicalSink, NereidsPlanner planner) {
         PhysicalOlapTableSink<?> olapSink = (PhysicalOlapTableSink<?>) physicalSink;
-        boolean can = analyzeGroupCommit(ctx, sink, olapSink);
+        boolean can = analyzeGroupCommit(ctx, sink, olapSink, planner);
         ctx.setGroupCommit(can);
         return can;
     }
 
     private static boolean analyzeGroupCommit(ConnectContext ctx, DataSink sink,
-            PhysicalOlapTableSink<?> physicalOlapTableSink) {
+                    PhysicalOlapTableSink<?> physicalOlapTableSink, NereidsPlanner planner) {
         if (!(sink instanceof OlapTableSink) || !ctx.getSessionVariable().isEnableInsertGroupCommit()
                 || ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
             return false;
         }
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         return ctx.getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
-                && !ctx.isTxnModel() && isGroupCommitAvailablePlan(physicalOlapTableSink)
+                && !ctx.isTxnModel() && isGroupCommitAvailablePlan(physicalOlapTableSink, planner)
                 && physicalOlapTableSink.getPartitionIds().isEmpty() && targetTable.getTableProperty()
                 .getUseSchemaLightChange() && !targetTable.getQualifiedDbName()
                 .equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME);
     }
 
-    private static boolean isGroupCommitAvailablePlan(PhysicalOlapTableSink<? extends Plan> sink) {
+    private static boolean isGroupCommitAvailablePlan(PhysicalOlapTableSink<? extends Plan> sink,
+                                                      NereidsPlanner planner) {
         Plan child = sink.child();
         if (child instanceof PhysicalDistribute) {
             child = child.child(0);
         }
-        return child instanceof OneRowRelation || (child instanceof PhysicalUnion && child.arity() == 0);
+        return (child instanceof OneRowRelation || (child instanceof PhysicalUnion && child.arity() == 0))
+                && InsertUtils.literalExpr(planner);
     }
 
     private void handleGroupCommit(ConnectContext ctx, DataSink sink,
@@ -135,7 +138,6 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         for (List<NamedExpression> row : constantExprsList) {
             rows.add(InsertUtils.getRowStringValue(row));
         }
-
         GroupCommitPlanner groupCommitPlanner = EnvFactory.getInstance().createGroupCommitPlanner(
                 physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), columnNames, ctx.queryId(),
@@ -187,17 +189,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onComplete() throws UserException {
-        Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
-                .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
-                .findAny();
-        PhysicalOlapTableSink<?> olapSink = plan.get();
-        DataSink sink = planner.getFragments().get(0).getSink();
-        try {
-            handleGroupCommit(ctx, sink, olapSink, planner);
-        } catch (TException | RpcException | ExecutionException | InterruptedException e) {
-            LOG.error("errors when group commit insert. {}", e);
-            throw new UserException("errors when group commit insert. " + e.getMessage(), e);
-        }
+
     }
 
     @Override
@@ -225,13 +217,33 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
 
     }
 
+    protected final void execImpl() throws UserException {
+        Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
+                .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+                .findAny();
+        PhysicalOlapTableSink<?> olapSink = plan.get();
+        DataSink sink = planner.getFragments().get(0).getSink();
+        try {
+            handleGroupCommit(ctx, sink, olapSink, planner);
+        } catch (TException | RpcException | ExecutionException | InterruptedException e) {
+            LOG.error("errors when group commit insert. {}", e);
+            throw new UserException("errors when group commit insert. " + e.getMessage(), e);
+        }
+    }
+
     @Override
     public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
         beforeExec();
         try {
+            execImpl();
             onComplete();
         } catch (Throwable t) {
             onFail(t);
+            // retry group_commit insert when meet
+            if (t.getMessage().contains("blocked on schema change")) {
+                throw t;
+            }
+            return;
         }
         afterExec(executor);
     }

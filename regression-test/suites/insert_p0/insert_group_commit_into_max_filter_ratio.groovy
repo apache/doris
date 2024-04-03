@@ -41,6 +41,19 @@ suite("insert_group_commit_into_max_filter_ratio") {
         }
     }
 
+    def normal_insert = { sql, expected_row_count ->
+        def stmt = prepareStatement """ ${sql}  """
+        def result = stmt.executeUpdate()
+        logger.info("insert result: " + result)
+        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+        logger.info("result server info: " + serverInfo)
+        if (result != expected_row_count) {
+            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
+        }
+        assertTrue(serverInfo.contains("'status':'VISIBLE'"))
+            assertTrue(serverInfo.contains("'label':'label"))
+    }
+
     def group_commit_insert = { sql, expected_row_count ->
         def stmt = prepareStatement """ ${sql}  """
         def result = stmt.executeUpdate()
@@ -187,10 +200,16 @@ suite("insert_group_commit_into_max_filter_ratio") {
             group_commit_insert """ insert into ${dbTableName}(id) select 2; """, 1
             sql """ set group_commit = off_mode; """
             off_mode_group_commit_insert """ insert into ${dbTableName} values (3, 'a', 10); """, 1
-            sql """ set group_commit = async_mode; """
-            fail_group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
-            sql """ set enable_insert_strict = false; """
-            if (item != "nereids") {
+
+            if (item == "nereids") {
+                sql """ set group_commit = async_mode; """
+                normal_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
+                sql """ set enable_insert_strict = false; """
+                normal_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
+            } else {
+                sql """ set group_commit = async_mode; """
+                fail_group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
+                sql """ set enable_insert_strict = false; """
                 group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
             }
             // The row 6 and 7 is different between legacy and nereids

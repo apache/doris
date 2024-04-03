@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -48,6 +49,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -72,6 +75,7 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -163,6 +167,34 @@ public class InsertUtils {
             }
         }
         return row.build();
+    }
+
+    /**
+     * judge literal expr
+     */
+    public static boolean literalExpr(NereidsPlanner planner) {
+        Optional<PhysicalUnion> union = planner.getPhysicalPlan()
+                .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+        List<List<NamedExpression>> constantExprsList = null;
+        if (union.isPresent()) {
+            constantExprsList = union.get().getConstantExprsList();
+        }
+        Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
+                .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+        if (oneRowRelation.isPresent()) {
+            constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
+        }
+        for (List<NamedExpression> row : constantExprsList) {
+            for (Expression expr : row) {
+                while (expr instanceof Alias || expr instanceof Cast) {
+                    expr = expr.child(0);
+                }
+                if (!(expr instanceof Literal)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static void beginBatchInsertTransaction(ConnectContext ctx,
