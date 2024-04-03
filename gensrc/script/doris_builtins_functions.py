@@ -2016,7 +2016,10 @@ visible_functions = {
 
     "UUID": [
         [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
-        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE']
+        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE'],
+        [['uuid_to_int'], 'LARGEINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['uuid_to_int'], 'LARGEINT', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['int_to_uuid'], 'VARCHAR', ['LARGEINT'], 'DEPEND_ON_ARGUMENT']
     ],
 
     #ip functions
