@@ -91,7 +91,9 @@ public class TabletInvertedIndex {
     private Table<Long, Long, TabletMeta> tabletMetaTable = HashBasedTable.create();
 
     // tablet id -> (backend id -> replica)
+    // for cloud mode, no need to known the replica's backend, so use backend id = -1 in cloud mode.
     private Table<Long, Long, Replica> replicaMetaTable = HashBasedTable.create();
+
     // backing replica table, for visiting backend replicas faster.
     // backend id -> (tablet id -> replica)
     private Table<Long, Long, Replica> backingReplicaMetaTable = HashBasedTable.create();
