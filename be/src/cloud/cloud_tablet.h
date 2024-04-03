@@ -161,11 +161,6 @@ public:
         }
     }
 
-    inline Version max_version() const {
-        std::shared_lock rdlock(_meta_lock);
-        return _tablet_meta->max_version();
-    }
-
     int64_t base_size() const { return _base_size; }
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();

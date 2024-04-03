@@ -65,9 +65,6 @@ public:
     virtual std::string_view compaction_name() const = 0;
 
 protected:
-    // Convert `_tablet` from `BaseTablet` to `Tablet`
-    Tablet* tablet();
-
     Status merge_input_rowsets();
 
     Status do_inverted_index_compaction();
@@ -138,6 +135,9 @@ public:
     int64_t get_compaction_permits();
 
 protected:
+    // Convert `_tablet` from `BaseTablet` to `Tablet`
+    Tablet* tablet();
+
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
 
     virtual Status modify_rowsets();

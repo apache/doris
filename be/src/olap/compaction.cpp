@@ -120,10 +120,6 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
 
 Compaction::~Compaction() = default;
 
-Tablet* Compaction::tablet() {
-    return static_cast<Tablet*>(_tablet.get());
-}
-
 void Compaction::init_profile(const std::string& label) {
     _profile = std::make_unique<RuntimeProfile>(label);
 
@@ -243,12 +239,12 @@ Status Compaction::do_inverted_index_compaction() {
 
     OlapStopWatch inverted_watch;
 
-    Version version = tablet()->max_version();
+    Version version = _tablet->max_version();
     DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
     std::set<RowLocation> missed_rows;
     std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
     // Convert the delete bitmap of the input rowsets to output rowset.
-    tablet()->calc_compaction_output_rowset_delete_bitmap(
+    _tablet->calc_compaction_output_rowset_delete_bitmap(
             _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
             _tablet->tablet_meta()->delete_bitmap(), &output_rowset_delete_bitmap);
 
@@ -266,7 +262,7 @@ Status Compaction::do_inverted_index_compaction() {
         }
     }
 
-    RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, location_map));
+    RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
     // translation vec
     // <<dest_idx_num, dest_docId>>
@@ -612,6 +608,10 @@ CompactionMixin::~CompactionMixin() {
         }
         _engine.add_unused_rowset(_output_rowset);
     }
+}
+
+Tablet* CompactionMixin::tablet() {
+    return static_cast<Tablet*>(_tablet.get());
 }
 
 Status CompactionMixin::do_compact_ordered_rowsets() {

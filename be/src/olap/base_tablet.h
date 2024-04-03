@@ -86,6 +86,11 @@ public:
         return _max_version_schema;
     }
 
+    inline Version max_version() const {
+        std::shared_lock rdlock(_meta_lock);
+        return _tablet_meta->max_version();
+    }
+
     virtual bool exceed_version_limit(int32_t limit) = 0;
 
     virtual Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(RowsetWriterContext& context,
