@@ -75,7 +75,9 @@ public class ListPartitionPrunerV2Test {
             public PooledHiveMetaStoreClient getClient() {
                 return new PooledHiveMetaStoreClient(new HiveConf(), 2);
             }
+        };
 
+        new MockUp<PooledHiveMetaStoreClient>(PooledHiveMetaStoreClient.class) {
             @Mock
             public List<String> listPartitionNames(String dbName, String tblName) {
                 // Mock is used here to represent the existence of a partition in the original table
