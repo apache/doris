@@ -1554,7 +1554,6 @@ visible_functions = {
     "String": [
         [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
-        [['insert'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['mask'], 'STRING', ['STRING', '...'], ''],
         [['mask_first_n'], 'STRING', ['STRING'], ''],
         [['mask_first_n'], 'STRING', ['STRING', 'INT'], ''],
@@ -1617,12 +1616,12 @@ visible_functions = {
 
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['insert'], 'VARCHAR', ['VARCHAR', 'INT', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
 
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
-        [['insert'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['strleft', 'left'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['strright', 'right'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['ends_with'], 'BOOLEAN', ['STRING', 'STRING'], ''],
@@ -2253,8 +2252,7 @@ null_result_with_one_null_param_functions = [
     'ST_LineFromText',
     'ST_Polygon',
     'ST_Contains',
-    'from_unixtime',
-    'insert'
+    'from_unixtime'
 ]
 
 invisible_functions = [

@@ -3478,8 +3478,8 @@ public:
 
 struct InsertImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
-                std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()};
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(), 
+                std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
     }
 
     static Status insert_execute(Block& block, const ColumnNumbers& arguments, size_t result,
@@ -3502,9 +3502,9 @@ struct InsertImpl {
         }
 
         auto data_column = assert_cast<const ColumnString*>(argument_columns[0].get());
-        auto mask_column = assert_cast<const ColumnString*>(argument_columns[1].get());
-        auto start_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
-        auto length_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[3].get());
+        auto start_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get());
+        auto length_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+        auto mask_column = assert_cast<const ColumnString*>(argument_columns[3].get());
 
         vector(data_column, mask_column, start_column->get_data(), length_column->get_data(),
                args_null_map->get_data(), result_column, input_rows_count);
@@ -3543,11 +3543,11 @@ private:
                 // real execution logic for string insert
                 // corner case: Replaces the rest of the string from position pos 
                 // if len is not within the length of the rest of the string
-                size_t origin_rest_len = origin_str_len - start[row];
+                size_t origin_rest_len = origin_str_len - start[row] + 1;
                 if(length[row] > origin_rest_len) {
                     std::string result = origin_str.to_string();
                     // truncate first
-                    result = result.substr(0, start[row]);
+                    result = result.substr(0, start[row] - 1);
                     std::string_view replace_str = new_str.to_string_view();
                     // then append
                     result.append(replace_str);
@@ -3556,7 +3556,7 @@ private:
                     // normal case
                     std::string result = origin_str.to_string();
                     std::string_view replace_str = new_str.to_string_view();
-                    result.replace(start[row], length[row], replace_str);
+                    result.replace(start[row] - 1, length[row], replace_str);
                     result_column->insert_data(result.data(), result.length());
                 }
             } 

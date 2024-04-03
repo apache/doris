@@ -39,14 +39,10 @@ public class Insert extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
+                .args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE, IntegerType.INSTANCE,
+                    VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                .args(StringType.INSTANCE, StringType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE,
-                    IntegerType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE)
-                .args(StringType.INSTANCE, StringType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE)
+                .args(StringType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE, StringType.INSTANCE)
     );
 
     /**

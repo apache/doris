@@ -366,4 +366,21 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql_func_char9 """ select char(0) = ' '; """
     qt_sql_func_char10 """ select char(0) = '\0'; """
 
+
+    qt_sql """SELECT `INSERT`('bbbbb', 1, 1, 'a');"""
+    qt_sql """SELECT `INSERT`('abcdefghij', 1, 1, 'xxxxx');"""
+    qt_sql """SELECT `INSERT`('abcdefghij', 7, 5, 'xxxxx');"""
+    qt_sql """SELECT `INSERT`('abcdefghij', 6, 5, 'xxxxx');"""
+    qt_sql """SELECT `INSERT`('abcdefghij', 5, 1, 'xxxxx');"""
+    qt_sql """SELECT `INSERT`('abcdefghij', 10, 1, 'xxxxx');"""
+
+    qt_sql """SELECT `INSERT`('abcdefghij', -2147483648, 1, 'a');"""
+    qt_sql """SELECT `INSERT`('abcdefghij', -2147483647, 1, 'a');"""
+    qt_sql """SELECT `INSERT`('abcdefghij', 2147483647, 1, 'a');"""
+
+    qt_sql """SELECT `INSERT`(NULL, 1, 1, 'a');"""
+    qt_sql """SELECT `INSERT`('bbbbb', NULL, 1, 'a');"""
+    qt_sql """SELECT `INSERT`('bbbbb', 1, NULL, 'a');"""
+    qt_sql """SELECT `INSERT`('bbbbb', 1, 1, NULL);"""
+    qt_sql """SELECT `INSERT`(NULL, NULL, NULL, NULL);"""
 }
