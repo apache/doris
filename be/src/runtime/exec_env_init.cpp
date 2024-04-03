@@ -556,7 +556,6 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
     SAFE_STOP(_storage_engine);
-    SAFE_DELETE(_dns_cache);
     SAFE_STOP(_spill_stream_mgr);
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
@@ -649,6 +648,9 @@ void ExecEnv::destroy() {
 
     // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
     SAFE_DELETE(_without_group_task_scheduler);
+
+    // dns cache is a global instance and need to be released at last
+    SAFE_DELETE(_dns_cache);
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
