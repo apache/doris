@@ -606,9 +606,9 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                                                              tracker->consumption()));
                         continue;
                     }
-                    int64_t overcommit_ratio =
+                    auto overcommit_ratio = int64_t(
                             (static_cast<double>(tracker->consumption()) / tracker->limit()) *
-                            10000;
+                            10000);
                     max_pq.emplace(overcommit_ratio, tracker->label());
                     query_consumption[tracker->label()] = tracker->consumption();
                 }

@@ -197,10 +197,6 @@ public:
     const ColumnPtr& get_offsets_ptr() const { return offsets; }
     ColumnPtr& get_offsets_ptr() { return offsets; }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnArray>(num_columns, selector);
-    }
-
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];

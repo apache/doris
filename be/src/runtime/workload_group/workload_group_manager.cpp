@@ -198,7 +198,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
     for (auto& wg : _workload_groups) {
         auto wg_mem_limit = wg.second->memory_limit();
         auto& wg_mem_info = wgs_mem_info[wg.first];
-        wg_mem_info.weighted_mem_used = wg_mem_info.total_mem_used * ratio;
+        wg_mem_info.weighted_mem_used = int64_t(wg_mem_info.total_mem_used * ratio);
         wg_mem_info.mem_used_ratio = (double)wg_mem_info.weighted_mem_used / wg_mem_limit;
 
         wg.second->set_weighted_memory_used(wg_mem_info.total_mem_used, ratio);
@@ -237,7 +237,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
                 continue;
             }
             auto query_consumption = query_ctx->query_mem_tracker->consumption();
-            int64_t query_weighted_consumption = query_consumption * ratio;
+            auto query_weighted_consumption = int64_t(query_consumption * ratio);
             query_ctx->set_weighted_mem(query_weighted_mem_limit, query_weighted_consumption);
 
             if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
