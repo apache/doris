@@ -980,7 +980,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     }
     if (request->has_hdfs_info()) {
         StorageVaultPB hdfs_param;
-        hdfs_param.set_name("Default");
         hdfs_param.mutable_hdfs_info()->MergeFrom(request->hdfs_info());
         if (0 != add_hdfs_storage_vault(instance, txn.get(), std::move(hdfs_param), code, msg)) {
             return;
