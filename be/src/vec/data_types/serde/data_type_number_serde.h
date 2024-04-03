@@ -330,7 +330,7 @@ Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
         } else if (value.IsInt64()) {
             col.insert_value((T)value.GetInt64());
         } else if (value.IsFloat() || value.IsDouble()) {
-            col.insert_value((T)value.GetDouble());
+            col.insert_value(T(value.GetDouble()));
         } else {
             CHECK(false) << "Improssible";
         }

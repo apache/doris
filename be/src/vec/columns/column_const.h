@@ -247,8 +247,6 @@ public:
         }
     }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         assert_cast<Self&>(*res).resize(selector.size());
