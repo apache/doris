@@ -68,6 +68,7 @@ import java.util.stream.Collectors;
 // we only support OlapTable now.
 public class GroupCommitPlanner {
     private static final Logger LOG = LogManager.getLogger(GroupCommitPlanner.class);
+    public static final String SCHEMA_CHANGE = " is blocked on schema change";
 
     protected Database db;
     protected OlapTable table;
@@ -82,7 +83,7 @@ public class GroupCommitPlanner {
         this.db = db;
         this.table = table;
         if (Env.getCurrentEnv().getGroupCommitManager().isBlock(this.table.getId())) {
-            String msg = "insert table " + this.table.getId() + " is blocked on schema change";
+            String msg = "insert table " + this.table.getId() + SCHEMA_CHANGE;
             LOG.info(msg);
             throw new DdlException(msg);
         }

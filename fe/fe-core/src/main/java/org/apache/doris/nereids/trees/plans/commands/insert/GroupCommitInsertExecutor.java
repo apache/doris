@@ -269,7 +269,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         } catch (Throwable t) {
             onFail(t);
             // retry group_commit insert when meet
-            if (t.getMessage().contains("blocked on schema change")) {
+            if (t.getMessage().contains(GroupCommitPlanner.SCHEMA_CHANGE)) {
                 throw t;
             }
             return;
