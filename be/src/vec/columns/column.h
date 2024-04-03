@@ -659,6 +659,9 @@ public:
     /// Implies is_fixed_and_contiguous.
     virtual bool is_numeric() const { return false; }
 
+    // Column is ColumnString/ColumnArray/ColumnMap or other variable length column at every row
+    virtual bool is_variable_length() const { return false; }
+
     virtual bool is_column_string() const { return false; }
 
     virtual bool is_column_decimal() const { return false; }

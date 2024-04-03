@@ -182,22 +182,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         _agg_places.push_back(place);
 
         // calculate `_has_variable_length_tag` tag. like string, array, map
-        _stored_has_variable_length_tag[idx] =
-                _stored_data_columns[idx]->is_column_string() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_string()) ||
-                _stored_data_columns[idx]->is_column_array() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_array()) ||
-                _stored_data_columns[idx]->is_column_map() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_map());
+        _stored_has_variable_length_tag[idx] = _stored_data_columns[idx]->is_variable_length();
     }
 }
 

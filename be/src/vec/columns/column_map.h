@@ -93,6 +93,7 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t size) const override;
+    bool is_variable_length() const override { return true; }
 
     bool can_be_inside_nullable() const override { return true; }
 

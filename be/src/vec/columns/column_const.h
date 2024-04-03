@@ -75,6 +75,8 @@ public:
 
     ColumnPtr convert_to_full_column_if_const() const override { return convert_to_full_column(); }
 
+    bool is_variable_length() const override { return data->is_variable_length(); }
+
     ColumnPtr remove_low_cardinality() const;
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }

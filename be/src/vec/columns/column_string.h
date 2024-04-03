@@ -107,7 +107,7 @@ private:
 
 public:
     void sanity_check() const;
-
+    bool is_variable_length() const override { return true; }
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -557,6 +557,8 @@ public:
         auto data = r.get_data_at(row);
 
         if (!self_row) {
+            // self_row == 0 means we first call replace_column_data() with batch column data. so we
+            // should clean last batch column data.
             chars.clear();
             offsets[self_row] = data.size;
         } else {
