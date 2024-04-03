@@ -40,11 +40,11 @@ public class StrInsert extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE, IntegerType.INSTANCE
-                    , VarcharType.SYSTEM_DEFAULT),
+                    .args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE, IntegerType.INSTANCE,
+                    VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .args(StringType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE
-                    , StringType.INSTANCE)
+                    .args(StringType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE,
+                    StringType.INSTANCE)
     );
 
     /**
