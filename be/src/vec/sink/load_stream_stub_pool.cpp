@@ -23,50 +23,104 @@
 namespace doris {
 class TExpr;
 
-LoadStreams::LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool)
-        : _load_id(load_id), _dst_id(dst_id), _use_cnt(num_use), _pool(pool) {}
+LoadStreamMap::LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
+                             LoadStreamStubPool* pool)
+        : _load_id(load_id),
+          _src_id(src_id),
+          _num_streams(num_streams),
+          _use_cnt(num_use),
+          _pool(pool) {
+    DCHECK(num_streams > 0) << "stream num should be greater than 0";
+    DCHECK(num_use > 0) << "use num should be greater than 0";
+}
 
-void LoadStreams::release() {
-    int num_use = --_use_cnt;
-    DBUG_EXECUTE_IF("LoadStreams.release.keeping_streams", { num_use = 1; });
-    if (num_use == 0) {
-        LOG(INFO) << "releasing streams, load_id=" << _load_id << ", dst_id=" << _dst_id;
-        _pool->erase(_load_id, _dst_id);
-    } else {
-        LOG(INFO) << "keeping streams, load_id=" << _load_id << ", dst_id=" << _dst_id
-                  << ", use_cnt=" << num_use;
+std::shared_ptr<Streams> LoadStreamMap::get_or_create(int64_t dst_id) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    std::shared_ptr<Streams> streams = _streams_for_node[dst_id];
+    if (streams != nullptr) {
+        return streams;
     }
+    streams = std::make_shared<Streams>();
+    auto schema_map = std::make_shared<IndexToTabletSchema>();
+    auto mow_map = std::make_shared<IndexToEnableMoW>();
+    for (int i = 0; i < _num_streams; i++) {
+        streams->emplace_back(new LoadStreamStub(_load_id, _src_id, schema_map, mow_map));
+    }
+    _streams_for_node[dst_id] = streams;
+    return streams;
+}
+
+std::shared_ptr<Streams> LoadStreamMap::at(int64_t dst_id) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _streams_for_node.at(dst_id);
+}
+
+bool LoadStreamMap::contains(int64_t dst_id) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _streams_for_node.contains(dst_id);
+}
+
+void LoadStreamMap::for_each(std::function<void(int64_t, const Streams&)> fn) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    for (auto& [dst_id, streams] : _streams_for_node) {
+        fn(dst_id, *streams);
+    }
+}
+
+Status LoadStreamMap::for_each_st(std::function<Status(int64_t, const Streams&)> fn) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    for (auto& [dst_id, streams] : _streams_for_node) {
+        RETURN_IF_ERROR(fn(dst_id, *streams));
+    }
+    return Status::OK();
+}
+
+void LoadStreamMap::save_tablets_to_commit(int64_t dst_id,
+                                           const std::vector<PTabletID>& tablets_to_commit) {
+    std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
+    auto& tablets = _tablets_to_commit[dst_id];
+    tablets.insert(tablets.end(), tablets_to_commit.begin(), tablets_to_commit.end());
+}
+
+bool LoadStreamMap::release() {
+    int num_use = --_use_cnt;
+    if (num_use == 0) {
+        LOG(INFO) << "releasing streams, load_id=" << _load_id;
+        _pool->erase(_load_id);
+        return true;
+    }
+    LOG(INFO) << "keeping streams, load_id=" << _load_id << ", use_cnt=" << num_use;
+    return false;
+}
+
+Status LoadStreamMap::close_load() {
+    return for_each_st([this](int64_t dst_id, const Streams& streams) -> Status {
+        const auto& tablets = _tablets_to_commit[dst_id];
+        for (auto& stream : streams) {
+            RETURN_IF_ERROR(stream->close_load(tablets));
+        }
+        return Status::OK();
+    });
 }
 
 LoadStreamStubPool::LoadStreamStubPool() = default;
 
 LoadStreamStubPool::~LoadStreamStubPool() = default;
-
-std::shared_ptr<LoadStreams> LoadStreamStubPool::get_or_create(PUniqueId load_id, int64_t src_id,
-                                                               int64_t dst_id, int num_streams,
-                                                               int num_sink) {
-    auto key = std::make_pair(UniqueId(load_id), dst_id);
+std::shared_ptr<LoadStreamMap> LoadStreamStubPool::get_or_create(UniqueId load_id, int64_t src_id,
+                                                                 int num_streams, int num_use) {
     std::lock_guard<std::mutex> lock(_mutex);
-    std::shared_ptr<LoadStreams> streams = _pool[key];
-    if (streams) {
+    std::shared_ptr<LoadStreamMap> streams = _pool[load_id];
+    if (streams != nullptr) {
         return streams;
     }
-    DCHECK(num_streams > 0) << "stream num should be greater than 0";
-    DCHECK(num_sink > 0) << "sink num should be greater than 0";
-    auto [it, _] = _template_stubs.emplace(load_id, new LoadStreamStub {load_id, src_id, num_sink});
-    streams = std::make_shared<LoadStreams>(load_id, dst_id, num_sink, this);
-    for (int32_t i = 0; i < num_streams; i++) {
-        // copy construct, internal tablet schema map will be shared among all stubs
-        streams->streams().emplace_back(new LoadStreamStub {*it->second});
-    }
-    _pool[key] = streams;
+    streams = std::make_shared<LoadStreamMap>(load_id, src_id, num_streams, num_use, this);
+    _pool[load_id] = streams;
     return streams;
 }
 
-void LoadStreamStubPool::erase(UniqueId load_id, int64_t dst_id) {
+void LoadStreamStubPool::erase(UniqueId load_id) {
     std::lock_guard<std::mutex> lock(_mutex);
-    _pool.erase(std::make_pair(load_id, dst_id));
-    _template_stubs.erase(load_id);
+    _pool.erase(load_id);
 }
 
 } // namespace doris
