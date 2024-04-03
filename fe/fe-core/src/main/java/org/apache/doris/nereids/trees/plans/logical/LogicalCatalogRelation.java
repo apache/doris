@@ -24,7 +24,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -60,7 +59,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     protected final TableIf table;
     // [catalogName, databaseName]
     protected final ImmutableList<String> qualifier;
-    private Pair<Integer, Integer> indexInSqlString;
 
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
         super(relationId, type);
@@ -207,13 +205,5 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             }
         }
         return slotSet.build();
-    }
-
-    public Pair<Integer, Integer> getIndexInSqlString() {
-        return indexInSqlString;
-    }
-
-    public void setIndexInSqlString(Pair<Integer, Integer> indexInSqlString) {
-        this.indexInSqlString = indexInSqlString;
     }
 }

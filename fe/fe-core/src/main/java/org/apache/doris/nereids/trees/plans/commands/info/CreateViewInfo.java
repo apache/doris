@@ -46,20 +46,14 @@ import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
-import org.apache.doris.nereids.trees.expressions.BoundStar;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -72,7 +66,6 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -88,7 +81,6 @@ public class CreateViewInfo {
     private final List<Column> finalCols = Lists.newArrayList();
     private final List<Slot> outputs = Lists.newArrayList();
     private Plan analyzedPlan;
-    private Map<Pair<Integer, Integer>, String> rewriteSqlMap;
 
     /** constructor*/
     public CreateViewInfo(boolean ifNotExists, TableNameInfo viewName, String comment, LogicalPlan logicalQuery,
@@ -144,7 +136,7 @@ public class CreateViewInfo {
         CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, viewName.transferToTableName(), cols, comment,
                 null);
         // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(rewriteSqlMap);
+        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString());
 
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
@@ -165,7 +157,6 @@ public class CreateViewInfo {
         AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar);
         analyzerForStar.analyze();
         analyzedPlan = viewContextForStar.getRewritePlan();
-        rewriteSqlMap = collectStarAndRelationInfo(analyzedPlan);
     }
 
     private String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
@@ -225,43 +216,6 @@ public class CreateViewInfo {
                 finalCols.add(column);
             }
         }
-    }
-
-    private Map<Pair<Integer, Integer>, String> collectStarAndRelationInfo(Plan plan) {
-        TreeMap<Pair<Integer, Integer>, String> result = new TreeMap<>(new Pair.PairComparator<>());
-        plan.foreach(node -> {
-            if (node instanceof LogicalProject) {
-                LogicalProject<Plan> project = (LogicalProject) node;
-                if (project.getExcepts().isEmpty()) {
-                    for (BoundStar star : project.getBoundStars()) {
-                        if (star.getIndexInSqlString() == null) {
-                            continue;
-                        }
-                        result.put(star.getIndexInSqlString(), star.toSqlWithBacktick());
-                    }
-                } else {
-                    List<NamedExpression> namedExpressions = project.getExcepts();
-                    BoundStar star = project.getBoundStars().get(0);
-                    if (star.getIndexInSqlString() == null) {
-                        return;
-                    }
-                    result.put(star.getIndexInSqlString(), star.toSqlWithBacktick(namedExpressions));
-                }
-            } else if (node instanceof LogicalCatalogRelation) {
-                LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) node;
-                if (logicalCatalogRelation.getIndexInSqlString() != null) {
-                    result.put(logicalCatalogRelation.getIndexInSqlString(),
-                            Utils.qualifiedNameWithBacktick(logicalCatalogRelation.qualified()));
-                }
-            } else if (node instanceof LogicalSubQueryAlias) {
-                LogicalSubQueryAlias alias = (LogicalSubQueryAlias) node;
-                if (alias.getIndexInSqlString() != null) {
-                    result.put(alias.getIndexInSqlString(),
-                            Utils.qualifiedNameWithBacktick(alias.getQualifier()));
-                }
-            }
-        });
-        return result;
     }
 
     private static class OutermostPlanFinder extends DefaultPlanVisitor<Void, AtomicReference<Plan>> {

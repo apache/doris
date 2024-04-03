@@ -56,8 +56,8 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     private final Optional<TableSample> tableSample;
     private final Optional<String> indexName;
     private TableScanParams scanParams;
+    // the start and end position of the sql substring(e.g. "t1", "db1.t1", "ctl1.db1.t1")
     private Pair<Integer, Integer> indexInSqlString;
-    private List<String> tableQualifier;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
         this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of(),

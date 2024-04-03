@@ -31,6 +31,7 @@ import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -62,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -215,7 +217,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     unboundRelation.getTableSample());
             }
         }
-        scan.setIndexInSqlString(unboundRelation.getIndexInSqlString());
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
                 && !ConnectContext.get().getSessionVariable().skipDeleteSign()
                 && !scan.isDirectMvScan()) {
@@ -240,72 +241,50 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
                                                List<String> tableQualifier, CascadesContext cascadesContext) {
+        if (unboundRelation.getIndexInSqlString() != null) {
+            StatementContext statementContext = cascadesContext.getStatementContext();
+            statementContext.addIndexInSqlToString(unboundRelation.getIndexInSqlString(),
+                    Utils.qualifiedNameWithBacktick(tableQualifier));
+        }
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(tableQualifier.subList(0, tableQualifier.size() - 1));
-
         switch (table.getType()) {
             case OLAP:
             case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, qualifierWithoutTableName);
-            case VIEW: {
+            case VIEW:
                 View view = (View) table;
                 String inlineViewDef = view.getInlineViewDef();
                 Plan viewBody = parseAndAnalyzeView(inlineViewDef, cascadesContext);
                 LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
-                LogicalSubQueryAlias alias = new LogicalSubQueryAlias<>(tableQualifier, logicalView);
-                alias.setIndexInSqlString(unboundRelation.getIndexInSqlString());
-                return alias;
-            }
-            case HMS_EXTERNAL_TABLE: {
+                return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
+            case HMS_EXTERNAL_TABLE:
                 HMSExternalTable hmsTable = (HMSExternalTable) table;
                 if (Config.enable_query_hive_views && hmsTable.isView()) {
                     String hiveCatalog = hmsTable.getCatalog().getName();
                     String ddlSql = hmsTable.getViewText();
                     Plan hiveViewPlan = parseAndAnalyzeHiveView(hiveCatalog, ddlSql, cascadesContext);
-                    LogicalSubQueryAlias alias = new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
-                    alias.setIndexInSqlString(unboundRelation.getIndexInSqlString());
-                    return alias;
+                    return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                 }
                 hmsTable.setScanParams(unboundRelation.getScanParams());
-                LogicalFileScan scan = new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
+                return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                         qualifierWithoutTableName, unboundRelation.getTableSample());
-                scan.setIndexInSqlString(unboundRelation.getIndexInSqlString());
-                return scan;
-            }
             case ICEBERG_EXTERNAL_TABLE:
             case PAIMON_EXTERNAL_TABLE:
             case MAX_COMPUTE_EXTERNAL_TABLE:
-            case TRINO_CONNECTOR_EXTERNAL_TABLE: {
-                LogicalFileScan scan = new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
+            case TRINO_CONNECTOR_EXTERNAL_TABLE:
+                return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                         qualifierWithoutTableName, unboundRelation.getTableSample());
-                scan.setIndexInSqlString(unboundRelation.getIndexInSqlString());
-                return scan;
-            }
-            case SCHEMA: {
-                LogicalSchemaScan scan = new LogicalSchemaScan(unboundRelation.getRelationId(), table,
-                        qualifierWithoutTableName);
-                scan.setIndexInSqlString(unboundRelation.getIndexInSqlString());
-                return scan;
-            }
+            case SCHEMA:
+                return new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
             case JDBC_EXTERNAL_TABLE:
-            case JDBC: {
-                LogicalJdbcScan scan = new LogicalJdbcScan(unboundRelation.getRelationId(), table,
+            case JDBC:
+                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
+            case ODBC:
+                return new LogicalOdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
+            case ES_EXTERNAL_TABLE:
+                return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table,
                         qualifierWithoutTableName);
-                scan.setIndexInSqlString(unboundRelation.getIndexInSqlString());
-                return scan;
-            }
-            case ODBC: {
-                LogicalOdbcScan scan = new LogicalOdbcScan(unboundRelation.getRelationId(), table,
-                        qualifierWithoutTableName);
-                scan.setIndexInSqlString(unboundRelation.getIndexInSqlString());
-                return scan;
-            }
-            case ES_EXTERNAL_TABLE: {
-                LogicalEsScan scan = new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table,
-                        qualifierWithoutTableName);
-                scan.setIndexInSqlString(unboundRelation.getIndexInSqlString());
-                return scan;
-            }
             case TEST_EXTERNAL_TABLE:
                 return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
             default:

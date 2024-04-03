@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
@@ -54,8 +53,6 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     protected RelationId relationId;
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
-
-    private Pair<Integer, Integer> indexInSqlString;
 
     public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {
         this(ImmutableList.of(tableAlias), Optional.empty(), Optional.empty(), Optional.empty(), child);
@@ -205,13 +202,5 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         Set<RelationId> relationIdSet = Sets.newHashSet();
         relationIdSet.add(relationId);
         return relationIdSet;
-    }
-
-    public Pair<Integer, Integer> getIndexInSqlString() {
-        return indexInSqlString;
-    }
-
-    public void setIndexInSqlString(Pair<Integer, Integer> indexInSqlString) {
-        this.indexInSqlString = indexInSqlString;
     }
 }

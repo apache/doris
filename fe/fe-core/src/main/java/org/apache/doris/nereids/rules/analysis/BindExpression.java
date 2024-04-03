@@ -28,6 +28,7 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilder;
@@ -568,24 +569,25 @@ public class BindExpression implements AnalysisRuleFactory {
                 () -> analyzer.analyzeToSet(project.getExcepts()));
 
         Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
-        List<BoundStar> boundStars = Lists.newArrayList();
+        StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
             if (!(expr instanceof BoundStar)) {
                 boundProjections.add((NamedExpression) expr);
             } else {
                 BoundStar boundStar = (BoundStar) expr;
-                boundStars.add(boundStar);
                 List<Slot> slots = boundStar.getSlots();
                 if (!excepts.isEmpty()) {
                     slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains(slot));
                 }
                 boundProjections.addAll(slots);
+                UnboundStar unboundStar = (UnboundStar) expression;
+                if (unboundStar.getIndexInSqlString() != null) {
+                    statementContext.addIndexInSqlToString(unboundStar.getIndexInSqlString(), toSqlWithBacktick(slots));
+                }
             }
         }
-        LogicalProject<Plan> finalProject = project.withProjects(boundProjections.build());
-        finalProject.setBoundStars(boundStars);
-        return finalProject;
+        return project.withProjects(boundProjections.build());
     }
 
     private Plan bindFilter(MatchingContext<LogicalFilter<Plan>> ctx) {
@@ -943,5 +945,10 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private interface CustomSlotBinderAnalyzer {
         List<? extends Expression> bindSlot(ExpressionAnalyzer analyzer, UnboundSlot unboundSlot);
+    }
+
+    public String toSqlWithBacktick(List<Slot> slots) {
+        return slots.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBacktick())
+                .collect(Collectors.joining(", "));
     }
 }

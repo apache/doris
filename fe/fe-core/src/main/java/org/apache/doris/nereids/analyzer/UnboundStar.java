@@ -35,7 +35,7 @@ import java.util.Objects;
  */
 public class UnboundStar extends NamedExpression implements LeafExpression, Unbound, PropagateNullable {
     private final List<String> qualifier;
-
+    // the start and end position of the sql substring(e.g. "*", "table.*")
     private Pair<Integer, Integer> indexInSqlString;
 
     public UnboundStar(List<String> qualifier) {
