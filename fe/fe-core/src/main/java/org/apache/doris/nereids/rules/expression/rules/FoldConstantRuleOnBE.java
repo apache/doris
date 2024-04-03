@@ -44,8 +44,10 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
@@ -183,7 +185,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 return;
             }
             // eg: avg_state(1) return is agg function serialize data
-            if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()) {
+            // and some type can't find a literal to represent
+            if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
+                    || expr.getDataType().isVariantType() || expr.getDataType().isTimeV2Type()) {
                 return;
             }
             if (skipSleepFunction(expr)) {
@@ -388,12 +392,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                         localDate.getDayOfMonth());
                 res.add(dateV2Literal);
             }
-        } else if (type.isTimeV2Type()) {
-            int num = resultContent.getDoubleValueCount();
+        } else if (type.isIPv4Type()) {
+            int num = resultContent.getStringValueCount();
             for (int i = 0; i < num; ++i) {
-                double doubleValue = resultContent.getDoubleValue(i);
-                DoubleLiteral doubleLiteral = new DoubleLiteral(doubleValue);
-                res.add(doubleLiteral);
+                String stringValue = resultContent.getStringValue(i);
+                IPv4Literal iPv4Literal = new IPv4Literal(stringValue);
+                res.add(iPv4Literal);
             }
         } else if (type.isIPv6Type()) {
             int num = resultContent.getStringValueCount();
@@ -401,6 +405,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 String stringValue = resultContent.getStringValue(i);
                 IPv6Literal iPv6Literal = new IPv6Literal(stringValue);
                 res.add(iPv6Literal);
+            }
+        } else if (type.isJsonType()) {
+            int num = resultContent.getStringValueCount();
+            for (int i = 0; i < num; ++i) {
+                String stringValue = resultContent.getStringValue(i);
+                JsonLiteral jsonLiteral = new JsonLiteral(stringValue);
+                res.add(jsonLiteral);
             }
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
