@@ -137,7 +137,17 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
     auto execution_context = state->get_task_execution_context();
     _dependency->block();
-    auto spill_func = [execution_context, build_block, state, this]() {
+    auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
+    auto spill_func = [execution_context, build_block, state, query_id, mem_tracker,
+                       this]() mutable {
+        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        Defer defer {[&]() {
+            // need to reset build_block here, or else build_block will be destructed
+            // after SCOPED_ATTACH_TASK_WITH_ID and will trigger memory_orphan_check failure
+            build_block.reset();
+        }};
+
         auto execution_context_lock = execution_context.lock();
         if (!execution_context_lock) {
             LOG(INFO) << "execution_context released, maybe query was cancelled.";

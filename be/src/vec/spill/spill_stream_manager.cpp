@@ -36,6 +36,7 @@
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
+#include "util/uid_util.h"
 #include "vec/spill/spill_stream.h"
 
 namespace doris::vectorized {
@@ -128,7 +129,7 @@ Status SpillStreamManager::_init_spill_store_map() {
 std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
     std::vector<SpillDataDir*> stores;
-    for (auto&& [_, store] : _spill_store_map) {
+    for (auto& [_, store] : _spill_store_map) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
             stores.push_back(store.get());
         }
@@ -188,7 +189,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
     for (auto& dir : data_dirs) {
         data_dir = dir;
         std::string spill_root_dir = fmt::format("{}/{}", data_dir->path(), SPILL_DIR_PREFIX);
-        spill_dir = fmt::format("{}/{}-{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
+        spill_dir = fmt::format("{}/{}/{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
                                 node_id, state->task_id(), id);
         auto st = io::global_local_filesystem()->create_directory(spill_dir);
         if (!st.ok()) {
@@ -262,6 +263,20 @@ void SpillStreamManager::gc(int64_t max_file_count) {
                     return;
                 }
             }
+        }
+    }
+}
+
+void SpillStreamManager::cleanup_query(TUniqueId query_id) {
+    for (auto& [_, store] : _spill_store_map) {
+        std::string query_spill_dir =
+                fmt::format("{}/{}/{}", store->path(), SPILL_DIR_PREFIX, print_id(query_id));
+        bool exists = false;
+        auto status = io::global_local_filesystem()->exists(query_spill_dir, &exists);
+        if (status.ok() && exists) {
+            auto gc_dir = fmt::format("{}/{}/{}-gc", store->path(), SPILL_GC_DIR_PREFIX,
+                                      print_id(query_id));
+            (void)io::global_local_filesystem()->rename(query_spill_dir, gc_dir);
         }
     }
 }
