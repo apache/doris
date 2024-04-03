@@ -94,6 +94,7 @@ public:
     ColumnPtr convert_to_full_column_if_const() const override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
+    bool is_variable_length() const override { return true; }
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
