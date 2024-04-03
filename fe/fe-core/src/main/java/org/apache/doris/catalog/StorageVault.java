@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -153,4 +154,11 @@ public abstract class StorageVault {
     }
 
     public abstract Map<String, String> getCopiedProperties();
+
+    public static final ShowResultSetMetaData STORAGE_VAULT_META_DATA =
+            ShowResultSetMetaData.builder()
+                .addColumn(new Column("StorageVaultName", ScalarType.createVarchar(100)))
+                .addColumn(new Column("StoragevaultId", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Propeties", ScalarType.createVarchar(65535)))
+                .build();
 }
