@@ -52,15 +52,15 @@ suite("test_plsql_variable") {
         """
 
     sql """
-        CREATE OR REPLACE PROCEDURE procedure_insert(IN id int, IN name STRING)
+        CREATE OR REPLACE PROCEDURE plsql_variable_insert(IN id int, IN name STRING)
         BEGIN
             INSERT INTO ${tableName} VALUES(id, name);
         END;
         """
-    sql """call procedure_insert(111, "plsql111")"""
-    sql """call procedure_insert(222, "plsql222")"""
-    sql """call procedure_insert(333, "plsql333")"""
-    sql """call procedure_insert(111, "plsql333")"""
+    sql """call plsql_variable_insert(111, "plsql111")"""
+    sql """call plsql_variable_insert(222, "plsql222")"""
+    sql """call plsql_variable_insert(333, "plsql333")"""
+    sql """call plsql_variable_insert(111, "plsql333")"""
     qt_select "select sum(id), count(1) from ${tableName}"
 
     sql """
@@ -107,4 +107,9 @@ suite("test_plsql_variable") {
         END;
         """
     qt_select """call plsql_variable3()"""
+
+    sql """DROP PROCEDURE plsql_variable1"""
+    sql """DROP PROCEDURE plsql_variable2"""
+    sql """DROP PROCEDURE plsql_variable3"""
+    sql """DROP PROC plsql_variable_insert"""
 }
