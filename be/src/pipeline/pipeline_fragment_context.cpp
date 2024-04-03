@@ -180,7 +180,6 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // make result receiver on fe be stocked on rpc forever until timeout...
     // We need a more detail discussion.
     _query_ctx->cancel(msg, Status::Cancelled(msg));
-    std::lock_guard<std::mutex> l(_cancel_lock);
     if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
         _is_report_on_cancel = false;
     } else {
