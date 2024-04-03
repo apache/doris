@@ -838,7 +838,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.fromClause() != null) {
             query = withRelations(query, ctx.fromClause().relations().relation());
         }
-        query = withFilter(query, Optional.of(ctx.whereClause()));
+        query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
