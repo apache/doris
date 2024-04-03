@@ -186,10 +186,8 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
 
 bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& peer_versions,
                                                     Version* proper_version) {
-    //  get local versions
+    //  already sorted
     std::vector<Version> local_versions = tablet()->get_all_versions();
-    std::sort(local_versions.begin(), local_versions.end(),
-              [](const Version& left, const Version& right) { return left.first < right.first; });
     for (const auto& v : local_versions) {
         VLOG_CRITICAL << _tablet->tablet_id() << " tablet local version: " << v.first << " - "
                       << v.second;
@@ -242,16 +240,16 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
         //  4. reset input rowsets
         _input_rowsets.clear();
         std::vector<RowsetSharedPtr> candidate_rowsets;
-        tablet()->traverse_rowsets([&candidate_rowsets, &proper_version](const auto& rs) {
+        tablet()->traverse_rowsets([&_input_rowsets, &proper_version](const auto& rs) {
             // only need rowset in proper_version
-            if (rs->is_local() && rs->end_version() >= proper_version->first &&
-                rs->start_version() <= proper_version->second) {
-                candidate_rowsets.emplace_back(rs);
+            if (rs->is_local() && rs->start_version() >= proper_version->first &&
+                rs->end_version() <= proper_version->second) {
+                _input_rowsets.emplace_back(rs);
             }
         });
-        _input_rowsets.insert(_input_rowsets.begin(), candidate_rowsets.begin(),
-                              candidate_rowsets.end());
         std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
+        DCHECK_EQ(_input_rowsets.front()->start_version(), proper_version->first);
+        DCHECK_EQ(_input_rowsets.back()->end_version(), proper_version->second);
         for (auto& rowset : _input_rowsets) {
             _input_rowsets_size += rowset->data_disk_size();
             _input_row_num += rowset->num_rows();
