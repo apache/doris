@@ -69,7 +69,7 @@ protected:
         tablet_meta->set_tablet_uid({tablet_id, 0});
         tablet_meta->set_shard_id(tablet_id % 4);
         tablet_meta->_schema_hash = tablet_id;
-        return std::make_shared<Tablet>(*_engine, std::move(tablet_meta), data_dir);
+        return std::make_shared<Tablet>(*_engine, std::move(tablet_meta), _data_dir);
     }
     RowsetSharedPtr create_rowset(TabletSharedPtr tablet, int64_t start, int64 end) {
         auto rowset_meta = std::make_shared<RowsetMeta>();
@@ -91,41 +91,43 @@ private:
     DataDir* _data_dir;
 };
 
-TEST_F(SingleCompactionTest, test_input_rowset) {
+TEST_F(SingleCompactionTest, test_single) {
     TabletSharedPtr tablet = create_tablet(10000);
 
-    SingleReplicaCompaction single_compaction(engine_ref, tablet,
+    SingleReplicaCompaction single_compaction(*engine_ref, tablet,
                                               CompactionType::CUMULATIVE_COMPACTION);
-
+    auto st = tablet->init();
+    ASSERT_TRUE(st.ok()) << st;
     // load 30 rowsets
     for (int i = 1; i <= 30; ++i) {
         auto rs = create_rowset(tablet, i, i);
-        auto st = tablet->add_inc_rowset(rs);
+        st = tablet->add_inc_rowset(rs);
         ASSERT_TRUE(st.ok()) << st;
     }
 
-    // prepare pick input rowsets, but now no picked
-    single_compaction.prepare_compact();
+    // pick input rowsets, but picking is not needed now
+    st = single_compaction.prepare_compact();
+    ASSERT_TRUE(st.ok()) << st;
 
     // load 2 rowsets
     for (int i = 31; i <= 32; i++) {
         auto rs = create_rowset(tablet, i, i);
-        auto st = tablet->add_inc_rowset(rs);
+        st = tablet->add_inc_rowset(rs);
         ASSERT_TRUE(st.ok()) << st;
     }
 
     // create peer compacted rowset
     auto v1 = Version(1, 32);
     auto v2 = Version(33, 38);
-    std::vetcor<Version> peer_version {v1, v2};
+    std::vector<Version> peer_version{v1, v2};
     Version proper_version;
     bool find = single_compaction._find_rowset_to_fetch(peer_version, &proper_version);
     EXPECT_EQ(find, true);
-    EXPECT_EQ(single_compaction._input_rowsets_size, 32);
+    EXPECT_EQ(single_compaction._input_rowsets.size(), 32);
     EXPECT_EQ(single_compaction._input_rowsets.front()->start_version(),
-              single_compaction._output_rowset->start_version())
+              single_compaction._output_rowset->start_version());
     EXPECT_EQ(single_compaction._input_rowsets.back()->end_version(),
-              single_compaction._output_rowset->end_version())
+              single_compaction._output_rowset->end_version());
 }
 
 } // namespace vectorized
