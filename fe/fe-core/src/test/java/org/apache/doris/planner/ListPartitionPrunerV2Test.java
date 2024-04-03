@@ -25,10 +25,9 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.datasource.hive.HMSCachedClient;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
+import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -73,12 +72,10 @@ public class ListPartitionPrunerV2Test {
 
         new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
             @Mock
-            public HMSCachedClient getClient() {
-                return new ThriftHMSCachedClient(new HiveConf(), 2);
+            public PooledHiveMetaStoreClient getClient() {
+                return new PooledHiveMetaStoreClient(new HiveConf(), 2);
             }
-        };
 
-        new MockUp<ThriftHMSCachedClient>(ThriftHMSCachedClient.class) {
             @Mock
             public List<String> listPartitionNames(String dbName, String tblName) {
                 // Mock is used here to represent the existence of a partition in the original table
