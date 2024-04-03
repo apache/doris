@@ -182,16 +182,24 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
         column_groups->emplace_back(std::move(key_columns));
     }
     auto&& cluster_key_idxes = tablet_schema->cluster_key_idxes();
+    std::vector<uint32_t> value_columns;
     for (uint32_t i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
             cluster_key_idxes.end() !=
                     std::find(cluster_key_idxes.begin(), cluster_key_idxes.end(), i)) {
             continue;
         }
-        if ((i - num_key_cols) % config::vertical_compaction_num_columns_per_group == 0) {
-            column_groups->emplace_back();
+
+        if (!value_columns.empty() &&
+            value_columns.size() % config::vertical_compaction_num_columns_per_group == 0) {
+            column_groups->push_back(value_columns);
+            value_columns.clear();
         }
-        column_groups->back().emplace_back(i);
+        value_columns.push_back(i);
+    }
+
+    if (!value_columns.empty()) {
+        column_groups->push_back(value_columns);
     }
 }
 
