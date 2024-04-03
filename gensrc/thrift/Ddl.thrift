@@ -76,10 +76,6 @@ enum TAggType {
 //    4: optional string default_value 
 //}
 
-enum THashType {
-    CRC32
-}
-
 // random partition info
 struct TRandomPartitionDesc {
 }
@@ -93,7 +89,7 @@ struct THashPartitionDesc {
     2: required i32 hash_buckets
 
     // type to compute hash value. if not set, use CRC32
-    3: optional THashType hash_type
+    3: optional Partitions.THashType hash_type
 }
 
 // value used to represents one column value in one range value

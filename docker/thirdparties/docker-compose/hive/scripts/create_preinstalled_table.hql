@@ -1897,7 +1897,51 @@ OUTPUTFORMAT
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_decimal90_table';
 
-msck repair table parquet_decimal90_table;
+CREATE TABLE `parquet_test2`(
+    `user_id` int,
+    `key` varchar(20))
+PARTITIONED BY (
+    `part` varchar(10))
+ROW FORMAT SERDE
+    'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+    'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+    OUTPUTFORMAT
+        'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+    '/user/doris/preinstalled_data/parquet_table/parquet_test2'
+TBLPROPERTIES (
+    'spark.sql.statistics.colStats.user_id.nullCount'='0',
+    'spark.sql.statistics.colStats.key.distinctCount'='4',
+    'spark.sql.statistics.colStats.user_id.distinctCount'='4',
+    'spark.sql.statistics.colStats.part.version'='2',
+    'transient_lastDdlTime'='1697557072',
+    'spark.sql.sources.schema.partCol.0'='part',
+    'spark.sql.statistics.colStats.user_id.maxLen'='4',
+    'spark.sql.create.version'='3.3.2',
+    'spark.sql.statistics.colStats.part.avgLen'='2',
+    'spark.sql.sources.schema.numBuckets'='3',
+    'spark.sql.statistics.colStats.part.maxLen'='2',
+    'spark.sql.sources.schema'='{"type":"struct","fields":[{"name":"user_id","type":"integer","nullable":true,"metadata":{}},{"name":"key","type":"string","nullable":true,"metadata":{"__CHAR_VARCHAR_TYPE_STRING":"varchar(20)"}},{"name":"part","type":"string","nullable":true,"metadata":{"__CHAR_VARCHAR_TYPE_STRING":"varchar(10)"}}]}',
+    'spark.sql.partitionProvider'='catalog',
+    'spark.sql.sources.schema.numBucketCols'='1',
+    'spark.sql.statistics.colStats.user_id.max'='31',
+    'spark.sql.sources.schema.bucketCol.0'='user_id',
+    'spark.sql.statistics.colStats.user_id.version'='2',
+    'spark.sql.statistics.numRows'='4',
+    'spark.sql.statistics.colStats.part.nullCount'='0',
+    'spark.sql.statistics.colStats.part.distinctCount'='1',
+    'spark.sql.statistics.colStats.user_id.min'='1',
+    'spark.sql.statistics.colStats.key.version'='2',
+    'spark.sql.statistics.colStats.key.avgLen'='3',
+    'spark.sql.sources.schema.numPartCols'='1',
+    'spark.sql.statistics.colStats.user_id.avgLen'='4',
+    'spark.sql.statistics.colStats.key.maxLen'='3',
+    'spark.sql.statistics.colStats.key.nullCount'='0',
+    'spark.sql.sources.provider'='PARQUET',
+    'spark.sql.statistics.totalSize'='2873');
+
+msck repair table parquet_test2;
 
 CREATE TABLE `fixed_length_byte_array_decimal_table`(
   `decimal_col1` decimal(7,2),
@@ -1919,7 +1963,6 @@ TBLPROPERTIES (
 msck repair table fixed_length_byte_array_decimal_table;
 
 show tables;
-
 
 create database stats_test;
 use stats_test;

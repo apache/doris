@@ -107,6 +107,13 @@ struct ShuffleChannelIds {
     }
 };
 
+struct ShufflePModChannelIds {
+    template <typename HashValueType>
+    HashValueType operator()(HashValueType l, int32_t r) {
+        return (l % r + r) % r;
+    }
+};
+
 class VDataStreamSender : public DataSink {
 public:
     friend class pipeline::ExchangeSinkOperator;
@@ -185,6 +192,7 @@ protected:
     int _current_channel_idx; // index of current channel to send to if _random == true
 
     TPartitionType::type _part_type;
+    THashType::type _hash_type;
 
     // serialized batches for broadcasting; we need two so we can write
     // one while the other one is still being sent

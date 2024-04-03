@@ -220,6 +220,13 @@ void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint32_t& has
     }
 }
 
+void ColumnStruct::update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                            const uint8_t* __restrict null_data) const {
+    for (const auto& column : columns) {
+        column->update_murmur_with_value(start, end, hash, nullptr);
+    }
+}
+
 void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
                                             const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
@@ -232,6 +239,14 @@ void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTy
                                           const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
         column->update_crcs_with_value(hash, type, rows, offset, null_data);
+    }
+}
+
+void ColumnStruct::update_murmurs_with_value(int32_t* __restrict hash, PrimitiveType type,
+                                             int32_t rows, uint32_t offset,
+                                             const uint8_t* __restrict null_data) const {
+    for (const auto& column : columns) {
+        column->update_murmurs_with_value(hash, type, rows, offset, null_data);
     }
 }
 

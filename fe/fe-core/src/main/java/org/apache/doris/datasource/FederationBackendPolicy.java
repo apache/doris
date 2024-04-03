@@ -250,6 +250,7 @@ public class FederationBackendPolicy {
                     Optional<Backend> chosenNode = candidateNodes.stream()
                             .min(Comparator.comparingLong(ownerNode -> assignedWeightPerBackend.get(ownerNode)));
 
+                    //ToDo(Nitin): group assignment based on the bucketId
                     if (chosenNode.isPresent()) {
                         Backend selectedBackend = chosenNode.get();
                         assignment.put(selectedBackend, split);
@@ -505,6 +506,13 @@ public class FederationBackendPolicy {
             primitiveSink.putBytes(split.getPathString().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putLong(split.getStart());
             primitiveSink.putLong(split.getLength());
+        }
+    }
+
+    private static class BucketHash implements Funnel<Integer> {
+        @Override
+        public void funnel(Integer bucketId, PrimitiveSink primitiveSink) {
+            primitiveSink.putLong(bucketId);
         }
     }
 }
