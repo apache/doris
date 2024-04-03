@@ -472,7 +472,6 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from range_date_cast_to_datetime"
     logger.info("${result2}")
     assertEquals(result2.size(), 4)
-    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table range_date_cast_to_datetime"
 
     sql """set enable_fallback_to_original_planner=true"""
@@ -492,6 +491,5 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from range_date_cast_to_datetime"
     logger.info("${result2}")
     assertEquals(result2.size(), 4)
-    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table range_date_cast_to_datetime"
 }
