@@ -239,13 +239,18 @@ Status Compaction::do_inverted_index_compaction() {
 
     OlapStopWatch inverted_watch;
 
-    Version version = _tablet->max_version();
+    int64_t cur_max_version = 0;
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        cur_max_version = _tablet->max_version_unlocked();
+    }
+
     DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
     std::set<RowLocation> missed_rows;
     std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
     // Convert the delete bitmap of the input rowsets to output rowset.
     _tablet->calc_compaction_output_rowset_delete_bitmap(
-            _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
+            _input_rowsets, _rowid_conversion, 0, cur_max_version + 1, &missed_rows, &location_map,
             _tablet->tablet_meta()->delete_bitmap(), &output_rowset_delete_bitmap);
 
     if (!_allow_delete_in_cumu_compaction) {
