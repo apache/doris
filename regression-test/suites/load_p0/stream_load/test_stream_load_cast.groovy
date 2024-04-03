@@ -28,11 +28,10 @@ suite("test_stream_load_cast", "p0") {
             k5 FLOAT           NULL,
             k6 DOUBLE          NULL,
             k7 DECIMAL(9,1)    NULL,
-            k8 DECIMALV3(9,1)  NULL,
-            k9 DATE           NULL,
-            k10 DATEV2         NULL,
-            k11 DATETIME       NULL,
-            k12 DATETIMEV2     NULL,
+            k8 DATE            NULL,
+            k9 DATEV2          NULL,
+            k10 DATETIME       NULL,
+            k11 DATETIMEV2     NULL,
         )
         DISTRIBUTED BY HASH(k1) BUCKETS 32
         PROPERTIES (
