@@ -16,11 +16,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <glog/logging.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <stdint.h>
-#include <unistd.h>
 
 #include <memory>
 #include <ostream>
