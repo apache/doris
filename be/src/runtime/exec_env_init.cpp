@@ -597,7 +597,6 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_stub_pool.reset();
     _file_cache_open_fd_cache.reset();
-    SAFE_DELETE(_dns_cache);
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
     // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
@@ -688,6 +687,9 @@ void ExecEnv::destroy() {
 
     // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
     SAFE_DELETE(_without_group_task_scheduler);
+
+    // dns cache is a global instance and need to be released at last
+    SAFE_DELETE(_dns_cache);
 
     _s_tracking_memory = false;
     LOG(INFO) << "Doris exec envorinment is destoried.";
