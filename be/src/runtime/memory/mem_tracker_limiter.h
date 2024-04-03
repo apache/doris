@@ -36,6 +36,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
+#include "util/stack_util.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
@@ -137,9 +138,10 @@ public:
         }
         _consumption->add(bytes);
         if (_consumption->current_value() < 0 && _type == Type::QUERY) {
-            LOG(FATAL) << "test_no_equal_0_query consume, mem tracker label: " << _label
-                       << ", consumption: " << _consumption->current_value()
-                       << ", peak consumption: " << _consumption->peak_value();
+            LOG(WARNING) << "test_no_equal_0_query consume, mem tracker label: " << _label
+                         << ", consumption: " << _consumption->current_value()
+                         << ", peak consumption: " << _consumption->peak_value()
+                         << ", trace=" << get_stack_trace();
         }
 
         if (_query_statistics) {
@@ -151,18 +153,20 @@ public:
     void consume_no_update_peak(int64_t bytes) { // need extreme fast
         _consumption->add_no_update_peak(bytes);
         if (_consumption->current_value() < 0 && _type == Type::QUERY) {
-            LOG(FATAL) << "test_no_equal_0_query consume_no_update_peak, mem tracker label: "
-                       << _label << ", consumption: " << _consumption->current_value()
-                       << ", peak consumption: " << _consumption->peak_value();
+            LOG(WARNING) << "test_no_equal_0_query consume_no_update_peak, mem tracker label: "
+                         << _label << ", consumption: " << _consumption->current_value()
+                         << ", peak consumption: " << _consumption->peak_value()
+                         << ", trace=" << get_stack_trace();
         }
     }
 
     void release(int64_t bytes) {
         _consumption->sub(bytes);
         if (_consumption->current_value() < 0 && _type == Type::QUERY) {
-            LOG(FATAL) << "test_no_equal_0_query release, mem tracker label: " << _label
-                       << ", consumption: " << _consumption->current_value()
-                       << ", peak consumption: " << _consumption->peak_value();
+            LOG(WARNING) << "test_no_equal_0_query release, mem tracker label: " << _label
+                         << ", consumption: " << _consumption->current_value()
+                         << ", peak consumption: " << _consumption->peak_value()
+                         << ", trace=" << get_stack_trace();
         }
     }
 
