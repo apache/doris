@@ -617,6 +617,9 @@ public class TabletInvertedIndex {
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, backend " + backendId);
+            if (Config.isCloudMode()) {
+                backendId = -1;
+            }
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
                 replicaToTabletMap.remove(replica.getId());
@@ -641,6 +644,9 @@ public class TabletInvertedIndex {
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, backend " + backendId);
+            if (Config.isCloudMode()) {
+                backendId = -1;
+            }
             return replicaMetaTable.get(tabletId, backendId);
         } finally {
             readUnlock(stamp);
