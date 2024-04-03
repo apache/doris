@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.Lists;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -170,7 +171,8 @@ public class RuntimeFilter {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
                 .append(" ").append(getSrcExpr().toSql()).append("->[").append(
-                        targetExpressions.stream().map(expr -> expr.toSql()).collect(Collectors.joining(",")))
+                        targetExpressions.stream().map(expr -> expr.toSql())
+                                .sorted().collect(Collectors.joining(",")))
                 .append("]");
         return sb.toString();
     }

@@ -22,7 +22,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF14 RF15
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF13 cs_item_sk->[ss_item_sk,i_item_sk]
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF13 cs_item_sk->[i_item_sk,ss_item_sk]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------PhysicalProject
 ----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF12 cd_demo_sk->[ss_cdemo_sk]
