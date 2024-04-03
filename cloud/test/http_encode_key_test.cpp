@@ -168,9 +168,20 @@ txn_id=126419752960)",
                 R"({"table_ids":["10001"]})",
         },
         Input {
-                "VersionKey",
+                "PartitionVersionKey",
                 "instance_id=gavin-instance&db_id=10086&tbl_id=10010&partition_id=10000",
                 "011076657273696f6e000110676176696e2d696e7374616e6365000110706172746974696f6e000112000000000000276612000000000000271a120000000000002710",
+                []() -> std::string {
+                    VersionPB pb;
+                    pb.set_version(10);
+                    return pb.SerializeAsString();
+                },
+                R"({"version":"10"})",
+        },
+        Input {
+                "TableVersionKey",
+                "instance_id=gavin-instance&db_id=10086&tbl_id=10010",
+                "011076657273696f6e000110676176696e2d696e7374616e63650001107461626c65000112000000000000276612000000000000271a",
                 []() -> std::string {
                     VersionPB pb;
                     pb.set_version(10);

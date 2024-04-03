@@ -29,6 +29,7 @@ under the License.
         <module>max-compute-scanner</module>
         <module>avro-scanner</module>
         <module>preload-extensions</module>
+        <module>trino-connector-scanner</module>
     </modules>
 
     <parent>

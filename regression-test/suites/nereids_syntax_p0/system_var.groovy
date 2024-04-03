@@ -46,4 +46,9 @@ suite("nereids_sys_var") {
         sql "select @@session.enable_nereids_planner"
         result ([[true]])
     }
+
+    test {
+        sql "select @@session.experimental_enable_nereids_planner"
+        result ([[true]])
+    }
 }

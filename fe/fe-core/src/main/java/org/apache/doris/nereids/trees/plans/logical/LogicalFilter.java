@@ -142,6 +142,12 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return new LogicalFilter<>(conjuncts, child);
     }
 
+    public LogicalFilter<Plan> withConjunctsAndProps(Set<Expression> conjuncts,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, Plan child) {
+        return new LogicalFilter<>(conjuncts, groupExpression, logicalProperties, child);
+    }
+
     @Override
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         Builder fdBuilder = new Builder(

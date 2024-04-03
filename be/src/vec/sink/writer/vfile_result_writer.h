@@ -60,7 +60,7 @@ public:
 
     Status write(Block& block) override;
 
-    Status close(Status s = Status::OK()) override;
+    Status close(Status exec_status) override;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 

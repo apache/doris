@@ -133,7 +133,7 @@ public class CloudReplica extends Replica {
                     LOG.debug("get cluster by session context cluster: {}", cluster);
                 }
             } else {
-                cluster = context.getCloudCluster();
+                cluster = context.getCloudCluster(false);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("get cluster by context {}", cluster);
                 }
@@ -163,7 +163,7 @@ public class CloudReplica extends Replica {
 
         // if cluster is SUSPENDED, wait
         try {
-            CloudSystemInfoService.waitForAutoStart(cluster);
+            ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
         } catch (DdlException e) {
             // this function cant throw exception. so just log it
             LOG.warn("cant resume cluster {}", cluster);

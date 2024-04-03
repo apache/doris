@@ -26,6 +26,7 @@
 #include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
 
@@ -203,4 +204,77 @@ LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     mem_trackers.resize(num_instances, nullptr);
 }
 
+Status AggSharedState::reset_hash_table() {
+    return std::visit(
+            [&](auto&& agg_method) {
+                auto& hash_table = *agg_method.hash_table;
+                using HashTableType = std::decay_t<decltype(hash_table)>;
+
+                agg_method.reset();
+
+                hash_table.for_each_mapped([&](auto& mapped) {
+                    if (mapped) {
+                        static_cast<void>(_destroy_agg_status(mapped));
+                        mapped = nullptr;
+                    }
+                });
+
+                aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                        sizeof(typename HashTableType::key_type),
+                        ((total_size_of_aggregate_states + align_aggregate_states - 1) /
+                         align_aggregate_states) *
+                                align_aggregate_states));
+                agg_method.hash_table.reset(new HashTableType());
+                agg_arena_pool.reset(new vectorized::Arena);
+                return Status::OK();
+            },
+            agg_data->method_variant);
+}
+
+void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count_bits) {
+    partition_count_bits = spill_partition_count_bits;
+    partition_count = (1 << spill_partition_count_bits);
+    max_partition_index = partition_count - 1;
+
+    for (int i = 0; i < partition_count; ++i) {
+        spill_partitions.emplace_back(std::make_shared<AggSpillPartition>());
+    }
+}
+
+Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
+                                           RuntimeProfile* profile,
+                                           vectorized::SpillStreamSPtr& spill_stream) {
+    if (spilling_stream_) {
+        spill_stream = spilling_stream_;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
+            state, spilling_stream_, print_id(state->query_id()), "agg", node_id,
+            std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(), profile));
+    spill_streams_.emplace_back(spilling_stream_);
+    spill_stream = spilling_stream_;
+    return Status::OK();
+}
+void AggSpillPartition::close() {
+    if (spilling_stream_) {
+        (void)spilling_stream_->wait_spill();
+        spilling_stream_.reset();
+    }
+    for (auto& stream : spill_streams_) {
+        (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+    }
+    spill_streams_.clear();
+}
+
+void PartitionedAggSharedState::close() {
+    for (auto partition : spill_partitions) {
+        partition->close();
+    }
+}
+void SpillSortSharedState::clear() {
+    for (auto& stream : sorted_streams) {
+        (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+    }
+    sorted_streams.clear();
+}
 } // namespace doris::pipeline

@@ -74,6 +74,8 @@ public class SummaryProfile {
     public static final String GET_PARTITION_VERSION_TIME = "Get Partition Version Time";
     public static final String GET_PARTITION_VERSION_COUNT = "Get Partition Version Count";
     public static final String GET_PARTITION_VERSION_BY_HAS_DATA_COUNT = "Get Partition Version Count (hasData)";
+    public static final String GET_TABLE_VERSION_TIME = "Get Table Version Time";
+    public static final String GET_TABLE_VERSION_COUNT = "Get Table Version Count";
 
     public static final String PARSE_SQL_TIME = "Parse SQL Time";
     public static final String NEREIDS_ANALYSIS_TIME = "Nereids Analysis Time";
@@ -93,7 +95,8 @@ public class SummaryProfile {
             PLAN_TIME, JOIN_REORDER_TIME, CREATE_SINGLE_NODE_TIME, QUERY_DISTRIBUTED_TIME,
             INIT_SCAN_NODE_TIME, FINALIZE_SCAN_NODE_TIME, GET_SPLITS_TIME, GET_PARTITIONS_TIME,
             GET_PARTITION_FILES_TIME, CREATE_SCAN_RANGE_TIME, GET_PARTITION_VERSION_TIME,
-            GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, GET_PARTITION_VERSION_COUNT, SCHEDULE_TIME, FETCH_RESULT_TIME,
+            GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, GET_PARTITION_VERSION_COUNT, GET_TABLE_VERSION_TIME,
+            GET_TABLE_VERSION_COUNT, SCHEDULE_TIME, FETCH_RESULT_TIME,
             WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME, DORIS_VERSION, IS_NEREIDS, IS_PIPELINE,
             IS_CACHED, TOTAL_INSTANCES_NUM, INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
 
@@ -115,6 +118,8 @@ public class SummaryProfile {
         builder.put(GET_PARTITION_VERSION_TIME, 1);
         builder.put(GET_PARTITION_VERSION_COUNT, 1);
         builder.put(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, 1);
+        builder.put(GET_TABLE_VERSION_TIME, 1);
+        builder.put(GET_TABLE_VERSION_COUNT, 1);
         EXECUTION_SUMMARY_KEYS_IDENTATION = builder.build();
     }
 
@@ -158,6 +163,8 @@ public class SummaryProfile {
     private long getPartitionVersionTime = 0;
     private long getPartitionVersionCount = 0;
     private long getPartitionVersionByHasDataCount = 0;
+    private long getTableVersionTime = 0;
+    private long getTableVersionCount = 0;
 
     public SummaryProfile(RuntimeProfile rootProfile) {
         summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
@@ -235,6 +242,8 @@ public class SummaryProfile {
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_COUNT, getPrettyGetPartitionVersionCount());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
                     getPrettyGetPartitionVersionByHasDataCount());
+            executionSummaryProfile.addInfoString(GET_TABLE_VERSION_TIME, getPrettyGetTableVersionTime());
+            executionSummaryProfile.addInfoString(GET_TABLE_VERSION_COUNT, getPrettyGetTableVersionCount());
         }
     }
 
@@ -345,6 +354,11 @@ public class SummaryProfile {
     public void addGetPartitionVersionTime(long ns) {
         this.getPartitionVersionTime += ns;
         this.getPartitionVersionCount += 1;
+    }
+
+    public void addGetTableVersionTime(long ns) {
+        this.getTableVersionTime += ns;
+        this.getTableVersionCount += 1;
     }
 
     public void incGetPartitionVersionByHasDataCount() {
@@ -592,5 +606,16 @@ public class SummaryProfile {
 
     private String getPrettyGetPartitionVersionCount() {
         return RuntimeProfile.printCounter(getPartitionVersionCount, TUnit.UNIT);
+    }
+
+    private String getPrettyGetTableVersionTime() {
+        if (getTableVersionTime == 0) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(getTableVersionTime, TUnit.TIME_NS);
+    }
+
+    private String getPrettyGetTableVersionCount() {
+        return RuntimeProfile.printCounter(getTableVersionCount, TUnit.UNIT);
     }
 }

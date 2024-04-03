@@ -235,6 +235,16 @@ class UpCommand(Command):
                             type=str,
                             help="Specify be configs for be.conf. "\
                                     "Example: --be-config \"enable_debug_points = true\" \"enable_auth = true\".")
+        group1.add_argument("--ms-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify ms configs for doris_cloud.conf. "\
+                                    "Example: --ms-config \"log_level = warn\".")
+        group1.add_argument("--recycle-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify recycle configs for doris_cloud.conf. "\
+                                    "Example: --recycle-config \"log_level = warn\".")
         group1.add_argument("--be-disks",
                             nargs="*",
                             default=["HDD=1"],
@@ -300,6 +310,23 @@ class UpCommand(Command):
                                 action=self._get_parser_bool_action(False),
                                 help="Run containers in frontend. ")
 
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--reg-be",
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help="Register be to meta server in cloud mode, use for multi clusters test. If specific --no-reg-be, "\
+                "will not register be to meta server. ")
+        else:
+            parser.add_argument(
+                "--no-reg-be",
+                dest='reg_be',
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help=
+                "Don't register be to meta server in cloud mode, use for multi clusters test"
+            )
+
     def run(self, args):
         if not args.NAME:
             raise Exception("Need specific not empty cluster name")
@@ -358,8 +385,9 @@ class UpCommand(Command):
 
             cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE, args.cloud,
                                           args.fe_config, args.be_config,
+                                          args.ms_config, args.recycle_config,
                                           args.be_disks, args.be_cluster,
-                                          args.coverage_dir,
+                                          args.reg_be, args.coverage_dir,
                                           cloud_store_config)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
@@ -721,14 +749,42 @@ class GenConfCommand(Command):
         return parser
 
     def run(self, args):
-        content = '''
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
-syncerAddress = "127.0.0.1:9190"
-feHttpAddress = "127.0.0.1:8030"
+        base_conf = '''
+jdbcUrl = "jdbc:mysql://{fe_ip}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://{fe_ip}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+feSourceThriftAddress = "{fe_ip}:9020"
+feTargetThriftAddress = "{fe_ip}:9020"
+syncerAddress = "{fe_ip}:9190"
+feHttpAddress = "{fe_ip}:8030"
 '''
+
+        cloud_conf = '''
+feCloudHttpAddress = "{fe_ip}:18030"
+metaServiceHttpAddress = "{ms_endpoint}"
+recycleServiceHttpAddress = "{recycle_endpoint}"
+multiClusterInstance = "default_instance_id"
+multiClusterBes = "{multi_cluster_bes}"
+metaServiceToken = "greedisgood9999"
+'''
+
+        def confirm_custom_file_path(doris_root_dir):
+            relative_custom_file_path = "regression-test/conf/regression-conf-custom.groovy"
+            regression_conf_custom = os.path.join(doris_root_dir,
+                                                  relative_custom_file_path)
+            ans = input(
+                "\nwrite file {} ?  y / n / c(change custom conf path):  ".
+                format(regression_conf_custom))
+            if ans == 'y':
+                return regression_conf_custom
+            elif ans == 'c':
+                return confirm_custom_file_path(
+                    input("\ninput your doris or selectdb-core root path (ie. the regression-test 's "\
+                        "parent path, for save the custom conf file): "
+                    ).strip())
+            else:
+                return ""
+
+        cluster = CLUSTER.Cluster.load(args.NAME)
         master_fe_ip = CLUSTER.get_master_fe_endpoint(args.NAME)
         if not master_fe_ip:
             print("Not found cluster with name {} in directory {}".format(
@@ -737,16 +793,31 @@ feHttpAddress = "127.0.0.1:8030"
         doris_root_dir = os.path.abspath(__file__)
         for i in range(4):
             doris_root_dir = os.path.dirname(doris_root_dir)
-        regression_conf_custom = doris_root_dir + "/regression-test/conf/regression-conf-custom.groovy"
-        if input("write file {} ?\n   y/N:  ".format(
-                regression_conf_custom)) != 'y':
-            print("No write regression custom file.")
+
+        regression_conf_custom = confirm_custom_file_path(doris_root_dir)
+        if not regression_conf_custom:
+            print("\nNo write regression custom file.")
             return
+
         with open(regression_conf_custom, "w") as f:
-            f.write(
-                content.replace("127.0.0.1",
-                                master_fe_ip[:master_fe_ip.find(':')]))
-        print("Write succ: " + regression_conf_custom)
+            fe_ip = master_fe_ip[:master_fe_ip.find(':')]
+            f.write(base_conf.format(fe_ip=fe_ip))
+            if cluster.is_cloud:
+                multi_cluster_bes = ",".join([
+                    "{}:{}:{}:{}:{}".format(be.get_ip(),
+                                            CLUSTER.BE_HEARTBEAT_PORT,
+                                            CLUSTER.BE_WEBSVR_PORT,
+                                            be.cloud_unique_id(),
+                                            CLUSTER.BE_BRPC_PORT)
+                    for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE)
+                ])
+                f.write(
+                    cloud_conf.format(
+                        fe_ip=fe_ip,
+                        ms_endpoint=cluster.get_meta_server_addr(),
+                        recycle_endpoint=cluster.get_recycle_addr(),
+                        multi_cluster_bes=multi_cluster_bes))
+        print("\nWrite succ: " + regression_conf_custom)
 
 
 class ListCommand(Command):

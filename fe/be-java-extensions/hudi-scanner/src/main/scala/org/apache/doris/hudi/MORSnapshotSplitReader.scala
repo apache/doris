@@ -74,7 +74,7 @@ class MORSnapshotSplitReader(override val split: HoodieSplit) extends BaseSplitR
       getFileSplit())
   }
 
-  private def getFileSplit(): HoodieMergeOnReadFileSplit = {
+  protected def getFileSplit(): HoodieMergeOnReadFileSplit = {
     val logFiles = split.deltaFilePaths.map(new HoodieLogFile(_))
       .sorted(Ordering.comparatorToOrdering(HoodieLogFile.getLogFileComparator)).toList
     val partitionedBaseFile = if (split.dataFilePath.isEmpty) {

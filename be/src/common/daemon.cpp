@@ -45,14 +45,13 @@
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
-#include "runtime/block_spill_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_query_statistics_mgr.h"
-#include "runtime/task_group/task_group_manager.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
@@ -359,13 +358,6 @@ void Daemon::calculate_metrics_thread() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }
 
-// clean up stale spilled files
-void Daemon::block_spill_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
-        ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
-    }
-}
-
 void Daemon::report_runtime_query_statistics_thread() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::report_query_statistics_interval_ms))) {
@@ -386,6 +378,14 @@ void Daemon::je_purge_dirty_pages_thread() const {
         doris::MemInfo::je_purge_all_arena_dirty_pages();
         doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
     } while (true);
+}
+
+void Daemon::wg_mem_used_refresh_thread() {
+    // Refresh memory usage and limit of workload groups
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::wg_mem_refresh_interval_ms))) {
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_memory_info();
+    }
 }
 
 void Daemon::start() {
@@ -415,14 +415,16 @@ void Daemon::start() {
         CHECK(st.ok()) << st;
     }
     st = Thread::create(
-            "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
-            &_threads.emplace_back());
-    st = Thread::create(
             "Daemon", "je_purge_dirty_pages_thread",
             [this]() { this->je_purge_dirty_pages_thread(); }, &_threads.emplace_back());
     st = Thread::create(
             "Daemon", "query_runtime_statistics_thread",
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+
+    st = Thread::create(
+            "Daemon", "wg_mem_refresh_thread", [this]() { this->wg_mem_used_refresh_thread(); },
+            &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }
 

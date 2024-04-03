@@ -384,8 +384,6 @@ public:
                              int64_t start = -1);
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
-    RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
-
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
@@ -407,6 +405,11 @@ public:
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
     std::string get_segment_filepath(std::string_view rowset_id, int64_t segment_index) const;
+    std::string get_segment_index_filepath(std::string_view rowset_id,
+                                           std::string_view segment_index,
+                                           std::string_view index_id) const;
+    std::string get_segment_index_filepath(std::string_view rowset_id, int64_t segment_index,
+                                           int64_t index_id) const;
     bool can_add_binlog(uint64_t total_binlog_size) const;
     void gc_binlogs(int64_t version);
     Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);

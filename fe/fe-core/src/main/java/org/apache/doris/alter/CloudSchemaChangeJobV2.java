@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -82,8 +83,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 indexIdMap.keySet().stream().collect(Collectors.toList());
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .commitMaterializedIndex(tableId,
-                    shadowIdxList);
+                    .commitMaterializedIndex(dbId, tableId, shadowIdxList, false);
         } catch (Exception e) {
             LOG.warn("commitMaterializedIndex exception:", e);
             throw new AlterCancelException(e.getMessage());
@@ -109,7 +109,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         while (true) {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .dropMaterializedIndex(tableId, idxList);
+                    .dropMaterializedIndex(tableId, idxList, false);
                 break;
             } catch (Exception e) {
                 LOG.warn("tryTimes:{}, dropIndex exception:", tryTimes, e);
@@ -182,6 +182,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
                 long originIndexId = indexIdMap.get(shadowIdxId);
                 KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
+                List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
 
                 Cloud.CreateTabletsRequest.Builder requestBuilder =
                         Cloud.CreateTabletsRequest.newBuilder();
@@ -191,7 +192,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                 .createTabletMetaBuilder(tableId, shadowIdxId,
                                 partitionId, shadowTablet, tbl.getPartitionInfo().getTabletType(partitionId),
                                 shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
-                                bfFpp, indexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
+                                bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
                                 tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                 tbl.getName(), tbl.getTTLSeconds(),
                                 tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),

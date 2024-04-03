@@ -48,7 +48,7 @@
 
 using namespace doris;
 
-std::unique_ptr<cloud::MockAccessor> _mock_fs;
+std::unique_ptr<cloud::MockS3Accessor> _mock_fs;
 
 class S3ClientInterface {
 public:
@@ -363,7 +363,7 @@ TEST(S3AccessorTest, init) {
 }
 
 TEST(S3AccessorTest, check_bucket_versioning) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -388,7 +388,7 @@ TEST(S3AccessorTest, check_bucket_versioning) {
 }
 
 TEST(S3AccessorTest, check_bucket_versioning_error) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -410,7 +410,7 @@ TEST(S3AccessorTest, check_bucket_versioning_error) {
 }
 
 TEST(S3AccessorTest, get_bucket_lifecycle) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -439,7 +439,7 @@ TEST(S3AccessorTest, get_bucket_lifecycle) {
 }
 
 TEST(S3AccessorTest, get_bucket_lifecycle_error) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -462,7 +462,7 @@ TEST(S3AccessorTest, get_bucket_lifecycle_error) {
 }
 
 TEST(S3AccessorTest, list) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -485,7 +485,7 @@ TEST(S3AccessorTest, list) {
 }
 
 TEST(S3AccessorTest, list_error) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -509,7 +509,7 @@ TEST(S3AccessorTest, list_error) {
 }
 
 TEST(S3AccessorTest, put) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -535,7 +535,7 @@ TEST(S3AccessorTest, put) {
 }
 
 TEST(S3AccessorTest, put_error) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -567,7 +567,7 @@ TEST(S3AccessorTest, put_error) {
 }
 
 TEST(S3AccessorTest, exist) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -590,7 +590,7 @@ TEST(S3AccessorTest, exist) {
 }
 
 TEST(S3AccessorTest, exist_error) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -616,7 +616,7 @@ TEST(S3AccessorTest, exist_error) {
 
 // function is not implemented
 TEST(S3AccessorTest, DISABLED_delete_object) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -642,7 +642,7 @@ TEST(S3AccessorTest, DISABLED_delete_object) {
 }
 
 TEST(S3AccessorTest, delete_objects) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -674,7 +674,7 @@ TEST(S3AccessorTest, delete_objects) {
 }
 
 TEST(S3AccessorTest, delete_objects_error) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -715,7 +715,7 @@ TEST(S3AccessorTest, delete_objects_error) {
 }
 
 TEST(S3AccessorTest, delete_expired_objects) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -769,7 +769,7 @@ TEST(S3AccessorTest, delete_expired_objects) {
 }
 
 TEST(S3AccessorTest, delete_object_by_prefix) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -796,7 +796,7 @@ TEST(S3AccessorTest, delete_object_by_prefix) {
 }
 
 TEST(S3AccessorTest, delete_object_by_prefix_error) {
-    _mock_fs = std::make_unique<cloud::MockAccessor>(cloud::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();

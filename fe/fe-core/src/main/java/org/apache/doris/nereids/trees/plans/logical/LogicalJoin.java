@@ -158,9 +158,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // Just use in withXXX method. Don't need check/copyOf()
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
-        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
-        this.markJoinConjuncts = ImmutableList.copyOf(markJoinConjuncts);
+        this.hashJoinConjuncts = Utils.fastToImmutableList(hashJoinConjuncts);
+        this.otherJoinConjuncts = Utils.fastToImmutableList(otherJoinConjuncts);
+        this.markJoinConjuncts = Utils.fastToImmutableList(markJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
         if (joinReorderContext != null) {
             this.joinReorderContext.copyFrom(joinReorderContext);
@@ -411,7 +411,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType, JoinReorderContext otherJoinReorderContext) {
+    public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, groupExpression, Optional.of(getLogicalProperties()),
+                children, joinReorderContext);
+    }
+
+    public LogicalJoin<Plan, Plan> withJoinTypeAndContext(JoinType joinType,
+            JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 children, otherJoinReorderContext);

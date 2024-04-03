@@ -147,8 +147,8 @@ class SyncerContext {
         return info
     }
 
-    FrontendClientImpl getMasterFrontClient() {
-        def result = suite.sql_return_maparray "select Host, RpcPort, IsMaster from frontends();"
+    FrontendClientImpl getMasterFrontClient(Connection conn) {
+        def result = suite.sql_return_maparray_impl("select Host, RpcPort, IsMaster from frontends();", conn)
         logger.info("get master fe: ${result}")
 
         def masterHost = ""
@@ -179,7 +179,7 @@ class SyncerContext {
 
     FrontendClientImpl getTargetFrontClient() {
         if (targetFrontendClient == null) {
-            targetFrontendClient = getMasterFrontClient()
+            targetFrontendClient = getMasterFrontClient(suite.getTargetConnection())
         }
         return targetFrontendClient
     }

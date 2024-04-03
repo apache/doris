@@ -16,6 +16,9 @@
 // under the License.
 
 suite('test_set_replica_status', 'nonConcurrent') {
+    if (isCloudMode()) {
+        return
+    }
     setFeConfigTemporary([disable_tablet_scheduler:true]) {
         def tableName = 'test_set_replica_status_table'
         sql "DROP TABLE IF EXISTS ${tableName}"

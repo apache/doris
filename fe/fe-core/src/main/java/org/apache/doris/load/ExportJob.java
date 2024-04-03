@@ -109,7 +109,7 @@ public class ExportJob implements Writable {
 
     private static final int MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT = Config.maximum_tablets_of_outfile_in_export;
 
-    public static final String CONSISTENT_ALL = "all";
+    public static final String CONSISTENT_NONE = "none";
     public static final String CONSISTENT_PARTITION = "partition";
 
     @SerializedName("id")

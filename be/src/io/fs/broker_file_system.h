@@ -38,18 +38,13 @@ struct FileInfo;
 
 class BrokerFileSystem final : public RemoteFileSystem {
 public:
-    static Status create(const TNetworkAddress& broker_addr,
-                         const std::map<std::string, std::string>& broker_prop,
-                         std::shared_ptr<BrokerFileSystem>* fs);
+    static Result<std::shared_ptr<BrokerFileSystem>> create(
+            const TNetworkAddress& broker_addr,
+            const std::map<std::string, std::string>& broker_prop, std::string id);
 
     ~BrokerFileSystem() override = default;
 
-    Status read_file(const TBrokerFD& fd, size_t offset, size_t bytes_req, std::string* data) const;
-
-    Status close_file(const TBrokerFD& fd) const;
-
 protected:
-    Status connect_impl() override;
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
                             const FileWriterOptions* opts) override;
     Status open_file_internal(const Path& file, FileReaderSPtr* reader,
@@ -71,13 +66,16 @@ protected:
 
 private:
     BrokerFileSystem(const TNetworkAddress& broker_addr,
-                     const std::map<std::string, std::string>& broker_prop);
+                     const std::map<std::string, std::string>& broker_prop, std::string id);
+
+    Status init();
+
     std::string error_msg(const std::string& err) const;
 
     const TNetworkAddress& _broker_addr;
     const std::map<std::string, std::string>& _broker_prop;
 
-    std::unique_ptr<BrokerServiceConnection> _connection;
+    std::shared_ptr<BrokerServiceConnection> _connection;
 };
 } // namespace io
 } // namespace doris

@@ -215,7 +215,6 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
     }
 
     {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         auto send_remote_block_closure =
                 AutoReleaseClosure<PTransmitDataParams, DummyBrpcCallback<PTransmitDataResult>>::
                         create_unique(_brpc_request, _send_remote_block_callback);
@@ -687,35 +686,37 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         // check out of limit
         RETURN_IF_ERROR(_send_new_partition_batch());
-        if (UNLIKELY(block->rows() == 0)) {
-            return Status::OK();
-        }
-        std::shared_ptr<vectorized::Block> convert_block;
-        bool has_filtered_rows = false;
-        int64_t filtered_rows = 0;
-        _number_input_rows += block->rows();
-        RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-                *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-                _number_input_rows));
-
-        const auto& row_ids = _row_part_tablet_ids[0].row_ids;
-        const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
+        std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
         const auto& num_channels = _channels.size();
         std::vector<std::vector<uint32>> channel2rows;
         channel2rows.resize(num_channels);
-        for (int idx = 0; idx < row_ids.size(); ++idx) {
-            const auto& row = row_ids[idx];
-            const auto& tablet_id = tablet_ids[idx];
-            channel2rows[tablet_id % num_channels].emplace_back(row);
-        }
+        auto input_rows = block->rows();
 
-        RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
-                                                  convert_block.get(),
-                                                  _enable_pipeline_exec ? eos : false));
+        if (input_rows > 0) {
+            bool has_filtered_rows = false;
+            int64_t filtered_rows = 0;
+            _number_input_rows += input_rows;
+            RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
+                    *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
+                    _number_input_rows));
+
+            const auto& row_ids = _row_part_tablet_ids[0].row_ids;
+            const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
+            for (int idx = 0; idx < row_ids.size(); ++idx) {
+                const auto& row = row_ids[idx];
+                const auto& tablet_id_hash =
+                        HashUtil::zlib_crc_hash(&tablet_ids[idx], sizeof(int64), 0);
+                channel2rows[tablet_id_hash % num_channels].emplace_back(row);
+            }
+        }
         if (eos) {
             _row_distribution._deal_batched = true;
             RETURN_IF_ERROR(_send_new_partition_batch());
         }
+        RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
+                                                  convert_block.get(),
+                                                  _enable_pipeline_exec ? eos : false));
+
     } else {
         // Range partition
         // 1. calculate range

@@ -214,7 +214,7 @@ bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
     res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
             str.c_str(), str.size(), precision, scale, &result);
-    return result == StringParser::PARSE_SUCCESS;
+    return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {

@@ -85,7 +85,7 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
 
 Status RuntimeFilterConsumer::_acquire_runtime_filter() {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
-    VExprSPtrs vexprs;
+    std::vector<vectorized::VRuntimeFilterPtr> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         bool ready = runtime_filter->is_ready();
@@ -111,12 +111,13 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter() {
     return Status::OK();
 }
 
-Status RuntimeFilterConsumer::_append_rf_into_conjuncts(const VExprSPtrs& vexprs) {
+Status RuntimeFilterConsumer::_append_rf_into_conjuncts(
+        const std::vector<vectorized::VRuntimeFilterPtr>& vexprs) {
     if (vexprs.empty()) {
         return Status::OK();
     }
 
-    for (auto& expr : vexprs) {
+    for (const auto& expr : vexprs) {
         VExprContextSPtr conjunct = VExprContext::create_shared(expr);
         RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor_ref));
         RETURN_IF_ERROR(conjunct->open(_state));
@@ -142,7 +143,7 @@ Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrive
     }
 
     // 1. Check if are runtime filter ready but not applied.
-    VExprSPtrs exprs;
+    std::vector<vectorized::VRuntimeFilterPtr> exprs;
     int current_arrived_rf_num = 0;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         if (_runtime_filter_ctxs[i].apply_mark) {

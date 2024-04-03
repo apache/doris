@@ -92,4 +92,12 @@ function replaceToTxt(str: string) {
   return strNoBr;
 }
 
-export {isSuccess, getDbName, getTimeNow, getBasePath, replaceToTxt};
+function checkLogin() {
+    const username = localStorage.getItem('username');
+    if (username) {
+        return true;
+    }
+    return false;
+}
+
+export {isSuccess, getDbName, getTimeNow, getBasePath, replaceToTxt, checkLogin};

@@ -296,6 +296,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     // the entry method of submitting a backup or restore job
     public void process(AbstractBackupStmt stmt) throws DdlException {
+        if (Config.isCloudMode()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "BACKUP and RESTORE are not supported by the cloud mode yet");
+        }
+
         // check if repo exist
         String repoName = stmt.getRepoName();
         Repository repository = null;

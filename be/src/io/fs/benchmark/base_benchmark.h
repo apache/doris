@@ -128,7 +128,7 @@ public:
             size_t size = std::min(buffer_size, (size_t)remaining_size);
             data.size = size;
             status = reader->read_at(offset, data, &bytes_read);
-            if (!status.ok() || bytes_read < 0) {
+            if (!status.ok()) {
                 bm_log("reader read_at error: {}", status.to_string());
                 break;
             }

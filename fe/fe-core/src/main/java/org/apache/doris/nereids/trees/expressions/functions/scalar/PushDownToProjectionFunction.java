@@ -43,10 +43,9 @@ public abstract class PushDownToProjectionFunction extends ScalarFunction {
      */
     public static boolean validToPushDown(Expression pushDownExpr) {
         // Currently only element at for variant type could be pushed down
-        return pushDownExpr != null && !pushDownExpr.collectToList(
-                    PushDownToProjectionFunction.class::isInstance).stream().filter(
-                            x -> ((Expression) x).getDataType().isVariantType()).collect(
-                    Collectors.toList()).isEmpty();
+        return pushDownExpr != null && pushDownExpr.anyMatch(expr ->
+            expr instanceof PushDownToProjectionFunction && ((Expression) expr).getDataType().isVariantType()
+        );
     }
 
     /**
@@ -71,9 +70,10 @@ public abstract class PushDownToProjectionFunction extends ScalarFunction {
             // avoid duplicated slots
             return targetColumnSlot;
         }
+        boolean nullable = true; // always nullable at present
         SlotReference slotRef = new SlotReference(StatementScopeIdGenerator.newExprId(),
                 topColumnSlot.getName(), topColumnSlot.getDataType(),
-                topColumnSlot.nullable(), topColumnSlot.getQualifier(), topColumnSlot.getTable().get(),
+                nullable, topColumnSlot.getQualifier(), topColumnSlot.getTable().get(),
                 topColumnSlot.getColumn().get(), Optional.of(topColumnSlot.getInternalName()),
                 fullPaths);
         ctx.addPathSlotRef(topColumnSlot, fullPaths, slotRef, pushedFunction);

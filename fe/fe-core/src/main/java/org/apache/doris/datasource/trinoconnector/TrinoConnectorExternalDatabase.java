@@ -22,7 +22,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog.Type;
 
 public class TrinoConnectorExternalDatabase extends ExternalDatabase<TrinoConnectorExternalTable> {
-
     public TrinoConnectorExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
         super(extCatalog, id, name, Type.TRINO_CONNECTOR);
     }

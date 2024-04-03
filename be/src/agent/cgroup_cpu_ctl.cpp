@@ -132,7 +132,7 @@ Status CgroupV1CpuCtl::init() {
 
     if (_tg_id == -1) {
         // means current cgroup cpu ctl is just used to clear dir,
-        // it does not contains task group.
+        // it does not contains workload group.
         // todo(wb) rethinking whether need to refactor cgroup_cpu_ctl
         _init_succ = true;
         LOG(INFO) << "init cgroup cpu query path succ, path=" << _cgroup_v1_cpu_query_path;

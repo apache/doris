@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "recycler/s3_accessor.h"
 #include "recycler/white_black_list.h"
 
 namespace doris::cloud {
@@ -91,7 +92,8 @@ private:
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
-    std::unordered_map<std::string, std::shared_ptr<ObjStoreAccessor>> accessor_map_;
+    // TODO(plat1ko): Support hdfs vaults
+    std::unordered_map<std::string, std::shared_ptr<S3Accessor>> accessor_map_;
 };
 
 } // namespace doris::cloud

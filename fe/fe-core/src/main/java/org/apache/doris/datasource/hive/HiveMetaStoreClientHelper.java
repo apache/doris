@@ -586,26 +586,89 @@ public class HiveMetaStoreClientHelper {
      * Convert doris type to hive type.
      */
     public static String dorisTypeToHiveType(Type dorisType) {
-        if (dorisType.equals(Type.BOOLEAN)) {
-            return "boolean";
-        } else if (dorisType.equals(Type.TINYINT)) {
-            return "tinyint";
-        } else if (dorisType.equals(Type.SMALLINT)) {
-            return "smallint";
-        } else if (dorisType.equals(Type.INT)) {
-            return "int";
-        } else if (dorisType.equals(Type.BIGINT)) {
-            return "bigint";
-        } else if (dorisType.equals(Type.DATE) || dorisType.equals(Type.DATEV2)) {
-            return "date";
-        } else if (dorisType.equals(Type.DATETIME) || dorisType.equals(Type.DATETIMEV2)) {
-            return "timestamp";
-        } else if (dorisType.equals(Type.FLOAT)) {
-            return "float";
-        } else if (dorisType.equals(Type.DOUBLE)) {
-            return "double";
-        } else if (dorisType.equals(Type.STRING)) {
-            return "string";
+        if (dorisType.isScalarType()) {
+            PrimitiveType primitiveType = dorisType.getPrimitiveType();
+            switch (primitiveType) {
+                case BOOLEAN:
+                    return "boolean";
+                case TINYINT:
+                    return "tinyint";
+                case SMALLINT:
+                    return "smallint";
+                case INT:
+                    return "int";
+                case BIGINT:
+                    return "bigint";
+                case DATEV2:
+                case DATE:
+                    return "date";
+                case DATETIMEV2:
+                case DATETIME:
+                    return "timestamp";
+                case FLOAT:
+                    return "float";
+                case DOUBLE:
+                    return "double";
+                case CHAR: {
+                    ScalarType scalarType = (ScalarType) dorisType;
+                    return "char(" + scalarType.getLength() + ")";
+                }
+                case VARCHAR:
+                case STRING:
+                    return "string";
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMAL256:
+                case DECIMALV2: {
+                    StringBuilder decimalType = new StringBuilder();
+                    decimalType.append("decimal");
+                    ScalarType scalarType = (ScalarType) dorisType;
+                    int precision = scalarType.getScalarPrecision();
+                    if (precision == 0) {
+                        precision = ScalarType.DEFAULT_PRECISION;
+                    }
+                    // decimal(precision, scale)
+                    int scale = scalarType.getScalarScale();
+                    decimalType.append("(");
+                    decimalType.append(precision);
+                    decimalType.append(",");
+                    decimalType.append(scale);
+                    decimalType.append(")");
+                    return decimalType.toString();
+                }
+                default:
+                    throw new HMSClientException("Unsupported primitive type conversion of " + dorisType.toSql());
+            }
+        } else if (dorisType.isArrayType()) {
+            ArrayType dorisArray = (ArrayType) dorisType;
+            Type itemType = dorisArray.getItemType();
+            return "array<" + dorisTypeToHiveType(itemType) + ">";
+        } else if (dorisType.isMapType()) {
+            MapType dorisMap = (MapType) dorisType;
+            Type keyType = dorisMap.getKeyType();
+            Type valueType = dorisMap.getValueType();
+            return "map<"
+                    + dorisTypeToHiveType(keyType)
+                    + ","
+                    + dorisTypeToHiveType(valueType)
+                    + ">";
+        } else if (dorisType.isStructType()) {
+            StructType dorisStruct = (StructType) dorisType;
+            StringBuilder structType = new StringBuilder();
+            structType.append("struct<");
+            ArrayList<StructField> fields = dorisStruct.getFields();
+            for (int i = 0; i < fields.size(); i++) {
+                StructField field = fields.get(i);
+                structType.append(field.getName());
+                structType.append(":");
+                structType.append(dorisTypeToHiveType(field.getType()));
+                if (i != fields.size() - 1) {
+                    structType.append(",");
+                }
+            }
+            structType.append(">");
+            return structType.toString();
         }
         throw new HMSClientException("Unsupported type conversion of " + dorisType.toSql());
     }
@@ -817,15 +880,10 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
+        // if hive config is not ready, then use hadoop kerberos to login
         AuthenticationConfig krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HIVE_KERBEROS_KEYTAB);
-        if (!krbConfig.isValid()) {
-            // if hive config is not ready, then use hadoop kerberos to login
-            krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        }
+                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
         return HadoopUGI.ugiDoAs(krbConfig, action);
     }
 

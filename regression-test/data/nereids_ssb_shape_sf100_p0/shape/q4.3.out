@@ -14,18 +14,19 @@ PhysicalResultSink
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
-------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF1 p_partkey->[lo_partkey]
---------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF1 p_partkey->[lo_partkey]
+----------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
+------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------PhysicalProject
+----------------------------------filter((supplier.s_nation = 'UNITED STATES'))
+------------------------------------PhysicalOlapScan[supplier]
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------PhysicalProject
---------------------------------filter((supplier.s_nation = 'UNITED STATES'))
-----------------------------------PhysicalOlapScan[supplier]
---------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------PhysicalProject
-------------------------------filter((part.p_category = 'MFGR#14'))
---------------------------------PhysicalOlapScan[part]
+--------------------------------filter((part.p_category = 'MFGR#14'))
+----------------------------------PhysicalOlapScan[part]
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
 ----------------------------filter(d_year IN (1997, 1998))

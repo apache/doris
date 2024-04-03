@@ -49,7 +49,7 @@ suite("test_grouping_sets", "p0") {
               SELECT /*+ SET_VAR(enable_nereids_planner=false) */ k1, k2, SUM(k3) FROM test_query_db.test
               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
             """
-        exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
+        exception "k3"
     }
 
     sql """set enable_nereids_planner=false;"""

@@ -131,7 +131,7 @@ public class WindowExpression extends Expression {
 
     @Override
     public WindowExpression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
+        Preconditions.checkArgument(!children.isEmpty());
         int index = 0;
         Expression func = children.get(index);
         index += 1;

@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -115,7 +115,7 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
                 && cols.size() < targetTable.getColumns().size();
 
         // make UnboundTableSink
-        return new UnboundTableSink<>(nameParts, cols, ImmutableList.of(),
+        return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
                 isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
     }
 

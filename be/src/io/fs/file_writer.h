@@ -21,12 +21,12 @@
 
 #include "common/status.h"
 #include "gutil/macros.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
-#include "util/debug_points.h"
 #include "util/slice.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 class FileSystem;
 
 // Only affects remote file writers
@@ -35,23 +35,18 @@ struct FileWriterOptions {
     bool is_cold_data = false;
     bool sync_file_data = true;        // Whether flush data into storage system
     int64_t file_cache_expiration = 0; // Absolute time
-    // Whether to create empty file if no content
-    bool create_empty_file = true;
 };
 
 class FileWriter {
 public:
-    // FIXME(plat1ko): FileWriter should be interface
-    FileWriter(Path&& path, std::shared_ptr<FileSystem> fs) : _path(std::move(path)), _fs(fs) {}
     FileWriter() = default;
     virtual ~FileWriter() = default;
 
-    DISALLOW_COPY_AND_ASSIGN(FileWriter);
-
-    // Open the file for writing.
-    virtual Status open() { return Status::OK(); }
+    FileWriter(const FileWriter&) = delete;
+    const FileWriter& operator=(const FileWriter&) = delete;
 
     // Normal close. Wait for all data to persist before returning.
+    // If there is no data appended, an empty file will be persisted.
     virtual Status close() = 0;
 
     Status append(const Slice& data) { return appendv(&data, 1); }
@@ -62,24 +57,11 @@ public:
     // FIXME(cyx): Does not seem to be an appropriate interface for file system?
     virtual Status finalize() = 0;
 
-    const Path& path() const { return _path; }
+    virtual const Path& path() const = 0;
 
-    size_t bytes_appended() const { return _bytes_appended; }
+    virtual size_t bytes_appended() const = 0;
 
-    std::shared_ptr<FileSystem> fs() const { return _fs; }
-
-    bool is_closed() { return _closed; }
-
-protected:
-    Path _path;
-    size_t _bytes_appended = 0;
-    std::shared_ptr<FileSystem> _fs;
-    bool _closed = false;
-    bool _opened = false;
-    bool _create_empty_file = true;
+    virtual bool closed() const = 0;
 };
 
-using FileWriterPtr = std::unique_ptr<FileWriter>;
-
-} // namespace io
-} // namespace doris
+} // namespace doris::io

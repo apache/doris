@@ -103,6 +103,7 @@ message PTabletWriterOpenRequest {
     optional bool is_incremental = 15 [default = false];
     optional int64 txn_expiration = 16; // Absolute time
     optional bool write_file_cache = 17;
+    optional string storage_vault_id = 18;
 };
 
 message PTabletWriterOpenResult {
@@ -307,6 +308,8 @@ message PTabletKeyLookupRequest {
     // For cloud
     // version to read
     optional int64 version = 7;
+    // serilized from TQueryOptions 
+    optional bytes query_options = 8;
 }
 
 message PTabletKeyLookupResponse {
@@ -534,6 +537,7 @@ message PMergeFilterRequest {
     optional bool is_pipeline = 8;
     optional bool opt_remote_rf = 9;
     optional PColumnType column_type = 10;
+    optional bool contain_null = 11;
 };
 
 message PMergeFilterResponse {
@@ -552,6 +556,7 @@ message PPublishFilterRequest {
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
     optional PColumnType column_type = 10;
+    optional bool contain_null = 11;
 };
 
 message PPublishFilterRequestV2 {
@@ -564,6 +569,7 @@ message PPublishFilterRequestV2 {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
+    optional bool contain_null = 10;
 };
 
 message PPublishFilterResponse {
@@ -657,6 +663,16 @@ message PFetchTableSchemaResult {
   optional int32 column_nums = 2;
   repeated string column_names = 3;
   repeated PTypeDesc column_types = 4;
+}
+
+message PJdbcTestConnectionRequest {
+    optional bytes jdbc_table = 1;
+    optional int32 jdbc_table_type = 2;
+    optional string query_str = 3;
+}
+
+message PJdbcTestConnectionResult {
+    optional PStatus status = 1;
 }
 
 message PRowLocation {
@@ -922,5 +938,6 @@ service PBackendService {
     rpc get_wal_queue_size(PGetWalQueueSizeRequest) returns(PGetWalQueueSizeResponse);
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
+    rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
 };
 

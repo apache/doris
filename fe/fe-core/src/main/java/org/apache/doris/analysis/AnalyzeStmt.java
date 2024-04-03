@@ -18,21 +18,39 @@
 package org.apache.doris.analysis;
 
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.Map;
 
 public class AnalyzeStmt extends StatementBase {
+    private static final Logger LOG = LogManager.getLogger(AnalyzeStmt.class);
 
     protected AnalyzeProperties analyzeProperties;
 
     public AnalyzeStmt(AnalyzeProperties analyzeProperties) {
         this.analyzeProperties = analyzeProperties;
+    }
+
+    public void checkAndSetSample() throws AnalysisException {
+        if (analyzeProperties.forceFull()) {
+            // if the user trys hard to do full, we stop him hard.
+            throw new AnalysisException(
+                    "analyze with full is forbidden for performance issue in cloud mode, use `with sample` then");
+        }
+        if (!analyzeProperties.isSample()) {
+            // otherwise, we gently translate it to use sample
+            LOG.warn("analyze with full is forbidden for performance issue in cloud mode, force to use sample");
+            analyzeProperties.setSampleRows(StatisticsUtil.getHugeTableSampleRows());
+        }
     }
 
     public Map<String, String> getProperties() {

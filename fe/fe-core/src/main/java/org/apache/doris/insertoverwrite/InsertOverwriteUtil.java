@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
@@ -42,16 +43,18 @@ public class InsertOverwriteUtil {
     /**
      * add temp partitions
      *
-     * @param olapTable
+     * @param tableIf
      * @param partitionNames
      * @param tempPartitionNames
      * @throws DdlException
      */
-    public static void addTempPartitions(OlapTable olapTable, List<String> partitionNames,
-            List<String> tempPartitionNames) throws DdlException {
-        for (int i = 0; i < partitionNames.size(); i++) {
-            Env.getCurrentEnv().addPartitionLike((Database) olapTable.getDatabase(), olapTable.getName(),
-                    new AddPartitionLikeClause(tempPartitionNames.get(i), partitionNames.get(i), true));
+    public static void addTempPartitions(TableIf tableIf, List<String> partitionNames,
+                                         List<String> tempPartitionNames) throws DdlException {
+        if (tableIf instanceof OlapTable) {
+            for (int i = 0; i < partitionNames.size(); i++) {
+                Env.getCurrentEnv().addPartitionLike((Database) tableIf.getDatabase(), tableIf.getName(),
+                        new AddPartitionLikeClause(tempPartitionNames.get(i), partitionNames.get(i), true));
+            }
         }
     }
 
@@ -63,27 +66,29 @@ public class InsertOverwriteUtil {
      * @param tempPartitionNames
      * @throws DdlException
      */
-    public static void replacePartition(OlapTable olapTable, List<String> partitionNames,
+    public static void replacePartition(TableIf olapTable, List<String> partitionNames,
             List<String> tempPartitionNames) throws DdlException {
-        try {
-            if (!olapTable.writeLockIfExist()) {
-                return;
+        if (olapTable instanceof OlapTable) {
+            try {
+                if (!olapTable.writeLockIfExist()) {
+                    return;
+                }
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
+                ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
+                        new PartitionNames(false, partitionNames),
+                        new PartitionNames(true, tempPartitionNames), properties);
+                Env.getCurrentEnv()
+                        .replaceTempPartition((Database) olapTable.getDatabase(),
+                                (OlapTable) olapTable, replacePartitionClause);
+            } finally {
+                olapTable.writeUnlock();
             }
-            Map<String, String> properties = Maps.newHashMap();
-            properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
-            ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
-                    new PartitionNames(false, partitionNames),
-                    new PartitionNames(true, tempPartitionNames), properties);
-            Env.getCurrentEnv()
-                    .replaceTempPartition((Database) olapTable.getDatabase(), olapTable, replacePartitionClause);
-        } finally {
-            olapTable.writeUnlock();
         }
-
     }
 
     /**
-     * generate temp partitionName
+     * generate temp partitionName. must keep same order.
      *
      * @param partitionNames
      * @return

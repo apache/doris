@@ -23,10 +23,12 @@ suite("test_user_var") {
     sql "SET @c1='H', @c2=''"
     sql "SET @d1=true, @d2=false"
     sql "SET @f1=null"
+    sql "set @func_1=(abs(1) + 1) * 2"
 
-    qt_select1 'select @a1, @a2, @a3;'
-    qt_select2 'select @b1, @b2, @b3;'
-    qt_select3 'select @c1, @c2;'
-    qt_select4 'select @d1, @d2;'
-    qt_select5 'select @f1, @f2;'
+    qt_integer 'select @a1, @a2, @a3;'
+    qt_decimal 'select @b1, @b2, @b3;'
+    qt_string 'select @c1, @c2;'
+    qt_boolean 'select @d1, @d2;'
+    qt_null_literal 'select @f1, @f2;'
+    qt_function 'select @func_1'
 }

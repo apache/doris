@@ -37,7 +37,6 @@ public class LogicalHiveTableSinkToPhysicalHiveTableSink extends OneImplementati
                     sink.getDatabase(),
                     sink.getTargetTable(),
                     sink.getCols(),
-                    sink.getPartitionIds(),
                     sink.getOutputExprs(),
                     Optional.empty(),
                     sink.getLogicalProperties(),

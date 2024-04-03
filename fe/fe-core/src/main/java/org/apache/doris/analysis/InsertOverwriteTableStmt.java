@@ -73,6 +73,13 @@ public class InsertOverwriteTableStmt extends DdlStmt {
         return target.getPartitionNames().getPartitionNames();
     }
 
+    /*
+     * auto detect which partitions to replace. enable by partition(*) grammer
+     */
+    public boolean isAutoDetectPartition() {
+        return target.getPartitionNames().isStar();
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         target.getTblName().analyze(analyzer);

@@ -30,6 +30,7 @@
 #include <exception>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <tuple>
 #include <variant>
@@ -174,13 +175,12 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
 }
 
 OrcReader::~OrcReader() {
-    _collect_profile_on_close();
     if (_obj_pool && _obj_pool.get()) {
         _obj_pool->clear();
     }
 }
 
-void OrcReader::_collect_profile_on_close() {
+void OrcReader::_collect_profile_before_close() {
     if (_profile != nullptr) {
         COUNTER_UPDATE(_orc_profile.read_time, _statistics.fs_read_time);
         COUNTER_UPDATE(_orc_profile.read_calls, _statistics.fs_read_calls);
@@ -192,6 +192,10 @@ void OrcReader::_collect_profile_on_close() {
         COUNTER_UPDATE(_orc_profile.set_fill_column_time, _statistics.set_fill_column_time);
         COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
         COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
+
+        if (_file_input_stream != nullptr) {
+            _file_input_stream->collect_profile_before_close();
+        }
     }
 }
 
@@ -226,16 +230,15 @@ void OrcReader::_init_profile() {
 
 Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
-        io::FileReaderSPtr inner_reader;
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options, &_file_system,
-                &inner_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
-        _file_input_stream.reset(new ORCFileInputStream(_scan_range.path, inner_reader,
-                                                        &_statistics, _io_ctx, _profile));
+        auto inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        _file_input_stream = std::make_unique<ORCFileInputStream>(
+                _scan_range.path, std::move(inner_reader), &_statistics, _io_ctx, _profile);
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
@@ -2075,13 +2078,12 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
 
-            root = vectorized::VDirectInPredicate::create_shared(node);
             std::shared_ptr<HybridSetBase> hybrid_set(
                     create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
-            static_cast<vectorized::VDirectInPredicate*>(root.get())->set_filter(hybrid_set);
+            root = vectorized::VDirectInPredicate::create_shared(node, hybrid_set);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -2242,6 +2244,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
+    }
     // Generate prefetch ranges, build stripe file reader.
     uint64_t offset = current_strip_information->getOffset();
     std::vector<io::PrefetchRange> prefetch_ranges;
@@ -2266,6 +2271,12 @@ void ORCFileInputStream::beforeReadStripe(
         _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
     } else {
         _file_reader = _inner_reader;
+    }
+}
+
+void ORCFileInputStream::_collect_profile_before_close() {
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
     }
 }
 

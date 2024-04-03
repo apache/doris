@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -47,6 +48,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -86,10 +88,22 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     @Override
     public void beginTransaction() {
         try {
-            this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    database.getId(), ImmutableList.of(table.getId()), labelName,
-                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+            if (ctx.isTxnModel()) {
+                TransactionEntry txnEntry = ctx.getTxnEntry();
+                // check the same label with begin
+                if (this.labelName != null && !this.labelName.equals(txnEntry.getLabel())) {
+                    throw new AnalysisException("Transaction insert expect label " + txnEntry.getLabel()
+                            + ", but got " + this.labelName);
+                }
+                txnEntry.beginTransaction(database, table);
+                this.txnId = txnEntry.getTransactionId();
+                this.labelName = txnEntry.getLabel();
+            } else {
+                this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                        database.getId(), ImmutableList.of(table.getId()), labelName,
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+            }
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
@@ -100,7 +114,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         OlapTableSink olapTableSink = (OlapTableSink) sink;
         PhysicalOlapTableSink physicalOlapTableSink = (PhysicalOlapTableSink) physicalSink;
         OlapInsertCommandContext olapInsertCtx = (OlapInsertCommandContext) insertCtx.orElse(
-                new OlapInsertCommandContext());
+                new OlapInsertCommandContext(true));
 
         boolean isStrictMode = ctx.getSessionVariable().getEnableInsertStrict()
                 && physicalOlapTableSink.isPartialUpdate()
@@ -114,9 +128,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     false,
                     isStrictMode,
                     timeout);
+            // complete and set commands both modify thrift struct
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
             if (!olapInsertCtx.isAllowAutoPartition()) {
                 olapTableSink.setAutoPartition(false);
+            }
+            if (olapInsertCtx.isAutoDetectOverwrite()) {
+                olapTableSink.setAutoDetectOverwite(true);
+                olapTableSink.setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
             }
             // update
 
@@ -156,6 +175,12 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onComplete() throws UserException {
+        if (ctx.isTxnModel()) {
+            TransactionEntry txnEntry = ctx.getTxnEntry();
+            txnEntry.addCommitInfos((Table) table, coordinator.getCommitInfos());
+            return;
+        }
+
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -193,7 +218,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         labelName, queryId, txnId, abortTxnException);
             }
         }
-
+        // retry insert into from select when meet E-230 in cloud
+        if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+            return;
+        }
         StringBuilder sb = new StringBuilder(t.getMessage());
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
@@ -237,7 +265,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
         StringBuilder sb = new StringBuilder();
-        sb.append("{'label':'").append(labelName).append("', 'status':'").append(txnStatus.name());
+        sb.append("{'label':'").append(labelName).append("', 'status':'")
+                .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
         sb.append("', 'txnId':'").append(txnId).append("'");
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             sb.append("', 'rows':'").append(loadedRows).append("'");

@@ -30,7 +30,7 @@
 
 #include "common/status.h"
 #include "pipeline_task.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 namespace pipeline {

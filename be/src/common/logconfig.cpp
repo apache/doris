@@ -63,7 +63,12 @@ bool init_glog(const char* basename) {
     // so fatal log can output to be.out .
     FLAGS_stderrthreshold = google::FATAL;
     // set glog log dir
-    FLAGS_log_dir = config::sys_log_dir;
+    // ATTN: sys_log_dir is deprecated, this is just for compatibility
+    std::string log_dir = config::sys_log_dir;
+    if (log_dir == "") {
+        log_dir = getenv("LOG_DIR");
+    }
+    FLAGS_log_dir = log_dir;
     // 0 means buffer INFO only
     FLAGS_logbuflevel = 0;
     // buffer log messages for at most this many seconds

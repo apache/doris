@@ -56,9 +56,11 @@ struct RowsetWriterContext;
 
 namespace io {
 class FileWriter;
+class FileSystem;
 } // namespace io
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 struct VerticalSegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
@@ -81,7 +83,8 @@ public:
                                    TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                    DataDir* data_dir, uint32_t max_row_per_segment,
                                    const VerticalSegmentWriterOptions& opts,
-                                   std::shared_ptr<MowContext> mow_context);
+                                   std::shared_ptr<MowContext> mow_context,
+                                   const std::shared_ptr<io::FileSystem>& fs);
     ~VerticalSegmentWriter();
 
     VerticalSegmentWriter(const VerticalSegmentWriter&) = delete;
@@ -155,6 +158,7 @@ private:
 
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
+    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;

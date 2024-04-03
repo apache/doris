@@ -70,10 +70,10 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/task_group/task_group.h"
-#include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
@@ -98,6 +98,19 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 bvar::Adder<int64_t> g_pipeline_fragment_instances_count("doris_pipeline_fragment_instances_count");
+
+bvar::Adder<uint64_t> g_fragment_executing_count("fragment_executing_count");
+bvar::Status<uint64_t> g_fragment_last_active_time(
+        "fragment_last_active_time", duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count());
+
+uint64_t get_fragment_executing_count() {
+    return g_fragment_executing_count.get_value();
+}
+uint64_t get_fragment_last_active_time() {
+    return g_fragment_last_active_time.get_value();
+}
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -373,6 +386,24 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
 
+        if (!req.runtime_state->hive_partition_updates().empty()) {
+            params.__isset.hive_partition_updates = true;
+            params.hive_partition_updates.reserve(
+                    req.runtime_state->hive_partition_updates().size());
+            for (auto& hive_partition_update : req.runtime_state->hive_partition_updates()) {
+                params.hive_partition_updates.push_back(hive_partition_update);
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->hive_partition_updates().empty()) {
+                    params.__isset.hive_partition_updates = true;
+                    params.hive_partition_updates.insert(params.hive_partition_updates.end(),
+                                                         rs->hive_partition_updates().begin(),
+                                                         rs->hive_partition_updates().end());
+                }
+            }
+        }
+
         // Send new errors to coordinator
         req.runtime_state->get_unreported_errors(&(params.error_log));
         params.__isset.error_log = (params.error_log.size() > 0);
@@ -430,10 +461,6 @@ static void empty_function(RuntimeState*, Status*) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                                const FinishCallback& cb) {
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
-#endif
-
     VLOG_DEBUG << fmt::format("Instance {}|{} executing", print_id(fragment_executor->query_id()),
                               print_id(fragment_executor->fragment_instance_id()));
 
@@ -452,8 +479,14 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
 
     // remove exec state after this fragment finished
     {
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
+
+        g_fragment_executing_count << -1;
+        g_fragment_last_active_time.set_value(now);
 
         LOG_INFO("Instance {} finished", print_id(fragment_executor->fragment_instance_id()));
 
@@ -566,6 +599,11 @@ void FragmentMgr::remove_pipeline_context(
         std::vector<TUniqueId> ins_ids;
         f_context->instance_ids(ins_ids);
         bool all_done = q_context->countdown(ins_ids.size());
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+        g_fragment_executing_count << -1;
+        g_fragment_last_active_time.set_value(now);
         for (const auto& ins_id : ins_ids) {
             LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
                      print_id(ins_id), all_done);
@@ -575,12 +613,6 @@ void FragmentMgr::remove_pipeline_context(
         if (all_done) {
             LOG_INFO("Query {} finished", print_id(query_id));
             _query_ctx_map.erase(query_id);
-        }
-    }
-    {
-        std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
-        if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
-            q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
         }
     }
 }
@@ -614,6 +646,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
                                                 params.query_options, params.coord, pipeline,
                                                 params.is_nereids);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
         // set file scan range params
@@ -639,15 +672,16 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
-            taskgroup::TaskGroupPtr task_group_ptr =
-                    _exec_env->task_group_manager()->get_task_group_by_id(tg_id);
-            if (task_group_ptr != nullptr) {
-                RETURN_IF_ERROR(query_ctx->set_task_group(task_group_ptr));
+            WorkloadGroupPtr workload_group_ptr =
+                    _exec_env->workload_group_mgr()->get_task_group_by_id(tg_id);
+            if (workload_group_ptr != nullptr) {
+                RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
+                RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << ", use task group: " << task_group_ptr->debug_string()
+                          << ", use workload group: " << workload_group_ptr->debug_string()
                           << ", is pipeline: " << ((int)is_pipeline)
                           << ", enable cgroup soft limit: "
                           << ((int)config::enable_cgroup_cpu_soft_limit);
@@ -657,7 +691,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             }
         }
         // There is some logic in query ctx's dctor, we could not check if exists and delete the
-        // temp query ctx now. For example, the query id maybe removed from task group's queryset.
+        // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
         _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
         LOG(INFO) << "Register query/load memory tracker, query/load id: "
                   << print_id(query_ctx->query_id())
@@ -691,6 +725,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 
     RETURN_IF_ERROR(
             _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
     {
         // Need lock here, because it will modify fragment ids and std::vector may resize and reallocate
         // memory, but query_is_canncelled will traverse the vector, it will core.
@@ -721,27 +756,37 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     static_cast<void>(_runtimefilter_controller.add_entity(
             params.params, params.params.query_id, params.query_options, &handler,
             RuntimeFilterParamsContext::create(fragment_executor->runtime_state())));
+    int64 now = duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
     {
+        g_fragment_executing_count << 1;
+        g_fragment_last_active_time.set_value(now);
         std::lock_guard<std::mutex> lock(_lock);
         if (handler) {
             query_ctx->set_merge_controller_handler(handler);
         }
         _fragment_instance_map.insert(
                 std::make_pair(params.params.fragment_instance_id, fragment_executor));
-        _cv.notify_all();
     }
 
     auto* current_thread_pool = query_ctx->get_non_pipe_exec_thread_pool();
     if (!current_thread_pool) {
         current_thread_pool = _thread_pool.get();
     }
-    auto st = current_thread_pool->submit_func(
-            [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
+    auto st = current_thread_pool->submit_func([this, fragment_executor, cb]() {
+#ifndef BE_TEST
+        SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
+#endif
+        _exec_actual(fragment_executor, cb);
+    });
     if (!st.ok()) {
         {
             // Remove the exec state added
             std::lock_guard<std::mutex> lock(_lock);
             _fragment_instance_map.erase(params.params.fragment_instance_id);
+            g_fragment_executing_count << -1;
+            g_fragment_last_active_time.set_value(now);
         }
         fragment_executor->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                   "push plan fragment to thread pool failed");
@@ -754,7 +799,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     return Status::OK();
 }
 
-std::string FragmentMgr::dump_pipeline_tasks() {
+std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     fmt::memory_buffer debug_string_buffer;
     auto t = MonotonicNanos();
     size_t i = 0;
@@ -763,9 +808,13 @@ std::string FragmentMgr::dump_pipeline_tasks() {
         fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
                        _pipeline_map.size());
         for (auto& it : _pipeline_map) {
-            fmt::format_to(
-                    debug_string_buffer, "No.{} (elapse time = {}ns, InstanceId = {}) : {}\n", i,
-                    t - it.second->create_time(), print_id(it.first), it.second->debug_string());
+            auto elapsed = (t - it.second->create_time()) / 1000000000.0;
+            if (elapsed < duration) {
+                // Only display tasks which has been running for more than {duration} seconds.
+                continue;
+            }
+            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}s, InstanceId = {}) : {}\n",
+                           i, elapsed, print_id(it.first), it.second->debug_string());
             i++;
         }
     }
@@ -783,7 +832,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
-
+    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
     if (enable_pipeline_x) {
@@ -799,7 +848,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);
             if (!prepare_st.ok()) {
-                context->close_if_prepare_failed();
+                context->close_if_prepare_failed(prepare_st);
+                query_ctx->set_execution_dependency_ready();
                 return prepare_st;
             }
         }
@@ -829,7 +879,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 query_ctx->set_ready_to_execute_only();
             }
         }
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
         {
+            g_fragment_executing_count << 1;
+            g_fragment_last_active_time.set_value(now);
             std::lock_guard<std::mutex> lock(_lock);
             std::vector<TUniqueId> ins_ids;
             reinterpret_cast<pipeline::PipelineXFragmentContext*>(context.get())
@@ -838,13 +893,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             for (const auto& ins_id : ins_ids) {
                 _pipeline_map.insert({ins_id, context});
             }
-
-            _cv.notify_all();
         }
-        {
-            std::lock_guard<std::mutex> lock(query_ctx->pipeline_lock);
-            query_ctx->fragment_id_to_pipeline_ctx.insert({params.fragment_id, context});
-        }
+        query_ctx->set_pipeline_context(params.fragment_id, context);
 
         RETURN_IF_ERROR(context->submit());
         return Status::OK();
@@ -881,7 +931,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 auto prepare_st = context->prepare(params, i);
                 if (!prepare_st.ok()) {
                     LOG(WARNING) << "Prepare failed: " << prepare_st.to_string();
-                    context->close_if_prepare_failed();
+                    context->close_if_prepare_failed(prepare_st);
                     static_cast<void>(context->update_status(prepare_st));
                     return prepare_st;
                 }
@@ -895,10 +945,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             if (i == 0 && handler) {
                 query_ctx->set_merge_controller_handler(handler);
             }
+            int64 now = duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
             {
+                g_fragment_executing_count << 1;
+                g_fragment_last_active_time.set_value(now);
                 std::lock_guard<std::mutex> lock(_lock);
                 _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
-                _cv.notify_all();
             }
 
             return context->submit();
@@ -967,89 +1021,99 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 #endif
 }
 
-void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                               const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock(_lock);
-    return cancel_query_unlocked(query_id, reason, state_lock, msg);
+std::shared_ptr<QueryContext> FragmentMgr::get_query_context(const TUniqueId& query_id) {
+    std::lock_guard<std::mutex> state_lock(_lock);
+    auto ctx = _query_ctx_map.find(query_id);
+    if (ctx != _query_ctx_map.end()) {
+        return ctx->second;
+    } else {
+        return nullptr;
+    }
 }
 
-// Cancel all instances/fragments of query, and set query_ctx of the query canceled at last.
-void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id,
-                                        const PPlanFragmentCancelReason& reason,
-                                        const std::unique_lock<std::mutex>& state_lock,
-                                        const std::string& msg) {
-    auto ctx = _query_ctx_map.find(query_id);
+void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                               const std::string& msg) {
+    std::shared_ptr<QueryContext> query_ctx;
+    std::vector<TUniqueId> all_instance_ids;
+    {
+        std::lock_guard<std::mutex> state_lock(_lock);
+        auto ctx_iter = _query_ctx_map.find(query_id);
 
-    if (ctx == _query_ctx_map.end()) {
-        LOG(WARNING) << "Query " << print_id(query_id) << " does not exists, failed to cancel it";
-        return;
-    }
-    if (ctx->second->enable_pipeline_x_exec()) {
-        for (auto& [f_id, f_context] : ctx->second->fragment_id_to_pipeline_ctx) {
-            cancel_fragment_unlocked(query_id, f_id, reason, state_lock, msg);
+        if (ctx_iter == _query_ctx_map.end()) {
+            LOG(WARNING) << "Query " << print_id(query_id)
+                         << " does not exists, failed to cancel it";
+            return;
         }
-
+        query_ctx = ctx_iter->second;
+        // Copy instanceids to avoid concurrent modification.
+        // And to reduce the scope of lock.
+        all_instance_ids = query_ctx->fragment_instance_ids;
+    }
+    if (query_ctx->enable_pipeline_x_exec()) {
+        query_ctx->cancel_all_pipeline_context(reason, msg);
     } else {
-        for (auto it : ctx->second->fragment_instance_ids) {
-            cancel_instance_unlocked(it, reason, state_lock, msg);
+        for (auto it : all_instance_ids) {
+            cancel_instance(it, reason, msg);
         }
     }
 
-    ctx->second->cancel(true, msg, Status::Cancelled(msg));
-    _query_ctx_map.erase(query_id);
+    query_ctx->cancel(true, msg, Status::Cancelled(msg));
+    {
+        std::lock_guard<std::mutex> state_lock(_lock);
+        _query_ctx_map.erase(query_id);
+    }
     LOG(INFO) << "Query " << print_id(query_id) << " is cancelled and removed. Reason: " << msg;
 }
 
 void FragmentMgr::cancel_instance(const TUniqueId& instance_id,
                                   const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock(_lock);
-    return cancel_instance_unlocked(instance_id, reason, state_lock, msg);
-}
-
-void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
-                                           const PPlanFragmentCancelReason& reason,
-                                           const std::unique_lock<std::mutex>& state_lock,
-                                           const std::string& msg) {
-    const bool is_pipeline_instance = _pipeline_map.contains(instance_id);
-
-    if (is_pipeline_instance) {
-        auto itr = _pipeline_map.find(instance_id);
-
-        if (itr != _pipeline_map.end()) {
-            // calling PipelineFragmentContext::cancel
-            itr->second->cancel(reason, msg);
+    std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_ctx;
+    std::shared_ptr<PlanFragmentExecutor> non_pipeline_ctx;
+    {
+        std::lock_guard<std::mutex> state_lock(_lock);
+        const bool is_pipeline_instance = _pipeline_map.contains(instance_id);
+        if (is_pipeline_instance) {
+            auto itr = _pipeline_map.find(instance_id);
+            if (itr != _pipeline_map.end()) {
+                pipeline_ctx = itr->second;
+            } else {
+                LOG(WARNING) << "Could not find the pipeline instance id:" << print_id(instance_id)
+                             << " to cancel";
+                return;
+            }
         } else {
-            LOG(WARNING) << "Could not find the pipeline instance id:" << print_id(instance_id)
-                         << " to cancel";
+            auto itr = _fragment_instance_map.find(instance_id);
+            if (itr != _fragment_instance_map.end()) {
+                non_pipeline_ctx = itr->second;
+            } else {
+                LOG(WARNING) << "Could not find the fragment instance id:" << print_id(instance_id)
+                             << " to cancel";
+                return;
+            }
         }
-    } else {
-        auto itr = _fragment_instance_map.find(instance_id);
-        if (itr != _fragment_instance_map.end()) {
-            // calling PlanFragmentExecutor::cancel
-            itr->second->cancel(reason, msg);
-        } else {
-            LOG(WARNING) << "Could not find the fragment instance id:" << print_id(instance_id)
-                         << " to cancel";
-        }
+    }
+
+    if (pipeline_ctx != nullptr) {
+        pipeline_ctx->cancel(reason, msg);
+    } else if (non_pipeline_ctx != nullptr) {
+        // calling PlanFragmentExecutor::cancel
+        non_pipeline_ctx->cancel(reason, msg);
     }
 }
 
 void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                                   const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock(_lock);
-    return cancel_fragment_unlocked(query_id, fragment_id, reason, state_lock, msg);
-}
-
-void FragmentMgr::cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fragment_id,
-                                           const PPlanFragmentCancelReason& reason,
-                                           const std::unique_lock<std::mutex>& state_lock,
-                                           const std::string& msg) {
-    auto q_ctx = _query_ctx_map.find(query_id)->second;
-    auto f_context = q_ctx->fragment_id_to_pipeline_ctx.find(fragment_id);
-    if (f_context != q_ctx->fragment_id_to_pipeline_ctx.end()) {
-        f_context->second->cancel(reason, msg);
+    std::unique_lock<std::mutex> lock(_lock);
+    auto q_ctx_iter = _query_ctx_map.find(query_id);
+    if (q_ctx_iter != _query_ctx_map.end()) {
+        // Has to use value to keep the shared ptr not deconstructed.
+        std::shared_ptr<QueryContext> q_ctx = q_ctx_iter->second;
+        // the lock should only be used to protect the map, not scope query ctx
+        lock.unlock();
+        WARN_IF_ERROR(q_ctx->cancel_pipeline_context(fragment_id, reason, msg),
+                      "fail to cancel fragment");
     } else {
-        LOG(WARNING) << "Could not find the pipeline query id:" << print_id(query_id)
+        LOG(WARNING) << "Could not find the query id:" << print_id(query_id)
                      << " fragment id:" << fragment_id << " to cancel";
     }
 }
@@ -1062,9 +1126,7 @@ bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
         const bool is_pipeline_version = ctx->second->enable_pipeline_exec();
         const bool is_pipeline_x = ctx->second->enable_pipeline_x_exec();
         if (is_pipeline_x) {
-            for (auto& [id, f_context] : ctx->second->fragment_id_to_pipeline_ctx) {
-                return f_context->is_canceled();
-            }
+            return ctx->second->is_cancelled();
         } else {
             for (auto itr : ctx->second->fragment_instance_ids) {
                 if (is_pipeline_version) {
@@ -1364,6 +1426,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
         std::shared_ptr<PlanFragmentExecutor> fragment_executor;
         std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
+        QueryThreadContext query_thread_context;
 
         RuntimeFilterMgr* runtime_filter_mgr = nullptr;
         ObjectPool* pool = nullptr;
@@ -1379,6 +1442,8 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             DCHECK(pip_context != nullptr);
             runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
             pool = &pip_context->get_query_ctx()->obj_pool;
+            query_thread_context = {pip_context->get_query_ctx()->query_id(),
+                                    pip_context->get_query_ctx()->query_mem_tracker};
         } else {
             std::unique_lock<std::mutex> lock(_lock);
             auto iter = _fragment_instance_map.find(tfragment_instance_id);
@@ -1393,7 +1458,11 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             DCHECK(fragment_executor != nullptr);
             runtime_filter_mgr = fragment_executor->get_query_ctx()->runtime_filter_mgr();
             pool = &fragment_executor->get_query_ctx()->obj_pool;
+            query_thread_context = {fragment_executor->get_query_ctx()->query_id(),
+                                    fragment_executor->get_query_ctx()->query_mem_tracker};
         }
+
+        SCOPED_ATTACH_TASK(query_thread_context);
 
         // 1. get the target filters
         std::vector<IRuntimeFilter*> filters;
@@ -1444,6 +1513,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         // when filter_controller->merge is still in progress
         query_ctx = iter->second;
     }
+    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
     auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
     DCHECK(merge_status.ok());
     return merge_status;
