@@ -42,7 +42,7 @@ suite("test_plsql_variable") {
             PRINT d;
         END;
         """
-    sql """call plsql_variable1()"""
+    qt_select """call plsql_variable1()"""
 
     sql "DROP TABLE IF EXISTS plsql_tbl"
     sql """
@@ -60,6 +60,7 @@ suite("test_plsql_variable") {
     sql """call procedure_insert(222, "plsql222")"""
     sql """call procedure_insert(333, "plsql333")"""
     sql """call procedure_insert(111, "plsql333")"""
+    qt_select "select sum(id), count(1) from plsql_tbl"
 
     sql """
         CREATE OR REPLACE PROCEDURE plsql_variable2()
@@ -79,7 +80,7 @@ suite("test_plsql_variable") {
             print d;
         END;
         """
-    sql """call plsql_variable2()"""
+    qt_select """call plsql_variable2()"""
 
     // TODO, currently, variable take priority over column, Oracle column priority.
     sql """
@@ -89,7 +90,7 @@ suite("test_plsql_variable") {
             print a;
 
             DECLARE b int;
-            select id into b from plsql_variable where 999=a limit 1;
+            select id into b from plsql_tbl where 999=a limit 1;
             print b;
 
             DECLARE id int = 999;
@@ -104,5 +105,5 @@ suite("test_plsql_variable") {
             print d;
         END;
         """
-    sql """call plsql_variable3()"""
+    qt_select """call plsql_variable3()"""
 }
