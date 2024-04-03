@@ -343,18 +343,78 @@ Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_t
                                           vectorized::VerticalBlockReader& src_block_reader,
                                           segment_v2::SegmentWriter& dst_segment_writer,
                                           int64_t max_rows_per_segment, Statistics* stats_output,
-                                          uint64_t* index_size, KeyBoundsPB& key_bounds) {
+                                          uint64_t* index_size, KeyBoundsPB& key_bounds,
+                                          std::vector<uint32_t>& update_column_ids,
+                                          std::vector<uint32_t>& missing_column_ids) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     // TODO: record_rowids
-    vectorized::Block block = tablet_schema.create_block(column_group);
     size_t output_rows = 0;
     bool eof = false;
+    std::map<uint32_t, uint32_t> index_map;
+    uint32_t index = 0;
+    for (auto cid : column_group) {
+        index_map.insert({cid, index++});
+    }
+
+    // build default value block is necessary
+    auto default_value_block = tablet_schema.create_block(column_group);
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
+    if (!missing_column_ids.empty()) {
+        for (int j = 0; j < column_group.size(); j++) {
+            auto cid = column_group[j];
+            const auto& tablet_column = tablet_schema.column(cid);
+            if (tablet_column.has_default_value()) {
+                auto default_value = tablet_schema.column(cid).default_value();
+                vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
+                                          default_value.size());
+                RETURN_IF_ERROR(default_value_block.get_by_position(j).type->from_string(
+                        rb, mutable_default_value_columns[j].get()));
+            }
+        }
+    }
+
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
-        // Read one block from block reader
-        RETURN_NOT_OK_STATUS_WITH_WARN(src_block_reader.next_block_with_aggregation(&block, &eof),
-                                       "failed to read next block when merging rowsets of tablet " +
-                                               std::to_string(tablet_id));
+        vectorized::Block block = tablet_schema.create_block(column_group);
+        std::shared_ptr<vectorized::Block> update_block_ptr =
+                std::make_shared<vectorized::Block>(tablet_schema.create_block(update_column_ids));
+        if (!update_column_ids.empty()) {
+            // Read one block from block reader
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    src_block_reader.next_block_with_aggregation(update_block_ptr.get(), &eof),
+                    "failed to read next block when merging rowsets of tablet " +
+                            std::to_string(tablet_id));
+        }
+        size_t input_id = 0;
+        for (auto i : update_column_ids) {
+            block.replace_by_position(index_map[i],
+                                      update_block_ptr->get_by_position(input_id++).column);
+        }
+        auto mutable_full_columns = block.mutate_columns();
+        for (auto j : missing_column_ids) {
+            auto rows =
+                    update_column_ids.empty() ? row_source_buf->total_size() : update_block_ptr->rows();
+            const auto& tablet_column = tablet_schema.column(j);
+            for (size_t k = 0; k < rows; k++) {
+                // if the column is nullable, fill it with null value
+                // otherwise, if the column has default value, fill it with default value
+                if (tablet_column.is_nullable()) {
+                    auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
+                            mutable_full_columns[index_map[j]].get());
+                    nullable_column->insert_null_elements(1);
+                } else if (tablet_column.has_default_value()) {
+                    mutable_full_columns[index_map[j]]->insert_from(
+                            *mutable_default_value_columns[index_map[j]].get(), 0);
+                } else {
+                    return Status::InternalError(
+                            "missing column {} is not null but don't have default value",
+                            tablet_column.name());
+                }
+            }
+        }
+        if (update_column_ids.empty()) {
+            eof = true;
+        }
         if (!block.rows()) {
             break;
         }
@@ -363,7 +423,8 @@ Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_t
                                                std::to_string(tablet_id));
 
         output_rows += block.rows();
-        block.clear_column_data();
+        update_block_ptr.reset();
+        block.clear();
     }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",

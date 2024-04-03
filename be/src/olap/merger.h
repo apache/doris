@@ -83,7 +83,9 @@ public:
                                              vectorized::VerticalBlockReader& src_block_reader,
                                              segment_v2::SegmentWriter& dst_segment_writer,
                                              int64_t max_rows_per_segment, Statistics* stats_output,
-                                             uint64_t* index_size, KeyBoundsPB& key_bounds);
+                                             uint64_t* index_size, KeyBoundsPB& key_bounds,
+                                             std::vector<uint32_t>& update_column_ids,
+                                             std::vector<uint32_t>& missing_column_ids);
 };
 
 } // namespace doris

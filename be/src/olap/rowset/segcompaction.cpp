@@ -75,6 +75,10 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
         std::vector<uint32_t>& return_columns,
         std::unique_ptr<vectorized::VerticalBlockReader>* reader) {
+    *reader = std::make_unique<vectorized::VerticalBlockReader>(&row_sources_buf);
+    if (return_columns.empty()) {
+        return Status::OK();
+    }
     const auto& ctx = _writer->_context;
     StorageReadOptions read_options;
     read_options.stats = stat;
@@ -91,7 +95,6 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         seg_iterators.push_back(std::move(iter));
     }
 
-    *reader = std::make_unique<vectorized::VerticalBlockReader>(&row_sources_buf);
 
     TabletReader::ReaderParams reader_params;
     reader_params.is_segcompaction = true;
@@ -235,6 +238,14 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     DCHECK(ctx.tablet);
     auto tablet = std::static_pointer_cast<Tablet>(ctx.tablet);
 
+    std::unordered_set<uint32_t> missing_cid_set;
+    if (ctx.tablet->keys_type() == KeysType::AGG_KEYS && ctx.partial_update_info &&
+        ctx.partial_update_info->is_partial_update) {
+        const auto& missing_cids = ctx.partial_update_info->missing_cids;
+        for (auto cid : missing_cids) {
+            missing_cid_set.insert(cid);
+        }
+    }
     std::vector<std::vector<uint32_t>> column_groups;
     Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
@@ -248,14 +259,24 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
         bool is_key = (i == 0);
         std::vector<uint32_t> column_ids = column_groups[i];
-
+        std::vector<uint32_t> update_column_ids;
+        std::vector<uint32_t> missing_column_ids;
+        for (auto cid : column_ids) {
+            LOG(INFO) << "ccc:" << cid;
+            if (!missing_cid_set.contains(cid)) {
+                LOG(INFO) << "emplace " << cid;
+                update_column_ids.emplace_back(cid);
+            } else {
+                missing_column_ids.emplace_back(cid);
+            }
+        }
         writer->clear();
         RETURN_IF_ERROR(writer->init(column_ids, is_key));
-        auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
+        auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), update_column_ids);
         OlapReaderStatistics reader_stats;
         std::unique_ptr<vectorized::VerticalBlockReader> reader;
         auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
-                                           is_key, column_ids, &reader);
+                                           is_key, update_column_ids, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
             return Status::Error<SEGCOMPACTION_INIT_READER>(
                     "failed to get segcompaction reader. err: {}", s.to_string());
@@ -265,7 +286,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(
                 tablet->tablet_id(), ReaderType::READER_SEGMENT_COMPACTION, *ctx.tablet_schema,
                 is_key, column_ids, &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats,
-                &index_size, key_bounds));
+                &index_size, key_bounds, update_column_ids, missing_column_ids));
         total_index_size += index_size;
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());
