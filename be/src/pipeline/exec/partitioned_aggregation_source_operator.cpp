@@ -197,9 +197,13 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
+
+    MonotonicStopWatch submit_timer;
+    submit_timer.start();
+
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-                    [this, state, execution_context] {
+                    [this, state, execution_context, submit_timer] {
                         auto execution_context_lock = execution_context.lock();
                         if (!execution_context_lock) {
                             LOG(INFO) << "execution_context released, maybe query was cancelled.";
@@ -207,6 +211,7 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                             return Status::Cancelled("Cancelled");
                         }
 
+                        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
                         SCOPED_ATTACH_TASK(state);
                         Defer defer {[&]() {
                             if (!_status.ok()) {
