@@ -19,6 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
@@ -34,6 +37,7 @@ import com.google.common.collect.Sets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /** CheckPrivileges */
@@ -84,11 +88,17 @@ public class CheckPrivileges extends ColumnPruning {
     }
 
     private void checkColumnPrivileges(TableIf table, Set<String> usedColumns) {
-        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        CascadesContext cascadesContext = jobContext.getCascadesContext();
+        ConnectContext connectContext = cascadesContext.getConnectContext();
         try {
             UserAuthentication.checkPermission(table, connectContext, usedColumns);
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage(), e);
+        }
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        if (sqlCacheContext.isPresent()) {
+            sqlCacheContext.get().addCheckPrivilegeTablesOrViews(table, usedColumns);
         }
     }
 }

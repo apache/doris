@@ -105,6 +105,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -530,6 +531,8 @@ public class Env {
 
     private DNSCache dnsCache;
 
+    private final NereidsSqlCacheManager sqlCacheManager;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -766,6 +769,9 @@ public class Env {
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
+        this.sqlCacheManager = new NereidsSqlCacheManager(
+                Config.sql_cache_manage_num, Config.cache_last_version_interval_second
+        );
     }
 
     public static void destroyCheckpoint() {
@@ -6090,6 +6096,10 @@ public class Env {
 
     public MasterDaemon getTabletStatMgr() {
         return tabletStatMgr;
+    }
+
+    public NereidsSqlCacheManager getSqlCacheManager() {
+        return sqlCacheManager;
     }
 
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {

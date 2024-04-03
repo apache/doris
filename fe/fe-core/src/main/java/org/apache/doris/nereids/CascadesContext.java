@@ -102,7 +102,7 @@ public class CascadesContext implements ScheduleContext {
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
-    private final StatementContext statementContext;
+    private StatementContext statementContext;
 
     private final CTEContext cteContext;
     private final RuleSet ruleSet;
@@ -265,6 +265,10 @@ public class CascadesContext implements ScheduleContext {
         return memo;
     }
 
+    public void releaseMemo() {
+        this.memo = null;
+    }
+
     public void setTables(List<TableIf> tables) {
         this.tables = tables.stream().collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1));
     }
@@ -367,6 +371,10 @@ public class CascadesContext implements ScheduleContext {
 
     public void addMaterializationContext(MaterializationContext materializationContext) {
         this.materializationContexts.add(materializationContext);
+    }
+
+    public void release() {
+        statementContext = null;
     }
 
     /**
