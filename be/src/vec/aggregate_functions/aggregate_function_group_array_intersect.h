@@ -295,11 +295,7 @@ public:
                 i = 1;
             }
 
-            if (offsets_to.size() == 0) {
-                offsets_to.push_back(res_size);
-            } else {
-                offsets_to.push_back(offsets_to.back() + res_size);
-            }
+            offsets_to.push_back(offsets_to.back() + res_size);
 
             nested_col.get_data().resize(old_size + res_size);
 
@@ -317,11 +313,7 @@ public:
 
             const auto& set = this->data(place).value;
 
-            if (offsets_to.size() == 0) {
-                offsets_to.push_back(set->size());
-            } else {
-                offsets_to.push_back(offsets_to.back() + set->size());
-            }
+            offsets_to.push_back(offsets_to.back() + set->size());
 
             nested_col.get_data().resize(old_size + set->size());
 
@@ -538,11 +530,7 @@ public:
             res_size += 1;
         }
 
-        if (offsets_to.size() == 0) {
-            offsets_to.push_back(res_size);
-        } else {
-            offsets_to.push_back(offsets_to.back() + res_size);
-        }
+        offsets_to.push_back(offsets_to.back() + res_size);
 
         HybridSetBase::IteratorBase* it = set->begin();
         while (it->has_next()) {
