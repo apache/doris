@@ -31,7 +31,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
@@ -137,7 +136,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 if (db instanceof HiveDatabaseMetadata) {
                     HiveDatabaseMetadata hiveDb = (HiveDatabaseMetadata) db;
                     ugiDoAs(() -> {
-                        client.client.createDatabase(toHiveDatabase(hiveDb));
+                        client.client.createDatabase(HiveUtil.toHiveDatabase(hiveDb));
                         return null;
                     });
                 }
@@ -148,17 +147,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         } catch (Exception e) {
             throw new HMSClientException("failed to create database from hms client", e);
         }
-    }
-
-    private static Database toHiveDatabase(HiveDatabaseMetadata hiveDb) {
-        Database database = new Database();
-        database.setName(hiveDb.getDbName());
-        if (StringUtils.isNotEmpty(hiveDb.getLocationUri())) {
-            database.setLocationUri(hiveDb.getLocationUri());
-        }
-        database.setParameters(hiveDb.getProperties());
-        database.setDescription(hiveDb.getComment());
-        return database;
     }
 
     @Override
