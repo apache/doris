@@ -65,6 +65,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     _is_partial_update = pschema.partial_update();
     _is_strict_mode = pschema.is_strict_mode();
+    _timestamp_ms = pschema.timestamp_ms();
+    _timezone = pschema.timezone();
 
     for (auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
@@ -207,6 +209,8 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_version(_version);
     pschema->set_partial_update(_is_partial_update);
     pschema->set_is_strict_mode(_is_strict_mode);
+    pschema->set_timestamp_ms(_timestamp_ms);
+    pschema->set_timezone(_timezone);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }
