@@ -393,6 +393,15 @@ void MemInfo::refresh_proc_meminfo() {
         _s_sys_mem_available.store(_mem_info_bytes["MemAvailable"], std::memory_order_relaxed);
         _s_sys_mem_available_str = PrettyPrinter::print(
                 _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
+#ifdef ADDRESS_SANITIZER
+        _s_sys_mem_available_str =
+                "[ASAN]" +
+                PrettyPrinter::print(_s_sys_mem_available.load(std::memory_order_relaxed),
+                                     TUnit::BYTES);
+#else
+        _s_sys_mem_available_str = PrettyPrinter::print(
+                _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
+#endif
     }
 }
 
