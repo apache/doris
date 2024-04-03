@@ -1434,6 +1434,13 @@ struct TShowProcessListResult {
     1: optional list<list<string>> process_list
 }
 
+struct TShowUserRequest {
+}
+
+struct TShowUserResult {
+    1: optional list<list<string>> userinfo_list
+}
+
 struct TReportCommitTxnResultRequest {
     1: optional i64 dbId
     2: optional i64 txnId
@@ -1530,4 +1537,5 @@ service FrontendService {
 
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
+    TShowUserResult showUser(1: TShowUserRequest request)
 }

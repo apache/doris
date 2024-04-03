@@ -40,6 +40,7 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
     _spill_write_disk_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillWriteDiskTime", 1);
     _spill_data_size = ADD_COUNTER_WITH_LEVEL(profile(), "SpillWriteDataSize", TUnit::BYTES, 1);
     _spill_block_count = ADD_COUNTER_WITH_LEVEL(profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
+    _spill_write_wait_io_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillWriteWaitIOTime", 1);
 
     return _partitioner->prepare(state, p._child_x->row_desc());
 }
@@ -80,7 +81,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
                     std::numeric_limits<size_t>::max(), _profile));
             RETURN_IF_ERROR(spilling_stream->prepare_spill());
             spilling_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
-                                                _spill_data_size, _spill_write_disk_timer);
+                                                _spill_data_size, _spill_write_disk_timer,
+                                                _spill_write_wait_io_timer);
         }
 
         auto* spill_io_pool =
