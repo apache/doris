@@ -496,8 +496,6 @@ public:
       */
     using ColumnIndex = UInt64;
     using Selector = PaddedPODArray<ColumnIndex>;
-    virtual std::vector<MutablePtr> scatter(ColumnIndex num_columns,
-                                            const Selector& selector) const = 0;
 
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
 
@@ -695,11 +693,6 @@ public:
     bool is_date_time = false;
 
 protected:
-    /// Template is to devirtualize calls to insert_from method.
-    /// In derived classes (that use final keyword), implement scatter method as call to scatter_impl.
-    template <typename Derived>
-    std::vector<MutablePtr> scatter_impl(ColumnIndex num_columns, const Selector& selector) const;
-
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
 };

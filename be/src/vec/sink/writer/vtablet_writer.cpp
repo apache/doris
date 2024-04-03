@@ -980,10 +980,10 @@ void VTabletWriter::_send_batch_process() {
     SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    int sleep_time = config::olap_table_sink_send_interval_microseconds *
-                     (_vpartition->is_auto_partition()
-                              ? config::olap_table_sink_send_interval_auto_partition_factor
-                              : 1);
+    int sleep_time = int(config::olap_table_sink_send_interval_microseconds *
+                         (_vpartition->is_auto_partition()
+                                  ? config::olap_table_sink_send_interval_auto_partition_factor
+                                  : 1));
 
     while (true) {
         // incremental open will temporarily make channels into abnormal state. stop checking when this.

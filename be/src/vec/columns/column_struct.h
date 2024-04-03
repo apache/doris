@@ -151,7 +151,6 @@ public:
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
 
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;

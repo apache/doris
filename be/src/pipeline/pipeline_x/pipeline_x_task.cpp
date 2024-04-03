@@ -327,7 +327,7 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
         DCHECK(big_memory_operator_num >= 0);
         int64_t mem_limit_of_op;
         if (0 == big_memory_operator_num) {
-            mem_limit_of_op = (double)query_weighted_limit * 0.8;
+            mem_limit_of_op = int64_t(query_weighted_limit * 0.8);
         } else {
             mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
         }
