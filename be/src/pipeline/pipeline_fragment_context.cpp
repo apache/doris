@@ -166,6 +166,10 @@ bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
     return false;
 }
 
+// Must not add lock in this method. Because it will call query ctx cancel. And
+// QueryCtx cancel will call fragment ctx cancel. And Also Fragment ctx's running
+// Method like exchange sink buffer will call query ctx cancel. If we add lock here
+// There maybe dead lock.
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
     LOG_INFO("PipelineFragmentContext::cancel")

@@ -190,6 +190,8 @@ void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
             ctx_to_cancel.push_back(f_context);
         }
     }
+    // Must not add lock here. There maybe dead lock because it will call fragment
+    // ctx cancel and fragment ctx will call query ctx cancel.
     for (auto& f_context : ctx_to_cancel) {
         if (auto pipeline_ctx = f_context.lock()) {
             pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
