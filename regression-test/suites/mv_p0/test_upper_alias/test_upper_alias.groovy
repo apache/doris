@@ -42,6 +42,11 @@ suite ("test_upper_alias") {
         select d_b, sum(amt_b0) as amt_b0 from test_0401 group by d_b;
     """)
 
+    createMV ("""
+        create materialized view test_0401_mv2 as 
+        select d_a,d_b from test_0401;
+    """)
+
     sql """insert into test_0401 values('yyy', 'wfsdf', 91.310 );"""
 
     explain {
@@ -55,4 +60,10 @@ suite ("test_upper_alias") {
         contains "(test_0401_mv)"
     }
     qt_select_mv "SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;"
+
+    explain {
+        sql("SELECT d_a AS d_b FROM test_0401 order by 1;")
+        contains "(test_0401_mv2)"
+    }
+    qt_select_mv "SELECT d_a AS d_b FROM test_0401 order by 1;"
 }
