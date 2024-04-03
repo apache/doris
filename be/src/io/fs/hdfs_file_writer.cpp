@@ -64,7 +64,13 @@ Status HdfsFileWriter::close() {
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    hdfsCloseFile(_hdfs_fs->_fs_handle->hdfs_fs, _hdfs_file);
+    result = hdfsCloseFile(_hdfs_fs->_fs_handle->hdfs_fs, _hdfs_file);
+    if (result != 0) {
+        std::string _err_msg = hdfs_error();
+        return Status::InternalError(
+                "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                BackendOptions::get_localhost(), _fs_name, _path.string(), _err_msg);
+    }
     _hdfs_file = nullptr;
     return Status::OK();
 }
