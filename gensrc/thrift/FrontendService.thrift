@@ -490,7 +490,6 @@ struct TFeResult {
     1: required FrontendServiceVersion protocolVersion
     2: required Status.TStatus status
 }
-
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -520,6 +519,8 @@ struct TMasterOpRequest {
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
     26: optional string defaultDatabase
+    27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
+    28: optional map<string, Exprs.TExprNode> user_variables
 }
 
 struct TColumnDefinition {
