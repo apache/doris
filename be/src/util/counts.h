@@ -83,8 +83,8 @@ public:
 
     double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts,
                           double position) const {
-        long lower = std::floor(position);
-        long higher = std::ceil(position);
+        long lower = long(std::floor(position));
+        long higher = long(std::ceil(position));
 
         auto iter = counts.begin();
         for (; iter != counts.end() && iter->second < lower + 1; ++iter)

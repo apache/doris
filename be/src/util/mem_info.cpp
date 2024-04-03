@@ -354,10 +354,10 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
         }
 
         // todo: GC according to resource group priority
-        int64_t tg_need_free_memory =
+        auto tg_need_free_memory = int64_t(
                 gc_all_exceeded ? exceeded_memorys[i]
                                 : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
-                                          request_free_memory /* exceeded memory as a weight */;
+                                          request_free_memory); // exceeded memory as a weight
         auto workload_group = task_groups[i];
         total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile);
     }
@@ -423,7 +423,7 @@ void MemInfo::init() {
         _s_mem_limit = _s_physical_mem;
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
-    _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit = int64_t(_s_mem_limit * config::soft_mem_limit_frac);
     _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     _s_process_minor_gc_size =
@@ -456,9 +456,9 @@ void MemInfo::init() {
         //
         // upper sys_mem_available_low_water_mark, avoid wasting too much memory.
         _s_sys_mem_available_low_water_mark = std::max<int64_t>(
-                std::min<int64_t>(
-                        std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
-                        config::max_sys_mem_available_low_water_mark_bytes),
+                std::min<int64_t>(std::min<int64_t>(_s_physical_mem - _s_mem_limit,
+                                                    int64_t(_s_physical_mem * 0.1)),
+                                  config::max_sys_mem_available_low_water_mark_bytes),
                 0);
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
     }

@@ -2998,7 +2998,13 @@ public class Env {
 
     // The interface which DdlExecutor needs.
     public void createDb(CreateDbStmt stmt) throws DdlException {
-        getCurrentCatalog().createDb(stmt);
+        CatalogIf<?> catalogIf;
+        if (StringUtils.isEmpty(stmt.getCtlName())) {
+            catalogIf = getCurrentCatalog();
+        } else {
+            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
+        }
+        catalogIf.createDb(stmt);
     }
 
     // For replay edit log, need't lock metadata
@@ -3011,7 +3017,13 @@ public class Env {
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        getCurrentCatalog().dropDb(stmt);
+        CatalogIf<?> catalogIf;
+        if (StringUtils.isEmpty(stmt.getCtlName())) {
+            catalogIf = getCurrentCatalog();
+        } else {
+            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
+        }
+        catalogIf.dropDb(stmt);
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -3505,6 +3517,13 @@ public class Env {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
+            }
+
+            // Storage Vault
+            if (!olapTable.getStorageVaultName().isEmpty()) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_STORAGE_VAULT).append("\" = \"");
+                sb.append(olapTable.getStorageVaultName()).append("\"");
             }
 
             // disable auto compaction

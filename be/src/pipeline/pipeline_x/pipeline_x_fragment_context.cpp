@@ -131,7 +131,6 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
-    std::lock_guard<std::mutex> l(_cancel_lock);
     LOG_INFO("PipelineXFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
@@ -140,25 +139,24 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     if (reason == PPlanFragmentCancelReason::TIMEOUT) {
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
-        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
-            _is_report_on_cancel = false;
-        } else {
-            for (auto& id : _fragment_instance_ids) {
-                LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
-            }
+    _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
+    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+        _is_report_on_cancel = false;
+    } else {
+        for (auto& id : _fragment_instance_ids) {
+            LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
         }
-        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
-        // For stream load the fragment's query_id == load id, it is set in FE.
-        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
-        if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(msg);
-        }
-
-        // Cancel the result queue manager used by spark doris connector
-        // TODO pipeline incomp
-        // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     }
+    // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+    // For stream load the fragment's query_id == load id, it is set in FE.
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+    if (stream_load_ctx != nullptr) {
+        stream_load_ctx->pipe->cancel(msg);
+    }
+
+    // Cancel the result queue manager used by spark doris connector
+    // TODO pipeline incomp
+    // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
             task->clear_blocking_state();
@@ -993,13 +991,20 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
+        if (tnode.agg_node.grouping_exprs.empty() &&
+            descs.get_tuple_descriptor(tnode.agg_node.output_tuple_id)->slots().empty()) {
+            return Status::InternalError("Illegal aggregate node " + std::to_string(tnode.node_id) +
+                                         ": group by and output is empty");
+        }
         if (tnode.agg_node.aggregate_functions.empty() && !_runtime_state->enable_agg_spill() &&
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
-            request.query_options.enable_distinct_streaming_aggregation) {
+            request.query_options.enable_distinct_streaming_aggregation &&
+            !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
-                   tnode.agg_node.use_streaming_preaggregation) {
+                   tnode.agg_node.use_streaming_preaggregation &&
+                   !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new StreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else {
@@ -1331,7 +1336,7 @@ void PipelineXFragmentContext::close_if_prepare_failed(Status st) {
             close_a_pipeline();
         }
     }
-    _query_ctx->cancel(true, st.to_string(), st, _fragment_id);
+    _query_ctx->cancel(st.to_string(), st, _fragment_id);
 }
 
 void PipelineXFragmentContext::_close_fragment_instance() {

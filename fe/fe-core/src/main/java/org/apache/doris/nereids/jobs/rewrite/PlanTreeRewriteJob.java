@@ -110,16 +110,17 @@ public abstract class PlanTreeRewriteJob extends Job {
                 }
             }
             default: {
-                boolean changed = false;
+                boolean anyChanged = false;
                 int i = 0;
                 Plan[] newChildren = new Plan[childrenContext.length];
                 for (Plan oldChild : children) {
                     Plan result = childrenContext[i].result;
-                    changed = result != null && result != oldChild;
+                    boolean changed = result != null && result != oldChild;
                     newChildren[i] = changed ? result : oldChild;
+                    anyChanged |= changed;
                     i++;
                 }
-                return changed ? plan.withChildren(newChildren) : plan;
+                return anyChanged ? plan.withChildren(newChildren) : plan;
             }
         }
     }

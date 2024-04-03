@@ -82,7 +82,7 @@ public:
     }
 
     MutableColumnPtr get_shrinked_column() override;
-
+    bool is_variable_length() const override { return nested_column->is_variable_length(); }
     const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -224,10 +224,6 @@ public:
                                 const uint8_t* __restrict null_data) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
-
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnNullable>(num_columns, selector);
-    }
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {

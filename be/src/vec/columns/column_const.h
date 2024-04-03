@@ -105,6 +105,8 @@ public:
         return convert_to_full_column()->convert_to_full_column_if_const();
     }
 
+    bool is_variable_length() const override { return data->is_variable_length(); }
+
     ColumnPtr remove_low_cardinality() const;
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
@@ -246,8 +248,6 @@ public:
             return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
         }
     }
-
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {

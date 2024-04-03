@@ -116,20 +116,6 @@ public:
         return clone_dummy(offsets.back());
     }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        if (s != selector.size()) {
-            LOG(FATAL) << "Size of selector doesn't match size of column.";
-        }
-
-        std::vector<size_t> counts(num_columns);
-        for (auto idx : selector) ++counts[idx];
-
-        MutableColumns res(num_columns);
-        for (size_t i = 0; i < num_columns; ++i) res[i] = clone_resized(counts[i]);
-
-        return res;
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         size_t num_rows = size();

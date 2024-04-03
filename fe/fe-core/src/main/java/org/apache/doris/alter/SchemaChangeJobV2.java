@@ -421,6 +421,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         tbl.readLock();
         Map<Object, List<TColumn>> tcloumnsPool  = Maps.newHashMap();
+        String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Map<String, Column> indexColumnMap = Maps.newHashMap();
@@ -432,6 +433,29 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
+            Map<String, Expr> defineExprs = Maps.newHashMap();
+            List<Column> fullSchema = tbl.getBaseSchema(true);
+            DescriptorTable descTable = new DescriptorTable();
+            TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+            for (Column column : fullSchema) {
+                SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
+                destSlotDesc.setIsMaterialized(true);
+                destSlotDesc.setColumn(column);
+                destSlotDesc.setIsNullable(column.isAllowNull());
+
+                if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
+                    Column newColumn = indexColumnMap.get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
+                    if (newColumn.getType() != column.getType()) {
+                        try {
+                            SlotRef slot = new SlotRef(destSlotDesc);
+                            slot.setCol(column.getName());
+                            defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
+                        } catch (AnalysisException e) {
+                            throw new AlterCancelException(e.getMessage());
+                        }
+                    }
+                }
+            }
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -444,34 +468,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
-
-                    Map<String, Expr> defineExprs = Maps.newHashMap();
-
-                    List<Column> fullSchema = tbl.getBaseSchema(true);
-                    DescriptorTable descTable = new DescriptorTable();
-                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-                    for (Column column : fullSchema) {
-                        SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                        destSlotDesc.setIsMaterialized(true);
-                        destSlotDesc.setColumn(column);
-                        destSlotDesc.setIsNullable(column.isAllowNull());
-
-                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
-                            Column newColumn = indexColumnMap
-                                    .get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                            if (!newColumn.getType().equals(column.getType())) {
-                                try {
-                                    SlotRef slot = new SlotRef(destSlotDesc);
-                                    slot.setCol(column.getName());
-                                    defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
-                                } catch (AnalysisException e) {
-                                    throw new AlterCancelException(e.getMessage());
-                                }
-                            }
-                        }
-
-                    }
-
                     long originIdxId = indexIdMap.get(shadowIdxId);
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
@@ -485,7 +481,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, tcloumnsPool,
-                                    null, expiration);
+                                    null, expiration, vaultId);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }

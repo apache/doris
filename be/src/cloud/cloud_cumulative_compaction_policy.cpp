@@ -182,7 +182,7 @@ int CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 }
 
 int64_t CloudSizeBasedCumulativeCompactionPolicy::cloud_promotion_size(CloudTablet* t) const {
-    int64_t promotion_size = t->base_size() * _promotion_ratio;
+    int64_t promotion_size = int64_t(t->base_size() * _promotion_ratio);
     // promotion_size is between _size_based_promotion_size and _size_based_promotion_min_size
     return promotion_size > _promotion_size       ? _promotion_size
            : promotion_size < _promotion_min_size ? _promotion_min_size

@@ -1057,7 +1057,7 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
         }
     }
 
-    query_ctx->cancel(true, msg, Status::Cancelled(msg));
+    query_ctx->cancel(msg, Status::Cancelled(msg));
     {
         std::lock_guard<std::mutex> state_lock(_lock);
         _query_ctx_map.erase(query_id);

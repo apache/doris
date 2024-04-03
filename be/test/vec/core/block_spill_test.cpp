@@ -336,7 +336,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
                                   decimal_column.get())
                                  ->get_data();
     for (int i = 0; i < total_rows; ++i) {
-        __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+        __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
         decimal_data.push_back(value);
     }
     vectorized::ColumnWithTypeAndName test_decimal(decimal_column->get_ptr(), decimal_data_type,
@@ -365,7 +365,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
         auto* real_column =
                 (vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
-            __int128_t value = (j + i * batch_size) * (pow(10, 9) + pow(10, 8));
+            __int128_t value = __int128_t((j + i * batch_size) * (pow(10, 9) + pow(10, 8)));
             EXPECT_EQ(real_column->get_element(j).value, value);
         }
     }
@@ -392,7 +392,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
         if ((i + 1) % batch_size == 0) {
             nullable_col->insert_data(nullptr, 0);
         } else {
-            __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+            __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             nullable_col->insert_data((const char*)&value, sizeof(value));
         }
     }
@@ -427,7 +427,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
             if ((j + 1) % batch_size == 0) {
                 ASSERT_TRUE(real_column->is_null_at(j));
             } else {
-                __int128_t value = (j + i * batch_size) * (pow(10, 9) + pow(10, 8));
+                __int128_t value = __int128_t((j + i * batch_size) * (pow(10, 9) + pow(10, 8)));
                 EXPECT_EQ(decimal_col.get_element(j).value, value);
             }
         }

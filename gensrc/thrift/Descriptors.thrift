@@ -128,7 +128,9 @@ enum TSchemaTableType {
     SCH_PROFILING,
     SCH_BACKEND_ACTIVE_TASKS,
     SCH_ACTIVE_QUERIES,
-    SCH_WORKLOAD_GROUPS;
+    SCH_WORKLOAD_GROUPS,
+    SCH_USER,
+    SCH_PROCS_PRIV;
 }
 
 enum THdfsCompression {

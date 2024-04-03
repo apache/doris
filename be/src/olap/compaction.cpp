@@ -1072,10 +1072,16 @@ Status CloudCompactionMixin::modify_rowsets() {
 }
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
-    if (_engine.latest_fs() == nullptr) [[unlikely]] {
-        return Status::IOError("Invalid latest fs");
+    // Use the vault id of the previous rowset
+    for (const auto& rs : _input_rowsets) {
+        if (nullptr != rs->rowset_meta()->fs()) {
+            ctx.fs = rs->rowset_meta()->fs();
+            break;
+        }
     }
-    ctx.fs = _engine.latest_fs();
+    if (nullptr == ctx.fs) [[unlikely]] {
+        return Status::InternalError("Failed to find fs");
+    }
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
     ctx.txn_expiration = _expiration;

@@ -739,12 +739,12 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
         *((int*)limit) = 100;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     });
-    sp->set_call_back("MockAccessor::delete_objects", [&](void* p) {
+    sp->set_call_back("MockS3Accessor::delete_objects", [&](void* p) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         bool found = recycler.check_recycle_tasks();
         ASSERT_EQ(found, true);
     });
-    sp->set_call_back("MockAccessor::delete_objects_by_prefix",
+    sp->set_call_back("MockS3Accessor::delete_objects_by_prefix",
                       [&](void* p) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
     sp->enable_processing();
 
@@ -1627,7 +1627,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("MockAccessor::delete_objects_ret::pred",
+    sp->set_call_back("MockS3Accessor::delete_objects_ret::pred",
                       [](void* p) { *((bool*)p) = true; });
     sp->enable_processing();
     using namespace std::chrono;
@@ -1702,7 +1702,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
         EXPECT_EQ(expected_job_exists, exist) << table_id;
     }
 
-    sp->clear_call_back("MockAccessor::delete_objects_ret::pred");
+    sp->clear_call_back("MockS3Accessor::delete_objects_ret::pred");
     ASSERT_EQ(recycler.recycle_copy_jobs(), 0);
 
     // check object files
