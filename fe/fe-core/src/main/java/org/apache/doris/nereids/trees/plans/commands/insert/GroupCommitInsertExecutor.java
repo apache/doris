@@ -27,7 +27,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -103,6 +107,31 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
                 .equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME);
     }
 
+    private static boolean literalExpr(NereidsPlanner planner) {
+        Optional<PhysicalUnion> union = planner.getPhysicalPlan()
+                .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+        List<List<NamedExpression>> constantExprsList = null;
+        if (union.isPresent()) {
+            constantExprsList = union.get().getConstantExprsList();
+        }
+        Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
+                .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+        if (oneRowRelation.isPresent()) {
+            constantExprsList = ImmutableList.of(oneRowRelation.get().getProjects());
+        }
+        for (List<NamedExpression> row : constantExprsList) {
+            for (Expression expr : row) {
+                while (expr instanceof Alias || expr instanceof Cast) {
+                    expr = expr.child(0);
+                }
+                if (!(expr instanceof Literal)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private static boolean isGroupCommitAvailablePlan(PhysicalOlapTableSink<? extends Plan> sink,
                                                       NereidsPlanner planner) {
         Plan child = sink.child();
@@ -110,7 +139,7 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
             child = child.child(0);
         }
         return (child instanceof OneRowRelation || (child instanceof PhysicalUnion && child.arity() == 0))
-                && InsertUtils.literalExpr(planner);
+                && literalExpr(planner);
     }
 
     private void handleGroupCommit(ConnectContext ctx, DataSink sink,
