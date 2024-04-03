@@ -89,14 +89,15 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
+    auto query_id = state->query_id();
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
 
-    auto spill_func = [this, state, &parent, execution_context, submit_timer] {
+    auto spill_func = [this, state, query_id, &parent, execution_context, submit_timer] {
         auto execution_context_lock = execution_context.lock();
         if (!execution_context_lock) {
-            LOG(INFO) << "query " << print_id(state->query_id())
+            LOG(INFO) << "query " << print_id(query_id)
                       << " execution_context released, maybe query was cancelled.";
             return Status::OK();
         }
@@ -107,7 +108,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         Defer defer {[&]() {
             if (!_status.ok() || state->is_cancelled()) {
                 if (!_status.ok()) {
-                    LOG(WARNING) << "query " << print_id(state->query_id()) << " sort node "
+                    LOG(WARNING) << "query " << print_id(query_id) << " sort node "
                                  << _parent->node_id() << " merge spill data error: " << _status;
                 }
                 _shared_state->close();
@@ -116,8 +117,8 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 }
                 _current_merging_streams.clear();
             } else {
-                VLOG_DEBUG << "query " << print_id(state->query_id()) << " sort node "
-                           << _parent->node_id() << " merge spill data finish";
+                VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
+                           << " merge spill data finish";
             }
             _dependency->Dependency::set_ready();
         }};
@@ -125,7 +126,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         vectorized::SpillStreamSPtr tmp_stream;
         while (!state->is_cancelled()) {
             int max_stream_count = _calc_spill_blocks_to_merge();
-            VLOG_DEBUG << "query " << print_id(state->query_id()) << " sort node " << _parent->id()
+            VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->id()
                        << " merge spill streams, streams count: "
                        << _shared_state->sorted_streams.size()
                        << ", curren merge max stream count: " << max_stream_count;

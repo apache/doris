@@ -31,9 +31,10 @@ class RuntimeProfile;
 
 namespace vectorized {
 
+class SpillStreamManager;
 class SpillDataDir {
 public:
-    SpillDataDir(const std::string& path, int64_t capacity_bytes = -1,
+    SpillDataDir(std::string path, bool shared_with_storage_path, int64_t capacity_bytes,
                  TStorageMedium::type storage_medium = TStorageMedium::HDD);
 
     Status init();
@@ -54,25 +55,61 @@ public:
 
     Status update_capacity();
 
-    double get_usage(int64_t incoming_data_size) const {
-        return _disk_capacity_bytes == 0
-                       ? 0
-                       : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
-                                 (double)_disk_capacity_bytes;
+    void update_usage(int64_t incoming_data_size) {
+        if (_shared_with_storage_path) {
+            std::lock_guard<std::mutex> l(_mutex);
+            _used_bytes += incoming_data_size;
+        }
+    }
+
+    int64_t get_used_bytes() {
+        std::lock_guard<std::mutex> l(_mutex);
+        if (_shared_with_storage_path) {
+            return _used_bytes;
+        } else {
+            return _disk_capacity_bytes - _available_bytes;
+        }
+    }
+
+    double get_usage(int64_t incoming_data_size) {
+        std::lock_guard<std::mutex> l(_mutex);
+        if (_shared_with_storage_path) {
+            return _limit_bytes == 0 ? 0 : _used_bytes + incoming_data_size / (double)_limit_bytes;
+
+        } else {
+            return _disk_capacity_bytes == 0
+                           ? 0
+                           : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
+                                     (double)_disk_capacity_bytes;
+        }
+    }
+
+    int64_t storage_limit() {
+        std::lock_guard<std::mutex> l(_mutex);
+        return _limit_bytes;
     }
 
 private:
+    friend class SpillStreamManager;
     std::string _path;
 
-    // the actual available capacity of the disk of this data dir
-    size_t _available_bytes;
+    const bool _shared_with_storage_path;
+
+    // protect _disk_capacity_bytes, _available_bytes, _limit_bytes, _used_bytes
+    std::mutex _mutex;
     // the actual capacity of the disk of this data dir
     size_t _disk_capacity_bytes;
+    // used when _shared_with_storage_path = true
+    size_t _limit_bytes = 0;
+    // the actual available capacity of the disk of this data dir
+    size_t _available_bytes = 0;
+    int64_t _used_bytes = 0;
     TStorageMedium::type _storage_medium;
 };
 class SpillStreamManager {
 public:
-    SpillStreamManager(const std::vector<StorePath>& paths);
+    SpillStreamManager(std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
+                               spill_store_map);
 
     Status init();
 
@@ -93,16 +130,6 @@ public:
 
     void gc(int64_t max_file_count);
 
-    void update_usage(const std::string& path, int64_t incoming_data_size) {
-        path_to_spill_data_size_[path] += incoming_data_size;
-    }
-
-    static bool reach_capacity_limit(size_t size, size_t incoming_data_size) {
-        return size + incoming_data_size > config::spill_storage_limit;
-    }
-
-    int64_t spilled_data_size(const std::string& path) { return path_to_spill_data_size_[path]; }
-
     ThreadPool* get_spill_io_thread_pool(const std::string& path) const {
         const auto it = path_to_io_thread_pool_.find(path);
         DCHECK(it != path_to_io_thread_pool_.end());
@@ -115,13 +142,11 @@ private:
     void _spill_gc_thread_callback();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
 
-    std::vector<StorePath> _spill_store_paths;
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
     CountDownLatch _stop_background_threads_latch;
     std::unique_ptr<ThreadPool> async_task_thread_pool_;
     std::unordered_map<std::string, std::unique_ptr<ThreadPool>> path_to_io_thread_pool_;
-    std::unordered_map<std::string, std::atomic_int64_t> path_to_spill_data_size_;
     scoped_refptr<Thread> _spill_gc_thread;
 
     std::atomic_uint64_t id_ = 0;
