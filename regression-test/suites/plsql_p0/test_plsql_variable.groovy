@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_plsql_variable") {
+    def tableName = "plsql_variable"
     sql """
         CREATE OR REPLACE PROCEDURE plsql_variable1()
         BEGIN
@@ -44,23 +45,23 @@ suite("test_plsql_variable") {
         """
     qt_select """call plsql_variable1()"""
 
-    sql "DROP TABLE IF EXISTS plsql_tbl"
+    sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
-        create table plsql_tbl (id int, name varchar(20)) DUPLICATE key(`id`) distributed by hash (`id`) buckets 4
+        create table ${tableName} (id int, name varchar(20)) DUPLICATE key(`id`) distributed by hash (`id`) buckets 4
         properties ("replication_num"="1");
         """
 
     sql """
         CREATE OR REPLACE PROCEDURE procedure_insert(IN id int, IN name STRING)
         BEGIN
-            INSERT INTO plsql_tbl VALUES(id, name);
+            INSERT INTO ${tableName} VALUES(id, name);
         END;
         """
     sql """call procedure_insert(111, "plsql111")"""
     sql """call procedure_insert(222, "plsql222")"""
     sql """call procedure_insert(333, "plsql333")"""
     sql """call procedure_insert(111, "plsql333")"""
-    qt_select "select sum(id), count(1) from plsql_tbl"
+    qt_select "select sum(id), count(1) from ${tableName}"
 
     sql """
         CREATE OR REPLACE PROCEDURE plsql_variable2()
@@ -72,11 +73,11 @@ suite("test_plsql_variable") {
             print trim(b);
 
             DECLARE c string;
-            select name into c from plsql_tbl where 2=a and name=trim(b);
+            select name into c from ${tableName} where 2=a and name=trim(b);
             print c;
 
             DECLARE d int;
-            select count(1) into d from plsql_tbl where 2=a;
+            select count(1) into d from ${tableName} where 2=a;
             print d;
         END;
         """
@@ -90,18 +91,18 @@ suite("test_plsql_variable") {
             print a;
 
             DECLARE b int;
-            select id into b from plsql_tbl where 999=a limit 1;
+            select id into b from ${tableName} where 999=a limit 1;
             print b;
 
             DECLARE id int = 999;
             print id;
 
             DECLARE c string;
-            select id into c from plsql_tbl where 999=id limit 1;
+            select id into c from ${tableName} where 999=id limit 1;
             print c;
 
             DECLARE d string;
-            select count(1) into d from plsql_tbl where 999=id;
+            select count(1) into d from ${tableName} where 999=id;
             print d;
         END;
         """
