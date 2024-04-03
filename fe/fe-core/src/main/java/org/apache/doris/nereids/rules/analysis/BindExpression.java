@@ -983,6 +983,7 @@ public class BindExpression implements AnalysisRuleFactory {
     public String toSqlWithBacktick(List<Slot> slots) {
         return slots.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBacktick())
                 .collect(Collectors.joining(", "));
+    }
 
     private boolean hasAggregateFunction(Expression expression, FunctionRegistry functionRegistry) {
         return expression.anyMatch(expr -> {
