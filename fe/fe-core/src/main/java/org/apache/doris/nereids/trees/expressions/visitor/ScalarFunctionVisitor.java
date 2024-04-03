@@ -200,6 +200,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Insert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InttoUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4CIDRToRange;
@@ -1189,6 +1190,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitInitcap(Initcap initcap, C context) {
         return visitScalarFunction(initcap, context);
+    }
+
+    default R visitInsert(Insert insert, C context) {
+        return visitScalarFunction(insert, context);
     }
 
     default R visitInnerProduct(InnerProduct innerProduct, C context) {

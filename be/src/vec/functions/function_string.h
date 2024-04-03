@@ -3444,6 +3444,127 @@ struct SubReplaceFourImpl {
     }
 };
 
+
+template <typename Impl>
+class FunctionInsert : public IFunction {
+public:
+    static constexpr auto name = "insert";
+
+    static FunctionPtr create() { return std::make_shared<FunctionInsert<Impl>>(); }
+
+    String get_name() const override { return name; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+struct InsertImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()};
+    }
+
+    static Status insert_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                                  size_t input_rows_count) {
+        auto res_column = ColumnString::create();
+        auto result_column = assert_cast<ColumnString*>(res_column.get());
+        auto args_null_map = ColumnUInt8::create(input_rows_count, 0);
+        ColumnPtr argument_columns[4];
+        for (int i = 0; i < 4; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
+                VectorizedUtils::update_null_map(args_null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            }
+        }
+
+        auto data_column = assert_cast<const ColumnString*>(argument_columns[0].get());
+        auto mask_column = assert_cast<const ColumnString*>(argument_columns[1].get());
+        auto start_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+        auto length_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[3].get());
+
+        vector(data_column, mask_column, start_column->get_data(), length_column->get_data(),
+               args_null_map->get_data(), result_column, input_rows_count);
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_column), std::move(args_null_map));
+        return Status::OK();
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        return insert_execute(block, arguments, result, input_rows_count);
+    }
+
+private:
+    static void vector(const ColumnString* data_column, const ColumnString* mask_column,
+                       const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& length,
+                       NullMap& args_null_map, ColumnString* result_column,
+                       size_t input_rows_count) {
+        ColumnString::Chars& res_chars = result_column->get_chars();
+        ColumnString::Offsets& res_offsets = result_column->get_offsets();
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            StringRef origin_str = data_column->get_data_at(row);
+            StringRef new_str = mask_column->get_data_at(row);
+            size_t origin_str_len = origin_str.size;
+            if (args_null_map[row]) {
+                // Returns NULL if any argument is NULL.
+                res_offsets.push_back(res_chars.size());
+                args_null_map[row] = 1;
+            } else if(start[row] < 1 || start[row] > origin_str_len) {
+                // Returns the original string if pos is not within the length of the string.
+                std::string result = origin_str.to_string();
+                result_column->insert_data(result.data(), result.length());
+            } else {
+                // real execution logic for string insert
+                // corner case: Replaces the rest of the string from position pos 
+                // if len is not within the length of the rest of the string
+                size_t origin_rest_len = origin_str_len - start[row];
+                if(length[row] > origin_rest_len) {
+                    std::string result = origin_str.to_string();
+                    // truncate first
+                    result = result.substr(0, start[row]);
+                    std::string_view replace_str = new_str.to_string_view();
+                    // then append
+                    result.append(replace_str);
+                    result_column->insert_data(result.data(), result.length());
+                } else {
+                    // normal case
+                    std::string result = origin_str.to_string();
+                    std::string_view replace_str = new_str.to_string_view();
+                    result.replace(start[row], length[row], replace_str);
+                    result_column->insert_data(result.data(), result.length());
+                }
+            } 
+        }
+    }
+};
+
+
 class FunctionConvertTo : public IFunction {
 public:
     static constexpr auto name = "convert_to";
