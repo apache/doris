@@ -543,4 +543,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
         return false;
     }
+
+    // for test
+    public List<String> getOriginHiveKeys() {
+        return originHiveKeys;
+    }
 }
