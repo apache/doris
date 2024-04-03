@@ -27,8 +27,12 @@
 
 #include <ostream>
 
+#include "cloud/cloud_internal_service.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "service/internal_service.h"
 #include "util/mem_info.h"
@@ -57,7 +61,15 @@ BRpcService::~BRpcService() {
 
 Status BRpcService::start(int port, int num_threads) {
     // Add service
-    _server->AddService(new PInternalServiceImpl(_exec_env), brpc::SERVER_OWNS_SERVICE);
+    if (config::is_cloud_mode()) {
+        _server->AddService(
+                new CloudInternalServiceImpl(_exec_env->storage_engine().to_cloud(), _exec_env),
+                brpc::SERVER_OWNS_SERVICE);
+    } else {
+        _server->AddService(
+                new PInternalServiceImpl(_exec_env->storage_engine().to_local(), _exec_env),
+                brpc::SERVER_OWNS_SERVICE);
+    }
     // start service
     brpc::ServerOptions options;
     if (num_threads != -1) {

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.sql.Connection;
@@ -28,7 +29,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 
 public class JdbcOracleClient extends JdbcClient {
 
@@ -37,104 +38,45 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SELECT DISTINCT OWNER FROM all_tables";
+    public String getTestQuery() {
+        return "SELECT 1 FROM dual";
     }
 
     @Override
-    protected String getCatalogName(Connection conn) throws SQLException {
-        return conn.getCatalog();
-    }
-
-    @Override
-    public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
-        ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
-        }
-        List<String> databaseNames = Lists.newArrayList();
-        try {
-            rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
-            List<String> tempDatabaseNames = Lists.newArrayList();
-            while (rs.next()) {
-                String databaseName = rs.getString("TABLE_SCHEM");
-                if (isLowerCaseTableNames) {
-                    lowerDBToRealDB.put(databaseName.toLowerCase(), databaseName);
-                    databaseName = databaseName.toLowerCase();
-                } else {
-                    lowerDBToRealDB.put(databaseName, databaseName);
-                }
-                tempDatabaseNames.add(databaseName);
-            }
-            if (isOnlySpecifiedDatabase) {
-                for (String db : tempDatabaseNames) {
-                    // Exclude database map take effect with higher priority over include database map
-                    if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(db)) {
-                        continue;
-                    }
-                    if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(db)) {
-                        continue;
-                    }
-                    databaseNames.add(db);
-                }
-            } else {
-                databaseNames = tempDatabaseNames;
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
-        } finally {
-            close(rs, conn);
-        }
-        return databaseNames;
-    }
-
-    @Override
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String finalDbName = getRealDatabaseName(dbName);
-        String finalTableName = getRealTableName(dbName, tableName);
+        String remoteDbName = getRemoteDatabaseName(localDbName);
+        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             String modifiedTableName;
             boolean isModify = false;
-            if (finalTableName.contains("/")) {
-                modifiedTableName = modifyTableNameIfNecessary(finalTableName);
-                isModify = !modifiedTableName.equals(finalTableName);
+            if (remoteTableName.contains("/")) {
+                modifiedTableName = modifyTableNameIfNecessary(remoteTableName);
+                isModify = !modifiedTableName.equals(remoteTableName);
                 if (isModify) {
-                    rs = getColumns(databaseMetaData, catalogName, finalDbName, modifiedTableName);
+                    rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, modifiedTableName);
                 } else {
-                    rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
+                    rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
                 }
             } else {
-                rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
+                rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             }
             while (rs.next()) {
-                if (isModify && isTableModified(rs.getString("TABLE_NAME"), finalTableName)) {
+                if (isModify && isTableModified(rs.getString("TABLE_NAME"), remoteTableName)) {
                     continue;
                 }
-                lowerColumnToRealColumn.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
-                lowerColumnToRealColumn.get(finalDbName).putIfAbsent(finalTableName, new ConcurrentHashMap<>());
                 JdbcFieldSchema field = new JdbcFieldSchema();
-                String columnName = rs.getString("COLUMN_NAME");
-                if (isLowerCaseTableNames) {
-                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName)
-                            .put(columnName.toLowerCase(), columnName);
-                    columnName = columnName.toLowerCase();
-                } else {
-                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName).put(columnName, columnName);
-                }
-                field.setColumnName(columnName);
+                field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 /*
                    We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
                    we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
                 */
-                field.setKey(true);
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
@@ -150,7 +92,7 @@ public class JdbcOracleClient extends JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, finalTableName,
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, remoteTableName,
                 Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
@@ -159,13 +101,27 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
-    protected String modifyTableNameIfNecessary(String tableName) {
-        return tableName.replace("/", "%");
+    protected String modifyTableNameIfNecessary(String remoteTableName) {
+        return remoteTableName.replace("/", "%");
     }
 
     @Override
     protected boolean isTableModified(String modifiedTableName, String actualTableName) {
         return !modifiedTableName.equals(actualTableName);
+    }
+
+    @Override
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("ctxsys")
+                .add("flows_files")
+                .add("mdsys")
+                .add("outln")
+                .add("sys")
+                .add("system")
+                .add("xdb")
+                .add("xs$null")
+                .build();
     }
 
     @Override

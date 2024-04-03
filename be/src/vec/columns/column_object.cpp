@@ -27,11 +27,14 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <map>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
@@ -64,6 +67,12 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/get_least_supertype.h"
+
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
 
 namespace doris::vectorized {
 namespace {
@@ -479,7 +488,7 @@ void ColumnObject::Subcolumn::finalize() {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        st.to_string() + ", real_code:{}", st.code());
             }
-            part = ptr;
+            part = ptr->convert_to_full_column_if_const();
         }
         result_column->insert_range_from(*part, 0, part_size);
     }
@@ -577,6 +586,11 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     }
 }
 
+ColumnObject::ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column)
+        : is_nullable(is_nullable_) {
+    add_sub_column({}, std::move(column), type);
+}
+
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
         : is_nullable(is_nullable_),
           subcolumns(std::move(subcolumns_)),
@@ -639,11 +653,12 @@ void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
 }
 
 void ColumnObject::insert_from(const IColumn& src, size_t n) {
-    const auto& src_v = assert_cast<const ColumnObject&>(src);
+    const auto* src_v = check_and_get_column<ColumnObject>(src);
     // optimize when src and this column are scalar variant, since try_insert is inefficiency
-    if (src_v.is_scalar_variant() && is_scalar_variant() &&
-        src_v.get_root_type()->equals(*get_root_type()) && src_v.is_finalized() && is_finalized()) {
-        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v.get_root(), n);
+    if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
+        src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
+        is_finalized()) {
+        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v->get_root(), n);
         ++num_rows;
         return;
     }
@@ -949,12 +964,19 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
     return find_leaf_node_by_path(current, path, idx + 1);
 }
 
-void find_and_set_leave_value(const IColumn* column, const PathInData& path,
-                              const DataTypeSerDeSPtr& type, rapidjson::Value& root,
-                              rapidjson::Document::AllocatorType& allocator, int row) {
+Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
+                                const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
+                                rapidjson::Value& root,
+                                rapidjson::Document::AllocatorType& allocator, int row) {
+    // sanitize type and column
+    if (column->get_name() != type->create_column()->get_name()) {
+        return Status::InternalError(
+                "failed to set value for path {}, expected type {}, but got {} at row {}",
+                path.get_path(), type->get_name(), column->get_name(), row);
+    }
     const auto* nullable = assert_cast<const ColumnNullable*>(column);
-    if (nullable->is_null_at(row)) {
-        return;
+    if (nullable->is_null_at(row) || (path.empty() && nullable->get_data_at(row).empty())) {
+        return Status::OK();
     }
     // TODO could cache the result of leaf nodes with it's path info
     rapidjson::Value* target = find_leaf_node_by_path(root, path);
@@ -962,10 +984,12 @@ void find_and_set_leave_value(const IColumn* column, const PathInData& path,
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         root.Accept(writer);
-        LOG(FATAL) << "could not find path " << path.get_path()
-                   << ", root: " << std::string(buffer.GetString(), buffer.GetSize());
+        LOG(WARNING) << "could not find path " << path.get_path()
+                     << ", root: " << std::string(buffer.GetString(), buffer.GetSize());
+        return Status::NotFound("Not found path {}", path.get_path());
     }
-    type->write_one_cell_to_json(*column, *target, allocator, row);
+    RETURN_IF_ERROR(type_serde->write_one_cell_to_json(*column, *target, allocator, row));
+    return Status::OK();
 }
 
 // compact null values
@@ -1000,16 +1024,16 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
         return;
     }
     root.SetObject();
-    for (auto it = node_root->children.begin(); it != node_root->children.end(); ++it) {
-        auto child = it->get_second();
+    // sort to make output stable
+    std::vector<StringRef> sorted_keys = node_root->get_sorted_chilren_keys();
+    for (const StringRef& key : sorted_keys) {
         rapidjson::Value value(rapidjson::kObjectType);
-        get_json_by_column_tree(value, allocator, child.get());
-        root.AddMember(rapidjson::StringRef(it->get_first().data, it->get_first().size), value,
-                       allocator);
+        get_json_by_column_tree(value, allocator, node_root->get_child_node(key).get());
+        root.AddMember(rapidjson::StringRef(key.data, key.size), value, allocator);
     }
 }
 
-bool ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize();
     }
@@ -1017,35 +1041,31 @@ bool ColumnObject::serialize_one_row_to_string(int row, std::string* output) con
     if (is_scalar_variant()) {
         auto type = get_root_type();
         *output = type->to_string(*get_root(), row);
-        return true;
+        return Status::OK();
     }
-    bool res = serialize_one_row_to_json_format(row, &buf, nullptr);
-    if (res) {
-        // TODO avoid copy
-        *output = std::string(buf.GetString(), buf.GetSize());
-    }
-    return res;
+    RETURN_IF_ERROR(serialize_one_row_to_json_format(row, &buf, nullptr));
+    // TODO avoid copy
+    *output = std::string(buf.GetString(), buf.GetSize());
+    return Status::OK();
 }
 
-bool ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize();
     }
     if (is_scalar_variant()) {
         auto type = get_root_type();
         type->to_string(*get_root(), row, output);
-        return true;
+        return Status::OK();
     }
     rapidjson::StringBuffer buf;
-    bool res = serialize_one_row_to_json_format(row, &buf, nullptr);
-    if (res) {
-        output.write(buf.GetString(), buf.GetLength());
-    }
-    return res;
+    RETURN_IF_ERROR(serialize_one_row_to_json_format(row, &buf, nullptr));
+    output.write(buf.GetString(), buf.GetLength());
+    return Status::OK();
 }
 
-bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
-                                                    bool* is_null) const {
+Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+                                                      bool* is_null) const {
     CHECK(is_finalized());
     if (subcolumns.empty()) {
         if (is_null != nullptr) {
@@ -1053,9 +1073,11 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
         } else {
             rapidjson::Value root(rapidjson::kNullType);
             rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
-            return root.Accept(writer);
+            if (!root.Accept(writer)) {
+                return Status::InternalError("Failed to serialize json value");
+            }
         }
-        return true;
+        return Status::OK();
     }
     CHECK(size() > row);
     rapidjson::StringBuffer buffer;
@@ -1072,9 +1094,14 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
-        find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
-                                 subcolumn->data.get_least_common_type_serde(), root,
-                                 doc_structure->GetAllocator(), row);
+        RETURN_IF_ERROR(find_and_set_leave_value(
+                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
+                subcolumn->data.get_least_common_type_serde(),
+                subcolumn->data.get_least_common_type(), root, doc_structure->GetAllocator(), row));
+        if (subcolumn->path.empty() && !root.IsObject()) {
+            // root was modified, only handle root node
+            break;
+        }
     }
     compact_null_values(root, doc_structure->GetAllocator());
     if (root.IsNull() && is_null != nullptr) {
@@ -1083,15 +1110,17 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
     } else {
         output->Clear();
         rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
-        return root.Accept(writer);
+        if (!root.Accept(writer)) {
+            return Status::InternalError("Failed to serialize json value");
+        }
     }
-    return true;
+    return Status::OK();
 }
 
-void ColumnObject::merge_sparse_to_root_column() {
+Status ColumnObject::merge_sparse_to_root_column() {
     CHECK(is_finalized());
     if (sparse_columns.empty()) {
-        return;
+        return Status::OK();
     }
     ColumnPtr src = subcolumns.get_mutable_root()->data.get_finalized_column_ptr();
     MutableColumnPtr mresult = src->clone_empty();
@@ -1135,9 +1164,14 @@ void ColumnObject::merge_sparse_to_root_column() {
                 ++null_count;
                 continue;
             }
-            find_and_set_leave_value(column, subcolumn->path,
-                                     subcolumn->data.get_least_common_type_serde(), root,
-                                     doc_structure->GetAllocator(), i);
+            bool succ = find_and_set_leave_value(column, subcolumn->path,
+                                                 subcolumn->data.get_least_common_type_serde(),
+                                                 subcolumn->data.get_least_common_type(), root,
+                                                 doc_structure->GetAllocator(), i);
+            if (succ && subcolumn->path.empty() && !root.IsObject()) {
+                // root was modified, only handle root node
+                break;
+            }
         }
 
         // all null values, store null to sparse root
@@ -1155,8 +1189,14 @@ void ColumnObject::merge_sparse_to_root_column() {
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         root.Accept(writer);
         bool res = parser.parse(buffer.GetString(), buffer.GetSize());
-        CHECK(res) << "buffer:" << std::string(buffer.GetString(), buffer.GetSize())
-                   << ", row_num:" << i;
+        if (!res) {
+            return Status::InvalidArgument(
+                    "parse json failed, doc: {}"
+                    ", row_num:{}"
+                    ", error:{}",
+                    std::string(buffer.GetString(), buffer.GetSize()), i,
+                    JsonbErrMsg::getErrMsg(parser.getErrorCode()));
+        }
         result_column_ptr->insert_data(parser.getWriter().getOutput()->getBuffer(),
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);
@@ -1164,6 +1204,7 @@ void ColumnObject::merge_sparse_to_root_column() {
 
     // assign merged column
     subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
+    return Status::OK();
 }
 
 void ColumnObject::finalize_if_not() {
@@ -1244,18 +1285,6 @@ void ColumnObject::strip_outer_array() {
         num_rows = base_column->size();
     }
     std::swap(subcolumns, new_subcolumns);
-}
-
-void ColumnObject::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    auto& var = assert_cast<ColumnObject&>(column);
-    for (auto& entry : subcolumns) {
-        auto replica = entry->data.get_finalized_column().clone_empty();
-        entry->data.get_finalized_column().replicate(indexs, target_size, *replica);
-        var.add_sub_column(entry->path, std::move(replica), entry->data.get_least_common_type());
-    }
 }
 
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
@@ -1450,6 +1479,38 @@ void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) 
             callback(*part);
         }
     }
+}
+
+std::string ColumnObject::debug_string() const {
+    std::stringstream res;
+    res << get_family_name() << "(num_row = " << num_rows;
+    for (auto& entry : subcolumns) {
+        if (entry->data.is_finalized()) {
+            res << "[column:" << entry->data.data[0]->dump_structure()
+                << ",type:" << entry->data.data_types[0]->get_name()
+                << ",path:" << entry->path.get_path() << "],";
+        }
+    }
+    res << ")";
+    return res.str();
+}
+
+Status ColumnObject::sanitize() const {
+    RETURN_IF_CATCH_EXCEPTION(check_consistency());
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_finalized()) {
+            auto column = subcolumn->data.get_least_common_type()->create_column();
+            std::string original = subcolumn->data.get_finalized_column().get_family_name();
+            std::string expected = column->get_family_name();
+            if (original != expected) {
+                return Status::InternalError("Incompatible type between {} and {}, debug_info:",
+                                             original, expected, debug_string());
+            }
+        }
+    }
+
+    VLOG_DEBUG << "sanitized " << debug_string();
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

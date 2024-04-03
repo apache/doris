@@ -111,6 +111,14 @@ enum TCompressionType {
     LZ4HC = 8
 }
 
+// Enumerates the storage formats for inverted indexes in src_backends.
+// This enum is used to distinguish between different organizational methods
+// of inverted index data, affecting how the index is stored and accessed.
+enum TInvertedIndexStorageFormat {
+    DEFAULT, // Default format, unspecified storage method.
+    V1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+}
 
 struct TBinlogConfig {
     1: optional bool enable;
@@ -150,6 +158,12 @@ struct TCreateTabletReq {
     23: optional i64 time_series_compaction_goal_size_mbytes = 1024
     24: optional i64 time_series_compaction_file_count_threshold = 2000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
+    26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
+    27: optional i64 time_series_compaction_level_threshold = 1
+    28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.V1
+    // For cloud
+    1000: optional bool is_in_memory = false
+    1001: optional bool is_persistent = false
 }
 
 struct TDropTabletReq {
@@ -192,6 +206,11 @@ struct TAlterTabletReqV2 {
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
     11: optional i32 be_exec_version = 0
+
+    // For cloud
+    1000: optional i64 job_id
+    1001: optional i64 expiration
+    1002: optional string storage_vault_id
 }
 
 struct TAlterInvertedIndexReq {
@@ -250,6 +269,7 @@ struct TPushReq {
     14: optional PlanNodes.TBrokerScanRange broker_scan_range
     15: optional Descriptors.TDescriptorTable desc_tbl
     16: optional list<Descriptors.TColumn> columns_desc
+    17: optional string storage_vault_id
 }
 
 struct TCloneReq {
@@ -377,6 +397,19 @@ struct TPublishVersionRequest {
     2: required list<TPartitionVersionInfo> partition_version_infos
     // strict mode means BE will check tablet missing version
     3: optional bool strict_mode = false
+    // for delta rows statistics to exclude rollup tablets
+    4: optional set<Types.TTabletId> base_tablet_ids
+}
+
+struct TCalcDeleteBitmapPartitionInfo {
+    1: required Types.TPartitionId partition_id
+    2: required Types.TVersion version
+    3: required list<Types.TTabletId> tablet_ids
+}
+
+struct TCalcDeleteBitmapRequest {
+    1: required Types.TTransactionId transaction_id
+    2: required list<TCalcDeleteBitmapPartitionInfo> partitions;
 }
 
 struct TClearAlterTaskRequest {
@@ -419,6 +452,8 @@ struct TTabletMetaInfo {
     14: optional bool enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
     16: optional bool disable_auto_compaction
+    17: optional i64 time_series_compaction_empty_rowsets_threshold
+    18: optional i64 time_series_compaction_level_threshold
 }
 
 struct TUpdateTabletMetaInfoReq {
@@ -477,6 +512,9 @@ struct TAgentTaskRequest {
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
     33: optional TGcBinlogReq gc_binlog_req
+
+    // For cloud
+    1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req
 }
 
 struct TAgentResult {

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -43,7 +43,7 @@ public class MergeCombinator extends AggregateFunction
     private final AggStateType inputType;
 
     public MergeCombinator(List<Expression> arguments, AggregateFunction nested) {
-        super(nested.getName() + AggStateFunctionBuilder.MERGE_SUFFIX, arguments);
+        super(nested.getName() + AggCombinerFunctionBuilder.MERGE_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
         inputType = (AggStateType) arguments.get(0).getDataType();

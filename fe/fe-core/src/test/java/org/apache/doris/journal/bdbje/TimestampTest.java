@@ -53,7 +53,9 @@ public class TimestampTest {
         }
         UUID uuid = UUID.randomUUID();
         File testFile = Files.createFile(Paths.get(dorisHome, "fe", "mocked", "TimestampTest-" + uuid.toString())).toFile();
-        LOG.debug("createTmpFile path {}", testFile.getAbsolutePath());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("createTmpFile path {}", testFile.getAbsolutePath());
+        }
         testFiles.add(testFile.getAbsolutePath());
         return testFile.getAbsolutePath();
     }

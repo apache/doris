@@ -416,7 +416,9 @@ public class OdbcTable extends Table {
             sb.append(extraParam);
         }
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
     }
 

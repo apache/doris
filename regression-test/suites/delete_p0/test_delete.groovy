@@ -255,7 +255,7 @@ suite("test_delete") {
     sql """
     CREATE TABLE `dwd_pay` (
     `tenant_id` int(11) DEFAULT NULL COMMENT '租户ID',
-    `pay_time` datetime DEFAULT NULL COMMENT '付款时间',
+    `pay_time` datetime DEFAULT NULL COMMENT '付款时间'
     )  ENGINE=OLAP
     DUPLICATE KEY(`tenant_id`)
     COMMENT "付款明细"
@@ -308,7 +308,7 @@ suite("test_delete") {
             col_10 datetime,
             col_11 boolean,
             col_12 decimalv2(10,3),
-            col_8 string,
+            col_8 string
         ) ENGINE=OLAP
         duplicate KEY(`col_1`, col_2, col_3, col_4, col_5, col_6, col_7,  col_9, col_10, col_11, col_12)
         COMMENT 'OLAP'
@@ -407,4 +407,80 @@ suite("test_delete") {
     qt_check_data7 """ select * from  every_type_table order by col_1; """
     sql "drop table every_type_table"
 
+
+    sql "drop table if exists test2"
+    sql """
+    CREATE TABLE `test2`  
+    (
+            col_1 int,
+            col_2 decimalv2(10,3)
+    )ENGINE=OLAP
+    duplicate KEY(`col_1`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`col_1`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql "set enable_fold_constant_by_be = true;"
+    sql "DELETE FROM test2  WHERE col_2 = cast(123.45 as decimalv2(10,3));"
+
+    sql "drop table if exists test3"
+    sql """
+            CREATE TABLE `test3` (
+            `statistic_date` datev2 NULL,
+            `project_name` varchar(20) NULL ,
+            `brand` varchar(30) NULL ,
+            `vehicle_status` varchar(30) NULL ,
+            `abnormal_note` varchar(30) NULL ,
+            `inv_qty` bigint(20) NULL ,
+            `age_120_qty` bigint(20) NULL ,
+            `create_date` datetime NULL ,
+            `zparvin` varchar(50) NULL,
+            `tonnage` varchar(50) NULL 
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`statistic_date`, `project_name`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            ); 
+    """
+    sql "set experimental_enable_nereids_planner = false;"
+    sql "delete from test3 where statistic_date >= date_sub('2024-01-16',INTERVAL 1 day);"
+
+    sql "drop table if exists bi_acti_per_period_plan"
+    sql """
+            CREATE TABLE `bi_acti_per_period_plan` (
+            `proj_id` bigint(20) NULL,
+            `proj_name` varchar(400) NULL,
+            `proj_start_date` datetime NULL,
+            `proj_end_date` datetime NULL,
+            `last_data_date` datetime NULL,
+            `data_date` datetime NULL,
+            `data_batch_num` datetime NULL,
+            `la_sum_base_proj_id` varchar(200) NULL,
+            `sum_base_proj_id` varchar(200) NULL,
+            `today_date` datetime NULL,
+            `count` bigint(20) NULL,
+            `count_type` varchar(50) NULL,
+            `bl_count` bigint(20) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`proj_id`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`proj_id`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false"
+            ); 
+    """
+    sql """
+            INSERT INTO bi_acti_per_period_plan (proj_id,proj_name,proj_start_date,proj_end_date,last_data_date,data_date,data_batch_num,la_sum_base_proj_id,sum_base_proj_id,today_date,count,count_type,bl_count) VALUES
+            (4508,'建筑工程项目A','2023-05-30 00:00:00','2024-03-07 00:00:00','2023-06-01 00:00:00','2023-08-15 00:00:00','2024-01-31 00:00:00','4509','4509','2023-08-27 00:00:00',5,'plan',4);
+    """
+    sql "set experimental_enable_nereids_planner = false;"
+    sql "set @data_batch_num='2024-01-31 00:00:00';"
+    sql "delete  from bi_acti_per_period_plan where data_batch_num =@data_batch_num; "
 }

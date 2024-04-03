@@ -34,7 +34,6 @@ public class FeConstants {
     public static int shortkey_max_column_count = 3;
     public static int shortkey_maxsize_bytes = 36;
 
-    public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
 
     // dpp version
@@ -84,4 +83,8 @@ public class FeConstants {
     public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
 
     public static String METADATA_FAILURE_RECOVERY_KEY = "metadata_failure_recovery";
+
+    public static String CLOUD_RETRY_E230 = "E-230";
+
+    public static String BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
 }

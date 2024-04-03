@@ -57,7 +57,9 @@ public class BDBJournalCursorTest {
         }
         UUID uuid = UUID.randomUUID();
         File dir = Files.createDirectories(Paths.get(dorisHome, "fe", "mocked", "BDBEnvironmentTest-" + uuid.toString())).toFile();
-        LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
+        }
         tmpDirs.add(dir.getAbsolutePath());
         return dir.getAbsolutePath();
     }
@@ -65,7 +67,9 @@ public class BDBJournalCursorTest {
     @AfterAll
     public static void cleanUp() throws Exception {
         for (String dir : tmpDirs) {
-            LOG.debug("deleteTmpDir path {}", dir);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("deleteTmpDir path {}", dir);
+            }
             FileUtils.deleteDirectory(new File(dir));
         }
     }
@@ -98,7 +102,9 @@ public class BDBJournalCursorTest {
         int port = findValidPort();
         String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
         String selfNodeHostPort = "127.0.0.1:" + port;
-        LOG.debug("selfNodeName:{}, selfNodeHostPort:{}", selfNodeName, selfNodeHostPort);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("selfNodeName:{}, selfNodeHostPort:{}", selfNodeName, selfNodeHostPort);
+        }
 
         BDBEnvironment bdbEnvironment = new BDBEnvironment(true, false);
         bdbEnvironment.setup(new File(createTmpDir()), selfNodeName, selfNodeHostPort, selfNodeHostPort);

@@ -17,64 +17,25 @@
 
 package org.apache.doris.hudi;
 
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import sun.management.VMManagement;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
-import java.lang.management.RuntimeMXBean;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.security.PrivilegedExceptionAction;
 import java.util.LinkedList;
 import java.util.List;
 
 public class Utils {
-    public static class Constants {
-        public static String HADOOP_USER_NAME = "hadoop.username";
-        public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
-        public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-        public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-    }
-
-    public static UserGroupInformation getUserGroupInformation(Configuration conf) {
-        String authentication = conf.get(Constants.HADOOP_SECURITY_AUTHENTICATION, null);
-        if ("kerberos".equals(authentication)) {
-            conf.set("hadoop.security.authorization", "true");
-            UserGroupInformation.setConfiguration(conf);
-            String principal = conf.get(Constants.HADOOP_KERBEROS_PRINCIPAL);
-            String keytab = conf.get(Constants.HADOOP_KERBEROS_KEYTAB);
-            try {
-                UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
-                UserGroupInformation.setLoginUser(ugi);
-                return ugi;
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        } else {
-            String hadoopUserName = conf.get(Constants.HADOOP_USER_NAME);
-            if (hadoopUserName != null) {
-                return UserGroupInformation.createRemoteUser(hadoopUserName);
-            }
-        }
-        return null;
-    }
-
     public static long getCurrentProcId() {
         try {
-            RuntimeMXBean mxbean = ManagementFactory.getRuntimeMXBean();
-            Field jvmField = mxbean.getClass().getDeclaredField("jvm");
-            jvmField.setAccessible(true);
-            VMManagement management = (VMManagement) jvmField.get(mxbean);
-            Method method = management.getClass().getDeclaredMethod("getProcessId");
-            method.setAccessible(true);
-            return (long) (Integer) method.invoke(management);
+            return ManagementFactory.getRuntimeMXBean().getPid();
         } catch (Exception e) {
             throw new RuntimeException("Couldn't find PID of current JVM process.", e);
         }
@@ -114,21 +75,7 @@ public class Utils {
     }
 
     public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
-        UserGroupInformation ugi = getUserGroupInformation(conf);
-        HoodieTableMetaClient metaClient;
-        if (ugi != null) {
-            try {
-                metaClient = ugi.doAs(
-                        (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
-                                .setConf(conf).setBasePath(basePath).build());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } catch (InterruptedException e) {
-                throw new RuntimeException("Cannot get hudi client.", e);
-            }
-        } else {
-            metaClient = HoodieTableMetaClient.builder().setConf(conf).setBasePath(basePath).build();
-        }
-        return metaClient;
+        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> HoodieTableMetaClient.builder()
+                .setConf(conf).setBasePath(basePath).build());
     }
 }

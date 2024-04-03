@@ -20,7 +20,7 @@ import org.apache.commons.lang3.StringUtils
 suite("three_level_nestedtypes_with_s3data") {
     sql """set enable_nereids_planner=false"""
     sql """ set enable_fallback_to_original_planner=true;"""
-    sql """ ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false');"""
+
     // this test case aim to test one-level nested type with s3 data
 
 

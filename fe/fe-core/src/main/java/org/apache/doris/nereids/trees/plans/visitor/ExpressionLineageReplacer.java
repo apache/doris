@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -25,9 +27,11 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.ExpressionReplaceContext;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +59,22 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         return super.visit(plan, context);
     }
 
+    @Override
+    public Expression visitGroupPlan(GroupPlan groupPlan, ExpressionReplaceContext context) {
+        Group group = groupPlan.getGroup();
+        if (group == null) {
+            return visit(groupPlan, context);
+        }
+        List<StructInfo> structInfos = group.getStructInfos();
+        if (structInfos.isEmpty()) {
+            return visit(groupPlan, context);
+        }
+        // TODO only support group has one struct info, will support more struct info later
+        StructInfo structInfo = structInfos.get(0);
+        context.getExprIdExpressionMap().putAll(structInfo.getNamedExprIdAndExprMapping());
+        return visit(groupPlan, context);
+    }
+
     /**
      * Replace the expression with lineage according the exprIdExpressionMap
      */
@@ -66,14 +86,33 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         public Expression visitNamedExpression(NamedExpression namedExpression,
                 Map<ExprId, Expression> exprIdExpressionMap) {
             if (exprIdExpressionMap.containsKey(namedExpression.getExprId())) {
-                return super.visit(exprIdExpressionMap.get(namedExpression.getExprId()), exprIdExpressionMap);
+                return visit(exprIdExpressionMap.get(namedExpression.getExprId()), exprIdExpressionMap);
             }
-            return super.visitNamedExpression(namedExpression, exprIdExpressionMap);
+            return visit(namedExpression, exprIdExpressionMap);
+        }
+
+        @Override
+        public Expression visit(Expression expr, Map<ExprId, Expression> exprIdExpressionMap) {
+            if (expr instanceof NamedExpression
+                    && expr.arity() == 0
+                    && exprIdExpressionMap.containsKey(((NamedExpression) expr).getExprId())) {
+                expr = exprIdExpressionMap.get(((NamedExpression) expr).getExprId());
+            }
+            List<Expression> newChildren = new ArrayList<>(expr.arity());
+            boolean hasNewChildren = false;
+            for (Expression child : expr.children()) {
+                Expression newChild = child.accept(this, exprIdExpressionMap);
+                if (newChild != child) {
+                    hasNewChildren = true;
+                }
+                newChildren.add(newChild);
+            }
+            return hasNewChildren ? expr.withChildren(newChildren) : expr;
         }
     }
 
     /**
-     * The Collector for target named expressions in the whole plan, and will be used to
+     * The Collector for named expressions in the whole plan, and will be used to
      * replace the target expression later
      * TODO Collect named expression by targetTypes, tableIdentifiers
      */
@@ -108,7 +147,9 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         private Map<ExprId, Expression> exprIdExpressionMap;
         private List<Expression> replacedExpressions;
 
-        /**ExpressionReplaceContext*/
+        /**
+         * ExpressionReplaceContext
+         */
         public ExpressionReplaceContext(List<Expression> targetExpressions,
                 Set<TableType> targetTypes,
                 Set<String> tableIdentifiers) {

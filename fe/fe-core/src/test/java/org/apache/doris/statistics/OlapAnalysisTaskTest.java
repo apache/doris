@@ -78,7 +78,7 @@ public class OlapAnalysisTaskTest {
 
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return 1000_0000_0000L;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() + 1;
             }
         };
 
@@ -101,7 +101,7 @@ public class OlapAnalysisTaskTest {
 
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return 1000;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
             }
         };
 
@@ -159,11 +159,10 @@ public class OlapAnalysisTaskTest {
                         + " IS NULL, `t1`.`count`, 0)), 0) * 5.0 as `null_count`, "
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`,"
                         + " SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
-                        + "SUM(LENGTH(`column_key`) * count) * 5.0 AS `data_size`, NOW() "
+                        + "SUM(t1.count) * 4 * 5.0 AS `data_size`, NOW() "
                         + "FROM (     SELECT t0.`${colName}` as `column_key`, COUNT(1) "
-                        + "as `count`     FROM     (SELECT `${colName}` FROM "
-                        + "`catalogName`.`${dbName}`.`${tblName}`     "
-                        + " limit 100) as `t0`     GROUP BY `t0`.`${colName}` ) as `t1` ", sql);
+                        + "as `count`     FROM     (SELECT `${colName}` FROM `catalogName`.`${dbName}`.`${tblName}`"
+                        + "       limit 100) as `t0`     GROUP BY `t0`.`${colName}` ) as `t1` ", sql);
                 return;
             }
         };
@@ -183,7 +182,7 @@ public class OlapAnalysisTaskTest {
         };
 
         OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
-        olapAnalysisTask.col = new Column("test", PrimitiveType.STRING);
+        olapAnalysisTask.col = new Column("test", PrimitiveType.INT);
         olapAnalysisTask.tbl = tableIf;
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
         analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
@@ -238,7 +237,7 @@ public class OlapAnalysisTaskTest {
                         + "AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "SUM(LENGTH(`${colName}`)) * 5.0 AS `data_size`, NOW() "
-                        + "FROM `catalogName`.`${dbName}`.`${tblName}`  limit 100", sql);
+                        + "FROM `catalogName`.`${dbName}`.`${tblName}`   limit 100", sql);
                 return;
             }
         };
@@ -322,7 +321,8 @@ public class OlapAnalysisTaskTest {
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "SUM(LENGTH(`column_key`) * count) * 5.0 AS `data_size`, NOW() "
-                        + "FROM (     SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count`     FROM     (SELECT `${colName}` FROM `catalogName`.`${dbName}`.`${tblName}`      limit 100) as `t0`     GROUP BY `t0`.`${colName}` ) as `t1` ", sql);
+                        + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`     FROM     "
+                        + "(SELECT SUBSTRING(CAST(`${colName}` AS STRING), 1, 1024) AS `colValue`          FROM `catalogName`.`${dbName}`.`${tblName}`       limit 100) as `t0`     GROUP BY `t0`.`colValue` ) as `t1` ", sql);
                 return;
             }
         };

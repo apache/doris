@@ -34,7 +34,7 @@ public:
 };
 
 class GroupCommitBlockSinkOperator final
-        : public DataSinkOperator<GroupCommitBlockSinkOperatorBuilder> {
+        : public DataSinkOperator<vectorized::GroupCommitBlockSink> {
 public:
     GroupCommitBlockSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}

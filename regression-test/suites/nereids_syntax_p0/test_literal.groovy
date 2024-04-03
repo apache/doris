@@ -24,4 +24,32 @@ suite("test_literal") {
     sql """
         select {}, [], [[[null]], [[1, 2, 3]]], {1:[null], 3:[3]};
     """
+
+    qt_date1 """
+        select cast('20160702235959.9999999' as date);
+    """
+
+    qt_date2 """
+        select cast('2016-07-02 23:59:59.9999999' as date);
+    """
+
+    qt_datetime1 """
+        select timestamp'2016-07-02 23:59:59.99';
+    """
+
+    qt_datetime2 """
+        select cast('20160702235959.9999999' as datetime);
+    """
+
+    qt_datetime3 """
+        select cast('2016-07-02 23:59:59.9999999' as datetime);
+    """
+
+    qt_datetime4 """
+        select timestamp'20200219010101.0000001';
+    """
+
+    qt_datetime5 """
+        select CONVERT('2021-01-30 00:00:00.0000001', DATETIME(6))
+    """
 }

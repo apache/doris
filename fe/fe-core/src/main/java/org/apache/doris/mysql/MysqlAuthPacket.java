@@ -104,8 +104,9 @@ public class MysqlAuthPacket extends MysqlPacket {
         // attribute map, no use now.
         if (buffer.remaining() > 0 && capability.isConnectAttrs()) {
             connectAttributes = Maps.newHashMap();
-            long numPair = MysqlProto.readVInt(buffer);
-            for (long i = 0; i < numPair; ++i) {
+            long attrsLength = MysqlProto.readVInt(buffer);
+            long initialPosition = buffer.position();
+            while (buffer.position() - initialPosition < attrsLength) {
                 String key = new String(MysqlProto.readLenEncodedString(buffer));
                 String value = new String(MysqlProto.readLenEncodedString(buffer));
                 connectAttributes.put(key, value);

@@ -24,6 +24,10 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * change non_nullable input col to nullable col
  */
@@ -39,4 +43,10 @@ public class Nullable extends ScalarFunction implements UnaryExpression, CustomS
         return FunctionSignature.ret(dataType).args(dataType);
     }
 
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1,
+                "the child expression of NonNullable should be only one");
+        return new Nullable(children.get(0));
+    }
 }

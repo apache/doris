@@ -29,10 +29,10 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/data_dir.h"
-#include "olap/reader.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
+#include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -82,7 +82,7 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
-    void _update_counters_before_close() override;
+    void _collect_profile_before_close() override;
 
 private:
     void _update_realtime_counters();
@@ -93,7 +93,6 @@ private:
                                       const std::vector<FunctionFilter>& function_filters);
 
     [[nodiscard]] Status _init_return_columns();
-    vectorized::PathInData _build_path(SlotDescriptor* slot, const std::string& root_name);
     [[nodiscard]] Status _init_variant_columns();
 
     std::vector<OlapScanRange*> _key_ranges;

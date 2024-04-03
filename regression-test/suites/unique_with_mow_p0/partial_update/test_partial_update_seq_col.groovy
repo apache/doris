@@ -136,9 +136,9 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
 
 
             def tableName2 = "nereids_partial_update_native_insert_seq_col2"
-            sql """ DROP TABLE IF EXISTS ${tableName2} """
+            sql """ DROP TABLE IF EXISTS nereids_partial_update_20231227 """
             sql """
-                    CREATE TABLE ${tableName2} (
+                    CREATE TABLE nereids_partial_update_20231227 (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `score` int(11) NOT NULL COMMENT "用户得分",
                         `update_time` DATETIMEV2 NULL DEFAULT CURRENT_TIMESTAMP)
@@ -152,7 +152,7 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
             // the input data don't contains sequence mapping column but the sequence mapping
             // column's default value is CURRENT_TIMESTAMP, will load successfully
             streamLoad {
-                table "${tableName2}"
+                table "nereids_partial_update_20231227"
 
                 set 'column_separator', ','
                 set 'format', 'csv'
@@ -164,8 +164,8 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
 
             sql "sync"
 
-            qt_sql """ select id,score from ${tableName2} order by id;"""
-            sql """ DROP TABLE IF EXISTS ${tableName2}; """
+            qt_sql """ select id,score from nereids_partial_update_20231227 order by id;"""
+            sql """ DROP TABLE IF EXISTS nereids_partial_update_20231227; """
         }
     }
 }

@@ -3,15 +3,15 @@
 PhysicalResultSink
 --PhysicalProject
 ----PhysicalTopN[MERGE_SORT]
-------PhysicalDistribute
+------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
-----------------PhysicalDistribute
+----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
@@ -19,10 +19,10 @@ PhysicalResultSink
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1
-----------------------------------PhysicalDistribute
+----------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[item]
---------------------------------PhysicalDistribute
+--------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------filter((d1.d_month_seq <= 1235) and (d1.d_month_seq >= 1224))
 --------------------------------------PhysicalOlapScan[date_dim]

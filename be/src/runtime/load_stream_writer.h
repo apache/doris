@@ -70,8 +70,6 @@ public:
     // wait for all memtables to be flushed.
     Status close();
 
-    int64_t tablet_id() const { return _req.tablet_id; }
-
 private:
     bool _is_init = false;
     bool _is_canceled = false;
@@ -83,6 +81,7 @@ private:
     std::unordered_map<uint32_t /*segid*/, SegmentStatisticsSharedPtr> _segment_stat_map;
     std::mutex _segment_stat_map_lock;
     std::vector<io::FileWriterPtr> _segment_file_writers;
+    QueryThreadContext _query_thread_context;
 };
 
 using LoadStreamWriterSharedPtr = std::shared_ptr<LoadStreamWriter>;

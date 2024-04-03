@@ -36,23 +36,19 @@ struct HashTableProbe {
         KeyGetter key_getter(_probe_raw_ptrs);
         hash_table_ctx.init_serialized_keys(_probe_raw_ptrs, _probe_rows);
 
-        if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
-            for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
-                auto find_result = hash_table_ctx.find(key_getter, probe_index);
-                if (find_result.is_found()) { //if found, marked visited
-                    auto it = find_result.get_mapped().begin();
-                    if (!(it->visited)) {
-                        it->visited = true;
-                        if constexpr (is_intersected) { //intersected
-                            (*_valid_element_in_hash_tbl)++;
-                        } else {
-                            (*_valid_element_in_hash_tbl)--; //except
-                        }
+        for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
+            auto find_result = hash_table_ctx.find(key_getter, probe_index);
+            if (find_result.is_found()) { //if found, marked visited
+                auto it = find_result.get_mapped().begin();
+                if (!(it->visited)) {
+                    it->visited = true;
+                    if constexpr (is_intersected) { //intersected
+                        (*_valid_element_in_hash_tbl)++;
+                    } else {
+                        (*_valid_element_in_hash_tbl)--; //except
                     }
                 }
             }
-        } else {
-            LOG(FATAL) << "Invalid RowRefListType!";
         }
         return Status::OK();
     }

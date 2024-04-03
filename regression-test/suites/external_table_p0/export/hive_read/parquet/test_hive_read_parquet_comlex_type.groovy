@@ -238,7 +238,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
     try {
         def doris_field_define = "`s_info` STRUCT<user_id:INT, date:DATE, datetime:DATETIME, city:VARCHAR(20), age:SMALLINT, sex:TINYINT, bool_col:BOOLEAN, int_col:INT, bigint_col:BIGINT, largeint_col:LARGEINT, float_col:FLOAT, double_col:DOUBLE, char_col:CHAR(10), decimal_col:DECIMAL> NULL"
         
-        def hive_field_define = "`s_info` STRUCT<user_id:INT, `date`:STRING, `datetime`:STRING, city:VARCHAR(20), age:SMALLINT, sex:TINYINT, bool_col:BOOLEAN, int_col:INT, bigint_col:BIGINT, largeint_col:STRING, float_col:FLOAT, double_col:DOUBLE, char_col:CHAR(10), decimal_col:DECIMAL>"
+        def hive_field_define = "`s_info` STRUCT<user_id:INT, `date`:DATE, `datetime`:TIMESTAMP, city:VARCHAR(20), age:SMALLINT, sex:TINYINT, bool_col:BOOLEAN, int_col:INT, bigint_col:BIGINT, largeint_col:STRING, float_col:FLOAT, double_col:DOUBLE, char_col:CHAR(10), decimal_col:DECIMAL>"
 
 
         // create table to export data

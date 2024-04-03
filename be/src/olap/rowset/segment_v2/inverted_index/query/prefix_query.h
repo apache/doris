@@ -24,12 +24,12 @@
 
 CL_NS_USE(index)
 
-namespace doris {
+namespace doris::segment_v2 {
 
 class PrefixQuery {
 public:
     PrefixQuery() = default;
-    ~PrefixQuery() = default;
+    virtual ~PrefixQuery() = default;
 
     static void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
                                  const std::string& prefix,
@@ -37,4 +37,4 @@ public:
                                  int32_t max_expansions = 50);
 };
 
-} // namespace doris
+} // namespace doris::segment_v2

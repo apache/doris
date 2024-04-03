@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "http/http_channel.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -28,7 +29,7 @@ ReportAction::ReportAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivil
         : HttpHandlerWithAuth(exec_env, hier, type), _report_name(report_name) {}
 
 void ReportAction::handle(HttpRequest* req) {
-    if (StorageEngine::instance()->notify_listener(_report_name)) {
+    if (ExecEnv::GetInstance()->storage_engine().notify_listener(_report_name)) {
         HttpChannel::send_reply(req, HttpStatus::OK, Status::OK().to_json());
     } else {
         HttpChannel::send_reply(

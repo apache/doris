@@ -19,8 +19,10 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -28,8 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.TypeUtils;
 
-import com.google.common.collect.ImmutableSet;
-
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -45,22 +46,14 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalProject(logicalFilter(logicalJoin()
-                .when(join -> join.getJoinType().isOuterJoin())))
+        return logicalFilter(logicalJoin()
+                .when(join -> join.getJoinType().isOuterJoin()))
                 .then(this::toAntiJoin)
         .toRule(RuleType.CONVERT_OUTER_JOIN_TO_ANTI);
     }
 
-    private Plan toAntiJoin(LogicalProject<LogicalFilter<LogicalJoin<Plan, Plan>>> project) {
-        LogicalFilter<LogicalJoin<Plan, Plan>> filter = project.child();
+    private Plan toAntiJoin(LogicalFilter<LogicalJoin<Plan, Plan>> filter) {
         LogicalJoin<Plan, Plan> join = filter.child();
-
-        boolean leftOutput = join.left().getOutputSet().containsAll(project.getInputSlots());
-        boolean rightOutput = join.right().getOutputSet().containsAll(project.getInputSlots());
-
-        if (!leftOutput && !rightOutput) {
-            return null;
-        }
 
         Set<Slot> alwaysNullSlots = filter.getConjuncts().stream()
                 .filter(p -> TypeUtils.isNull(p).isPresent())
@@ -73,34 +66,33 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                 .filter(s -> alwaysNullSlots.contains(s) && !s.nullable())
                 .collect(Collectors.toSet());
 
-        Plan res = project;
-        if (join.getJoinType().isLeftOuterJoin() && !rightAlwaysNullSlots.isEmpty() && leftOutput) {
-            // When there is right slot always null, we can turn left outer join to left anti join
-            Set<Expression> predicates = filter.getExpressions().stream()
-                    .filter(p -> !(TypeUtils.isNull(p).isPresent()
-                            && rightAlwaysNullSlots.containsAll(p.getInputSlots())))
-                    .collect(ImmutableSet.toImmutableSet());
-            boolean containRightSlot = predicates.stream()
-                    .anyMatch(s -> join.right().getOutputSet().containsAll(s.getInputSlots()));
-            if (!containRightSlot) {
-                res = join.withJoinType(JoinType.LEFT_ANTI_JOIN);
-                res = predicates.isEmpty() ? res : filter.withConjuncts(predicates).withChildren(res);
-                res = project.withChildren(res);
-            }
+        Plan newJoin = null;
+        if (join.getJoinType().isLeftOuterJoin() && !rightAlwaysNullSlots.isEmpty()) {
+            newJoin = join.withJoinTypeAndContext(JoinType.LEFT_ANTI_JOIN, join.getJoinReorderContext());
         }
-        if (join.getJoinType().isRightOuterJoin() && !leftAlwaysNullSlots.isEmpty() && rightOutput) {
-            Set<Expression> predicates = filter.getExpressions().stream()
-                    .filter(p -> !(TypeUtils.isNull(p).isPresent()
-                            && leftAlwaysNullSlots.containsAll(p.getInputSlots())))
-                    .collect(ImmutableSet.toImmutableSet());
-            boolean containLeftSlot = predicates.stream()
-                    .anyMatch(s -> join.left().getOutputSet().containsAll(s.getInputSlots()));
-            if (!containLeftSlot) {
-                res = join.withJoinType(JoinType.RIGHT_ANTI_JOIN);
-                res = predicates.isEmpty() ? res : filter.withConjuncts(predicates).withChildren(res);
-                res = project.withChildren(res);
-            }
+        if (join.getJoinType().isRightOuterJoin() && !leftAlwaysNullSlots.isEmpty()) {
+            newJoin = join.withJoinTypeAndContext(JoinType.RIGHT_ANTI_JOIN, join.getJoinReorderContext());
         }
-        return res;
+        if (newJoin == null) {
+            return null;
+        }
+
+        if (!newJoin.getOutputSet().containsAll(filter.getInputSlots())) {
+            // if there are slots that don't belong to join output, we use null alias to replace them
+            // such as:
+            //   project(A.id, null as B.id)
+            //       -  (A left anti join B)
+            Set<Slot> joinOutput = newJoin.getOutputSet();
+            List<NamedExpression> projects = filter.getOutput().stream()
+                    .map(s -> {
+                        if (joinOutput.contains(s)) {
+                            return s;
+                        } else {
+                            return new Alias(s.getExprId(), new NullLiteral(s.getDataType()), s.getName());
+                        }
+                    }).collect(Collectors.toList());
+            newJoin = new LogicalProject<>(projects, newJoin);
+        }
+        return filter.withChildren(newJoin);
     }
 }

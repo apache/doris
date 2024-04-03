@@ -141,7 +141,7 @@ public class ShowDataStmtTest {
     public void testNormal() throws AnalysisException, UserException {
         ShowDataStmt stmt = new ShowDataStmt(null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW DATA FROM `testDb`", stmt.toString());
+        Assert.assertEquals("SHOW DATA", stmt.toString());
         Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(false, stmt.hasTable());
 
@@ -161,7 +161,7 @@ public class ShowDataStmtTest {
 
         stmt = new ShowDataStmt(null, Arrays.asList(orderByElementOne, orderByElementTwo));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW DATA FROM `testDb` ORDER BY `ReplicaCount` DESC, `Size` DESC",
+        Assert.assertEquals("SHOW DATA ORDER BY `ReplicaCount` DESC, `Size` DESC",
                 stmt.toString());
     }
 }

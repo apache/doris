@@ -47,11 +47,21 @@ public class MergeLimits extends OneRewriteRuleFactory {
                 .then(upperLimit -> {
                     LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
                     return new LogicalLimit<>(
-                            Math.min(upperLimit.getLimit(),
-                                    Math.max(bottomLimit.getLimit() - upperLimit.getOffset(), 0)),
-                            bottomLimit.getOffset() + upperLimit.getOffset(),
-                            upperLimit.getPhase(), bottomLimit.child()
+                            mergeLimit(upperLimit.getLimit(), upperLimit.getOffset(), bottomLimit.getLimit()),
+                            mergeOffset(upperLimit.getOffset(), bottomLimit.getOffset()),
+                            upperLimit.child().getPhase(), bottomLimit.child()
                     );
                 }).toRule(RuleType.MERGE_LIMITS);
+    }
+
+    public static long mergeOffset(long upperOffset, long bottomOffset) {
+        return upperOffset + bottomOffset;
+    }
+
+    public static long mergeLimit(long upperLimit, long upperOffset, long bottomLimit) {
+        if (bottomLimit < 0) {
+            return upperLimit;
+        }
+        return Math.min(upperLimit, Math.max(bottomLimit - upperOffset, 0));
     }
 }

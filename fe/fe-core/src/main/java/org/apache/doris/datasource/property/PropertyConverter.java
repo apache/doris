@@ -39,9 +39,9 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.CosFileSystem;
+import org.apache.hadoop.fs.CosNConfigKeys;
 import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
-import org.apache.hadoop.fs.cosn.CosNConfigKeys;
-import org.apache.hadoop.fs.cosn.CosNFileSystem;
 import org.apache.hadoop.fs.obs.OBSConstants;
 import org.apache.hadoop.fs.obs.OBSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -186,7 +186,7 @@ public class PropertyConverter {
         } else if (fsScheme.equalsIgnoreCase("oss")) {
             return AliyunOSSFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("cosn")) {
-            return CosNFileSystem.class.getName();
+            return CosFileSystem.class.getName();
         } else {
             return S3AFileSystem.class.getName();
         }
@@ -263,9 +263,7 @@ public class PropertyConverter {
         s3Properties.put(Constants.MAX_ERROR_RETRIES, "2");
         s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.putIfAbsent("fs.s3.impl", S3AFileSystem.class.getName());
-        String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
-        String credentialsProviders = s3Properties
-                .getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);
+        String credentialsProviders = getAWSCredentialsProviders(properties);
         s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, credentialsProviders);
         if (credential.isWhole()) {
             s3Properties.put(Constants.ACCESS_KEY, credential.getAccessKey());
@@ -283,6 +281,18 @@ public class PropertyConverter {
                 s3Properties.put(entry.getKey(), entry.getValue());
             }
         }
+    }
+
+    public static String getAWSCredentialsProviders(Map<String, String> properties) {
+        String credentialsProviders;
+        String hadoopCredProviders = properties.get(Constants.AWS_CREDENTIALS_PROVIDER);
+        if (hadoopCredProviders != null) {
+            credentialsProviders = hadoopCredProviders;
+        } else {
+            String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
+            credentialsProviders = properties.getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);
+        }
+        return credentialsProviders;
     }
 
     private static Map<String, String> convertToGCSProperties(Map<String, String> props, CloudCredential credential) {
@@ -342,8 +352,8 @@ public class PropertyConverter {
         cosProperties.put("fs.cosn.impl.disable.cache", "true");
         cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
         if (credential.isWhole()) {
-            cosProperties.put(CosNConfigKeys.COSN_SECRET_ID_KEY, credential.getAccessKey());
-            cosProperties.put(CosNConfigKeys.COSN_SECRET_KEY_KEY, credential.getSecretKey());
+            cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_ID_KEY, credential.getAccessKey());
+            cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_KEY_KEY, credential.getSecretKey());
         }
         // session token is unsupported
         for (Map.Entry<String, String> entry : props.entrySet()) {
@@ -550,7 +560,11 @@ public class PropertyConverter {
         String region = S3Properties.getRegionOfEndpoint(endpoint);
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, region);
-            String s3Endpoint = "s3." + region + ".amazonaws.com";
+            String suffix = ".amazonaws.com";
+            if (endpoint.endsWith(".amazonaws.com.cn")) {
+                suffix = ".amazonaws.com.cn";
+            }
+            String s3Endpoint = "s3." + region + suffix;
             if (isGlueIceberg) {
                 s3Endpoint = "https://" + s3Endpoint;
             }
@@ -566,4 +580,3 @@ public class PropertyConverter {
         return props;
     }
 }
-

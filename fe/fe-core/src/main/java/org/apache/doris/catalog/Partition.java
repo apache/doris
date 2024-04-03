@@ -44,6 +44,7 @@ import java.util.Objects;
 public class Partition extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Partition.class);
 
+    // Every partition starts from version 1, version 1 has no data
     public static final long PARTITION_INIT_VERSION = 1L;
 
     public enum PartitionState {
@@ -95,14 +96,14 @@ public class Partition extends MetaObject implements Writable {
     @SerializedName(value = "visibleVersionHash")
     private long visibleVersionHash;
     @SerializedName(value = "nextVersion")
-    private long nextVersion;
+    protected long nextVersion;
     @Deprecated
     @SerializedName(value = "nextVersionHash")
     private long nextVersionHash;
     @SerializedName(value = "distributionInfo")
     private DistributionInfo distributionInfo;
 
-    private Partition() {
+    protected Partition() {
     }
 
     public Partition(long id, String name,
@@ -160,6 +161,10 @@ public class Partition extends MetaObject implements Writable {
         this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
 
+    public long getCachedVisibleVersion() {
+        return visibleVersion;
+    }
+
     public long getVisibleVersion() {
         return visibleVersion;
     }
@@ -181,7 +186,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
-    private void setVisibleVersion(long visibleVersion) {
+    protected void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = System.currentTimeMillis();
     }
@@ -331,7 +336,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public static Partition read(DataInput in) throws IOException {
-        Partition partition = new Partition();
+        Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;
     }

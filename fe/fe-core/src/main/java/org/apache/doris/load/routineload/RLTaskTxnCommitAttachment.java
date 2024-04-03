@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
@@ -65,6 +66,23 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         if (rlTaskTxnCommitAttachment.isSetErrorLogUrl()) {
             this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
         }
+    }
+
+    public RLTaskTxnCommitAttachment(RLTaskTxnCommitAttachmentPB rlTaskTxnCommitAttachment) {
+        super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
+        this.jobId = rlTaskTxnCommitAttachment.getJobId();
+        this.taskId = new TUniqueId(rlTaskTxnCommitAttachment.getTaskId().getHi(),
+                                    rlTaskTxnCommitAttachment.getTaskId().getLo());
+        this.filteredRows = rlTaskTxnCommitAttachment.getFilteredRows();
+        this.loadedRows = rlTaskTxnCommitAttachment.getLoadedRows();
+        this.unselectedRows = rlTaskTxnCommitAttachment.getUnselectedRows();
+        this.receivedBytes = rlTaskTxnCommitAttachment.getReceivedBytes();
+        this.taskExecutionTimeMs = rlTaskTxnCommitAttachment.getTaskExecutionTimeMs();
+
+        KafkaProgress progress = new KafkaProgress(rlTaskTxnCommitAttachment.getProgress().getPartitionToOffset());
+
+        this.progress = progress;
+        this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
     }
 
     public long getJobId() {

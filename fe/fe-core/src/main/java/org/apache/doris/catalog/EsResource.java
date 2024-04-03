@@ -19,7 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.es.EsUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -76,6 +76,10 @@ public class EsResource extends Resource {
     public static final String INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE = "false";
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+
+    public EsResource() {
+        super();
+    }
 
     public EsResource(String name) {
         super(name, Resource.ResourceType.ES);

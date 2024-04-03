@@ -15,38 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-String[] getFiles(String dirName, int num) {
-    File[] datas = new File(dirName).listFiles()
-    if (num != datas.length) {
-        throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
-    }
-    String[] array = new String[datas.length];
-    for (int i = 0; i < datas.length; i++) {
-        array[i] = datas[i].getPath();
-    }
-    Arrays.sort(array);
-    return array;
-}
 
 suite("test_group_commit_insert_into_lineitem_normal") {
     String[] file_array;
+    def getFiles = { String dirName, int num->
+        File[] datas = new File(dirName).listFiles()
+        if (num != datas.length) {
+            throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
+        }
+        file_array = new String[datas.length];
+        for (int i = 0; i < datas.length; i++) {
+            file_array[i] = datas[i].getPath();
+        }
+        Arrays.sort(file_array);
+    }
     def prepare = {
-        def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_normal/"
+        def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_normal"
         File dir = new File(dataDir)
         if (!dir.exists()) {
-            new File("${context.config.cacheDataPath}/insert_into_lineitem_normal/").mkdir()
-            for (int i = 1; i <= 10; i++) {
-                logger.info("download lineitem.tbl.${i}")
-                def download_file = """/usr/bin/curl ${getS3Url()}/regression/tpch/sf1/lineitem.tbl.${i}
---output ${context.config.cacheDataPath}/insert_into_lineitem_normal/lineitem.tbl.${i}""".execute().getText()
-            }
+            new File(dataDir).mkdir()
+            logger.info("download lineitem")
+            def download_file = """/usr/bin/curl ${getS3Url()}/regression/tpch/sf1/lineitem.tbl.1
+--output ${dataDir}/lineitem.tbl.1""".execute().getText()
+            def split_file = """split -l 60000 ${dataDir}/lineitem.tbl.1 ${dataDir}/""".execute().getText()
+            def rm_file = """rm ${dataDir}/lineitem.tbl.1""".execute().getText()
         }
-        file_array = getFiles(dataDir, 10)
+        getFiles(dataDir, 11)
         for (String s : file_array) {
             logger.info(s)
         }
     }
-    def insert_table = "test_insert_into_lineitem_sf1"
+    def insert_table = "test_insert_into_lineitem_normal"
     def batch = 100;
     def count = 0;
     def total = 0;
@@ -102,6 +101,27 @@ PROPERTIES (
         sql """ set enable_nereids_dml = false; """
     }
 
+    def do_insert_into = { exp_str, num ->
+        def i = 0;
+        while (true) {
+            try {
+                def result = insert_into_sql(exp_str, num);
+                logger.info("result:" + result);
+                break
+            } catch (Exception e) {
+                logger.info("got exception:" + e)
+                Thread.sleep(5000)
+                context.reconnectFe()
+                sql """ set group_commit = async_mode; """
+                sql """ set enable_nereids_dml = false; """
+            }
+            i++;
+            if (i >= 30) {
+                throw new Exception("""fail to much time""")
+            }
+        }
+    }
+
     def process = {
         for (String file : file_array) {
             logger.info("insert into file: " + file)
@@ -120,15 +140,7 @@ PROPERTIES (
                     if (count == batch) {
                         sb.append(";");
                         String exp = sb.toString();
-                        while (true) {
-                            try {
-                                def result = insert_into_sql(exp, count);
-                                logger.info("result:" + result);
-                                break
-                            } catch (Exception e) {
-                                logger.info("got exception:" + e)
-                            }
-                        }
+                        do_insert_into(exp, count);
                         count = 0;
                     }
                     s = reader.readLine();
@@ -154,15 +166,7 @@ PROPERTIES (
                     } else if (count > 0) {
                         sb.append(";");
                         String exp = sb.toString();
-                        while (true) {
-                            try {
-                                def result = insert_into_sql(exp, count);
-                                logger.info("result:" + result);
-                                break
-                            } catch (Exception e) {
-                                logger.info("got exception:" + e)
-                            }
-                        }
+                        do_insert_into(exp, count);
                         break;
                     } else {
                         break;

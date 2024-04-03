@@ -91,6 +91,8 @@ public:
         offsets_column->clear();
     }
 
+    ColumnPtr convert_to_full_column_if_const() const override;
+
     MutableColumnPtr clone_resized(size_t size) const override;
 
     Field operator[](size_t n) const override;
@@ -114,16 +116,12 @@ public:
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnMap>(num_columns, selector);
     }
 
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
-                                int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not implemented";
-        __builtin_unreachable();
-    }
+    int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
+
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
@@ -183,9 +181,6 @@ public:
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
-
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data = nullptr) const override;

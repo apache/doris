@@ -68,6 +68,10 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
         return hints;
     }
 
+    public boolean isIncludeLeading() {
+        return hints.containsKey("leading");
+    }
+
     @Override
     public LogicalSelectHint<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);

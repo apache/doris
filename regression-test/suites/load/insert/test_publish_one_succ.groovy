@@ -26,7 +26,7 @@ suite('test_publish_one_succ') {
 
         sql 'SET GLOBAL insert_visible_timeout_ms = 1000'
         sql "ADMIN SET FRONTEND CONFIG ('publish_wait_time_second' = '1000000')"
-        sql 'CREATE TABLE tbl (k1 int, k2 int)'
+        sql 'CREATE TABLE tbl (k1 int, k2 int) DISTRIBUTED BY HASH(`k1`) BUCKETS 10'
         for (def i = 1; i <= 5; i++) {
             sql "INSERT INTO tbl VALUES (${i}, ${10 * i})"
         }

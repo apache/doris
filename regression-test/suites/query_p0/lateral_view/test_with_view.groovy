@@ -57,4 +57,6 @@ suite("lateral_view_with_inline_view") {
     group by 1
     order by 1;
     """
+    sql """create view xx_lateral as select example1.col1 from (select col1,`col4`,col2 from t1 where col3<=115411) example1 lateral view explode([1,2,3]) tmp1 as `e1 aa`;"""
+    sql """drop view xx_lateral"""
 }

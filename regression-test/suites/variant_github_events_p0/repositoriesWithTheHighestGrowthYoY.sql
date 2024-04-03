@@ -7,12 +7,12 @@ SELECT
 FROM
 (
     SELECT
-        cast(v:repo.name as string) as repo_name,
-        CASE year(cast(v:created_at as datetime)) WHEN 2022 THEN 1 ELSE 0 END AS created_at_2022,
-        CASE year(cast(v:created_at as datetime)) WHEN 2015 THEN 1 ELSE 0 END AS created_at_2015,
-        cast(v:created_at as datetime) as created_at
+        cast(v["repo"]["name"] as string) as repo_name,
+        CASE year(cast(v["created_at"] as datetime)) WHEN 2022 THEN 1 ELSE 0 END AS created_at_2022,
+        CASE year(cast(v["created_at"] as datetime)) WHEN 2015 THEN 1 ELSE 0 END AS created_at_2015,
+        cast(v["created_at"] as datetime) as created_at
     FROM github_events
-    WHERE cast(v:type as string) = 'WatchEvent'
+    WHERE cast(v["type"] as string) = 'WatchEvent'
 ) t
 GROUP BY  repo_name 
 HAVING (min(created_at) <= '2023-01-01 00:00:00') AND (stars2022 >= 1) and (stars2015 >= 1)

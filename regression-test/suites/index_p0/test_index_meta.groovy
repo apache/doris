@@ -47,7 +47,7 @@ suite("index_meta", "p0") {
                 `id` INT NULL,
                 `name` STRING NULL,
                 `description` STRING NULL,
-                INDEX idx_id (`id`) USING BITMAP COMMENT 'index for id',
+                INDEX idx_id (`id`) USING INVERTED COMMENT 'index for id',
                 INDEX idx_name (`name`) USING INVERTED PROPERTIES("parser"="none") COMMENT 'index for name'
             )
             DUPLICATE KEY(`id`)
@@ -64,14 +64,14 @@ suite("index_meta", "p0") {
     assertEquals(show_result.size(), 2)
     assertEquals(show_result[0][2], "idx_id")
     assertEquals(show_result[0][4], "id")
-    assertEquals(show_result[0][10], "BITMAP")
+    assertEquals(show_result[0][10], "INVERTED")
     assertEquals(show_result[0][11], "'index for id'")
     assertEquals(show_result[0][12], "")
     assertEquals(show_result[1][2], "idx_name")
     assertEquals(show_result[1][4], "name")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "'index for name'")
-    assertEquals(show_result[1][12], "(\"parser\" = \"none\")")
+    assertEquals(show_result[1][12], "(\"parser\" = \"none\", \"lower_case\" = \"true\")")
 
     // add index on column description
     sql "create index idx_desc on ${tableName}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\") COMMENT 'index for description';"
@@ -83,19 +83,19 @@ suite("index_meta", "p0") {
     assertEquals(show_result.size(), 3)
     assertEquals(show_result[0][2], "idx_id")
     assertEquals(show_result[0][4], "id")
-    assertEquals(show_result[0][10], "BITMAP")
+    assertEquals(show_result[0][10], "INVERTED")
     assertEquals(show_result[0][11], "'index for id'")
     assertEquals(show_result[0][12], "")
     assertEquals(show_result[1][2], "idx_name")
     assertEquals(show_result[1][4], "name")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "'index for name'")
-    assertEquals(show_result[1][12], "(\"parser\" = \"none\")")
+    assertEquals(show_result[1][12], "(\"parser\" = \"none\", \"lower_case\" = \"true\")")
     assertEquals(show_result[2][2], "idx_desc")
     assertEquals(show_result[2][4], "description")
     assertEquals(show_result[2][10], "INVERTED")
     assertEquals(show_result[2][11], "index for description")
-    assertEquals(show_result[2][12], "(\"parser\" = \"standard\")")
+    assertEquals(show_result[2][12], "(\"parser\" = \"standard\", \"lower_case\" = \"true\")")
 
     // drop index
     // add index on column description
@@ -107,14 +107,14 @@ suite("index_meta", "p0") {
     assertEquals(show_result.size(), 2)
     assertEquals(show_result[0][2], "idx_id")
     assertEquals(show_result[0][4], "id")
-    assertEquals(show_result[0][10], "BITMAP")
+    assertEquals(show_result[0][10], "INVERTED")
     assertEquals(show_result[0][11], "'index for id'")
     assertEquals(show_result[0][12], "")
     assertEquals(show_result[1][2], "idx_desc")
     assertEquals(show_result[1][4], "description")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "index for description")
-    assertEquals(show_result[1][12], "(\"parser\" = \"standard\")")
+    assertEquals(show_result[1][12], "(\"parser\" = \"standard\", \"lower_case\" = \"true\")")
 
     // add index on column description
     sql "create index idx_name on ${tableName}(name) USING INVERTED COMMENT 'new index for name';"
@@ -126,14 +126,14 @@ suite("index_meta", "p0") {
     assertEquals(show_result.size(), 3)
     assertEquals(show_result[0][2], "idx_id")
     assertEquals(show_result[0][4], "id")
-    assertEquals(show_result[0][10], "BITMAP")
+    assertEquals(show_result[0][10], "INVERTED")
     assertEquals(show_result[0][11], "'index for id'")
     assertEquals(show_result[0][12], "")
     assertEquals(show_result[1][2], "idx_desc")
     assertEquals(show_result[1][4], "description")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "index for description")
-    assertEquals(show_result[1][12], "(\"parser\" = \"standard\")")
+    assertEquals(show_result[1][12], "(\"parser\" = \"standard\", \"lower_case\" = \"true\")")
     assertEquals(show_result[2][2], "idx_name")
     assertEquals(show_result[2][4], "name")
     assertEquals(show_result[2][10], "INVERTED")

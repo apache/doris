@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_memtable_flush_fault") {
+suite("test_memtable_flush_fault", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs()
     def testTable = "test_memtable_flush_fault"
     sql """ DROP TABLE IF EXISTS ${testTable}"""
@@ -56,7 +56,8 @@ suite("test_memtable_flush_fault") {
         sql insert_sql
         sql "sync"
     } catch (Exception e){
-        assertTrue(e.getMessage().contains("[IO_ERROR]dbug_be_memtable_submit_flush_error"))
+        logger.info(e.getMessage())
+        assertTrue(e.getMessage().contains("dbug_be_memtable_submit_flush_error"))
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
     }

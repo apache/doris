@@ -50,7 +50,6 @@ StreamLoadPipe::~StreamLoadPipe() {
 
 Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     *bytes_read = 0;
     size_t bytes_req = result.size;
     char* to = result.data;
@@ -64,7 +63,7 @@ Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* byt
         }
         // cancelled
         if (_cancelled) {
-            return Status::InternalError("cancelled: {}", _cancelled_reason);
+            return Status::InternalError<false>("cancelled: {}", _cancelled_reason);
         }
         // finished
         if (_buf_queue.empty()) {
@@ -168,7 +167,7 @@ Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_
     }
     // cancelled
     if (_cancelled) {
-        return Status::InternalError("cancelled: {}", _cancelled_reason);
+        return Status::InternalError<false>("cancelled: {}", _cancelled_reason);
     }
     // finished
     if (_buf_queue.empty()) {
@@ -210,7 +209,7 @@ Status StreamLoadPipe::_append(const ByteBufferPtr& buf, size_t proto_byte_size)
             }
         }
         if (_cancelled) {
-            return Status::InternalError("cancelled: {}", _cancelled_reason);
+            return Status::InternalError<false>("cancelled: {}", _cancelled_reason);
         }
         _buf_queue.push_back(buf);
         if (_use_proto) {

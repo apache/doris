@@ -105,11 +105,8 @@ public class ExchangeNode extends PlanNode {
         computeTupleIds();
     }
 
-    public boolean isMergingExchange() {
-        if (mergeInfo != null) {
-            return true;
-        }
-        return false;
+    public boolean isFunctionalExchange() {
+        return mergeInfo != null || limit != -1 || offset != 0;
     }
 
     @Override

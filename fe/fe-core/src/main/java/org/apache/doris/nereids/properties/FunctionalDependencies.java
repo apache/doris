@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -34,13 +35,16 @@ import java.util.stream.Collectors;
 public class FunctionalDependencies {
 
     public static final FunctionalDependencies EMPTY_FUNC_DEPS
-            = new FunctionalDependencies(new NestedSet().toImmutable(), new NestedSet().toImmutable());
+            = new FunctionalDependencies(new NestedSet().toImmutable(),
+                    new NestedSet().toImmutable(), new ImmutableSet.Builder<FdItem>().build());
     private final NestedSet uniqueSet;
     private final NestedSet uniformSet;
+    private final ImmutableSet<FdItem> fdItems;
 
-    private FunctionalDependencies(NestedSet uniqueSet, NestedSet uniformSet) {
+    private FunctionalDependencies(NestedSet uniqueSet, NestedSet uniformSet, ImmutableSet<FdItem> fdItems) {
         this.uniqueSet = uniqueSet;
         this.uniformSet = uniformSet;
+        this.fdItems = fdItems;
     }
 
     public boolean isEmpty() {
@@ -69,7 +73,10 @@ public class FunctionalDependencies {
     }
 
     public boolean isUniqueAndNotNull(Set<Slot> slotSet) {
-        return slotSet.stream().noneMatch(Slot::nullable) && isUnique(slotSet);
+        Set<Slot> notNullSlotSet = slotSet.stream()
+                .filter(s -> !s.nullable())
+                .collect(ImmutableSet.toImmutableSet());
+        return isUnique(notNullSlotSet);
     }
 
     public boolean isUniformAndNotNull(Slot slot) {
@@ -80,9 +87,13 @@ public class FunctionalDependencies {
         return slotSet.stream().noneMatch(Slot::nullable) && isUniform(slotSet);
     }
 
+    public ImmutableSet<FdItem> getFdItems() {
+        return fdItems;
+    }
+
     @Override
     public String toString() {
-        return String.format("FuncDeps[uniform:%s,  unique:%s]", uniformSet, uniqueSet);
+        return String.format("FuncDeps[uniform:%s, unique:%s, fdItems:%s]", uniformSet, uniqueSet, fdItems);
     }
 
     /**
@@ -91,15 +102,18 @@ public class FunctionalDependencies {
     public static class Builder {
         private final NestedSet uniqueSet;
         private final NestedSet uniformSet;
+        private ImmutableSet<FdItem> fdItems;
 
         public Builder() {
             uniqueSet = new NestedSet();
             uniformSet = new NestedSet();
+            fdItems = new ImmutableSet.Builder<FdItem>().build();
         }
 
         public Builder(FunctionalDependencies other) {
             this.uniformSet = new NestedSet(other.uniformSet);
             this.uniqueSet = new NestedSet(other.uniqueSet);
+            this.fdItems = ImmutableSet.copyOf(other.fdItems);
         }
 
         public void addUniformSlot(Slot slot) {
@@ -122,13 +136,18 @@ public class FunctionalDependencies {
             uniqueSet.add(slotSet);
         }
 
+        public void addFdItems(ImmutableSet<FdItem> items) {
+            fdItems = ImmutableSet.copyOf(items);
+        }
+
         public void addFunctionalDependencies(FunctionalDependencies fd) {
             uniformSet.add(fd.uniformSet);
             uniqueSet.add(fd.uniqueSet);
         }
 
         public FunctionalDependencies build() {
-            return new FunctionalDependencies(uniqueSet.toImmutable(), uniformSet.toImmutable());
+            return new FunctionalDependencies(uniqueSet.toImmutable(), uniformSet.toImmutable(),
+                    ImmutableSet.copyOf(fdItems));
         }
 
         public void pruneSlots(Set<Slot> outputSlots) {
@@ -178,12 +197,23 @@ public class FunctionalDependencies {
         }
 
         public void removeNotContain(Set<Slot> slotSet) {
-            slots = slots.stream()
-                    .filter(slotSet::contains)
-                    .collect(Collectors.toSet());
-            slotSets = slotSets.stream()
-                    .filter(slotSet::containsAll)
-                    .collect(Collectors.toSet());
+            if (!slotSet.isEmpty()) {
+                Set<Slot> newSlots = Sets.newLinkedHashSetWithExpectedSize(slots.size());
+                for (Slot slot : slots) {
+                    if (slotSet.contains(slot)) {
+                        newSlots.add(slot);
+                    }
+                }
+                this.slots = newSlots;
+
+                Set<ImmutableSet<Slot>> newSlotSets = Sets.newLinkedHashSetWithExpectedSize(slots.size());
+                for (ImmutableSet<Slot> set : slotSets) {
+                    if (slotSet.containsAll(set)) {
+                        newSlotSets.add(set);
+                    }
+                }
+                this.slotSets = newSlotSets;
+            }
         }
 
         public void add(Slot slot) {
@@ -220,7 +250,8 @@ public class FunctionalDependencies {
                     .map(s -> replaceMap.getOrDefault(s, s))
                     .collect(Collectors.toSet());
             slotSets = slotSets.stream()
-                    .map(set -> set.stream().map(replaceMap::get).collect(ImmutableSet.toImmutableSet()))
+                    .map(set -> set.stream().map(s -> replaceMap.getOrDefault(s, s))
+                            .collect(ImmutableSet.toImmutableSet()))
                     .collect(Collectors.toSet());
         }
 
@@ -229,4 +260,3 @@ public class FunctionalDependencies {
         }
     }
 }
-

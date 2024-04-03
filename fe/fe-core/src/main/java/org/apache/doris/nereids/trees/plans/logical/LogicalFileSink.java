@@ -59,7 +59,7 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_
         this.properties = ImmutableMap.copyOf(Objects.requireNonNull(properties));
     }
 
-    public Plan withOutputExprs(List<NamedExpression> outputExprs) {
+    public LogicalFileSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalFileSink<>(filePath, format, properties, outputExprs, child());
     }
 

@@ -120,6 +120,9 @@ public class Backend implements Writable {
     @SerializedName("tagMap")
     private Map<String, String> tagMap = Maps.newHashMap();
 
+    private boolean isSmoothUpgradeSrc = false; // This be process is old process when doing smooth upgrade
+    private boolean isSmoothUpgradeDst = false; // This be process is new process when doing smooth upgrade
+
     // cpu cores
     @SerializedName("cpuCores")
     private int cpuCores = 1;
@@ -174,8 +177,44 @@ public class Backend implements Writable {
         this.tagMap.put(locationTag.type, locationTag.value);
     }
 
+    public String getCloudClusterStatus() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_STATUS, "");
+    }
+
+    public void setCloudClusterStatus(final String clusterStatus) {
+        tagMap.put(Tag.CLOUD_CLUSTER_STATUS, clusterStatus);
+    }
+
+    public String getCloudClusterName() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_NAME, "");
+    }
+
+    public void setCloudClusterName(final String clusterName) {
+        tagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
+    }
+
+    public String getCloudClusterId() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_ID, "");
+    }
+
+    public String getCloudUniqueId() {
+        return tagMap.getOrDefault(Tag.CLOUD_UNIQUE_ID, "");
+    }
+
+    public String getCloudPublicEndpoint() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, "");
+    }
+
+    public String getCloudPrivateEndpoint() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, "");
+    }
+
     public long getId() {
         return id;
+    }
+
+    public String getAddress() {
+        return host + ":" + heartbeatPort;
     }
 
     public String getHost() {
@@ -236,6 +275,18 @@ public class Backend implements Writable {
 
     public void setLoadDisabled(boolean isLoadDisabled) {
         this.backendStatus.isLoadDisabled = isLoadDisabled;
+    }
+
+    public void setActive(boolean isActive) {
+        this.backendStatus.isActive = isActive;
+    }
+
+    public boolean isActive() {
+        return this.backendStatus.isActive;
+    }
+
+    public long getCurrentFragmentNum() {
+        return this.backendStatus.currentFragmentNum;
     }
 
     // for test only
@@ -335,6 +386,10 @@ public class Backend implements Writable {
         return lastMissingHeartbeatTime;
     }
 
+    public void setLastMissingHeartbeatTime(long lastMissingHeartbeatTime) {
+        this.lastMissingHeartbeatTime = lastMissingHeartbeatTime;
+    }
+
     // Backend process epoch, is uesd to tag a beckend process
     // Currently it is always equal to be start time, even during oplog replay.
     public long getProcessEpoch() {
@@ -367,6 +422,22 @@ public class Backend implements Writable {
 
     public BackendStatus getBackendStatus() {
         return backendStatus;
+    }
+
+    public void setSmoothUpgradeSrc(boolean is) {
+        this.isSmoothUpgradeSrc = is;
+    }
+
+    public boolean isSmoothUpgradeSrc() {
+        return this.isSmoothUpgradeSrc;
+    }
+
+    public void setSmoothUpgradeDst(boolean is) {
+        this.isSmoothUpgradeDst = is;
+    }
+
+    public boolean isSmoothUpgradeDst() {
+        return this.isSmoothUpgradeDst;
     }
 
     public int getHeartbeatFailureCounter() {
@@ -553,7 +624,9 @@ public class Backend implements Writable {
                     isChanged = true;
                 }
             }
-            LOG.debug("update disk info. backendId: {}, diskInfo: {}", id, diskInfo.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("update disk info. backendId: {}, diskInfo: {}", id, diskInfo.toString());
+            }
         }
 
         // remove not exist rootPath in backend
@@ -622,7 +695,7 @@ public class Backend implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, host, heartbeatPort, bePort, isAlive);
+        return Objects.hash(id, host, heartbeatPort, bePort, isAlive.get());
     }
 
     @Override
@@ -718,6 +791,10 @@ public class Backend implements Writable {
                 this.lastStartTime = hbResponse.getBeStartTime();
                 isChanged = true;
             }
+
+            this.backendStatus.currentFragmentNum = hbResponse.getFragmentNum();
+            this.backendStatus.lastFragmentUpdateTime = hbResponse.getLastFragmentUpdateTime();
+
             heartbeatErrMsg = "";
             this.heartbeatFailureCounter = 0;
         } else {
@@ -773,6 +850,12 @@ public class Backend implements Writable {
         public volatile boolean isQueryDisabled = false;
         @SerializedName("isLoadDisabled")
         public volatile boolean isLoadDisabled = false;
+        @SerializedName("isActive")
+        public volatile boolean isActive = true;
+
+        // cloud mode, cloud control just query master, so not need SerializedName
+        public volatile long currentFragmentNum = 0;
+        public volatile long lastFragmentUpdateTime = 0;
 
         @Override
         public String toString() {

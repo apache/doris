@@ -40,15 +40,38 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     return Status::OK();
 }
 
+Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(Base::close(state, exec_status));
+    if (exec_status.ok()) {
+        DCHECK(_release_count) << "Do not finish correctly! " << debug_string(0);
+    }
+    return Status::OK();
+}
+
+std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}, "
+                   "_running_sink_operators: {}, _release_count: {}",
+                   Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
+                   _exchanger->_num_senders, _exchanger->_num_sources,
+                   _exchanger->_running_sink_operators, _release_count);
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                        SourceState source_state) {
+                                        bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, source_state, local_state));
+    RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, eos, local_state));
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         local_state._shared_state->sub_running_sink_operators();
+        local_state._release_count = true;
     }
 
     return Status::OK();

@@ -2725,3 +2725,7 @@ values('1','A','2020-09-02 00:00:00')
      ,('3','A','2020-11-02 00:00:00')
      ,('4','A','2020-12-02 00:00:00')
 ;
+
+INSERT INTO catalog_pg_test.num_zero (id, num) VALUES ('001', 123.45);
+INSERT INTO catalog_pg_test.num_zero (id, num) VALUES ('002', 678.90);
+INSERT INTO catalog_pg_test.num_zero (id, num) VALUES ('003', 1011.12);

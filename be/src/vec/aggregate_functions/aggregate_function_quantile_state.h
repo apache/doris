@@ -111,7 +111,7 @@ public:
         return std::make_shared<DataTypeQuantileState>();
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (arg_is_nullable) {
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);

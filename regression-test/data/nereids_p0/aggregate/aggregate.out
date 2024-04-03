@@ -377,3 +377,5 @@ TESTING	AGAIN
 -- !select_quantile_percent --
 5000.0
 
+-- !having_with_limit --
+7	-32767.0

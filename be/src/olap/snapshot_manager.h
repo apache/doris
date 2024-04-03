@@ -17,28 +17,26 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "olap/rowset/pending_rowset_helper.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
-#include "olap/tablet_schema.h"
-#include "runtime/memory/mem_tracker.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 class RowsetMetaPB;
 class TSnapshotRequest;
 struct RowsetId;
+class StorageEngine;
+class MemTracker;
 
 class SnapshotManager {
 public:
-    ~SnapshotManager() {}
+    SnapshotManager(StorageEngine& engine);
+    ~SnapshotManager();
 
     /// Create a snapshot
     /// snapshot_path: out param, the dir of snapshot
@@ -53,8 +51,6 @@ public:
     // @param snapshot_path [in] 要被释放的snapshot的路径，只包含到ID
     Status release_snapshot(const std::string& snapshot_path);
 
-    static SnapshotManager* instance();
-
     Result<std::vector<PendingRowsetGuard>> convert_rowset_ids(const std::string& clone_dir,
                                                                int64_t tablet_id,
                                                                int64_t replica_id,
@@ -62,10 +58,6 @@ public:
                                                                int32_t schema_hash);
 
 private:
-    SnapshotManager() : _snapshot_base_id(0) {
-        _mem_tracker = std::make_shared<MemTracker>("SnapshotManager");
-    }
-
     Status _calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
                                   std::string* out_path);
 
@@ -89,13 +81,8 @@ private:
                              TabletSchemaSPtr tablet_schema, const RowsetId& next_id,
                              RowsetMetaPB* new_rs_meta_pb);
 
-private:
-    static SnapshotManager* _s_instance;
-    static std::mutex _mlock;
-
-    // snapshot
-    std::mutex _snapshot_mutex;
-    uint64_t _snapshot_base_id;
+    StorageEngine& _engine;
+    std::atomic<uint64_t> _snapshot_base_id {0};
 
     std::shared_ptr<MemTracker> _mem_tracker;
 }; // SnapshotManager

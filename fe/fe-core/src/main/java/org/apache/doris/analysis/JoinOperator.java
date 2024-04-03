@@ -37,7 +37,9 @@ public enum JoinOperator {
     // NOT IN subqueries. It can have a single equality join conjunct
     // that returns TRUE when the rhs is NULL.
     NULL_AWARE_LEFT_ANTI_JOIN("NULL AWARE LEFT ANTI JOIN",
-            TJoinOp.NULL_AWARE_LEFT_ANTI_JOIN);
+            TJoinOp.NULL_AWARE_LEFT_ANTI_JOIN),
+    NULL_AWARE_LEFT_SEMI_JOIN("NULL AWARE LEFT SEMI JOIN",
+            TJoinOp.NULL_AWARE_LEFT_SEMI_JOIN);
 
     private final String  description;
     private final TJoinOp thriftJoinOp;

@@ -20,6 +20,8 @@ suite("transposeSemiJoinAgg") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF";
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "set ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
@@ -68,47 +70,47 @@ suite("transposeSemiJoinAgg") {
 
     sql "set enable_runtime_filter_prune=false;"
     sql '''
-    alter table T1 modify column A set stats ('ndv'='5999989709', 'num_nulls'='0', 'row_count'='5999989709');
+    alter table T1 modify column a set stats ('ndv'='5999989709', 'num_nulls'='0', 'row_count'='5999989709');
     '''
     sql '''
-    alter table T1 modify column B set stats ('ndv'='5999989709', 'num_nulls'='0', 'row_count'='5999989709');
+    alter table T1 modify column b set stats ('ndv'='5999989709', 'num_nulls'='0', 'row_count'='5999989709');
     '''
     sql '''
-    alter table T2 modify column A set stats ('ndv'='100', 'num_nulls'='0', 'row_count'='100');
+    alter table T2 modify column a set stats ('ndv'='100', 'num_nulls'='0', 'row_count'='100');
     '''
     // RULE: TransposeSemiJoinAggProject
     // 1. group-by(without grouping sets) 
     // agg-leftSemi => leftSemi-agg
     qt_groupby_positive_case """
         explain shape plan
-        select T3.A
-        from (select A, B, sum(C) from T1 group by A, B) T3
-        left semi join T2 on T3.A=T2.A;
+        select T3.a
+        from (select a, b, sum(c) from T1 group by a, b) T3
+        left semi join T2 on T3.a=T2.a;
     """
 
     // agg-leftSemi: agg not pushed down
     qt_groupby_negative_case """
         explain shape plan
-        select T3.A
-        from (select A, B, sum(C) as D from T1 group by A, B) T3
-        left semi join T2 on T3.D=T2.A;
+        select T3.a
+        from (select a, b, sum(c) as d from T1 group by a, b) T3
+        left semi join T2 on T3.D=T2.a;
         """
 
     // 2 grouping sets
     // agg-leftSemi => leftSemi-agg
     qt_grouping_positive_case """
         explain shape plan
-        select T3.A
-        from (select A, B, sum(C) from T1 group by grouping sets ((A, B), (A))) T3
-        left semi join T2 on T3.A=T2.A;
+        select T3.a
+        from (select a, b, sum(c) from T1 group by grouping sets ((a, b), (a))) T3
+        left semi join T2 on T3.a=T2.a;
     """
 
     // agg-leftSemi: agg not pushed down
     qt_grouping_negative_case """
         explain shape plan
-        select T3.A
-        from (select A, B, sum(C) as D from T1 group by grouping sets ((A, B), (A), ())) T3
-        left semi join T2 on T3.D=T2.A;
+        select T3.a
+        from (select a, b, sum(c) as D from T1 group by grouping sets ((a, b), (a), ())) T3
+        left semi join T2 on T3.D=T2.a;
     """
 
     // RULE: TransposeSemiJoinAgg
@@ -116,32 +118,32 @@ suite("transposeSemiJoinAgg") {
     // agg-leftSemi => leftSemi-agg
     qt_groupby_positive_case2 """
         explain shape plan
-        select T3.A
-        from (select A from T1 group by A) T3
-        left semi join T2 on T3.A=T2.A;
+        select T3.a
+        from (select a from T1 group by a) T3
+        left semi join T2 on T3.a=T2.a;
     """
 
     // agg-leftSemi: agg not pushed down
     qt_groupby_negative_case2 """
         explain shape plan
         select T3.D
-        from (select sum(C) as D from T1 group by A) T3
-        left semi join T2 on T3.D=T2.A;
+        from (select sum(c) as D from T1 group by a) T3
+        left semi join T2 on T3.D=T2.a;
         """
 
     // 2 grouping sets
     // agg-leftSemi => leftSemi-agg
     qt_grouping_positive_case2 """
         explain shape plan
-        select T3.A
-        from (select A from T1 group by grouping sets ((A, B), (A))) T3
-        left semi join T2 on T3.A=T2.A;
+        select T3.a
+        from (select a from T1 group by grouping sets ((a, b), (a))) T3
+        left semi join T2 on T3.a=T2.a;
     """
     // agg-leftSemi: agg not pushed down
     qt_grouping_negative_case2 """
         explain shape plan
         select T3.D
-        from (select sum(C) as D from T1 group by grouping sets ((A, B), (A), ())) T3
-        left semi join T2 on T3.D=T2.A;
+        from (select sum(C) as D from T1 group by grouping sets ((a, b), (a), ())) T3
+        left semi join T2 on T3.D=T2.a;
         """
 }

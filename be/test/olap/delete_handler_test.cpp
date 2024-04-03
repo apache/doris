@@ -65,9 +65,10 @@ static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->delete_and_create_directory(config::storage_root_path)
-                        .ok());
+    auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
+    st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
@@ -83,11 +84,11 @@ static void set_up() {
     options.store_paths = paths;
     k_engine = std::make_unique<StorageEngine>(options);
     Status s = k_engine->open();
-    EXPECT_TRUE(s.ok()) << s.to_string();
-    ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
+    ASSERT_TRUE(s.ok()) << s;
 }
 
 static void tear_down() {
+    k_engine.reset();
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
@@ -95,13 +96,12 @@ static void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
-    k_engine.reset();
-    ExecEnv::GetInstance()->set_storage_engine(nullptr);
 }
 
 static void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10003;
     request->__set_version(1);
+    request->partition_id = 10004;
     request->tablet_schema.schema_hash = 270068375;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -285,9 +285,10 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -304,7 +305,7 @@ protected:
         res = k_engine->create_tablet(_create_dup_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(_create_dup_tablet.tablet_id);
-        EXPECT_TRUE(dup_tablet.get() != NULL);
+        EXPECT_TRUE(dup_tablet);
         _dup_tablet_path = tablet->tablet_path();
     }
 
@@ -312,7 +313,7 @@ protected:
         // Remove all dir.
         tablet.reset();
         dup_tablet.reset();
-        static_cast<void>(StorageEngine::instance()->tablet_manager()->drop_tablet(
+        static_cast<void>(k_engine->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
@@ -492,9 +493,10 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -867,9 +869,10 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -907,8 +910,7 @@ protected:
     void TearDown() {
         // Remove all dir.
         tablet.reset();
-        _delete_handler.finalize();
-        static_cast<void>(StorageEngine::instance()->tablet_manager()->drop_tablet(
+        static_cast<void>(k_engine->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
@@ -967,7 +969,6 @@ TEST_F(TestDeleteHandler, ValueWithQuote) {
 
     auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
-    _delete_handler.finalize();
 }
 
 TEST_F(TestDeleteHandler, ValueWithoutQuote) {
@@ -980,7 +981,6 @@ TEST_F(TestDeleteHandler, ValueWithoutQuote) {
 
     auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
-    _delete_handler.finalize();
 }
 
 TEST_F(TestDeleteHandler, InitSuccess) {
@@ -1054,7 +1054,6 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     // Get delete conditions which version <= 5
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
-    _delete_handler.finalize();
 }
 
 // 测试一个过滤条件包含的子条件之间是and关系,
@@ -1086,8 +1085,6 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-
-    _delete_handler.finalize();
 }
 
 // 测试多个过滤条件之间是or关系，
@@ -1147,8 +1144,6 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-
-    _delete_handler.finalize();
 }
 
 // 测试在过滤时，版本号小于数据版本的过滤条件将不起作用
@@ -1193,8 +1188,46 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-
-    _delete_handler.finalize();
 }
+
+// clang-format off
+TEST_F(TestDeleteHandler, TestParseDeleteCondition) {
+    auto test = [](const std::tuple<std::string, bool, TCondition>& in) {
+        auto& [cond_str, exp_succ, exp_cond] = in;
+        TCondition parsed_cond;
+        EXPECT_EQ(DeleteHandler::parse_condition(cond_str, &parsed_cond), exp_succ) << " unexpected result, cond_str: " << cond_str;
+        if (exp_succ) EXPECT_EQ(parsed_cond, exp_cond) << " unexpected result, cond_str: " << cond_str;
+    };
+
+    auto gen_cond = [](const std::string& col, const std::string& op, const std::string& val) {
+        TCondition cond;
+        cond.__set_column_name(col);
+        cond.__set_condition_op(op);
+        cond.__set_condition_values(std::vector<std::string>{val});
+        return cond;
+    };
+
+    // <cond_str, parsed, expect_value>>
+    std::vector<std::tuple<std::string, bool, TCondition>> test_input {
+        {R"(abc=b)"             , true,  gen_cond(R"(abc)"   , "=" , R"(b)"         )}, // normal case
+        {R"(abc!=b)"            , true,  gen_cond(R"(abc)"   , "!=", R"(b)"         )}, // normal case
+        {R"(abc<=b)"            , true,  gen_cond(R"(abc)"   , "<=", R"(b)"         )}, // normal case
+        {R"(abc>=b)"            , true,  gen_cond(R"(abc)"   , ">=", R"(b)"         )}, // normal case
+        {R"(abc>>b)"            , true,  gen_cond(R"(abc)"   , ">>", R"(b)"         )}, // normal case
+        {R"(abc<<b)"            , true,  gen_cond(R"(abc)"   , "<<", R"(b)"         )}, // normal case
+        {R"(abc!='b')"          , true,  gen_cond(R"(abc)"   , "!=", R"(b)"         )}, // value surrounded by '
+        {R"(abc=)"              , true, gen_cond(R"(abc)"    , "=" , R"()"          )}, // missing value, it means not to be parsed succefully, how every it's a ignorable bug
+        {R"(@a*<<10086)"        , true,  gen_cond(R"(@a*)"   , "<<", R"(10086)"     )}, // column ends with *
+        {R"(*a=b)"              , false, gen_cond(R"(*a)"    , "=" , R"(b)"         )}, // starts with *
+        {R"(a*a>>WTF(10086))"   , true,  gen_cond(R"(a*a)"   , ">>", R"(WTF(10086))")}, // function
+        {R"(a-b IS NULL)"       , true,  gen_cond(R"(a-b)"   , "IS", R"(NULL)"      )}, // - in col name and test IS NULL
+        {R"(@a*-b IS NOT NULL)" , true,  gen_cond(R"(@a*-b)" , "IS", R"(NOT NULL)"  )}, // test IS NOT NULL
+        {R"(a IS b IS NOT NULL)", true,  gen_cond(R"(a IS b)", "IS", R"(NOT NULL)"  )}, // test " IS " in column name
+        {R"(_a-zA-Z@0-9 /.a-zA-Z0-9_+-/?@#$%^&*" ,:=hell)", true, gen_cond(R"(_a-zA-Z@0-9 /.a-zA-Z0-9_+-/?@#$%^&*" ,:)", "=", R"(hell)")}, // hellbound column name
+        {R"(this is a col very loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooon colum name=long)", true,  gen_cond(R"(this is a col very loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooon colum name)", "=", R"(long)")}, // test " IS " in column name
+    };
+    for (auto& i : test_input) { test(i); }
+}
+// clang-format on
 
 } // namespace doris

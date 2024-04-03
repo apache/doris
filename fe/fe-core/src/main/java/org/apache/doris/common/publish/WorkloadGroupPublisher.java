@@ -20,6 +20,9 @@ package org.apache.doris.common.publish;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TTopicInfoType;
+import org.apache.doris.thrift.TopicInfo;
+
+import java.util.List;
 
 public class WorkloadGroupPublisher implements TopicPublisher {
 
@@ -31,7 +34,7 @@ public class WorkloadGroupPublisher implements TopicPublisher {
 
     @Override
     public void getTopicInfo(TPublishTopicRequest req) {
-        req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP,
-                env.getWorkloadGroupMgr().getPublishTopicInfo());
+        List<TopicInfo> list = env.getWorkloadGroupMgr().getPublishTopicInfo();
+        req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
     }
 }

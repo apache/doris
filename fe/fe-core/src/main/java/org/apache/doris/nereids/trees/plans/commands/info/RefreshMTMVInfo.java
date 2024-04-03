@@ -24,7 +24,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
@@ -56,10 +56,10 @@ public class RefreshMTMVInfo {
      */
     public void analyze(ConnectContext ctx) {
         mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.CREATE)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
                     mvName.getDb() + ": " + mvName.getTbl());
             throw new AnalysisException(message);
         }
@@ -67,7 +67,7 @@ public class RefreshMTMVInfo {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
             MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
             if (!CollectionUtils.isEmpty(partitions)) {
-                MTMVUtil.getPartitionsIdsByNames(mtmv, partitions);
+                MTMVPartitionUtil.getPartitionsIdsByNames(mtmv, partitions);
             }
         } catch (org.apache.doris.common.AnalysisException | MetaNotFoundException | DdlException e) {
             throw new AnalysisException(e.getMessage());
@@ -99,5 +99,14 @@ public class RefreshMTMVInfo {
      */
     public boolean isComplete() {
         return isComplete;
+    }
+
+    @Override
+    public String toString() {
+        return "RefreshMTMVInfo{"
+                + "mvName=" + mvName
+                + ", partitions=" + partitions
+                + ", isComplete=" + isComplete
+                + '}';
     }
 }

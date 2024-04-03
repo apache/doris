@@ -28,9 +28,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.plugin.AuditEvent.EventType;
-import org.apache.doris.plugin.StreamLoadAuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent.EventType;
+import org.apache.doris.plugin.audit.StreamLoadAuditEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -234,6 +234,9 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         int pullRecordSize = 0;
         Map<Long, Long> beIdToLastStreamLoad = Maps.newHashMap();
         for (Backend backend : backends.values()) {
+            if (!backend.isAlive()) {
+                continue;
+            }
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;

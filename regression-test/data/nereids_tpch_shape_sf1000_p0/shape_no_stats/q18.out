@@ -2,17 +2,17 @@
 -- !select --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[lineitem] apply RFs: RF2
---------------PhysicalDistribute
+--------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF1 c_custkey->[o_custkey]
---------------------PhysicalDistribute
+--------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->[o_orderkey]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[orders] apply RFs: RF0 RF1
@@ -21,7 +21,7 @@ PhysicalResultSink
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[lineitem]
---------------------PhysicalDistribute
+--------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer]
 

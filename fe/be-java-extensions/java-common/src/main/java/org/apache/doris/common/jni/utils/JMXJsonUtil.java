@@ -202,7 +202,9 @@ public class JMXJsonUtil {
         } catch (RuntimeErrorException e) {
             // RuntimeErrorException happens when an unexpected failure occurs in getAttribute
             // for example https://issues.apache.org/jira/browse/DAEMON-120
-            LOG.debug("getting attribute " + attName + " of " + oname + " threw an exception", e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getting attribute " + attName + " of " + oname + " threw an exception", e);
+            }
             return;
         } catch (AttributeNotFoundException e) {
             //Ignored the attribute was not found, which should never happen because the bean

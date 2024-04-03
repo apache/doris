@@ -33,6 +33,7 @@ import org.apache.doris.nereids.types.UnsupportedType;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -58,7 +59,12 @@ public class CheckDataTypes implements CustomRewriter {
     }
 
     private void checkLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> plan) {
-        plan.getHashJoinConjuncts().forEach(expr -> {
+        List<Expression> conjuncts = plan.getHashJoinConjuncts();
+        if (conjuncts.isEmpty()) {
+            // if hash conjuncts are empty, we may use mark conjuncts to build hash table
+            conjuncts = plan.getMarkJoinConjuncts();
+        }
+        conjuncts.forEach(expr -> {
             DataType leftType = expr.child(0).getDataType();
             DataType rightType = expr.child(1).getDataType();
             if (!leftType.acceptsType(rightType)) {

@@ -5,7 +5,7 @@ SELECT
 FROM
 (
     SELECT
-        cast(repo:name as string) as repo_name,
+        cast(repo["name"] as string) as repo_name,
         CASE WHEN type = 'MemberEvent' THEN 1 ELSE 0 END AS invitation,
         CASE WHEN type = 'WatchEvent' THEN 1 ELSE 0 END AS star
     FROM github_events

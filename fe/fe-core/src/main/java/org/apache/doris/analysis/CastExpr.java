@@ -204,7 +204,7 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (needToMysql) {
+        if (needExternalSql) {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
@@ -588,4 +588,3 @@ public class CastExpr extends Expr {
         return this.notFold;
     }
 }
-

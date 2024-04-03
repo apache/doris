@@ -46,7 +46,7 @@
           "type": "long"
         },
         "c_unsigned_long": {
-          "type": "unsigned_long"
+          "type": "long"
         },
         "c_float": {
           "type": "float"
@@ -85,6 +85,15 @@
             },
             "age": {
               "type": "integer"
+            }
+          }
+        },
+        "message": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
             }
           }
         }

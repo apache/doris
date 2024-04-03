@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -145,7 +146,7 @@ public class RebalancerTestUtil {
                 continue;
             }
 
-            if (db.isMysqlCompatibleDatabase()) {
+            if (db instanceof MysqlCompatibleDatabase) {
                 continue;
             }
 

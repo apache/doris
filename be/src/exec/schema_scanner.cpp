@@ -26,6 +26,8 @@
 #include <ostream>
 #include <utility>
 
+#include "exec/schema_scanner/schema_active_queries_scanner.h"
+#include "exec/schema_scanner/schema_backend_active_tasks.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -33,17 +35,22 @@
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
+#include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
+#include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
+#include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_workload_groups_scanner.h"
 #include "olap/hll.h"
 #include "runtime/define_primitive_type.h"
+#include "util/string_util.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -148,6 +155,18 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaMetadataNameIdsScanner::create_unique();
     case TSchemaTableType::SCH_PROFILING:
         return SchemaProfilingScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_ACTIVE_TASKS:
+        return SchemaBackendActiveTasksScanner::create_unique();
+    case TSchemaTableType::SCH_ACTIVE_QUERIES:
+        return SchemaActiveQueriesScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUPS:
+        return SchemaWorkloadGroupsScanner::create_unique();
+    case TSchemaTableType::SCH_PROCESSLIST:
+        return SchemaProcessListScanner::create_unique();
+    case TSchemaTableType::SCH_PROCEDURES:
+        return SchemaRoutinesScanner::create_unique();
+    case TSchemaTableType::SCH_USER:
+        return SchemaUserScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -275,13 +294,13 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
 
         case TYPE_DECIMALV2: {
             const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
-            reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+            reinterpret_cast<vectorized::ColumnDecimal128V2*>(col_ptr)->insert_data(
                     reinterpret_cast<const char*>(&num), 0);
             break;
         }
         case TYPE_DECIMAL128I: {
             const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
-            reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
+            reinterpret_cast<vectorized::ColumnDecimal128V3*>(col_ptr)->insert_data(
                     reinterpret_cast<const char*>(&num), 0);
             break;
         }
@@ -310,6 +329,14 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
     }
     return Status::OK();
+}
+
+std::string SchemaScanner::get_db_from_full_name(const std::string& full_name) {
+    std::vector<std::string> part = split(full_name, ".");
+    if (part.size() == 2) {
+        return part[1];
+    }
+    return full_name;
 }
 
 } // namespace doris

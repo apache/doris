@@ -2299,4 +2299,16 @@ suite('nereids_arith_p0_integer') {
 		select id, BITAND(klint, kbool), BITOR(klint, kbool), BITXOR(klint, kbool) from expr_test order by id"""
 	qt_sql_test_LargeInt_Boolean_notn_4 """
 		select id, BITAND(klint, kbool), BITOR(klint, kbool), BITXOR(klint, kbool) from expr_test_not_nullable order by id"""
+
+	qt_test_div_priority_1 """select 10 div 2 + 2"""
+	qt_test_div_priority_2 """select 10 div 2 - 2"""
+	qt_test_div_priority_3 """select 10 div 2 * 2"""
+	qt_test_div_priority_4 """select 10 div 2 / 2"""
+	qt_test_div_priority_5 """select 10 div 2 % 2"""
+	qt_test_div_priority_6 """select 2 + 10 div 2"""
+	qt_test_div_priority_7 """select 2 - 10 div 2"""
+	qt_test_div_priority_8 """select 2 * 10 div 2"""
+	qt_test_div_priority_9 """select 2 / 10 div 2"""
+	qt_test_div_priority_10 """select 2 % 10 div 2"""
+
 }

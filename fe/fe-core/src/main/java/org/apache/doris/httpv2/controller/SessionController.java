@@ -53,7 +53,7 @@ public class SessionController extends RestBaseController {
 
     private static final List<String> SESSION_TABLE_HEADER = Lists.newArrayList();
 
-    private static final List<String> ALL_SESSION_TABLE_HEADER = Lists.newArrayList("FE");
+    private static final List<String> ALL_SESSION_TABLE_HEADER = Lists.newArrayList();
 
     private static final Logger LOG = LogManager.getLogger(SessionController.class);
 
@@ -71,6 +71,7 @@ public class SessionController extends RestBaseController {
         SESSION_TABLE_HEADER.add("QueryId");
         SESSION_TABLE_HEADER.add("Info");
         ALL_SESSION_TABLE_HEADER.addAll(SESSION_TABLE_HEADER);
+        ALL_SESSION_TABLE_HEADER.add("FE");
     }
 
     @RequestMapping(path = "/session/all", method = RequestMethod.GET)

@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.function.Supplier;
@@ -31,5 +34,10 @@ public interface BlockFuncDepsPropagation extends LogicalPlan {
     @Override
     default FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         return FunctionalDependencies.EMPTY_FUNC_DEPS;
+    }
+
+    @Override
+    default ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        return ImmutableSet.of();
     }
 }

@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -37,7 +37,10 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
+import com.google.common.collect.ImmutableList;
+
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * Rewrite rule of simplify CAST expression.
@@ -46,17 +49,19 @@ import java.math.BigDecimal;
  * Merge cast like
  * - cast(cast(1 as bigint) as string) -> cast(1 as string).
  */
-public class SimplifyCastRule extends AbstractExpressionRewriteRule {
-
+public class SimplifyCastRule implements ExpressionPatternRuleFactory {
     public static SimplifyCastRule INSTANCE = new SimplifyCastRule();
 
     @Override
-    public Expression visitCast(Cast origin, ExpressionRewriteContext context) {
-        return simplify(origin, context);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(Cast.class).then(SimplifyCastRule::simplifyCast)
+        );
     }
 
-    private Expression simplify(Cast cast, ExpressionRewriteContext context) {
-        Expression child = rewrite(cast.child(), context);
+    /** simplifyCast */
+    public static Expression simplifyCast(Cast cast) {
+        Expression child = cast.child();
 
         // remove redundant cast
         // CAST(value as type), value is type
@@ -82,14 +87,15 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
                                 ((VarcharType) castType).getLen());
                     }
                 } else if (castType instanceof DecimalV2Type) {
+                    DecimalV2Type decimalV2Type = (DecimalV2Type) castType;
                     if (child instanceof TinyIntLiteral) {
-                        return new DecimalLiteral(new BigDecimal(((TinyIntLiteral) child).getValue()));
+                        return new DecimalLiteral(decimalV2Type, new BigDecimal(((TinyIntLiteral) child).getValue()));
                     } else if (child instanceof SmallIntLiteral) {
-                        return new DecimalLiteral(new BigDecimal(((SmallIntLiteral) child).getValue()));
+                        return new DecimalLiteral(decimalV2Type, new BigDecimal(((SmallIntLiteral) child).getValue()));
                     } else if (child instanceof IntegerLiteral) {
-                        return new DecimalLiteral(new BigDecimal(((IntegerLiteral) child).getValue()));
+                        return new DecimalLiteral(decimalV2Type, new BigDecimal(((IntegerLiteral) child).getValue()));
                     } else if (child instanceof BigIntLiteral) {
-                        return new DecimalLiteral(new BigDecimal(((BigIntLiteral) child).getValue()));
+                        return new DecimalLiteral(decimalV2Type, new BigDecimal(((BigIntLiteral) child).getValue()));
                     }
                 } else if (castType instanceof DecimalV3Type) {
                     DecimalV3Type decimalV3Type = (DecimalV3Type) castType;

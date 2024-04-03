@@ -32,42 +32,53 @@
 #include <system_error>
 #include <utility>
 
+#include "common/exception.h"
+#include "common/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
+#include "olap/data_dir.h"
 #include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
-std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, std::string id) {
-    return std::shared_ptr<LocalFileSystem>(new LocalFileSystem(std::move(path), std::move(id)));
-}
+std::filesystem::perms LocalFileSystem::PERMS_OWNER_RW =
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write;
 
-LocalFileSystem::LocalFileSystem(Path&& root_path, std::string&& id)
-        : FileSystem(std::move(root_path), std::move(id), FileSystemType::LOCAL) {}
+LocalFileSystem::LocalFileSystem() : FileSystem(FileSystem::TMP_FS_ID, FileSystemType::LOCAL) {}
 
 LocalFileSystem::~LocalFileSystem() = default;
 
 Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                          const FileWriterOptions* opts) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::create_file_impl",
+                                      Status::IOError("inject io error"));
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
+    DBUG_EXECUTE_IF("LocalFileSystem.create_file_impl.open_file_failed", {
+        // spare '.testfile' to make bad disk checker happy
+        if (file.filename().compare(kTestFilePath)) {
+            ::close(fd);
+            fd = -1;
+        }
+    });
     if (-1 == fd) {
-        return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
+        return localfs_error(errno, fmt::format("failed to create file {}", file.native()));
     }
     bool sync_data = opts != nullptr ? opts->sync_file_data : true;
-    *writer = std::make_unique<LocalFileWriter>(
-            file, fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()), sync_data);
+    *writer = std::make_unique<LocalFileWriter>(file, fd, sync_data);
     return Status::OK();
 }
 
 Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
                                        const FileReaderOptions* opts) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::open_file_impl",
+                                      Status::IOError("inject io error"));
     int64_t fsize = opts ? opts->file_size : -1;
     if (fsize < 0) {
         RETURN_IF_ERROR(file_size_impl(file, &fsize));
@@ -75,10 +86,9 @@ Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
     int fd = -1;
     RETRY_ON_EINTR(fd, open(file.c_str(), O_RDONLY));
     if (fd < 0) {
-        return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
+        return localfs_error(errno, fmt::format("failed to open {}", file.native()));
     }
-    *reader = std::make_shared<LocalFileReader>(
-            file, fsize, fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
+    *reader = std::make_shared<LocalFileReader>(file, fsize, fd);
     return Status::OK();
 }
 
@@ -87,13 +97,13 @@ Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_ex
         bool exists = true;
         RETURN_IF_ERROR(exists_impl(dir, &exists));
         if (exists) {
-            return Status::IOError("failed to create {}, already exists", dir.native());
+            return Status::AlreadyExist("failed to create {}, already exists", dir.native());
         }
     }
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     if (ec) {
-        return Status::IOError("failed to create {}: {}", dir.native(), errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to create {}", dir.native()));
     }
     return Status::OK();
 }
@@ -105,12 +115,12 @@ Status LocalFileSystem::delete_file_impl(const Path& file) {
         return Status::OK();
     }
     if (!std::filesystem::is_regular_file(file)) {
-        return Status::IOError("failed to delete {}, not a file", file.native());
+        return Status::InternalError("failed to delete {}, not a file", file.native());
     }
     std::error_code ec;
     std::filesystem::remove(file, ec);
     if (ec) {
-        return Status::IOError("failed to delete {}: {}", file.native(), errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to delete {}", file.native()));
     }
     return Status::OK();
 }
@@ -122,19 +132,18 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
         return Status::OK();
     }
     if (!std::filesystem::is_directory(dir)) {
-        return Status::IOError("failed to delete {}, not a directory", dir.native());
+        return Status::InternalError("failed to delete {}, not a directory", dir.native());
     }
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
     if (ec) {
-        return Status::IOError("failed to delete {}: {}", dir.native(), errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to delete {}", dir.native()));
     }
     return Status::OK();
 }
 
 Status LocalFileSystem::delete_directory_or_file(const Path& path) {
-    auto the_path = absolute_path(path);
-    FILESYSTEM_M(delete_directory_or_file_impl(the_path));
+    FILESYSTEM_M(delete_directory_or_file_impl(path));
 }
 
 Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
@@ -158,7 +167,7 @@ Status LocalFileSystem::exists_impl(const Path& path, bool* res) const {
     std::error_code ec;
     *res = std::filesystem::exists(path, ec);
     if (ec) {
-        return Status::IOError("failed to check exists {}: {}", path.native(), errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to check exists {}", path.native()));
     }
     return Status::OK();
 }
@@ -167,9 +176,23 @@ Status LocalFileSystem::file_size_impl(const Path& file, int64_t* file_size) con
     std::error_code ec;
     *file_size = std::filesystem::file_size(file, ec);
     if (ec) {
-        return Status::IOError("failed to get file size {}: {}", file.native(), errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to get file size {}", file.native()));
     }
     return Status::OK();
+}
+
+Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
+    *dir_size = 0;
+    if (std::filesystem::exists(dir_path) && std::filesystem::is_directory(dir_path)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(dir_path)) {
+            if (std::filesystem::is_regular_file(entry)) {
+                *dir_size += std::filesystem::file_size(entry);
+            }
+        }
+        return Status::OK();
+    }
+    // TODO(plat1ko): Use error code according to std::error_code
+    return Status::InternalError("faile to get dir size {}", dir_path.native());
 }
 
 Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
@@ -179,54 +202,57 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
         return Status::OK();
     }
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-        if (only_file && !entry.is_regular_file()) {
-            continue;
-        }
-        FileInfo file_info;
-        file_info.file_name = entry.path().filename();
-        file_info.is_file = entry.is_regular_file(ec);
-        if (ec) {
-            break;
-        }
-        if (file_info.is_file) {
-            file_info.file_size = entry.file_size(ec);
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (only_file && !entry.is_regular_file()) {
+                continue;
+            }
+            FileInfo file_info;
+            file_info.file_name = entry.path().filename();
+            file_info.is_file = entry.is_regular_file(ec);
             if (ec) {
                 break;
             }
+            if (file_info.is_file) {
+                file_info.file_size = entry.file_size(ec);
+                if (ec) {
+                    break;
+                }
+            }
+            files->push_back(std::move(file_info));
         }
-        files->push_back(std::move(file_info));
+    } catch (const std::filesystem::filesystem_error& e) {
+        // although `directory_iterator(dir, ec)` does not throw an exception,
+        // it may throw an exception during iterator++, so we need to catch the exception here
+        return localfs_error(e.code(), fmt::format("failed to list {}, error message: {}",
+                                                   dir.native(), e.what()));
     }
     if (ec) {
-        return Status::IOError<false>("failed to list {}: {}", dir.native(), errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to list {}", dir.native()));
     }
     return Status::OK();
 }
 
 Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::rename",
+                                      Status::IOError("inject io error"));
     std::error_code ec;
     std::filesystem::rename(orig_name, new_name, ec);
     if (ec) {
-        return Status::IOError("failed to rename {} to {}: {}", orig_name.native(),
-                               new_name.native(), errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to rename {} to {}", orig_name.native(),
+                                             new_name.native()));
     }
     return Status::OK();
 }
 
-Status LocalFileSystem::rename_dir_impl(const Path& orig_name, const Path& new_name) {
-    return rename_impl(orig_name, new_name);
-}
-
 Status LocalFileSystem::link_file(const Path& src, const Path& dest) {
-    auto src_file = absolute_path(src);
-    auto dest_file = absolute_path(dest);
-    FILESYSTEM_M(link_file_impl(src_file, dest_file));
+    FILESYSTEM_M(link_file_impl(src, dest));
 }
 
 Status LocalFileSystem::link_file_impl(const Path& src, const Path& dest) {
     if (::link(src.c_str(), dest.c_str()) != 0) {
-        return Status::IOError("failed to create hard link from {} to {}: {}", src.native(),
-                               dest.native(), errno_to_str());
+        return localfs_error(errno, fmt::format("failed to create hard link from {} to {}",
+                                                src.native(), dest.native()));
     }
     return Status::OK();
 }
@@ -235,52 +261,44 @@ Status LocalFileSystem::canonicalize(const Path& path, std::string* real_path) {
     std::error_code ec;
     Path res = std::filesystem::canonical(path, ec);
     if (ec) {
-        return Status::IOError("failed to canonicalize path {}: {}", path.native(),
-                               errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to canonicalize {}", path.native()));
     }
     *real_path = res.string();
     return Status::OK();
 }
 
 Status LocalFileSystem::is_directory(const Path& path, bool* res) {
-    auto tmp_path = absolute_path(path);
     std::error_code ec;
-    *res = std::filesystem::is_directory(tmp_path, ec);
+    *res = std::filesystem::is_directory(path, ec);
     if (ec) {
-        LOG(WARNING) << fmt::format("failed to check is dir {}: {}", tmp_path.native(),
-                                    errcode_to_str(ec));
-        return Status::IOError("failed to check is dir {}: {}", tmp_path.native(),
-                               errcode_to_str(ec));
+        return localfs_error(ec, fmt::format("failed to canonicalize {}", path.native()));
     }
     return Status::OK();
 }
 
 Status LocalFileSystem::md5sum(const Path& file, std::string* md5sum) {
-    auto path = absolute_path(file);
-    FILESYSTEM_M(md5sum_impl(path, md5sum));
+    FILESYSTEM_M(md5sum_impl(file, md5sum));
 }
 
 Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
     int fd = open(file.c_str(), O_RDONLY);
     if (fd < 0) {
-        return Status::IOError("failed to open file for md5sum {}: {}", file.native(),
-                               errno_to_str());
+        return localfs_error(errno,
+                             fmt::format("failed to open file for md5sum {}", file.native()));
     }
 
     struct stat statbuf;
     if (fstat(fd, &statbuf) < 0) {
         std::string err = errno_to_str();
         close(fd);
-        return Status::InternalError("failed to stat file {}: {}", file.native(), err);
+        return localfs_error(errno, fmt::format("failed to stat file {}", file.native()));
     }
     size_t file_len = statbuf.st_size;
-    CONSUME_THREAD_MEM_TRACKER(file_len);
     void* buf = mmap(nullptr, file_len, PROT_READ, MAP_SHARED, fd, 0);
 
     unsigned char result[MD5_DIGEST_LENGTH];
     MD5((unsigned char*)buf, file_len, result);
     munmap(buf, file_len);
-    RELEASE_THREAD_MEM_TRACKER(file_len);
 
     std::stringstream ss;
     for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {
@@ -294,7 +312,6 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
 
 Status LocalFileSystem::iterate_directory(const std::string& dir,
                                           const std::function<bool(const FileInfo& file)>& cb) {
-    auto path = absolute_path(dir);
     FILESYSTEM_M(iterate_directory_impl(dir, cb));
 }
 
@@ -311,66 +328,32 @@ Status LocalFileSystem::iterate_directory_impl(
     return Status::OK();
 }
 
-Status LocalFileSystem::mtime(const Path& file, time_t* m_time) {
-    auto path = absolute_path(file);
-    FILESYSTEM_M(mtime_impl(path, m_time));
-}
-
-Status LocalFileSystem::mtime_impl(const Path& file, time_t* m_time) {
-    int fd = open(file.c_str(), O_RDONLY);
-    if (fd < 0) {
-        return Status::IOError("failed to get mtime for file {}: {}", file.native(),
-                               errno_to_str());
-    }
-
-    Defer defer {[&]() { close(fd); }};
-    struct stat statbuf;
-    if (fstat(fd, &statbuf) < 0) {
-        return Status::IOError("failed to stat file {}: {}", file.native(), errno_to_str());
-    }
-    *m_time = statbuf.st_mtime;
-    return Status::OK();
-}
-
-Status LocalFileSystem::delete_and_create_directory(const Path& dir) {
-    auto path = absolute_path(dir);
-    FILESYSTEM_M(delete_and_create_directory_impl(path));
-}
-
-Status LocalFileSystem::delete_and_create_directory_impl(const Path& dir) {
-    RETURN_IF_ERROR(delete_directory_impl(dir));
-    return create_directory_impl(dir);
-}
-
 Status LocalFileSystem::get_space_info(const Path& dir, size_t* capacity, size_t* available) {
-    auto path = absolute_path(dir);
-    FILESYSTEM_M(get_space_info_impl(path, capacity, available));
+    FILESYSTEM_M(get_space_info_impl(dir, capacity, available));
 }
 
 Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, size_t* available) {
     std::error_code ec;
     std::filesystem::space_info info = std::filesystem::space(path, ec);
     if (ec) {
-        return Status::IOError("failed to get available space for path {}: {}", path.native(),
-                               errcode_to_str(ec));
+        return localfs_error(
+                ec, fmt::format("failed to get available space for path {}", path.native()));
     }
     *capacity = info.capacity;
     *available = info.available;
     return Status::OK();
 }
 
-Status LocalFileSystem::copy_dirs(const Path& src, const Path& dest) {
-    auto src_path = absolute_path(src);
-    auto dest_path = absolute_path(dest);
-    FILESYSTEM_M(copy_dirs_impl(src_path, dest_path));
+Status LocalFileSystem::copy_path(const Path& src, const Path& dest) {
+    FILESYSTEM_M(copy_path_impl(src, dest));
 }
 
-Status LocalFileSystem::copy_dirs_impl(const Path& src, const Path& dest) {
+Status LocalFileSystem::copy_path_impl(const Path& src, const Path& dest) {
     std::error_code ec;
     std::filesystem::copy(src, dest, std::filesystem::copy_options::recursive, ec);
     if (ec) {
-        return Status::IOError("failed to copy from {} to {}: {}", src.native(), dest.native(),
-                               errcode_to_str(ec));
+        return localfs_error(
+                ec, fmt::format("failed to copy from {} to {}", src.native(), dest.native()));
     }
     return Status::OK();
 }
@@ -406,23 +389,8 @@ bool LocalFileSystem::contain_path(const Path& parent_, const Path& sub_) {
     return true;
 }
 
-Status LocalFileSystem::read_file_to_string(const Path& file, std::string* content) {
-    FileReaderSPtr file_reader;
-    RETURN_IF_ERROR(open_file(file, &file_reader));
-    size_t file_size = file_reader->size();
-    content->resize(file_size);
-    size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader->read_at(0, {*content}, &bytes_read));
-    if (bytes_read != file_size) {
-        return Status::IOError("failed to read file {} to string. bytes read: {}, file size: {}",
-                               file.native(), bytes_read, file_size);
-    }
-    return file_reader->close();
-}
-
-static std::shared_ptr<LocalFileSystem> local_fs = io::LocalFileSystem::create("");
-
 const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {
+    static std::shared_ptr<LocalFileSystem> local_fs(new LocalFileSystem());
     return local_fs;
 }
 
@@ -464,7 +432,7 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
     int rc = glob(pattern.c_str(), GLOB_TILDE, NULL, &glob_result);
     if (rc != 0) {
         globfree(&glob_result);
-        return Status::IOError("failed to glob {}: {}", pattern, glob_err_to_str(rc));
+        return Status::InternalError("failed to glob {}: {}", pattern, glob_err_to_str(rc));
     }
 
     for (size_t i = 0; i < glob_result.gl_pathc; ++i) {
@@ -475,5 +443,17 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+Status LocalFileSystem::permission(const Path& file, std::filesystem::perms prms) {
+    FILESYSTEM_M(permission_impl(file, prms));
+}
+
+Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms prms) {
+    std::error_code ec;
+    std::filesystem::permissions(file, prms, ec);
+    if (ec) {
+        return localfs_error(ec, fmt::format("failed to change file permission {}", file.native()));
+    }
+    return Status::OK();
+}
+
+} // namespace doris::io

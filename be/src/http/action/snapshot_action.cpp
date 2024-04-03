@@ -30,15 +30,16 @@
 #include "http/http_request.h"
 #include "http/http_status.h"
 #include "olap/snapshot_manager.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-SnapshotAction::SnapshotAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+SnapshotAction::SnapshotAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
                                TPrivilegeType::type type)
-        : HttpHandlerWithAuth(exec_env, hier, type) {}
+        : HttpHandlerWithAuth(exec_env, hier, type), _engine(engine) {}
 
 void SnapshotAction::handle(HttpRequest* req) {
     if (!config::enable_snapshot_action) {
@@ -101,8 +102,7 @@ int64_t SnapshotAction::_make_snapshot(int64_t tablet_id, int32_t schema_hash,
 
     Status res = Status::OK();
     bool allow_incremental_clone; // not used
-    res = SnapshotManager::instance()->make_snapshot(request, snapshot_path,
-                                                     &allow_incremental_clone);
+    res = _engine.snapshot_mgr()->make_snapshot(request, snapshot_path, &allow_incremental_clone);
     if (!res.ok()) {
         LOG(WARNING) << "make snapshot failed. status: " << res << ", signature: " << tablet_id;
         return -1L;

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_unique_table_like") {
-    def dbName = "test_unique_db"
+    def dbName = "test_unique_like_db"
     sql "drop database if exists ${dbName}"
     sql "CREATE DATABASE ${dbName}"
     sql "use ${dbName}"

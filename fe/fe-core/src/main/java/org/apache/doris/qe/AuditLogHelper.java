@@ -24,11 +24,15 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.plugin.AuditEvent.EventType;
+import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
 
 public class AuditLogHelper {
@@ -39,8 +43,19 @@ public class AuditLogHelper {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
+        CatalogIf catalog = ctx.getCurrentCatalog();
 
-        ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
+        String cluster = Config.isCloudMode() ? ctx.getCloudCluster(false) : "";
+
+        AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
+        auditEventBuilder.reset();
+        auditEventBuilder
+                .setTimestamp(ctx.getStartTime())
+                .setClientIp(ctx.getClientIP())
+                .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
+                .setSqlHash(ctx.getSqlHash())
+                .setEventType(EventType.AFTER_QUERY)
+                .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString())
                 .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
@@ -54,62 +69,63 @@ public class AuditLogHelper {
                 .setReturnRows(ctx.getReturnRows())
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
+                .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
             MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+            MetricRepo.increaseClusterQueryAll(ctx.getCloudCluster(false));
             if (ctx.getState().getStateType() == MysqlStateType.ERR
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
                 MetricRepo.COUNTER_QUERY_ERR.increase(1L);
                 MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+                MetricRepo.increaseClusterQueryErr(ctx.getCloudCluster(false));
             } else if (ctx.getState().getStateType() == MysqlStateType.OK
                     || ctx.getState().getStateType() == MysqlStateType.EOF) {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                 MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
+                MetricRepo.updateClusterQueryLatency(ctx.getCloudCluster(false), elapseMs);
 
                 if (elapseMs > Config.qe_slow_log_ms) {
                     String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
-                    ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
+                    auditEventBuilder.setSqlDigest(sqlDigest);
                 }
             }
-            ctx.getAuditEventBuilder().setIsQuery(true);
-            if (ctx.getQueryDetail() != null) {
-                ctx.getQueryDetail().setEventTime(endTime);
-                ctx.getQueryDetail().setEndTime(endTime);
-                ctx.getQueryDetail().setLatency(elapseMs);
-                ctx.getQueryDetail().setState(QueryDetail.QueryMemState.FINISHED);
-                QueryDetailQueue.addOrUpdateQueryDetail(ctx.getQueryDetail());
-                ctx.setQueryDetail(null);
-            }
+            auditEventBuilder.setIsQuery(true);
         } else {
-            ctx.getAuditEventBuilder().setIsQuery(false);
+            auditEventBuilder.setIsQuery(false);
         }
-        ctx.getAuditEventBuilder().setIsNereids(ctx.getState().isNereids);
+        auditEventBuilder.setIsNereids(ctx.getState().isNereids);
 
-        ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
+        auditEventBuilder.setFeIp(FrontendOptions.getLocalHostAddress());
 
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
+            auditEventBuilder.setStmt(parsedStmt.toSql());
         } else {
             if (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager()
                     && ((InsertStmt) parsedStmt).isValuesOrConstantSelect()) {
                 // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
                 int length = Math.min(1024, origStmt.length());
-                ctx.getAuditEventBuilder().setStmt(origStmt.substring(0, length));
+                auditEventBuilder.setStmt(origStmt.substring(0, length));
             } else {
-                ctx.getAuditEventBuilder().setStmt(origStmt);
+                auditEventBuilder.setStmt(origStmt);
             }
         }
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor.isForwardToMaster()) {
-                ctx.getAuditEventBuilder().setState(ctx.executor.getProxyStatus());
+                auditEventBuilder.setState(ctx.executor.getProxyStatus());
+                int proxyStatusCode = ctx.executor.getProxyStatusCode();
+                if (proxyStatusCode != 0) {
+                    auditEventBuilder.setErrorCode(proxyStatusCode);
+                    auditEventBuilder.setErrorMessage(ctx.executor.getProxyErrMsg());
+                }
             }
         }
-        Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
+        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEventBuilder.build());
     }
 }

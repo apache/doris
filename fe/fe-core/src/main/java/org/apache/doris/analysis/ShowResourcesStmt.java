@@ -43,6 +43,7 @@ import java.util.Set;
 public class ShowResourcesStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowResourcesStmt.class);
 
+    private String pattern;
     private Expr whereClause;
     private LimitElement limitElement;
     private List<OrderByElement> orderByElements;
@@ -56,7 +57,9 @@ public class ShowResourcesStmt extends ShowStmt {
     public ShowResourcesStmt() {
     }
 
-    public ShowResourcesStmt(Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
+    public ShowResourcesStmt(String pattern, Expr labelExpr,
+            List<OrderByElement> orderByElements, LimitElement limitElement) {
+        this.pattern = pattern;
         this.whereClause = labelExpr;
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
@@ -64,6 +67,10 @@ public class ShowResourcesStmt extends ShowStmt {
         this.nameValue = null;
         this.typeValue = null;
         this.isAccurateMatch = false;
+    }
+
+    public String getPattern() {
+        return pattern;
     }
 
     public ArrayList<OrderByPair> getOrderByPairs() {
@@ -107,22 +114,26 @@ public class ShowResourcesStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        // analyze where clause
-        boolean isValid;
-        if (whereClause instanceof CompoundPredicate) {
-            CompoundPredicate cp = (CompoundPredicate) whereClause;
-            if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
-                throw new AnalysisException("Only allow compound predicate with operator AND");
+        // If pattern is null, analyze where clause,
+        // otherwise, ignore where clause.
+        if (this.pattern == null) {
+            // analyze where clause
+            boolean isValid;
+            if (whereClause instanceof CompoundPredicate) {
+                CompoundPredicate cp = (CompoundPredicate) whereClause;
+                if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
+                    throw new AnalysisException("Only allow compound predicate with operator AND");
+                }
+                isValid = isWhereClauseValid(cp.getChild(0)) && isWhereClauseValid(cp.getChild(1));
+            } else {
+                isValid = isWhereClauseValid(whereClause);
             }
-            isValid = isWhereClauseValid(cp.getChild(0)) && isWhereClauseValid(cp.getChild(1));
-        } else {
-            isValid = isWhereClauseValid(whereClause);
-        }
 
-        if (!isValid) {
-            throw new AnalysisException("Where clause should looks like: NAME = \"your_resource_name\","
-                    + " or NAME LIKE \"matcher\", " + " or RESOURCETYPE = \"resource_type\", "
-                    + " or compound predicate with operator AND");
+            if (!isValid) {
+                throw new AnalysisException("Where clause should looks like: NAME = \"your_resource_name\","
+                        + " or NAME LIKE \"matcher\", " + " or RESOURCETYPE = \"resource_type\", "
+                        + " or compound predicate with operator AND");
+            }
         }
 
         // order by
@@ -203,9 +214,12 @@ public class ShowResourcesStmt extends ShowStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW RESOURCES");
-
-        if (whereClause != null) {
-            sb.append(" WHERE ").append(whereClause.toSql());
+        if (pattern != null) {
+            sb.append(" LIKE '").append(pattern).append("'");
+        } else {
+            if (whereClause != null) {
+                sb.append(" WHERE ").append(whereClause.toSql());
+            }
         }
 
         // Order By clause
@@ -225,7 +239,6 @@ public class ShowResourcesStmt extends ShowStmt {
         if (getOffset() != -1L) {
             sb.append(" OFFSET ").append(getOffset());
         }
-
         return sb.toString();
     }
 

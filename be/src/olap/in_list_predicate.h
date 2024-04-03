@@ -36,13 +36,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
-template <>
-struct std::equal_to<doris::StringRef> {
-    bool operator()(const doris::StringRef& lhs, const doris::StringRef& rhs) const {
-        return lhs == rhs;
-    }
-};
-
 // for uint24_t
 template <>
 struct std::hash<doris::uint24_t> {
@@ -201,10 +194,10 @@ public:
             auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
                     *reinterpret_cast<const T*>(ptr));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            roaring::Roaring index;
+            std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                               num_rows, &index));
-            indices |= index;
+                                                               num_rows, index));
+            indices |= *index;
             iter->next();
         }
 
@@ -228,34 +221,6 @@ public:
         return Status::OK();
     }
 
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                      uint16_t size) const override {
-        int64_t new_size = 0;
-
-        if (column.is_nullable()) {
-            auto* nullable_col =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                     nullable_col->get_null_map_column())
-                                     .get_data();
-            auto& nested_col = nullable_col->get_nested_column();
-
-            if (_opposite) {
-                new_size = _base_evaluate<true, true>(&nested_col, &null_map, sel, size);
-            } else {
-                new_size = _base_evaluate<true, false>(&nested_col, &null_map, sel, size);
-            }
-        } else {
-            if (_opposite) {
-                new_size = _base_evaluate<false, true>(&column, nullptr, sel, size);
-            } else {
-                new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
-            }
-        }
-        _evaluated_rows += size;
-        _passed_rows += new_size;
-        return new_size;
-    }
     int get_filter_id() const override { return _values->get_filter_id(); }
     bool is_filter() const override { return true; }
 
@@ -372,7 +337,40 @@ public:
         return PT == PredicateType::IN_LIST && !ngram;
     }
 
+    double get_ignore_threshold() const override { return std::log2(_values->size() + 1) / 64; }
+
 private:
+    bool _can_ignore() const override { return _values->is_runtime_filter(); }
+
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override {
+        int64_t new_size = 0;
+
+        if (column.is_nullable()) {
+            const auto* nullable_col =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                           nullable_col->get_null_map_column())
+                                           .get_data();
+            const auto& nested_col = nullable_col->get_nested_column();
+
+            if (_opposite) {
+                new_size = _base_evaluate<true, true>(&nested_col, &null_map, sel, size);
+            } else {
+                new_size = _base_evaluate<true, false>(&nested_col, &null_map, sel, size);
+            }
+        } else {
+            if (_opposite) {
+                new_size = _base_evaluate<false, true>(&column, nullptr, sel, size);
+            } else {
+                new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
+            }
+        }
+        _evaluated_rows += size;
+        _passed_rows += new_size;
+        return new_size;
+    }
+
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::IN_LIST) {

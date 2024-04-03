@@ -44,3 +44,9 @@
 -- !max_by_null --
 \N	\N
 
+-- !ndv --
+1
+
+-- !approx_count_distinct --
+1
+

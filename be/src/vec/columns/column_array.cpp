@@ -95,11 +95,11 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
     }
 
-    if (!offsets_concrete->empty() && nested_column) {
+    if (!offsets_concrete->empty() && data) {
         auto last_offset = offsets_concrete->get_data().back();
 
         /// This will also prevent possible overflow in offset.
-        if (nested_column->size() != last_offset) {
+        if (data->size() != last_offset) {
             LOG(FATAL) << "offsets_column has data inconsistent with nested_column";
         }
     }
@@ -254,6 +254,26 @@ StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
     return res;
 }
 
+int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
+    // since column type is complex, we can't use this function
+    const auto& rhs = assert_cast<const ColumnArray&>(rhs_);
+
+    size_t lhs_size = size_at(n);
+    size_t rhs_size = rhs.size_at(m);
+    size_t min_size = std::min(lhs_size, rhs_size);
+    for (size_t i = 0; i < min_size; ++i) {
+        if (int res = get_data().compare_at(offset_at(n) + i, rhs.offset_at(m) + i, *rhs.data.get(),
+                                            nan_direction_hint);
+            res) {
+            // if res != 0 , here is something different ,just return
+            return res;
+        }
+    }
+
+    // then we check size of array
+    return lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
+}
+
 const char* ColumnArray::deserialize_and_insert_from_arena(const char* pos) {
     size_t array_size = unaligned_load<size_t>(pos);
     pos += sizeof(array_size);
@@ -269,11 +289,6 @@ void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {
     size_t offset = offset_at(n);
 
     for (size_t i = 0; i < array_size; ++i) get_data().update_hash_with_value(offset + i, hash);
-}
-
-void ColumnArray::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                           const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
 // for every array row calculate xxHash
@@ -375,10 +390,17 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
 }
 
 void ColumnArray::insert(const Field& x) {
-    const Array& array = doris::vectorized::get<const Array&>(x);
-    size_t size = array.size();
-    for (size_t i = 0; i < size; ++i) get_data().insert(array[i]);
-    get_offsets().push_back(get_offsets().back() + size);
+    if (x.is_null()) {
+        get_data().insert(Null());
+        get_offsets().push_back(get_offsets().back() + 1);
+    } else {
+        const auto& array = doris::vectorized::get<const Array&>(x);
+        size_t size = array.size();
+        for (size_t i = 0; i < size; ++i) {
+            get_data().insert(array[i]);
+        }
+        get_offsets().push_back(get_offsets().back() + size);
+    }
 }
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
@@ -454,11 +476,13 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
 
     const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
 
-    if (start + length > src_concrete.get_offsets().size())
-        LOG(FATAL) << "Parameter out of bound in ColumnArray::insert_range_from method. [start("
-                   << std::to_string(start) << ") + length(" << std::to_string(length)
-                   << ") > offsets.size(" << std::to_string(src_concrete.get_offsets().size())
-                   << ")]";
+    if (start + length > src_concrete.get_offsets().size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in ColumnArray::insert_range_from method. "
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
+                               std::to_string(src_concrete.get_offsets().size()));
+    }
 
     size_t nested_offset = src_concrete.offset_at(start);
     size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
@@ -827,37 +851,6 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     if (typeid_cast<const ColumnNullable*>(data.get()))
         return replicate_nullable(replicate_offsets);
     return replicate_generic(replicate_offsets);
-}
-
-void ColumnArray::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
-    if (target_size == 0) {
-        return;
-    }
-
-    auto& dst_col = assert_cast<ColumnArray&>(column);
-    auto& dst_data_col = dst_col.get_data();
-    auto& dst_offsets = dst_col.get_offsets();
-    dst_offsets.reserve(target_size);
-
-    PODArray<uint32> data_indices_to_replicate;
-
-    for (size_t i = 0; i < target_size; ++i) {
-        const auto index = indices[i];
-        const auto start = offset_at(index);
-        const auto length = size_at(index);
-        dst_offsets.push_back(dst_offsets.back() + length);
-        if (UNLIKELY(length == 0)) {
-            continue;
-        }
-
-        data_indices_to_replicate.reserve(data_indices_to_replicate.size() + length);
-        for (size_t j = start; j != start + length; ++j) {
-            data_indices_to_replicate.push_back(j);
-        }
-    }
-
-    get_data().replicate(data_indices_to_replicate.data(), data_indices_to_replicate.size(),
-                         dst_data_col);
 }
 
 template <typename T>

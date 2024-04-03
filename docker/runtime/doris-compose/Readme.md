@@ -26,10 +26,13 @@ Use doris compose to create doris docker compose clusters.
 1. The doris image should contains:
 
 ```
-/opt/apache-doris/{fe, be}
+/opt/apache-doris/{fe, be, cloud}
 ```
 
-if build doris use `sh build.sh`, then its output satisfy with this, then run command in doris root
+if don't create cloud cluster, the image no need to contains the cloud pkg.
+
+
+if build doris use `sh build.sh --fe --be --cloud`, then its output satisfy with all above, then run command in doris root
 
 ```
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
@@ -52,12 +55,28 @@ python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
 python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?> 
     --add-fe-num  <add-fe-num>  --add-be-num <add-be-num>
     --fe-id <fd-id> --be-id <be-id>
-
+    ...
+    [ --cloud ]
 ```
 
 if it's a new cluster, must specific the image.
 
 add fe/be nodes with the specific image, or update existing nodes with `--fe-id`, `--be-id`
+
+
+For create a cloud cluster, steps are as below:
+1. Write cloud s3 store config file, its default path is '/tmp/doris/cloud.ini'.
+   It's defined in environment variable DORIS_CLOUD_CFG_FILE, user can change this env var to change its path.
+   A Example file is locate in 'docker/runtime/doris-compose/resource/cloud.ini.example'.
+2. Use doris compose up command with option '--cloud' to create a new cloud cluster.
+
+The simplest way to create a cloud cluster:
+
+```
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud
+```
+
+It will create 1 fdb, 1 meta service server, 1 recycler, 3 fe and 3 be.
 
 ### Remove node from the cluster
 
@@ -96,5 +115,19 @@ There are more options about doris-compose. Just try
 python docker/runtime/doris-compose/doris-compose.py  <command> -h 
 ```
 
+### Generate regression custom conf file
 
+```
+python docker/runtime/doris-compose/doris-compose.py config <cluster-name>
+```
+
+Generate regression-conf-custom.groovy to connect to the specific docker cluster.
+
+### Setup cloud multi clusters test env
+
+steps:
+
+1. Create a new cluster:  `python doris-compose.py up my-cluster  my-image  --add-fe-num 1  --add-be-num 4 --cloud --no-reg-be`
+2. Generate regression-conf-custom.groovy: `python doris-compose.py config my-cluster`
+3. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
 

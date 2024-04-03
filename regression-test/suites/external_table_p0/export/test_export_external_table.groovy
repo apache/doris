@@ -55,12 +55,22 @@ suite("test_export_external_table", "p0,external,mysql,external_docker,external_
     }
 
     def check_path_exists = { dir_path ->
+        List<List<Object>> backends =  sql """ show backends """
+        assertTrue(backends.size() > 0)
         File path = new File(dir_path)
         if (!path.exists()) {
             assert path.mkdirs()
         } else {
             throw new IllegalStateException("""${dir_path} already exists! """)
         }
+        if (backends.size() > 1) {
+            for (List<Object> backend : backends) {
+                def be_host = backend[1]
+                def cmd="""mkdir -p ${dir_path}"""
+                sshExec("root", be_host, cmd.toString())
+            }
+        }
+
     }
     def check_file_amounts = { dir_path, amount ->
         File path = new File(dir_path)

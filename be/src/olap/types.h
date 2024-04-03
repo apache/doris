@@ -85,7 +85,7 @@ public:
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
-    // Use only in zone map to cut data.StringParser::string_to_unsigned_int<uint32_t>
+    // Use only in zone map to cut data.
     virtual void direct_copy_may_cut(void* dest, const void* src) const = 0;
 
     virtual Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
@@ -790,8 +790,6 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
     static inline CppType get_cpp_type_value(const void* address) {
         if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
             return get_int128_from_unalign(address);
-        } else if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_IPV6) {
-            return get_uint128_from_unalign(address);
         }
         return *reinterpret_cast<const CppType*>(address);
     }
@@ -1011,27 +1009,27 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
-        int128_t value;
+        uint128_t value;
         if (!IPv6Value::from_string(value, scan_key)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
         }
-        *reinterpret_cast<int128_t*>(buf) = value;
+        memcpy(buf, &value, sizeof(uint128_t));
         return Status::OK();
     }
 
     static std::string to_string(const void* src) {
-        int128_t value = *reinterpret_cast<const int128_t*>(src);
+        uint128_t value = *reinterpret_cast<const uint128_t*>(src);
         IPv6Value ipv6_value(value);
         return ipv6_value.to_string();
     }
 
     static void set_to_max(void* buf) {
-        *reinterpret_cast<int128_t*>(buf) = -1; // ::1
+        *reinterpret_cast<int128_t*>(buf) = -1; // ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
     }
 
     static void set_to_min(void* buf) {
-        *reinterpret_cast<int128_t*>(buf) = 0; // ::
+        *reinterpret_cast<uint128_t*>(buf) = 0; // ::
     }
 };
 

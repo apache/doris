@@ -815,5 +815,44 @@ suite("test_http_stream", "p0") {
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName17}"
     }
+
+    //  test enable_profile
+    def tableName18 = "test_http_stream_enable_profile"
+
+    try {
+        sql """
+       CREATE TABLE IF NOT EXISTS ${tableName18} (
+        `k1` int(11) NULL,
+        `k2` VARCHAR(20) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'enable_profile','true'
+            set 'sql', """
+                    insert into ${db}.${tableName18} select c1, c2 from http_stream("format"="csv", "column_separator"="|", "trim_double_quotes"="true")
+                    """
+            time 10000
+            file '../stream_load/trim_double_quotes.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+
+        qt_sql18 "select * from ${tableName18} order by k1"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName18}"
+    }
 }
 

@@ -53,7 +53,7 @@ Status BlockSpillManager::init() {
         } else {
             auto suffix = ToStringFromUnixMillis(UnixMillis());
             auto gc_dir = fmt::format("{}/{}/{}", path.path, BLOCK_SPILL_GC_DIR, suffix);
-            RETURN_IF_ERROR(io::global_local_filesystem()->rename_dir(dir, gc_dir));
+            RETURN_IF_ERROR(io::global_local_filesystem()->rename(dir, gc_dir));
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(dir));
         }
     }

@@ -79,15 +79,16 @@ jobs:
         id: filter
         with:
           filters: |
-            be_changes:
+            cpp_changes:
               - 'be/**'
+              - 'cloud/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
 
       - name: Generate compile_commands.json
         id: generate
         run: |
-          if [[ "${{ steps.filter.outputs.be_changes }}" == 'true' ]]; then
+          if [[ "${{ steps.filter.outputs.cpp_changes }}" == 'true' ]]; then
             export DEFAULT_DIR='/opt/doris'
 
             mkdir "${DEFAULT_DIR}"
@@ -104,14 +105,14 @@ jobs:
             popd
 
             export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
-            DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF OUTPUT_BE_BINARY=0 ./build.sh --be
+            DISABLE_BE_JAVA_EXTENSIONS=ON DO_NOT_CHECK_JAVA_ENV=ON DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF OUTPUT_BE_BINARY=0 ./build.sh --be --cloud
           fi
 
-          echo "should_check=${{ steps.filter.outputs.be_changes }}" >>${GITHUB_OUTPUT}
+          echo "should_check=${{ steps.filter.outputs.cpp_changes }}" >>${GITHUB_OUTPUT}
 
       - name: Upload
         uses: actions/upload-artifact@v3
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        if: ${{ steps.filter.outputs.cpp_changes == 'true' }}
         with:
           name: compile_commands
           path: ./be/build_Release/compile_commands.json

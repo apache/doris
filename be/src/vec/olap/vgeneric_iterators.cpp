@@ -75,14 +75,15 @@ Status VStatisticsIterator::next_batch(Block* block) {
                               : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
-            for (int i = 0; i < block->columns(); ++i) {
-                columns[i]->resize(size);
+            for (int i = 0; i < columns.size(); ++i) {
+                columns[i]->insert_many_defaults(size);
             }
         } else {
-            for (int i = 0; i < block->columns(); ++i) {
+            for (int i = 0; i < columns.size(); ++i) {
                 RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
             }
         }
+        block->set_columns(std::move(columns));
         _output_rows += size;
         return Status::OK();
     }
@@ -291,7 +292,7 @@ Status VMergeIteratorContext::_load_next_block() {
         }
         for (auto it = _block_list.begin(); it != _block_list.end(); it++) {
             if (it->use_count() == 1) {
-                static_cast<void>(block_reset(*it));
+                RETURN_IF_ERROR(block_reset(*it));
                 _block = *it;
                 _block_list.erase(it);
                 break;
@@ -299,7 +300,7 @@ Status VMergeIteratorContext::_load_next_block() {
         }
         if (_block == nullptr) {
             _block = std::make_shared<Block>();
-            static_cast<void>(block_reset(_block));
+            RETURN_IF_ERROR(block_reset(_block));
         }
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {
@@ -421,9 +422,9 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
                                        uint64_t* merged_rows) {
-    if (inputs.size() == 1) {
-        return std::move(inputs[0]);
-    }
+    // when the size of inputs is 1, we also need to use VMergeIterator, because the
+    // next_block_view function only be implemented in VMergeIterator. The reason why
+    // the size of inputs is 1 is that the segment was filtered out by zone map or others.
     return std::make_unique<VMergeIterator>(std::move(inputs), sequence_id_idx, is_unique,
                                             is_reverse, merged_rows);
 }

@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -174,15 +175,20 @@ TEST(function_string_test, function_string_repeat_test) {
     std::string func_name = "repeat";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
 
-    DataSet data_set = {
-            {{std::string("a"), 3}, std::string("aaa")},
-            {{std::string("hel lo"), 2}, std::string("hel lohel lo")},
-            {{std::string("hello word"), -1}, std::string("")},
-            {{std::string(""), 1}, std::string("")},
-            {{std::string("a"), 1073741825}, std::string("aaaaaaaaaa")}, // ut repeat max num 10
-            {{std::string("HELLO,!^%"), 2}, std::string("HELLO,!^%HELLO,!^%")},
-            {{std::string("你"), 2}, std::string("你你")}};
+    DataSet data_set = {{{std::string("a"), 3}, std::string("aaa")},
+                        {{std::string("hel lo"), 2}, std::string("hel lohel lo")},
+                        {{std::string("hello word"), -1}, std::string("")},
+                        {{std::string(""), 1}, std::string("")},
+                        {{std::string("HELLO,!^%"), 2}, std::string("HELLO,!^%HELLO,!^%")},
+                        {{std::string("你"), 2}, std::string("你你")}};
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    {
+        DataSet data_set = {{{std::string("a"), 1073741825},
+                             std::string("aaaaaaaaaa")}}; // ut repeat max num 10
+        Status st = check_function<DataTypeString, true>(func_name, input_types, data_set, true);
+        EXPECT_NE(Status::OK(), st);
+    }
 }
 
 TEST(function_string_test, function_string_reverse_test) {
@@ -482,7 +488,7 @@ TEST(function_string_test, function_to_base64_test) {
     DataSet data_set = {{{std::string("asd你好")}, {std::string("YXNk5L2g5aW9")}},
                         {{std::string("hello world")}, {std::string("aGVsbG8gd29ybGQ=")}},
                         {{std::string("HELLO,!^%")}, {std::string("SEVMTE8sIV4l")}},
-                        {{std::string("")}, {Null()}},
+                        {{std::string("")}, {std::string("")}},
                         {{std::string("MYtestSTR")}, {std::string("TVl0ZXN0U1RS")}},
                         {{std::string("ò&ø")}, {std::string("w7Imw7g=")}}};
 
@@ -496,7 +502,7 @@ TEST(function_string_test, function_from_base64_test) {
     DataSet data_set = {{{std::string("YXNk5L2g5aW9")}, {std::string("asd你好")}},
                         {{std::string("aGVsbG8gd29ybGQ=")}, {std::string("hello world")}},
                         {{std::string("SEVMTE8sIV4l")}, {std::string("HELLO,!^%")}},
-                        {{std::string("")}, {Null()}},
+                        {{std::string("")}, {std::string("")}},
                         {{std::string("TVl0ZXN0U1RS")}, {std::string("MYtestSTR")}},
                         {{std::string("w7Imw7g=")}, {std::string("ò&ø")}},
                         {{std::string("ò&ø")}, {Null()}},
@@ -1150,6 +1156,35 @@ TEST(function_string_test, function_bit_length_test) {
                         {{std::string("313233")}, 48},
                         {{std::string("EFBC9F")}, 48}};
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+}
+
+TEST(function_string_test, function_uuid_test) {
+    {
+        std::string func_name = "uuid_to_int";
+        InputTypeSet input_types = {TypeIndex::String};
+        uint64_t high = 9572195551486940809ULL;
+        uint64_t low = 1759290071393952876ULL;
+        __int128 result = (__int128)high * (__int128)10000000000000000000ULL + (__int128)low;
+        DataSet data_set = {{{Null()}, Null()},
+                            {{std::string("6ce4766f-6783-4b30-b357-bba1c7600348")}, result},
+                            {{std::string("6ce4766f67834b30b357bba1c7600348")}, result},
+                            {{std::string("ffffffff-ffff-ffff-ffff-ffffffffffff")}, (__int128)-1},
+                            {{std::string("00000000-0000-0000-0000-000000000000")}, (__int128)0},
+                            {{std::string("123")}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+    {
+        std::string func_name = "int_to_uuid";
+        InputTypeSet input_types = {TypeIndex::Int128};
+        uint64_t high = 9572195551486940809ULL;
+        uint64_t low = 1759290071393952876ULL;
+        __int128 value = (__int128)high * (__int128)10000000000000000000ULL + (__int128)low;
+        DataSet data_set = {{{Null()}, Null()},
+                            {{value}, std::string("6ce4766f-6783-4b30-b357-bba1c7600348")},
+                            {{(__int128)-1}, std::string("ffffffff-ffff-ffff-ffff-ffffffffffff")},
+                            {{(__int128)0}, std::string("00000000-0000-0000-0000-000000000000")}};
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
 }
 
 } // namespace doris::vectorized

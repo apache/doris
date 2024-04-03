@@ -526,7 +526,7 @@ public:
 
     DataTypePtr get_return_type() const override { return type; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         this->data(place).change_if_better(*columns[0], row_num, arena);
     }

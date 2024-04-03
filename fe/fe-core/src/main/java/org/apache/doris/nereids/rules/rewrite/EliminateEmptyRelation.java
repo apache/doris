@@ -52,14 +52,10 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
             // join->empty
             logicalJoin(any(), any())
                 .when(this::hasEmptyRelationChild)
-                .then(join -> {
-                    if (canReplaceJoinByEmptyRelation(join)) {
-                        return new LogicalEmptyRelation(
-                            ConnectContext.get().getStatementContext().getNextRelationId(),
-                            join.getOutput());
-                    }
-                    return join;
-                })
+                .when(this::canReplaceJoinByEmptyRelation)
+                .then(join -> new LogicalEmptyRelation(
+                    ConnectContext.get().getStatementContext().getNextRelationId(),
+                    join.getOutput()))
                 .toRule(RuleType.ELIMINATE_JOIN_ON_EMPTYRELATION),
             logicalFilter(logicalEmptyRelation())
                 .then(filter -> new LogicalEmptyRelation(
@@ -186,17 +182,17 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
         );
     }
 
-    private boolean hasEmptyRelationChild(LogicalJoin join) {
+    private boolean hasEmptyRelationChild(LogicalJoin<?, ?> join) {
         return join.left() instanceof EmptyRelation || join.right() instanceof EmptyRelation;
     }
 
-    private boolean canReplaceJoinByEmptyRelation(LogicalJoin join) {
-        return (join.getJoinType() == JoinType.INNER_JOIN
+    private boolean canReplaceJoinByEmptyRelation(LogicalJoin<?, ?> join) {
+        return !join.isMarkJoin() && ((join.getJoinType() == JoinType.INNER_JOIN
             || join.getJoinType() == JoinType.LEFT_SEMI_JOIN
             || join.getJoinType() == JoinType.RIGHT_SEMI_JOIN
             || join.getJoinType() == JoinType.CROSS_JOIN)
             || (join.getJoinType() == JoinType.LEFT_OUTER_JOIN && join.left() instanceof EmptyRelation)
-            || (join.getJoinType() == JoinType.RIGHT_OUTER_JOIN && join.right() instanceof EmptyRelation);
+            || (join.getJoinType() == JoinType.RIGHT_OUTER_JOIN && join.right() instanceof EmptyRelation));
     }
 
 }

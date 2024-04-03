@@ -66,7 +66,9 @@ public class AbstractBackupTableRefClause implements ParseNode {
             tableRefList.add(tableRef);
         }
 
-        LOG.debug("table refs after normalization: {}", Joiner.on(",").join(tableRefList));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("table refs after normalization: {}", Joiner.on(",").join(tableRefList));
+        }
     }
 
     public boolean isExclude() {

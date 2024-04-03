@@ -190,8 +190,6 @@ public class ScalarType extends Type {
                 return BITMAP;
             case QUANTILE_STATE:
                 return QUANTILE_STATE;
-            case AGG_STATE:
-                return AGG_STATE;
             case LAMBDA_FUNCTION:
                 return LAMBDA_FUNCTION;
             case DATE:
@@ -264,8 +262,6 @@ public class ScalarType extends Type {
                 return BITMAP;
             case "QUANTILE_STATE":
                 return QUANTILE_STATE;
-            case "AGG_STATE":
-                return AGG_STATE;
             case "LAMBDA_FUNCTION":
                 return LAMBDA_FUNCTION;
             case "DATE":
@@ -616,7 +612,7 @@ public class ScalarType extends Type {
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
             case CHAR:
-                if (isWildcardVarchar()) {
+                if (isWildcardChar()) {
                     stringBuilder.append("CHARACTER");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("CHAR").append("(").append(len).append(")");

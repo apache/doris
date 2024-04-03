@@ -44,6 +44,7 @@ class FoldConstantExecutor {
 public:
     // fold constant vexpr
     Status fold_constant_vexpr(const TFoldConstantParams& params, PConstantExprResult* response);
+    std::string query_id_string() { return print_id(_query_id); }
 
 private:
     // init runtime_state and mem_tracker
@@ -52,12 +53,12 @@ private:
     template <typename Context>
     Status _prepare_and_open(Context* ctx);
 
-    std::string _get_result(void* src, size_t size, const TypeDescriptor& type,
-                            const vectorized::ColumnPtr column_ptr,
-                            const vectorized::DataTypePtr column_type);
+    Status _get_result(void* src, size_t size, const TypeDescriptor& type,
+                       vectorized::ColumnPtr column_ptr, vectorized::DataTypePtr column_type,
+                       std::string& result);
 
     std::unique_ptr<RuntimeState> _runtime_state;
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     RuntimeProfile* _runtime_profile = nullptr;
     ObjectPool _pool;
     TUniqueId _query_id;

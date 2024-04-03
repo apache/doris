@@ -83,10 +83,10 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
-          _file_system(nullptr),
           _file_reader(nullptr),
           _line_reader(nullptr),
           _reader_eof(false),
+          _decompressor(nullptr),
           _skip_first_line(false),
           _next_row(0),
           _total_rows(0),
@@ -99,6 +99,12 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
+    if (_range.__isset.compress_type) {
+        // for compatibility
+        _file_compress_type = _range.compress_type;
+    } else {
+        _file_compress_type = _params.compress_type;
+    }
     _init_system_properties();
     _init_file_description();
 }
@@ -115,6 +121,7 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _file_slot_descs(file_slot_descs),
           _line_reader(nullptr),
           _reader_eof(false),
+          _decompressor(nullptr),
           _skip_first_line(false),
           _next_row(0),
           _total_rows(0),
@@ -122,6 +129,12 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _io_ctx(io_ctx) {
+    if (_range.__isset.compress_type) {
+        // for compatibility
+        _file_compress_type = _range.compress_type;
+    } else {
+        _file_compress_type = _params.compress_type;
+    }
     _init_system_properties();
     _init_file_description();
 }
@@ -154,6 +167,10 @@ Status NewJsonReader::init_reader(
         const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx) {
     // generate _col_default_value_map
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
+
+    // create decompressor.
+    // _decompressor may be nullptr if this is not a compressed file
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
 
 #ifdef __AVX2__
     if (config::enable_simdjson_reader) {
@@ -384,9 +401,9 @@ Status NewJsonReader::_open_file_reader(bool need_schema) {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options, &_file_system,
-                &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
+        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.size)));
     }
     return Status::OK();
@@ -402,7 +419,7 @@ Status NewJsonReader::_open_line_reader() {
         _skip_first_line = false;
     }
     _line_reader = NewPlainTextLineReader::create_unique(
-            _profile, _file_reader, nullptr,
+            _profile, _file_reader, _decompressor.get(),
             std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
             _current_offset);
     return Status::OK();
@@ -414,12 +431,12 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
         rapidjson::Document jsonpaths_doc;
         if (!jsonpaths_doc.Parse(_jsonpaths.c_str(), _jsonpaths.length()).HasParseError()) {
             if (!jsonpaths_doc.IsArray()) {
-                return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
             }
             for (int i = 0; i < jsonpaths_doc.Size(); i++) {
                 const rapidjson::Value& path = jsonpaths_doc[i];
                 if (!path.IsString()) {
-                    return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                    return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
                 }
                 std::vector<JsonPath> parsed_paths;
                 JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
@@ -427,7 +444,7 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
             }
 
         } else {
-            return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+            return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
         }
     }
 
@@ -774,8 +791,9 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         }
         RETURN_IF_ERROR(_append_error_msg(objectValue,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], lease check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }
@@ -1198,7 +1216,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json_write_columns(
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
-                    if (st.is<DATA_QUALITY_ERROR>()) {
+                    if (st.is<NOT_FOUND>()) {
                         RETURN_IF_ERROR(_append_error_msg(nullptr, st.to_string(), "", nullptr));
                         ADVANCE_ROW();
                         continue;
@@ -1345,8 +1363,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         }
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], please check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }
@@ -1628,11 +1647,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Status st;
         if (i < _parsed_jsonpaths.size()) {
             st = JsonFunctions::extract_from_object(*value, _parsed_jsonpaths[i], &json_value);
-            if (!st.ok() && !st.is<DATA_QUALITY_ERROR>()) {
+            if (!st.ok() && !st.is<NOT_FOUND>()) {
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<DATA_QUALITY_ERROR>()) {
+        if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {
@@ -1660,8 +1679,9 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         }
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], please check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }
@@ -1718,6 +1738,15 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, IColumn* c
 
     *valid = true;
     return Status::OK();
+}
+
+void NewJsonReader::_collect_profile_before_close() {
+    if (_line_reader != nullptr) {
+        _line_reader->collect_profile_before_close();
+    }
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
+    }
 }
 
 } // namespace doris::vectorized

@@ -40,11 +40,8 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -116,8 +113,9 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
      * Generate new output for SetOperation.
      */
     public List<NamedExpression> buildNewOutputs() {
-        ImmutableList.Builder<NamedExpression> newOutputs = new Builder<>();
-        for (Slot slot : resetNullableForLeftOutputs()) {
+        List<Slot> slots = resetNullableForLeftOutputs();
+        ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList.builderWithExpectedSize(slots.size());
+        for (Slot slot : slots) {
             newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(), slot.nullable()));
         }
         return newOutputs.build();
@@ -125,23 +123,28 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
 
     // If the right child is nullable, need to ensure that the left child is also nullable
     private List<Slot> resetNullableForLeftOutputs() {
-        Preconditions.checkState(children.size() == 2);
-        List<Slot> resetNullableForLeftOutputs = new ArrayList<>();
-        for (int i = 0; i < child(1).getOutput().size(); ++i) {
+        int rightChildOutputSize = child(1).getOutput().size();
+        ImmutableList.Builder<Slot> resetNullableForLeftOutputs
+                = ImmutableList.builderWithExpectedSize(rightChildOutputSize);
+        for (int i = 0; i < rightChildOutputSize; ++i) {
             if (child(1).getOutput().get(i).nullable() && !child(0).getOutput().get(i).nullable()) {
                 resetNullableForLeftOutputs.add(child(0).getOutput().get(i).withNullable(true));
             } else {
                 resetNullableForLeftOutputs.add(child(0).getOutput().get(i));
             }
         }
-        return ImmutableList.copyOf(resetNullableForLeftOutputs);
+        return resetNullableForLeftOutputs.build();
     }
 
     private List<List<NamedExpression>> castCommonDataTypeOutputs() {
-        List<NamedExpression> newLeftOutputs = new ArrayList<>();
-        List<NamedExpression> newRightOutputs = new ArrayList<>();
+        int childOutputSize = child(0).getOutput().size();
+        ImmutableList.Builder<NamedExpression> newLeftOutputs = ImmutableList.builderWithExpectedSize(
+                childOutputSize);
+        ImmutableList.Builder<NamedExpression> newRightOutputs = ImmutableList.builderWithExpectedSize(
+                childOutputSize
+        );
         // Ensure that the output types of the left and right children are consistent and expand upward.
-        for (int i = 0; i < child(0).getOutput().size(); ++i) {
+        for (int i = 0; i < childOutputSize; ++i) {
             Slot left = child(0).getOutput().get(i);
             Slot right = child(1).getOutput().get(i);
             DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
@@ -157,10 +160,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             newRightOutputs.add((NamedExpression) newRight);
         }
 
-        List<List<NamedExpression>> resultExpressions = new ArrayList<>();
-        resultExpressions.add(newLeftOutputs);
-        resultExpressions.add(newRightOutputs);
-        return ImmutableList.copyOf(resultExpressions);
+        return ImmutableList.of(newLeftOutputs.build(), newRightOutputs.build());
     }
 
     @Override

@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -45,8 +47,8 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSupported {
-    private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-            ImmutableList.of(""));
+    private final LogicalOlapScan scan = new LogicalOlapScan(
+            StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, ImmutableList.of(""));
 
     /*-
      * origin plan:
@@ -86,6 +88,28 @@ public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSup
                                         logicalFilter(
                                                 logicalOlapScan()
                                         ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
+                                )
+                        )
+                );
+    }
+
+    @Test
+    void scalarAgg() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .agg(ImmutableList.of(), ImmutableList.of((new Sum(scan.getOutput().get(0))).alias("sum")))
+                .filter(new If(Literal.of(false), Literal.of(false), Literal.of(false)))
+                .project(ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushDownFilterThroughAggregation())
+                .printlnTree()
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalAggregate(
+                                                logicalOlapScan()
+                                        )
                                 )
                         )
                 );
@@ -174,7 +198,8 @@ public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSup
                                 logicalAggregate(
                                         logicalFilter(
                                                 logicalRepeat()
-                                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicateId)))
+                                        ).when(filter -> filter.getConjuncts()
+                                                .equals(ImmutableSet.of(filterPredicateId)))
                                 )
                         )
                 );
@@ -195,9 +220,9 @@ public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSup
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                    logicalAggregate(
-                                            logicalRepeat()
-                                    )
+                                        logicalAggregate(
+                                                logicalRepeat()
+                                        )
                                 ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicateId)))
                         )
                 );

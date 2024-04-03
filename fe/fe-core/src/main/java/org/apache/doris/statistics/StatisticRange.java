@@ -239,4 +239,8 @@ public class StatisticRange {
         return distinctValues;
     }
 
+    @Override
+    public String toString() {
+        return "(" + lowExpr + "," + highExpr + ")";
+    }
 }

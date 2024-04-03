@@ -25,14 +25,17 @@ import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
+import org.apache.doris.nereids.rules.analysis.BindSlotWithPaths;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
+import org.apache.doris.nereids.rules.analysis.EliminateDistinctConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.HavingToFilter;
 import org.apache.doris.nereids.rules.analysis.LeadingJoin;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -40,10 +43,10 @@ import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
-import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
-import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
+import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 
 import java.util.List;
 import java.util.Objects;
@@ -56,6 +59,7 @@ import java.util.Optional;
 public class Analyzer extends AbstractBatchJobExecutor {
 
     public static final List<RewriteJob> DEFAULT_ANALYZE_JOBS = buildAnalyzeJobs(Optional.empty());
+    public static final List<RewriteJob> DEFAULT_ANALYZE_VIEW_JOBS = buildAnalyzeViewJobs(Optional.empty());
 
     private final List<RewriteJob> jobs;
 
@@ -64,13 +68,37 @@ public class Analyzer extends AbstractBatchJobExecutor {
      * @param cascadesContext planner context for execute job
      */
     public Analyzer(CascadesContext cascadesContext) {
-        this(cascadesContext, Optional.empty());
+        this(cascadesContext, false);
     }
 
-    public Analyzer(CascadesContext cascadesContext, Optional<CustomTableResolver> customTableResolver) {
+    public Analyzer(CascadesContext cascadesContext, boolean analyzeView) {
+        this(cascadesContext, analyzeView, Optional.empty());
+    }
+
+    /**
+     * constructor of Analyzer. For view, we only do bind relation since other analyze step will do by outer Analyzer.
+     *
+     * @param cascadesContext current context for analyzer
+     * @param analyzeView analyze view or user sql. If true, analyzer is used for view.
+     * @param customTableResolver custom resolver for outer catalog.
+     */
+    public Analyzer(CascadesContext cascadesContext, boolean analyzeView,
+            Optional<CustomTableResolver> customTableResolver) {
         super(cascadesContext);
         Objects.requireNonNull(customTableResolver, "customTableResolver cannot be null");
-        this.jobs = !customTableResolver.isPresent() ? DEFAULT_ANALYZE_JOBS : buildAnalyzeJobs(customTableResolver);
+        if (analyzeView) {
+            if (customTableResolver.isPresent()) {
+                this.jobs = buildAnalyzeViewJobs(customTableResolver);
+            } else {
+                this.jobs = DEFAULT_ANALYZE_VIEW_JOBS;
+            }
+        } else {
+            if (customTableResolver.isPresent()) {
+                this.jobs = buildAnalyzeJobs(customTableResolver);
+            } else {
+                this.jobs = DEFAULT_ANALYZE_JOBS;
+            }
+        }
     }
 
     @Override
@@ -85,6 +113,17 @@ public class Analyzer extends AbstractBatchJobExecutor {
         execute();
     }
 
+    private static List<RewriteJob> buildAnalyzeViewJobs(Optional<CustomTableResolver> customTableResolver) {
+        return jobs(
+                topDown(new AnalyzeCTE()),
+                topDown(new EliminateLogicalSelectHint()),
+                bottomUp(
+                        new BindRelation(customTableResolver),
+                        new CheckPolicy()
+                )
+        );
+    }
+
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
             // we should eliminate hint before "Subquery unnesting".
@@ -92,10 +131,10 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new EliminateLogicalSelectHint()),
             bottomUp(
                 new BindRelation(customTableResolver),
-                new CheckPolicy(),
-                new UserAuthentication(),
-                new BindExpression()
+                new CheckPolicy()
             ),
+            bottomUp(new BindExpression()),
+            bottomUp(new BindSlotWithPaths()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
             bottomUp(
@@ -105,8 +144,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // so any rule before this, if create a new logicalProject node
                 // should make sure isDistinct property is correctly passed around.
                 // please see rule BindSlotReference or BindFunction for example
+                new EliminateDistinctConstant(),
                 new ProjectWithDistinctToAggregate(),
-                new ResolveOrdinalInOrderByAndGroupBy(),
                 new ReplaceExpressionByChildOutput(),
                 new OneRowRelationExtractAggregate()
             ),
@@ -123,14 +162,18 @@ public class Analyzer extends AbstractBatchJobExecutor {
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
+
+            topDown(new SimplifyAggGroupBy()),
             topDown(new NormalizeAggregate()),
+            topDown(new HavingToFilter()),
             bottomUp(new SemiJoinCommute()),
             bottomUp(
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()
             ),
             topDown(new LeadingJoin()),
-            bottomUp(new SubqueryToApply())
+            bottomUp(new SubqueryToApply()),
+            topDown(new MergeProjects())
         );
     }
 }

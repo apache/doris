@@ -21,6 +21,7 @@
 #include <errno.h> // IWYU pragma: keep
 
 #include <filesystem>
+#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -38,21 +39,19 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h" // variant column
 #include "vec/core/block.h"
+#include "vec/core/columns_with_type_and_name.h"
 
 namespace doris {
 using namespace ErrorCode;
 
-SegmentFlusher::SegmentFlusher() = default;
+SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files)
+        : _context(context), _seg_files(seg_files) {}
 
 SegmentFlusher::~SegmentFlusher() = default;
-
-Status SegmentFlusher::init(RowsetWriterContext& rowset_writer_context) {
-    _context = &rowset_writer_context;
-    return Status::OK();
-}
 
 Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_t segment_id,
                                           int64_t* flush_size) {
@@ -62,13 +61,13 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
     // Expand variant columns
     vectorized::Block flush_block(*block);
     TabletSchemaSPtr flush_schema;
-    if (_context->write_type != DataWriteType::TYPE_COMPACTION &&
-        _context->tablet_schema->num_variant_columns() > 0) {
+    if (_context.write_type != DataWriteType::TYPE_COMPACTION &&
+        _context.tablet_schema->num_variant_columns() > 0) {
         RETURN_IF_ERROR(_expand_variant_to_subcolumns(flush_block, flush_schema));
     }
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
     if (config::enable_vertical_segment_writer &&
-        _context->tablet_schema->cluster_key_idxes().empty()) {
+        _context.tablet_schema->cluster_key_idxes().empty()) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression, flush_schema));
         RETURN_IF_ERROR(_add_rows(writer, &flush_block, 0, flush_block.rows()));
@@ -89,19 +88,28 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         return Status::OK();
     }
 
+    {
+        std::lock_guard<std::mutex> lock(*(_context.schema_lock));
+        // save original tablet schema, _context->tablet_schema maybe modified
+        if (_context.original_tablet_schema == nullptr) {
+            _context.original_tablet_schema = _context.tablet_schema;
+        }
+    }
+
     std::vector<int> variant_column_pos;
-    if (_context->partial_update_info && _context->partial_update_info->is_partial_update) {
+    if (_context.partial_update_info && _context.partial_update_info->is_partial_update) {
         // check columns that used to do partial updates should not include variant
-        for (int i : _context->partial_update_info->update_cids) {
-            const auto& col = _context->tablet_schema->columns()[i];
+        for (int i : _context.partial_update_info->update_cids) {
+            const auto& col = *_context.original_tablet_schema->columns()[i];
             if (!col.is_key() && col.name() != DELETE_SIGN) {
                 return Status::InvalidArgument(
                         "Not implement partial update for variant only support delete currently");
             }
         }
     } else {
-        for (int i = 0; i < _context->tablet_schema->columns().size(); ++i) {
-            if (_context->tablet_schema->columns()[i].is_variant_type()) {
+        // find positions of variant columns
+        for (int i = 0; i < _context.original_tablet_schema->columns().size(); ++i) {
+            if (_context.original_tablet_schema->columns()[i]->is_variant_type()) {
                 variant_column_pos.push_back(i);
             }
         }
@@ -111,124 +119,49 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(
-            vectorized::schema_util::parse_and_encode_variant_columns(block, variant_column_pos));
+    vectorized::schema_util::ParseContext ctx;
+    ctx.record_raw_json_column = _context.original_tablet_schema->store_row_column();
+    RETURN_IF_ERROR(vectorized::schema_util::parse_and_encode_variant_columns(
+            block, variant_column_pos, ctx));
 
-    // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
-    //     static     extracted
-    // | --------- | ----------- |
-    // The static ones are original _tablet_schame columns
     flush_schema = std::make_shared<TabletSchema>();
-    flush_schema->copy_from(*_context->original_tablet_schema);
-
+    flush_schema->copy_from(*_context.original_tablet_schema);
     vectorized::Block flush_block(std::move(block));
-    // If column already exist in original tablet schema, then we pick common type
-    // and cast column to common type, and modify tablet column to common type,
-    // otherwise it's a new column
-    auto append_column = [&](const TabletColumn& parent_variant, auto& column_entry_from_object) {
-        const std::string& column_name =
-                parent_variant.name_lower_case() + "." + column_entry_from_object->path.get_path();
-        const vectorized::DataTypePtr& final_data_type_from_object =
-                column_entry_from_object->data.get_least_common_type();
-        vectorized::PathInDataBuilder full_path_builder;
-        auto full_path = full_path_builder.append(parent_variant.name_lower_case(), false)
-                                 .append(column_entry_from_object->path.get_parts(), false)
-                                 .build();
-        TabletColumn tablet_column = vectorized::schema_util::get_column_by_type(
-                final_data_type_from_object, column_name,
-                vectorized::schema_util::ExtraInfo {.unique_id = -1,
-                                                    .parent_unique_id = parent_variant.unique_id(),
-                                                    .path_info = full_path});
-        flush_schema->append_column(std::move(tablet_column));
-
-        flush_block.insert({column_entry_from_object->data.get_finalized_column_ptr()->get_ptr(),
-                            final_data_type_from_object, column_name});
-    };
-
-    // 1. Flatten variant column into flat columns, append flatten columns to the back of original Block and TabletSchema
-    // those columns are extracted columns, leave none extracted columns remain in original variant column, which is
-    // JSONB format at present.
-    // 2. Collect columns that need to be added or modified when data type changes or new columns encountered
-    for (size_t i = 0; i < variant_column_pos.size(); ++i) {
-        size_t variant_pos = variant_column_pos[i];
-        auto column_ref = flush_block.get_by_position(variant_pos).column;
-        bool is_nullable = column_ref->is_nullable();
-        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
-                remove_nullable(column_ref)->assume_mutable_ref());
-        const TabletColumn& parent_column = _context->tablet_schema->columns()[variant_pos];
-        CHECK(object_column.is_finalized());
-        std::shared_ptr<vectorized::ColumnObject::Subcolumns::Node> root;
-        for (auto& entry : object_column.get_subcolumns()) {
-            if (entry->path.empty()) {
-                // root
-                root = entry;
-                continue;
-            }
-            append_column(parent_column, entry);
-        }
-        // Create new variant column and set root column
-        auto obj = vectorized::ColumnObject::create(true, false);
-        // '{}' indicates a root path
-        static_cast<vectorized::ColumnObject*>(obj.get())->add_sub_column(
-                {}, root->data.get_finalized_column_ptr()->assume_mutable(),
-                root->data.get_least_common_type());
-        vectorized::ColumnPtr result = obj->get_ptr();
-        if (is_nullable) {
-            const auto& null_map = assert_cast<const vectorized::ColumnNullable&>(*column_ref)
-                                           .get_null_map_column_ptr();
-            result = vectorized::ColumnNullable::create(result, null_map);
-        }
-        flush_block.get_by_position(variant_pos).column = result;
-        vectorized::PathInDataBuilder full_root_path_builder;
-        auto full_root_path =
-                full_root_path_builder.append(parent_column.name_lower_case(), false).build();
-        flush_schema->mutable_columns()[variant_pos].set_path_info(full_root_path);
-        VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
-    }
-
-    vectorized::schema_util::inherit_tablet_index(flush_schema);
+    vectorized::schema_util::rebuild_schema_and_block(
+            _context.original_tablet_schema, variant_column_pos, flush_block, flush_schema);
 
     {
         // Update rowset schema, tablet's tablet schema will be updated when build Rowset
         // Eg. flush schema:    A(int),    B(float),  C(int), D(int)
         // ctx.tablet_schema:  A(bigint), B(double)
         // => update_schema:   A(bigint), B(double), C(int), D(int)
-        std::lock_guard<std::mutex> lock(*(_context->schema_lock));
+        std::lock_guard<std::mutex> lock(*(_context.schema_lock));
         TabletSchemaSPtr update_schema;
-        static_cast<void>(vectorized::schema_util::get_least_common_schema(
-                {_context->tablet_schema, flush_schema}, nullptr, update_schema));
+        RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
+                {_context.tablet_schema, flush_schema}, nullptr, update_schema));
         CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
                 << "Rowset merge schema columns count is " << update_schema->num_columns()
                 << ", but flush_schema is larger " << flush_schema->num_columns()
                 << " update_schema: " << update_schema->dump_structure()
                 << " flush_schema: " << flush_schema->dump_structure();
-        _context->tablet_schema.swap(update_schema);
-        VLOG_DEBUG << "dump rs schema: " << _context->tablet_schema->dump_structure();
+        _context.tablet_schema.swap(update_schema);
+        VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
     }
 
-    block.swap(flush_block);
+    block.swap(flush_block); // NOLINT(bugprone-use-after-move)
     VLOG_DEBUG << "dump block: " << block.dump_data();
     VLOG_DEBUG << "dump flush schema: " << flush_schema->dump_structure();
     return Status::OK();
 }
 
 Status SegmentFlusher::close() {
-    std::lock_guard<SpinLock> l(_lock);
-    for (auto& file_writer : _file_writers) {
-        Status status = file_writer->close();
-        if (!status.ok()) {
-            LOG(WARNING) << "failed to close file writer, path=" << file_writer->path()
-                         << " res=" << status;
-            return status;
-        }
-    }
-    return Status::OK();
+    return _seg_files.close();
 }
 
 bool SegmentFlusher::need_buffering() {
     // buffering variants for schema change
-    return _context->write_type == DataWriteType::TYPE_SCHEMA_CHANGE &&
-           _context->tablet_schema->num_variant_columns() > 0;
+    return _context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE &&
+           _context.tablet_schema->num_variant_columns() > 0;
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
@@ -252,24 +185,21 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
                                               int32_t segment_id, bool no_compression,
                                               TabletSchemaSPtr flush_schema) {
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(_context->file_writer_creator->create(segment_id, file_writer));
+    RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, file_writer));
 
     segment_v2::SegmentWriterOptions writer_options;
-    writer_options.enable_unique_key_merge_on_write = _context->enable_unique_key_merge_on_write;
-    writer_options.rowset_ctx = _context;
-    writer_options.write_type = _context->write_type;
+    writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &_context;
+    writer_options.write_type = _context.write_type;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
     }
 
-    const auto& tablet_schema = flush_schema ? flush_schema : _context->tablet_schema;
-    writer.reset(new segment_v2::SegmentWriter(
-            file_writer.get(), segment_id, tablet_schema, _context->tablet, _context->data_dir,
-            _context->max_rows_per_segment, writer_options, _context->mow_context));
-    {
-        std::lock_guard<SpinLock> l(_lock);
-        _file_writers.push_back(std::move(file_writer));
-    }
+    const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
+    writer = std::make_unique<segment_v2::SegmentWriter>(
+            file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
+            _context.max_rows_per_segment, writer_options, _context.mow_context, _context.fs);
+    RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
@@ -283,30 +213,31 @@ Status SegmentFlusher::_create_segment_writer(
         std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, int32_t segment_id,
         bool no_compression, TabletSchemaSPtr flush_schema) {
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(_context->file_writer_creator->create(segment_id, file_writer));
+    RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, file_writer));
 
     segment_v2::VerticalSegmentWriterOptions writer_options;
-    writer_options.enable_unique_key_merge_on_write = _context->enable_unique_key_merge_on_write;
-    writer_options.rowset_ctx = _context;
-    writer_options.write_type = _context->write_type;
+    writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &_context;
+    writer_options.write_type = _context.write_type;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
     }
 
-    const auto& tablet_schema = flush_schema ? flush_schema : _context->tablet_schema;
-    writer.reset(new segment_v2::VerticalSegmentWriter(
-            file_writer.get(), segment_id, tablet_schema, _context->tablet, _context->data_dir,
-            _context->max_rows_per_segment, writer_options, _context->mow_context));
-    {
-        std::lock_guard<SpinLock> l(_lock);
-        _file_writers.push_back(std::move(file_writer));
-    }
+    const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
+    writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
+            file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
+            _context.max_rows_per_segment, writer_options, _context.mow_context, _context.fs);
+    RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer.reset();
         return s;
     }
+
+    VLOG_DEBUG << "create new segment writer, tablet_id:" << _context.tablet_id
+               << " segment id: " << segment_id << " filename: " << writer->data_dir_path()
+               << " rowset_id:" << _context.rowset_id;
     return Status::OK();
 }
 
@@ -325,9 +256,9 @@ Status SegmentFlusher::_flush_segment_writer(
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
-    VLOG_DEBUG << "tablet_id:" << _context->tablet_id
+    VLOG_DEBUG << "tablet_id:" << _context.tablet_id
                << " flushing filename: " << writer->data_dir_path()
-               << " rowset_id:" << _context->rowset_id;
+               << " rowset_id:" << _context.rowset_id;
 
     KeyBoundsPB key_bounds;
     Slice min_key = writer->min_encoded_key();
@@ -345,7 +276,7 @@ Status SegmentFlusher::_flush_segment_writer(
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat, flush_schema));
+    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
 
     if (flush_size) {
         *flush_size = segment_size + index_size;
@@ -367,9 +298,9 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
-    VLOG_DEBUG << "tablet_id:" << _context->tablet_id
-               << " flushing rowset_dir: " << _context->rowset_dir
-               << " rowset_id:" << _context->rowset_id;
+    VLOG_DEBUG << "tablet_id:" << _context.tablet_id
+               << " flushing rowset_dir: " << _context.rowset_dir
+               << " rowset_id:" << _context.rowset_id;
 
     KeyBoundsPB key_bounds;
     Slice min_key = writer->min_encoded_key();
@@ -387,7 +318,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat, flush_schema));
+    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
 
     if (flush_size) {
         *flush_size = segment_size + index_size;
@@ -418,10 +349,8 @@ int64_t SegmentFlusher::Writer::max_row_to_add(size_t row_avg_size_in_bytes) {
     return _writer->max_row_to_add(row_avg_size_in_bytes);
 }
 
-Status SegmentCreator::init(RowsetWriterContext& rowset_writer_context) {
-    RETURN_IF_ERROR(_segment_flusher.init(rowset_writer_context));
-    return Status::OK();
-}
+SegmentCreator::SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files)
+        : _segment_flusher(context, seg_files) {}
 
 Status SegmentCreator::add_block(const vectorized::Block* block) {
     if (block->rows() == 0) {

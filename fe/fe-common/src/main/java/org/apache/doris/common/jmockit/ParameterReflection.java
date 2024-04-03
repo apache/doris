@@ -165,4 +165,3 @@ public final class ParameterReflection {
                 || secondType.isPrimitive() && secondType == AutoType.getPrimitiveType(firstType);
     }
 }
-

@@ -25,8 +25,8 @@ public class ColumnStatisticBuilder {
     private double avgSizeByte;
     private double numNulls;
     private double dataSize;
-    private double minValue;
-    private double maxValue;
+    private double minValue = Double.NEGATIVE_INFINITY;
+    private double maxValue = Double.POSITIVE_INFINITY;
     private LiteralExpr minExpr;
     private LiteralExpr maxExpr;
 

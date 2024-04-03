@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
@@ -30,10 +31,9 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
@@ -50,7 +50,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -130,7 +129,7 @@ public class StatisticsAutoCollectorTest {
             }
 
             @Mock
-            public List<Column> getBaseSchema() {
+            public List<Column> getSchemaAllIndexes(boolean full) {
                 List<Column> columns = new ArrayList<>();
                 columns.add(new Column("c1", PrimitiveType.INT));
                 columns.add(new Column("c2", PrimitiveType.HLL));
@@ -138,83 +137,9 @@ public class StatisticsAutoCollectorTest {
             }
         };
         StatisticsAutoCollector saa = new StatisticsAutoCollector();
-        List<AnalysisInfo> analysisInfos =
-                saa.constructAnalysisInfo(new Database(1, "anydb"));
-        Assertions.assertEquals(1, analysisInfos.size());
-        Assertions.assertEquals("c1", analysisInfos.get(0).colName.split(",")[0]);
-    }
-
-    @Test
-    public void testGetReAnalyzeRequiredPart0() {
-
-        TableIf tableIf = new OlapTable();
-
-        new MockUp<OlapTable>() {
-            @Mock
-            protected Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-                Set<String> partitionNames = new HashSet<>();
-                partitionNames.add("p1");
-                partitionNames.add("p2");
-                Map<String, Set<String>> map = new HashMap<>();
-                map.put("col1", partitionNames);
-                return map;
-            }
-
-            @Mock
-            public long getRowCount() {
-                return 100;
-            }
-
-            @Mock
-            public List<Column> getBaseSchema() {
-                return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
-            }
-        };
-
-        new MockUp<StatisticsUtil>() {
-            @Mock
-            public TableIf findTable(long catalogName, long dbName, long tblName) {
-                return tableIf;
-            }
-        };
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setAnalysisMethod(AnalysisMethod.FULL)
-                .setColToPartitions(new HashMap<>()).setAnalysisType(
-                AnalysisType.FUNDAMENTALS).setColName("col1").setJobType(JobType.SYSTEM).build();
-        new MockUp<AnalysisManager>() {
-
-            int count = 0;
-
-            TableStatsMeta[] tableStatsArr =
-                    new TableStatsMeta[] {new TableStatsMeta(0, analysisInfo, tableIf),
-                            new TableStatsMeta(0, analysisInfo, tableIf), null};
-
-            {
-                tableStatsArr[0].updatedRows.addAndGet(100);
-                tableStatsArr[1].updatedRows.addAndGet(0);
-            }
-
-            @Mock
-            public TableStatsMeta findTableStatsStatus(long tblId) {
-                return tableStatsArr[count++];
-            }
-        };
-
-        new MockUp<StatisticsAutoCollector>() {
-            @Mock
-            public AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
-                    Set<String> needRunPartitions) {
-                return new AnalysisInfoBuilder().build();
-            }
-        };
-        StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
-        AnalysisInfo analysisInfo2 = new AnalysisInfoBuilder()
-                .setCatalogId(0)
-                .setDBId(0)
-                .setTblId(0).build();
-        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
-        // uncomment it when updatedRows gets ready
-        // Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
-        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
+        List<AnalysisInfo> analysisInfoList = saa.constructAnalysisInfo(new Database(1, "anydb"));
+        Assertions.assertEquals(1, analysisInfoList.size());
+        Assertions.assertNull(analysisInfoList.get(0).colName);
     }
 
     @Test
@@ -227,11 +152,19 @@ public class StatisticsAutoCollectorTest {
             public List<Column> getBaseSchema() {
                 return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
             }
+
+            @Mock
+            public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+                ArrayList<Pair<String, String>> list = Lists.newArrayList();
+                list.add(Pair.of("1", "1"));
+                return list;
+            }
         };
 
         new MockUp<StatisticsUtil>() {
             int count = 0;
-            int [] thresholds = {1, 10};
+            int[] thresholds = {1, 10};
+
             @Mock
             public TableIf findTable(long catalogName, long dbName, long tblName) {
                 return tableIf;
@@ -242,10 +175,11 @@ public class StatisticsAutoCollectorTest {
                 return thresholds[count++];
             }
         };
+
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder().build();
         StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
-        Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
-        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
+        Assertions.assertNull(statisticsAutoCollector.getNeedAnalyzeColumns(analysisInfo));
+        Assertions.assertNotNull(statisticsAutoCollector.getNeedAnalyzeColumns(analysisInfo));
     }
 
     @Test
@@ -298,8 +232,13 @@ public class StatisticsAutoCollectorTest {
         };
         // A very huge table has been updated recently, so we should skip it this time
         stats.updatedTime = System.currentTimeMillis() - 1000;
+        stats.newPartitionLoaded = new AtomicBoolean();
+        stats.newPartitionLoaded.set(true);
         StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
-        Assertions.assertTrue(autoCollector.skip(olapTable));
+        // Test new partition loaded data for the first time. Not skip.
+        Assertions.assertFalse(autoCollector.skip(olapTable));
+        stats.newPartitionLoaded.set(false);
+        // Assertions.assertTrue(autoCollector.skip(olapTable));
         // The update of this huge table is long time ago, so we shouldn't skip it this time
         stats.updatedTime = System.currentTimeMillis()
                 - StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis() - 10000;
@@ -313,6 +252,15 @@ public class StatisticsAutoCollectorTest {
         };
         // can't find table stats meta, which means this table never get analyzed,  so we shouldn't skip it this time
         Assertions.assertFalse(autoCollector.skip(olapTable));
+        new MockUp<AnalysisManager>() {
+
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return stats;
+            }
+        };
+        stats.userInjected = true;
+        Assertions.assertTrue(autoCollector.skip(olapTable));
         // this is not olap table nor external table, so we should skip it this time
         Assertions.assertTrue(autoCollector.skip(anyOtherTable));
     }
@@ -346,12 +294,19 @@ public class StatisticsAutoCollectorTest {
 
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return 1000;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
             }
 
             @Mock
             public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
                 return new OlapAnalysisTask(info);
+            }
+
+            @Mock
+            public List<Long> getMvColumnIndexIds(String columnName) {
+                ArrayList<Long> objects = new ArrayList<>();
+                objects.add(-1L);
+                return objects;
             }
         };
 
@@ -366,13 +321,9 @@ public class StatisticsAutoCollectorTest {
         List<AnalysisInfo> jobInfos = new ArrayList<>();
         sac.createAnalyzeJobForTbl(db, jobInfos, t1);
         AnalysisInfo jobInfo = jobInfos.get(0);
-        Map<String, Set<String>> colToPartitions = new HashMap<>();
-        colToPartitions.put("test", new HashSet<String>() {
-            {
-                add("p1");
-            }
-        });
-        jobInfo = new AnalysisInfoBuilder(jobInfo).setColToPartitions(colToPartitions).build();
+        List<Pair<String, String>> columnNames = Lists.newArrayList();
+        columnNames.add(Pair.of("test", "t1"));
+        jobInfo = new AnalysisInfoBuilder(jobInfo).setJobColumns(columnNames).build();
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
@@ -418,6 +369,13 @@ public class StatisticsAutoCollectorTest {
             public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
                 return new OlapAnalysisTask(info);
             }
+
+            @Mock
+            public List<Long> getMvColumnIndexIds(String columnName) {
+                ArrayList<Long> objects = new ArrayList<>();
+                objects.add(-1L);
+                return objects;
+            }
         };
 
         new MockUp<StatisticsUtil>() {
@@ -431,13 +389,9 @@ public class StatisticsAutoCollectorTest {
         List<AnalysisInfo> jobInfos = new ArrayList<>();
         sac.createAnalyzeJobForTbl(db, jobInfos, t1);
         AnalysisInfo jobInfo = jobInfos.get(0);
-        Map<String, Set<String>> colToPartitions = new HashMap<>();
-        colToPartitions.put("test", new HashSet<String>() {
-            {
-                add("p1");
-            }
-        });
-        jobInfo = new AnalysisInfoBuilder(jobInfo).setColToPartitions(colToPartitions).build();
+        List<Pair<String, String>> colNames = Lists.newArrayList();
+        colNames.add(Pair.of("test", "1"));
+        jobInfo = new AnalysisInfoBuilder(jobInfo).setJobColumns(colNames).build();
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
@@ -445,5 +399,75 @@ public class StatisticsAutoCollectorTest {
         for (BaseAnalysisTask task : analysisTasks.values()) {
             Assertions.assertNotNull(task.getTableSample());
         }
+    }
+
+    @Test
+    public void testDisableAuto1() throws Exception {
+        InternalCatalog catalog1 = EnvFactory.getInstance().createInternalCatalog();
+        List<CatalogIf> catalogs = Lists.newArrayList();
+        catalogs.add(catalog1);
+
+        new MockUp<StatisticsAutoCollector>() {
+            @Mock
+            public List<CatalogIf> getCatalogsInOrder() {
+                return catalogs;
+            }
+
+            @Mock
+            protected boolean canCollect() {
+                return false;
+            }
+
+        };
+
+        StatisticsAutoCollector sac = new StatisticsAutoCollector();
+        new Expectations(catalog1) {{
+                catalog1.enableAutoAnalyze();
+                times = 0;
+            }};
+
+        sac.analyzeAll();
+    }
+
+    @Test
+    public void testDisableAuto2() throws Exception {
+        InternalCatalog catalog1 = EnvFactory.getInstance().createInternalCatalog();
+        List<CatalogIf> catalogs = Lists.newArrayList();
+        catalogs.add(catalog1);
+
+        Database db1 = new Database();
+        List<DatabaseIf<? extends TableIf>> dbs = Lists.newArrayList();
+        dbs.add(db1);
+
+        new MockUp<StatisticsAutoCollector>() {
+            int count = 0;
+            boolean[] canCollectReturn = {true, false};
+            @Mock
+            public List<CatalogIf> getCatalogsInOrder() {
+                return catalogs;
+            }
+
+            @Mock
+            public List<DatabaseIf<? extends TableIf>> getDatabasesInOrder(CatalogIf<DatabaseIf> catalog) {
+                return dbs;
+            }
+
+                @Mock
+            protected boolean canCollect() {
+                return canCollectReturn[count++];
+            }
+
+        };
+
+        StatisticsAutoCollector sac = new StatisticsAutoCollector();
+        new Expectations(catalog1, db1) {{
+                catalog1.enableAutoAnalyze();
+                result = true;
+                times = 1;
+                db1.getFullName();
+                times = 0;
+            }};
+
+        sac.analyzeAll();
     }
 }

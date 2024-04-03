@@ -107,7 +107,7 @@ mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "DROP DATABASE IF EXIST
 mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE ${DB}"
 
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
-    echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables.sql"
+    echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf1.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables-sf1.sql
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf100.sql"
@@ -121,5 +121,10 @@ elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
 else
     echo "${SCALE_FACTOR} scale is NOT supported currently"
 fi
+
+echo "Build constraints"
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../constraints/build-pk-constraints.sql
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../constraints/build-uk-constraints.sql
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../constraints/build-fk-constraints.sql
 
 echo "tpcds tables has been created"

@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -43,5 +45,53 @@ class MergeLimitsTest implements MemoPatternMatchSupported {
         PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
                 .matches(
                         logicalLimit().when(limit -> limit.getLimit() == 2).when(limit -> limit.getOffset() == 5));
+    }
+
+    @Test
+    void testMergeLimitsWithLocalUpperAndGlobalBottom() {
+        LogicalPlan logicalLimit = new LogicalLimit<>(2, 0, LimitPhase.LOCAL,
+                new LogicalLimit<>(10, 0, LimitPhase.GLOBAL, scan1));
+
+        PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
+                .matches(
+                        logicalLimit().when(limit -> limit.getLimit() == 2)
+                                .when(limit -> limit.getPhase() == LimitPhase.GLOBAL));
+    }
+
+    @Test
+    void testMergeLimitsWithLocalUpperAndLocalBottom() {
+        LogicalPlan logicalLimit = new LogicalLimit<>(2, 0, LimitPhase.LOCAL,
+                new LogicalLimit<>(10, 0, LimitPhase.LOCAL, scan1));
+
+        PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
+                .matches(
+                        logicalLimit().when(limit -> limit.getLimit() == 2)
+                                .when(limit -> limit.getPhase() == LimitPhase.LOCAL));
+    }
+
+    @Test
+    void testMergeLimitsWithGlobalUpperAndGlobalBottom() {
+        LogicalPlan logicalLimit = new LogicalLimit<>(2, 0, LimitPhase.GLOBAL,
+                new LogicalLimit<>(10, 0, LimitPhase.GLOBAL, scan1));
+
+        PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
+                .matches(
+                        logicalLimit().when(limit -> limit.getLimit() == 2)
+                                .when(limit -> limit.getPhase() == LimitPhase.GLOBAL));
+    }
+
+    @Test
+    void testMergeLimitsWithGlobalUpperAndLocalBottom() {
+        LogicalPlan logicalLimit = new LogicalLimit<>(2, 0, LimitPhase.GLOBAL,
+                new LogicalLimit<>(10, 0, LimitPhase.LOCAL, scan1));
+
+        PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
+                .matches(
+                        logicalLimit(
+                                logicalLimit()
+                                        .when(limit -> limit.getLimit() == 10)
+                                        .when(limit -> limit.getPhase() == LimitPhase.LOCAL))
+                                .when(limit -> limit.getLimit() == 2)
+                                .when(limit -> limit.getPhase() == LimitPhase.GLOBAL));
     }
 }

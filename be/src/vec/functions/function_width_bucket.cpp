@@ -136,18 +136,18 @@ private:
         } else if (which.is_float64()) {
             _execute<ColumnFloat64>(expr_column, min_value_column, max_value_column, num_buckets,
                                     nested_column_column);
-        } else if (which.is_decimal128()) {
-            _execute<ColumnDecimal128>(expr_column, min_value_column, max_value_column, num_buckets,
-                                       nested_column_column);
+        } else if (which.is_decimal128v2()) {
+            _execute<ColumnDecimal128V2>(expr_column, min_value_column, max_value_column,
+                                         num_buckets, nested_column_column);
         } else if (which.is_decimal32()) {
             _execute<ColumnDecimal32>(expr_column, min_value_column, max_value_column, num_buckets,
                                       nested_column_column);
         } else if (which.is_decimal64()) {
             _execute<ColumnDecimal64>(expr_column, min_value_column, max_value_column, num_buckets,
                                       nested_column_column);
-        } else if (which.is_decimal128i()) {
-            _execute<ColumnDecimal128I>(expr_column, min_value_column, max_value_column,
-                                        num_buckets, nested_column_column);
+        } else if (which.is_decimal128v3()) {
+            _execute<ColumnDecimal128V3>(expr_column, min_value_column, max_value_column,
+                                         num_buckets, nested_column_column);
         } else if (which.is_decimal256()) {
             _execute<ColumnDecimal256>(expr_column, min_value_column, max_value_column, num_buckets,
                                        nested_column_column);

@@ -330,6 +330,7 @@ suite("test_date_function") {
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
+    qt_sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
     qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
@@ -472,6 +473,8 @@ suite("test_date_function") {
 
     sql """ drop table ${tableName} """
 
+    qt_sql """ select date_format('1999-01-01', '%X %V'); """
+    qt_sql """ select date_format('2025-01-01', '%X %V'); """
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
@@ -731,4 +734,21 @@ suite("test_date_function") {
            (
             SELECT FROM_UNIXTIME(UNIX_TIMESTAMP('20230918', '%Y%m%d'), 'yyyy-MM-dd HH:mm:ss') AS `a`
            )t """
+
+    sql """ drop table if exists date_varchar """
+    sql """
+        create table date_varchar(
+            dt varchar null,
+            fmt varchar null
+        )
+        DISTRIBUTED BY HASH(`dt`) BUCKETS 1
+        properties("replication_num" = "1");
+    """
+    sql """ insert into date_varchar values ("2020-12-12", "%Y-%m-%d"), ("20201111", "%Y%m%d"), ("202012-13", "%Y%m-%d"),
+    ("0000-00-00", "%Y-%m-%d"),("0000-01-01", "%Y-%m-%d"),("9999-12-31 23:59:59", "%Y-%m-%d %H:%i:%s"),
+    ("9999-12-31 23:59:59.999999", "%Y-%m-%d %H:%i:%s.%f"), ("9999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"),
+    ("1999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"); """
+    qt_sql_varchar1 """ select dt, fmt, unix_timestamp(dt, fmt) as k1 from date_varchar order by k1; """
+    qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1; """
+    qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1; """
 }

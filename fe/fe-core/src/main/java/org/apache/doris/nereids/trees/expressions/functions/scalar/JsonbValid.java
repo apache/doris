@@ -67,4 +67,3 @@ public class JsonbValid extends ScalarFunction
         return visitor.visitJsonbValid(this, context);
     }
 }
-

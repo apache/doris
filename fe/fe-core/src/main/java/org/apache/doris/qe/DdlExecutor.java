@@ -39,7 +39,9 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterJobStatusStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
+import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
+import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -47,6 +49,7 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
+import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -71,12 +74,14 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
+import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
+import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
@@ -94,6 +99,7 @@ import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
+import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
@@ -110,6 +116,7 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.RevokeStmt;
+import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
@@ -170,7 +177,10 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            env.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            CancelLoadStmt cs = (CancelLoadStmt) ddlStmt;
+            // cancel all
+            env.getJobManager().cancelLoadJob(cs);
+            env.getLoadManager().cancelLoadJob(cs);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
@@ -190,6 +200,12 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterJobStatusStmt) {
             AlterJobStatusStmt stmt = (AlterJobStatusStmt) ddlStmt;
             try {
+                // drop job
+                if (stmt.isDrop()) {
+                    env.getJobManager().unregisterJob(stmt.getJobName(), stmt.isIfExists());
+                    return;
+                }
+                // alter job status
                 env.getJobManager().alterJobStatus(stmt.getJobName(), stmt.getJobStatus());
             } catch (Exception e) {
                 throw new DdlException(e.getMessage());
@@ -215,6 +231,8 @@ public class DdlExecutor {
             env.getAuth().revoke(stmt);
         } else if (ddlStmt instanceof CreateRoleStmt) {
             env.getAuth().createRole((CreateRoleStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterRoleStmt) {
+            env.getAuth().alterRole((AlterRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRoleStmt) {
             env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
@@ -285,6 +303,12 @@ public class DdlExecutor {
             env.getWorkloadGroupMgr().createWorkloadGroup((CreateWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
+        }  else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
+            env.getWorkloadSchedPolicyMgr().createWorkloadSchedPolicy((CreateWorkloadSchedPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterWorkloadSchedPolicyStmt) {
+            env.getWorkloadSchedPolicyMgr().alterWorkloadSchedPolicy((AlterWorkloadSchedPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
+            env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateDataSyncJobStmt) {
             CreateDataSyncJobStmt createSyncJobStmt = (CreateDataSyncJobStmt) ddlStmt;
             SyncJobManager syncJobMgr = env.getSyncJobManager();
@@ -379,6 +403,12 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropAnalyzeJobStmt) {
             DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
             Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
+        } else if (ddlStmt instanceof AlterRepositoryStmt) {
+            env.getBackupHandler().alterRepository((AlterRepositoryStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateStorageVaultStmt) {
+            env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
+        } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
+            env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStorageVaultStmt) ddlStmt);
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");

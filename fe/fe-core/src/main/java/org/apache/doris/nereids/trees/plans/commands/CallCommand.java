@@ -36,18 +36,20 @@ public class CallCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CallCommand.class);
 
     private final UnboundFunction unboundFunction;
+    private final String originSql;
 
     /**
      * constructor
      */
-    public CallCommand(UnboundFunction unboundFunction) {
+    public CallCommand(UnboundFunction unboundFunction, String originSql) {
         super(PlanType.CALL_COMMAND);
         this.unboundFunction = Objects.requireNonNull(unboundFunction, "function is null");
+        this.originSql = originSql;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        CallFunc analyzedFunc = CallFunc.getFunc(ctx.getCurrentUserIdentity(), unboundFunction);
+        CallFunc analyzedFunc = CallFunc.getFunc(ctx, ctx.getCurrentUserIdentity(), unboundFunction, originSql);
         analyzedFunc.run();
     }
 

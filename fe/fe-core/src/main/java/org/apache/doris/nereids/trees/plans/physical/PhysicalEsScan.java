@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;

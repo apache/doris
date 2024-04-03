@@ -57,10 +57,11 @@ public class AutoIncrementGenerator implements Writable {
     public AutoIncrementGenerator() {
     }
 
-    public AutoIncrementGenerator(long dbId, long tableId, long columnId) {
+    public AutoIncrementGenerator(long dbId, long tableId, long columnId, long nextId) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.columnId = columnId;
+        this.nextId = nextId;
     }
 
     public void setEditLog(EditLog editLog) {

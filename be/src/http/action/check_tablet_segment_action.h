@@ -26,10 +26,11 @@ namespace doris {
 class HttpRequest;
 
 class ExecEnv;
+class StorageEngine;
 
 class CheckTabletSegmentAction : public HttpHandlerWithAuth {
 public:
-    CheckTabletSegmentAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+    CheckTabletSegmentAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
                              TPrivilegeType::type type);
 
     ~CheckTabletSegmentAction() override = default;
@@ -39,6 +40,7 @@ public:
     std::string host() { return _host; }
 
 private:
+    StorageEngine& _engine;
     std::string _host;
 };
 } // namespace doris

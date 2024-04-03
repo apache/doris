@@ -34,7 +34,7 @@ CREATE TABLE routine_load_uniq_tbl_array
     kd14 array<DATETIMEV2>      NOT NULL DEFAULT "[]",
     kd15 array<CHAR>            NOT NULL DEFAULT "[]",
     kd16 array<VARCHAR>         NOT NULL DEFAULT "[]",
-    kd17 array<STRING>          NOT NULL DEFAULT "[]",
+    kd17 array<STRING>          NOT NULL DEFAULT "[]"
 )
 UNIQUE KEY(k00)
 DISTRIBUTED BY HASH(k00) BUCKETS 32

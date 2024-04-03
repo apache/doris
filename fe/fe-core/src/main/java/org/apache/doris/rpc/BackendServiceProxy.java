@@ -17,10 +17,11 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
@@ -111,7 +112,7 @@ public class BackendServiceProxy {
     }
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
-        String realIp = NetUtils.getIpByHost(address.getHostname());
+        String realIp = Env.getCurrentEnv().getDnsCache().get(address.hostname);
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
                 && serviceClientExtIp.client.isNormalState()) {
@@ -241,12 +242,13 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(TNetworkAddress address,
-            int fragmentId, TUniqueId queryId, Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
+            PlanFragmentId fragmentId, TUniqueId queryId,
+            Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()
                 .setFinstId(Types.PUniqueId.newBuilder().setHi(0).setLo(0).build())
                 .setCancelReason(cancelReason)
-                .setFragmentId(fragmentId)
+                .setFragmentId(fragmentId.asInt())
                 .setQueryId(Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build()).build();
         try {
             final BackendServiceClient client = getProxy(address);
@@ -313,6 +315,18 @@ public class BackendServiceProxy {
             return client.fetchTableStructureAsync(request);
         } catch (Throwable e) {
             LOG.warn("fetch table structure catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PJdbcTestConnectionResult> testJdbcConnection(
+            TNetworkAddress address, InternalService.PJdbcTestConnectionRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.testJdbcConnection(request);
+        } catch (Throwable e) {
+            LOG.warn("test jdbc connection catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }

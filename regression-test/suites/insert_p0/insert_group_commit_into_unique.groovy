@@ -146,7 +146,7 @@ suite("insert_group_commit_into_unique") {
                     checkStreamLoadResult(exception, result, 5, 5, 0, 0)
                 }
             }
-            getRowCount(10)
+            getRowCount(12)
             sql """ set show_hidden_columns = true """
             qt_sql """ select id, name, score, __DORIS_DELETE_SIGN__ from ${dbTableName} order by id, name, score asc; """
             sql """ set show_hidden_columns = false """
@@ -232,7 +232,7 @@ suite("insert_group_commit_into_unique") {
                     checkStreamLoadResult(exception, result, 5, 5, 0, 0)
                 }
             }
-            getRowCount(10)
+            getRowCount(12)
             sql """ set show_hidden_columns = true """
             qt_sql """ select id, name, score, __DORIS_SEQUENCE_COL__, __DORIS_DELETE_SIGN__ from ${dbTableName} order by id, name, score asc; """
             sql """ set show_hidden_columns = false """

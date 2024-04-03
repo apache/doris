@@ -76,8 +76,8 @@ public class ColumnType {
     // only used in char & varchar
     private final int length;
     // only used in decimal
-    private final int precision;
-    private final int scale;
+    private int precision;
+    private int scale;
 
     public ColumnType(String name, Type type) {
         this.name = name;
@@ -188,8 +188,16 @@ public class ColumnType {
         return length;
     }
 
+    public void setPrecision(int precision) {
+        this.precision = precision;
+    }
+
     public int getPrecision() {
         return precision;
+    }
+
+    public void setScale(int scale) {
+        this.scale = scale;
     }
 
     public int getScale() {
@@ -226,7 +234,7 @@ public class ColumnType {
         }
     }
 
-    private static final Pattern digitPattern = Pattern.compile("(\\d+)");
+    private static final Pattern digitPattern = Pattern.compile("\\((\\d+)\\)");
 
     private static int findNextNestedField(String commaSplitFields) {
         int numLess = 0;

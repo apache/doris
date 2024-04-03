@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.datasource.DatabaseMetadata;
+import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import org.apache.hadoop.hive.common.ValidWriteIdList;
@@ -32,6 +34,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * A hive metastore client pool for a specific catalog with hive configuration.
@@ -47,6 +50,8 @@ public interface HMSCachedClient {
     boolean tableExists(String dbName, String tblName);
 
     List<String> listPartitionNames(String dbName, String tblName);
+
+    List<Partition> listPartitions(String dbName, String tblName);
 
     List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum);
 
@@ -78,4 +83,29 @@ public interface HMSCachedClient {
 
     void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
             List<String> partitionNames, long timeoutMs);
+
+    String getCatalogLocation(String catalogName);
+
+    void createDatabase(DatabaseMetadata catalogDatabase);
+
+    void dropDatabase(String dbName);
+
+    void dropTable(String dbName, String tableName);
+
+    void createTable(TableMetadata catalogTable, boolean ignoreIfExists);
+
+    void updateTableStatistics(
+            String dbName,
+            String tableName,
+            Function<HivePartitionStatistics, HivePartitionStatistics> update);
+
+    void updatePartitionStatistics(
+            String dbName,
+            String tableName,
+            String partitionName,
+            Function<HivePartitionStatistics, HivePartitionStatistics> update);
+
+    void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions);
+
+    void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
 }

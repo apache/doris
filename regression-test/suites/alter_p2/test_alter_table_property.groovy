@@ -38,7 +38,7 @@ suite ("test_alter_table_property") {
     sql "INSERT INTO ${tableName} VALUES (50, 100)"
 
     def queryReplicaCount = { partitionName ->
-        def result = sql "ADMIN SHOW REPLICA DISTRIBUTION FROM ${tableName} PARTITION ${partitionName}"
+        def result = sql "SHOW REPLICA DISTRIBUTION FROM ${tableName} PARTITION ${partitionName}"
         int sum = 0
         for (row in result) {
             sum += row[1].toInteger()
@@ -51,17 +51,21 @@ suite ("test_alter_table_property") {
     sql """ ALTER TABLE ${tableName} ADD PARTITION p2 VALUES LESS THAN ("200") """
     assertEquals(1, queryReplicaCount("p2"))
 
-    sql """ ALTER TABLE ${tableName} SET ( "default.replication_allocation" = "tag.location.default: 2" ) """
+    if (!isCloudMode()) {
+        sql """ ALTER TABLE ${tableName} SET ( "default.replication_allocation" = "tag.location.default: 2" ) """
+    }
     sql """ ALTER TABLE ${tableName} ADD PARTITION p3 VALUES LESS THAN ("300") """
     assertEquals(2, queryReplicaCount("p3"))
 
-    sql """ ALTER TABLE ${tableName} MODIFY PARTITION p1 SET ( "replication_allocation" = "tag.location.default: 2" ) """
-    for (i = 0; i < 300; i++) {
-        if (queryReplicaCount("p1") != 2) {
-            Thread.sleep(3000)
+    if (!isCloudMode()) {
+        sql """ ALTER TABLE ${tableName} MODIFY PARTITION p1 SET ( "replication_allocation" = "tag.location.default: 2" ) """
+        for (i = 0; i < 300; i++) {
+            if (queryReplicaCount("p1") != 2) {
+                Thread.sleep(3000)
+            }
         }
+        assertEquals(2, queryReplicaCount("p1"))
     }
-    assertEquals(2, queryReplicaCount("p1"))
     assertEquals(1, queryReplicaCount("p2"))
 
     sql "DROP TABLE ${tableName}"

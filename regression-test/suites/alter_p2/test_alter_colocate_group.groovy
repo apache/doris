@@ -16,6 +16,10 @@
 // under the License.
 
 suite ("test_alter_colocate_group") {
+    if (isCloudMode()) {
+        return
+    }
+
     sql "DROP DATABASE IF EXISTS test_alter_colocate_group_db FORCE"
     test {
         sql """

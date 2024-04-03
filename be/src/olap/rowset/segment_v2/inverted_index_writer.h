@@ -21,24 +21,32 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <memory>
 #include <string>
 
+#include "common/config.h"
 #include "common/status.h"
+#include "gutil/strings/split.h"
 #include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
+#include "olap/options.h"
 
 namespace doris {
 class CollectionValue;
+
 class Field;
+
 class TabletIndex;
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 class InvertedIndexColumnWriter {
 public:
     static Status create(const Field* field, std::unique_ptr<InvertedIndexColumnWriter>* res,
-                         const std::string& segment_file_name, const std::string& dir,
-                         const TabletIndex* inverted_index, const io::FileSystemSPtr& fs);
+                         InvertedIndexFileWriter* index_file_writer,
+                         const TabletIndex* inverted_index);
     virtual Status init() = 0;
 
     InvertedIndexColumnWriter() = default;
@@ -60,8 +68,39 @@ public:
 
     virtual int64_t file_size() const = 0;
 
+    virtual void close_on_error() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);
+};
+
+class TmpFileDirs {
+public:
+    TmpFileDirs(const std::vector<doris::StorePath>& store_paths) {
+        for (const auto& store_path : store_paths) {
+            _tmp_file_dirs.emplace_back(store_path.path + "/" + config::tmp_file_dir);
+        }
+    };
+
+    Status init() {
+        for (auto& tmp_file_dir : _tmp_file_dirs) {
+            bool exists = true;
+            RETURN_IF_ERROR(io::global_local_filesystem()->exists(tmp_file_dir, &exists));
+            if (!exists) {
+                RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
+            }
+        }
+        return Status::OK();
+    };
+
+    io::Path get_tmp_file_dir() {
+        size_t cur_index = _next_index.fetch_add(1);
+        return _tmp_file_dirs[cur_index % _tmp_file_dirs.size()];
+    };
+
+private:
+    std::vector<io::Path> _tmp_file_dirs;
+    std::atomic_size_t _next_index {0}; // use for round-robin
 };
 
 } // namespace segment_v2

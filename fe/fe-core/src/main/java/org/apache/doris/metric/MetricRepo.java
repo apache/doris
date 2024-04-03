@@ -17,12 +17,13 @@
 
 package org.apache.doris.metric;
 
-
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.load.EtlJobType;
@@ -42,10 +43,13 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -66,6 +70,7 @@ public final class MetricRepo {
 
     public static final String TABLET_NUM = "tablet_num";
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
+    public static final String CLOUD_TAG = "cloud";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
@@ -96,6 +101,8 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
+    public static Histogram HISTO_JOURNAL_BATCH_SIZE;
+    public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
 
     public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
@@ -127,6 +134,8 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
+    private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
+
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
     private static MetricCalculator metricCalculator = new MetricCalculator();
@@ -138,7 +147,6 @@ public final class MetricRepo {
         }
 
         // load jobs
-        LoadManager loadManger = Env.getCurrentEnv().getLoadManager();
         for (EtlJobType jobType : EtlJobType.values()) {
             if (jobType == EtlJobType.UNKNOWN) {
                 continue;
@@ -150,7 +158,7 @@ public final class MetricRepo {
                         if (!Env.getCurrentEnv().isMaster()) {
                             return 0L;
                         }
-                        return loadManger.getLoadJobNum(state, jobType);
+                        return MetricRepo.getLoadJobNum(jobType, state);
                     }
                 };
                 gauge.addLabel(new MetricLabel("job", "load")).addLabel(new MetricLabel("type", jobType.name()))
@@ -380,7 +388,11 @@ public final class MetricRepo {
         COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.addLabel(new MetricLabel("type", "current_bytes"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES);
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
-            MetricRegistry.name("editlog", "write", "latency", "ms"));
+                MetricRegistry.name("editlog", "write", "latency", "ms"));
+        HISTO_JOURNAL_BATCH_SIZE = METRIC_REGISTER.histogram(
+                MetricRegistry.name("journal", "write", "batch_size"));
+        HISTO_JOURNAL_BATCH_DATA_SIZE = METRIC_REGISTER.histogram(
+                MetricRegistry.name("journal", "write", "batch_data_size"));
 
         // edit log clean
         COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
@@ -483,6 +495,7 @@ public final class MetricRepo {
 
         // init system metrics
         initSystemMetrics();
+        CloudMetrics.init();
 
         updateMetrics();
         isInit = true;
@@ -650,6 +663,9 @@ public final class MetricRepo {
         // update the metrics first
         updateMetrics();
 
+        // update load job metrics
+        updateLoadJobMetrics();
+
         // jvm
         JvmService jvmService = new JvmService();
         JvmStats jvmStats = jvmService.stats();
@@ -664,8 +680,9 @@ public final class MetricRepo {
             visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
 
-        // node info
-        visitor.getNodeInfo();
+        visitor.visitNodeInfo();
+
+        visitor.visitCloudTableStats();
 
         return visitor.finish();
     }
@@ -686,5 +703,166 @@ public final class MetricRepo {
 
     public static synchronized List<Metric> getMetricsByName(String name) {
         return DORIS_METRIC_REGISTER.getMetricsByName(name);
+    }
+
+    private static void updateLoadJobMetrics() {
+        LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+        MetricRepo.loadJobNum = loadManager.getLoadJobNum();
+    }
+
+    private static long getLoadJobNum(EtlJobType jobType, JobState jobState) {
+        return MetricRepo.loadJobNum.getOrDefault(Pair.of(jobType, jobState), 0L);
+    }
+
+    public static void registerCloudMetrics(String clusterId, String clusterName) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)
+                || Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        List<MetricLabel> labels = new ArrayList<>();
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+
+        LongCounterMetric requestAllCounter = CloudMetrics.CLUSTER_REQUEST_ALL_COUNTER.getOrAdd(clusterId);
+        requestAllCounter.setLabels(labels);
+
+        LongCounterMetric queryAllCounter = CloudMetrics.CLUSTER_QUERY_ALL_COUNTER.getOrAdd(clusterId);
+        queryAllCounter.setLabels(labels);
+
+        LongCounterMetric queryErrCounter = CloudMetrics.CLUSTER_QUERY_ERR_COUNTER.getOrAdd(clusterId);
+        queryErrCounter.setLabels(labels);
+
+        GaugeMetricImpl<Double> requestPerSecondGauge = CloudMetrics.CLUSTER_REQUEST_PER_SECOND_GAUGE
+                .getOrAdd(clusterId);
+        requestPerSecondGauge.setLabels(labels);
+
+        GaugeMetricImpl<Double> queryPerSecondGauge = CloudMetrics.CLUSTER_QUERY_PER_SECOND_GAUGE.getOrAdd(clusterId);
+        queryPerSecondGauge.setLabels(labels);
+
+        GaugeMetricImpl<Double> queryErrRateGauge = CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.getOrAdd(clusterId);
+        queryErrRateGauge.setLabels(labels);
+
+        String key = clusterId + CloudMetrics.CLOUD_CLUSTER_DELIMITER + clusterName;
+        CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.getOrAdd(key);
+    }
+
+    public static void increaseClusterRequestAll(String clusterName) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_REQUEST_ALL_COUNTER.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(1L);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+    }
+
+    public static void increaseClusterQueryAll(String clusterName) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_QUERY_ALL_COUNTER.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(1L);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+    }
+
+    public static void increaseClusterQueryErr(String clusterName) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_QUERY_ERR_COUNTER.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(1L);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+    }
+
+    public static void updateClusterRequestPerSecond(String clusterId, double value, List<MetricLabel> labels) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        GaugeMetricImpl<Double> gauge = CloudMetrics.CLUSTER_REQUEST_PER_SECOND_GAUGE.getOrAdd(clusterId);
+        gauge.setValue(value);
+        gauge.setLabels(labels);
+    }
+
+    public static void updateClusterQueryPerSecond(String clusterId, double value, List<MetricLabel> labels) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        GaugeMetricImpl<Double> gauge = CloudMetrics.CLUSTER_QUERY_PER_SECOND_GAUGE.getOrAdd(clusterId);
+        gauge.setValue(value);
+        gauge.setLabels(labels);
+    }
+
+    public static void updateClusterQueryErrRate(String clusterId, double value, List<MetricLabel> labels) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        GaugeMetricImpl<Double> gauge = CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.getOrAdd(clusterId);
+        gauge.setValue(value);
+        gauge.setLabels(labels);
+    }
+
+    public static void updateClusterBackendAlive(String clusterName, String clusterId, String ipAddress,
+            boolean alive) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)
+                || Strings.isNullOrEmpty(clusterId) || Strings.isNullOrEmpty(ipAddress)) {
+            return;
+        }
+        String key = clusterId + "_" + ipAddress;
+        GaugeMetricImpl<Integer> metric = CloudMetrics.CLUSTER_BACKEND_ALIVE.getOrAdd(key);
+        metric.setValue(alive ? 1 : 0);
+        List<MetricLabel> labels = new ArrayList<>();
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        labels.add(new MetricLabel("address", ipAddress));
+        metric.setLabels(labels);
+    }
+
+    public static void updateClusterBackendAliveTotal(String clusterName, String clusterId, int aliveNum) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)
+                || Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        GaugeMetricImpl<Integer> gauge = CloudMetrics.CLUSTER_BACKEND_ALIVE_TOTAL.getOrAdd(clusterId);
+        gauge.setValue(aliveNum);
+        List<MetricLabel> labels = new ArrayList<>();
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        gauge.setLabels(labels);
+    }
+
+    public static void updateClusterQueryLatency(String clusterName, long elapseMs) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        String key = clusterId + CloudMetrics.CLOUD_CLUSTER_DELIMITER + clusterName;
+        CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.getOrAdd(key).update(elapseMs);
     }
 }

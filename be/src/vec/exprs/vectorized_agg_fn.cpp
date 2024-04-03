@@ -166,9 +166,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         }
 
         std::string type_function_name =
-                assert_cast<const DataTypeAggState*>(argument_types[0].get())
-                        ->get_nested_function()
-                        ->get_name();
+                assert_cast<const DataTypeAggState*>(argument_types[0].get())->get_function_name();
         if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
             if (_data_type->is_nullable()) {
                 return Status::InternalError(
@@ -196,9 +194,16 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                          _fn.name.function_name);
         }
     } else {
-        _function = AggregateFunctionSimpleFactory::instance().get(
-                _fn.name.function_name, argument_types, _data_type->is_nullable(),
-                state->be_exec_version(), state->enable_decima256());
+        if (AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
+            _function = AggregateFunctionSimpleFactory::instance().get(
+                    _fn.name.function_name, argument_types,
+                    AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
+                    state->be_exec_version(), state->enable_decima256());
+        } else {
+            _function = AggregateFunctionSimpleFactory::instance().get(
+                    _fn.name.function_name, argument_types, _data_type->is_nullable(),
+                    state->be_exec_version(), state->enable_decima256());
+        }
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.signature);
@@ -215,8 +220,6 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 Status AggFnEvaluator::open(RuntimeState* state) {
     return VExpr::open(_input_exprs_ctxs, state);
 }
-
-void AggFnEvaluator::close(RuntimeState* state) {}
 
 void AggFnEvaluator::create(AggregateDataPtr place) {
     _function->create(place);

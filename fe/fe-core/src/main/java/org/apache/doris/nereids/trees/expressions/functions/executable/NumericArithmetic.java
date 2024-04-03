@@ -161,25 +161,25 @@ public class NumericArithmetic {
         return new LargeIntLiteral(result);
     }
 
-    @ExecFunction(name = "add", argTypes = {"LARGEINT", "TINYINT"}, returnType = "BIGINT")
+    @ExecFunction(name = "add", argTypes = {"LARGEINT", "TINYINT"}, returnType = "LARGEINT")
     public static Expression addLargeIntTinyInt(LargeIntLiteral first, TinyIntLiteral second) {
         BigInteger result = first.getValue().add(new BigInteger(second.getValue().toString()));
         return new LargeIntLiteral(result);
     }
 
-    @ExecFunction(name = "add", argTypes = {"LARGEINT", "SMALLINT"}, returnType = "BIGINT")
+    @ExecFunction(name = "add", argTypes = {"LARGEINT", "SMALLINT"}, returnType = "LARGEINT")
     public static Expression addLargeIntSmallInt(LargeIntLiteral first, SmallIntLiteral second) {
         BigInteger result = first.getValue().add(new BigInteger(second.getValue().toString()));
         return new LargeIntLiteral(result);
     }
 
-    @ExecFunction(name = "add", argTypes = {"LARGEINT", "INT"}, returnType = "BIGINT")
+    @ExecFunction(name = "add", argTypes = {"LARGEINT", "INT"}, returnType = "LARGEINT")
     public static Expression addLargeIntInt(LargeIntLiteral first, IntegerLiteral second) {
         BigInteger result = first.getValue().add(new BigInteger(second.getValue().toString()));
         return new LargeIntLiteral(result);
     }
 
-    @ExecFunction(name = "add", argTypes = {"LARGEINT", "BIGINT"}, returnType = "BIGINT")
+    @ExecFunction(name = "add", argTypes = {"LARGEINT", "BIGINT"}, returnType = "LARGEINT")
     public static Expression addLargeIntBigInt(LargeIntLiteral first, BigIntLiteral second) {
         BigInteger result = first.getValue().add(new BigInteger(second.getValue().toString()));
         return new LargeIntLiteral(result);
@@ -570,6 +570,9 @@ public class NumericArithmetic {
         return new DoubleLiteral(result);
     }
 
+    /**
+     * Executable arithmetic functions divide
+     */
     @ExecFunction(name = "divide", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
     public static Expression divideDecimal(DecimalLiteral first, DecimalLiteral second) {
         if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {

@@ -1,0 +1,20 @@
+{
+    "methodConfig": [
+        {
+            "name": [
+                {
+                    "service": "doris.cloud.MetaService"
+                }
+            ],
+            "retryPolicy": {
+                "maxAttempts": 10,
+                "initialBackoff": "0.5s",
+                "maxBackoff": "30s",
+                "backoffMultiplier": 2,
+                "retryableStatusCodes": [
+                    "UNAVAILABLE"
+                ]
+            }
+        }
+    ]
+}

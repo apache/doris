@@ -68,10 +68,10 @@ bool call_on_basic_type(TypeIndex number, F&& f) {
             return f(TypePair<T, Decimal32>());
         case TypeIndex::Decimal64:
             return f(TypePair<T, Decimal64>());
-        case TypeIndex::Decimal128:
-            return f(TypePair<T, Decimal128>());
-        case TypeIndex::Decimal128I:
-            return f(TypePair<T, Decimal128I>());
+        case TypeIndex::Decimal128V2:
+            return f(TypePair<T, Decimal128V2>());
+        case TypeIndex::Decimal128V3:
+            return f(TypePair<T, Decimal128V3>());
         case TypeIndex::Decimal256:
             return f(TypePair<T, Decimal256>());
         default:
@@ -139,11 +139,11 @@ bool call_on_basic_types(TypeIndex type_num1, TypeIndex type_num2, F&& f) {
         case TypeIndex::Decimal64:
             return call_on_basic_type<Decimal64, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
-        case TypeIndex::Decimal128:
-            return call_on_basic_type<Decimal128, _int, _float, _decimal, _datetime>(
+        case TypeIndex::Decimal128V2:
+            return call_on_basic_type<Decimal128V2, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
-        case TypeIndex::Decimal128I:
-            return call_on_basic_type<Decimal128I, _int, _float, _decimal, _datetime>(
+        case TypeIndex::Decimal128V3:
+            return call_on_basic_type<Decimal128V3, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         case TypeIndex::Decimal256:
             return call_on_basic_type<Decimal256, _int, _float, _decimal, _datetime>(
@@ -218,10 +218,10 @@ bool call_on_index_and_data_type(TypeIndex number, F&& f) {
         return f(TypePair<DataTypeDecimal<Decimal32>, T>());
     case TypeIndex::Decimal64:
         return f(TypePair<DataTypeDecimal<Decimal64>, T>());
-    case TypeIndex::Decimal128:
-        return f(TypePair<DataTypeDecimal<Decimal128>, T>());
-    case TypeIndex::Decimal128I:
-        return f(TypePair<DataTypeDecimal<Decimal128I>, T>());
+    case TypeIndex::Decimal128V2:
+        return f(TypePair<DataTypeDecimal<Decimal128V2>, T>());
+    case TypeIndex::Decimal128V3:
+        return f(TypePair<DataTypeDecimal<Decimal128V3>, T>());
     case TypeIndex::Decimal256:
         return f(TypePair<DataTypeDecimal<Decimal256>, T>());
 
@@ -280,10 +280,10 @@ bool call_on_index_and_number_data_type(TypeIndex number, F&& f) {
         return f(TypePair<DataTypeDecimal<Decimal32>, T>());
     case TypeIndex::Decimal64:
         return f(TypePair<DataTypeDecimal<Decimal64>, T>());
-    case TypeIndex::Decimal128:
-        return f(TypePair<DataTypeDecimal<Decimal128>, T>());
-    case TypeIndex::Decimal128I:
-        return f(TypePair<DataTypeDecimal<Decimal128I>, T>());
+    case TypeIndex::Decimal128V2:
+        return f(TypePair<DataTypeDecimal<Decimal128V2>, T>());
+    case TypeIndex::Decimal128V3:
+        return f(TypePair<DataTypeDecimal<Decimal128V3>, T>());
     case TypeIndex::Decimal256:
         return f(TypePair<DataTypeDecimal<Decimal256>, T>());
     default:

@@ -17,14 +17,15 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -56,9 +57,8 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), innerLogicalJoin())
                 .when(JoinExchange::checkReorder)
                 .when(join -> join.left().isAllSlots())
-                .whenNot(join -> join.hasJoinHint()
-                        || join.left().child().hasJoinHint() || join.right().hasJoinHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin() || join.right().isMarkJoin())
+                .whenNot(join -> join.hasDistributeHint()
+                        || join.left().child().hasDistributeHint() || join.right().hasDistributeHint())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left().child();
                     LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right();
@@ -90,34 +90,23 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts, JoinHint.NONE, a, c);
+                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE), a, c, null);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts, JoinHint.NONE, b, d);
+                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE), b, d, null);
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
                     newTopJoinHashJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopJoinOtherJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     Plan left = CBOUtils.newProject(topUsedExprIds, newLeftJoin);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newRightJoin);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
-                            left, right);
+                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE),
+                            left, right, null);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE_LEFT_PROJECT);
-    }
-
-    /**
-     * check reorder masks.
-     */
-    public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()
-                || topJoin.getJoinReorderContext().hasLeftAssociate()
-                || topJoin.getJoinReorderContext().hasRightAssociate()
-                || topJoin.getJoinReorderContext().hasExchange()) {
-            return false;
-        } else {
-            return true;
-        }
     }
 }

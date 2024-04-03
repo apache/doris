@@ -132,4 +132,3 @@ class CostV2 implements Cost {
         return new CostV2(0, Double.MAX_VALUE, Double.MAX_VALUE);
     }
 }
-

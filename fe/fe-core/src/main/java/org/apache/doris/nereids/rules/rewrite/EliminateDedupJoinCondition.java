@@ -37,11 +37,15 @@ public class EliminateDedupJoinCondition extends OneRewriteRuleFactory {
                     .distinct().collect(Collectors.toList());
             List<Expression> dedupOtherJoinConjuncts = join.getOtherJoinConjuncts().stream()
                     .distinct().collect(Collectors.toList());
+            List<Expression> dedupMarkJoinConjuncts = join.getMarkJoinConjuncts().stream()
+                    .distinct().collect(Collectors.toList());
             if (dedupHashJoinConjuncts.size() == join.getHashJoinConjuncts().size()
-                    && dedupOtherJoinConjuncts.size() == join.getOtherJoinConjuncts().size()) {
+                    && dedupOtherJoinConjuncts.size() == join.getOtherJoinConjuncts().size()
+                    && dedupMarkJoinConjuncts.size() == join.getMarkJoinConjuncts().size()) {
                 return null;
             }
-            return join.withJoinConjuncts(dedupHashJoinConjuncts, dedupOtherJoinConjuncts);
+            return join.withJoinConjuncts(dedupHashJoinConjuncts, dedupOtherJoinConjuncts, dedupMarkJoinConjuncts,
+                        join.getJoinReorderContext());
         }).toRule(RuleType.ELIMINATE_DEDUP_JOIN_CONDITION);
     }
 }

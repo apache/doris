@@ -20,7 +20,8 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.HMSClientException;
+import org.apache.doris.datasource.DatabaseMetadata;
+import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -29,7 +30,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient.NotificationFilter;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -48,9 +49,9 @@ import org.apache.logging.log4j.Logger;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
@@ -70,13 +71,15 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         String nameFiled = JdbcTable.databaseProperName(TOdbcTableType.POSTGRESQL, "NAME");
         String tableName = JdbcTable.databaseProperName(TOdbcTableType.POSTGRESQL, "DBS");
         String sql = String.format("SELECT %s FROM %s;", nameFiled, tableName);
-        LOG.debug("getAllDatabases exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getAllDatabases exec sql: {}", sql);
+        }
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
             Builder<String> builder = ImmutableList.builder();
             while (rs.next()) {
-                String hiveDatabaseName = rs.getString("NAME");
+                String hiveDatabaseName = getStringResult(rs, "NAME");
                 builder.add(hiveDatabaseName);
             }
             return builder.build();
@@ -89,15 +92,17 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     public List<String> getAllTables(String dbName) {
         String sql = "SELECT \"TBL_NAME\" FROM \"TBLS\" join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
                 + " WHERE \"DBS\".\"NAME\" = '" + dbName + "';";
-        LOG.debug("getAllTables exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getAllTables exec sql: {}", sql);
+        }
 
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
             Builder<String> builder = ImmutableList.builder();
             while (rs.next()) {
-                String hiveDatabaseName = rs.getString("TBL_NAME");
-                builder.add(hiveDatabaseName);
+                String tableName = getStringResult(rs, "TBL_NAME");
+                builder.add(tableName);
             }
             return builder.build();
         } catch (Exception e) {
@@ -116,19 +121,25 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         return listPartitionNames(dbName, tblName, (long) -1);
     }
 
+    public List<Partition> listPartitions(String dbName, String tblName) {
+        return getPartitionsByNames(dbName, tblName, ImmutableList.of());
+    }
+
     @Override
     public List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum) {
         String sql = String.format("SELECT \"PART_NAME\" from \"PARTITIONS\" WHERE \"TBL_ID\" = ("
                 + "SELECT \"TBL_ID\" FROM \"TBLS\" join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
                 + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s');", dbName, tblName);
-        LOG.debug("listPartitionNames exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("listPartitionNames exec sql: {}", sql);
+        }
 
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
             Builder<String> builder = ImmutableList.builder();
             while (rs.next()) {
-                String hivePartitionName = rs.getString("PART_NAME");
+                String hivePartitionName = getStringResult(rs, "PART_NAME");
                 builder.add(hivePartitionName);
             }
             return builder.build();
@@ -140,10 +151,14 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     // not used
     @Override
     public Partition getPartition(String dbName, String tblName, List<String> partitionValues) {
-        LOG.debug("getPartition partitionValues: {}", partitionValues);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getPartition partitionValues: {}", partitionValues);
+        }
         String partitionName = Joiner.on("/").join(partitionValues);
         ImmutableList<String> partitionNames = ImmutableList.of(partitionName);
-        LOG.debug("getPartition partitionNames: {}", partitionNames);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getPartition partitionNames: {}", partitionNames);
+        }
         List<Partition> partitions = getPartitionsByNames(dbName, tblName, partitionNames);
         if (!partitions.isEmpty()) {
             return partitions.get(0);
@@ -160,16 +175,29 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     private List<Partition> getPartitionsByNames(String dbName, String tblName, List<String> partitionNames) {
         List<String> partitionNamesWithQuote = partitionNames.stream().map(partitionName -> "'" + partitionName + "'")
                 .collect(Collectors.toList());
-        String partitionNamesString = Joiner.on(", ").join(partitionNamesWithQuote);
-        String sql = String.format("SELECT \"PART_ID\", \"PARTITIONS\".\"CREATE_TIME\","
-                        + " \"PARTITIONS\".\"LAST_ACCESS_TIME\","
-                        + " \"PART_NAME\", \"PARTITIONS\".\"SD_ID\" FROM \"PARTITIONS\""
-                        + " join \"TBLS\" on \"TBLS\".\"TBL_ID\" = \"PARTITIONS\".\"TBL_ID\""
-                        + " join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
-                        + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s'"
-                        + " AND \"PART_NAME\" in (%s);",
-                dbName, tblName, partitionNamesString);
-        LOG.debug("getPartitionsByNames exec sql: {}", sql);
+        String sql;
+        if (partitionNamesWithQuote.isEmpty()) {
+            sql = String.format("SELECT \"PART_ID\", \"PARTITIONS\".\"CREATE_TIME\","
+                            + " \"PARTITIONS\".\"LAST_ACCESS_TIME\","
+                            + " \"PART_NAME\", \"PARTITIONS\".\"SD_ID\" FROM \"PARTITIONS\""
+                            + " join \"TBLS\" on \"TBLS\".\"TBL_ID\" = \"PARTITIONS\".\"TBL_ID\""
+                            + " join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
+                            + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s';",
+                    dbName, tblName);
+        } else {
+            String partitionNamesString = Joiner.on(", ").join(partitionNamesWithQuote);
+            sql = String.format("SELECT \"PART_ID\", \"PARTITIONS\".\"CREATE_TIME\","
+                            + " \"PARTITIONS\".\"LAST_ACCESS_TIME\","
+                            + " \"PART_NAME\", \"PARTITIONS\".\"SD_ID\" FROM \"PARTITIONS\""
+                            + " join \"TBLS\" on \"TBLS\".\"TBL_ID\" = \"PARTITIONS\".\"TBL_ID\""
+                            + " join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\""
+                            + " WHERE \"DBS\".\"NAME\" = '%s' AND \"TBLS\".\"TBL_NAME\"='%s'"
+                            + " AND \"PART_NAME\" in (%s);",
+                    dbName, tblName, partitionNamesString);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getPartitionsByNames exec sql: {}", sql);
+        }
 
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
@@ -201,13 +229,15 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     private List<String> getPartitionValues(int partitionId) {
         String sql = String.format("SELECT \"PART_KEY_VAL\" FROM \"PARTITION_KEY_VALS\""
                 + " WHERE \"PART_ID\" = " + partitionId);
-        LOG.debug("getPartitionValues exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getPartitionValues exec sql: {}", sql);
+        }
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
             Builder<String> builder = ImmutableList.builder();
             while (rs.next()) {
-                builder.add(rs.getString("PART_KEY_VAL"));
+                builder.add(getStringResult(rs, "PART_KEY_VAL"));
             }
             return builder.build();
         } catch (Exception e) {
@@ -222,7 +252,9 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                 + " \"IS_REWRITE_ENABLED\", \"VIEW_EXPANDED_TEXT\", \"VIEW_ORIGINAL_TEXT\", \"DBS\".\"OWNER_TYPE\""
                 + " FROM \"TBLS\" join \"DBS\" on \"TBLS\".\"DB_ID\" = \"DBS\".\"DB_ID\" "
                 + " WHERE \"DBS\".\"NAME\" = '" + dbName + "' AND \"TBLS\".\"TBL_NAME\"='" + tblName + "';";
-        LOG.debug("getTable exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getTable exec sql: {}", sql);
+        }
 
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
@@ -254,7 +286,9 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     private StorageDescriptor getStorageDescriptor(int sdId) {
         String sql = "SELECT * from \"SDS\" WHERE \"SD_ID\" = " + sdId;
-        LOG.debug("getStorageDescriptorByDbAndTable exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getStorageDescriptorByDbAndTable exec sql: {}", sql);
+        }
 
         StorageDescriptor sd = new StorageDescriptor();
         sd.setCols(getSchemaExcludePartitionKeys(sdId));
@@ -280,7 +314,9 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     private SerDeInfo getSerdeInfo(int serdeId) {
         String sql = "SELECT * FROM \"SERDES\" WHERE \"SERDE_ID\" = " + serdeId;
-        LOG.debug("getSerdeInfo exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getSerdeInfo exec sql: {}", sql);
+        }
 
         SerDeInfo serDeInfo = new SerDeInfo();
         serDeInfo.setParameters(getSerdeInfoParameters(serdeId));
@@ -301,14 +337,16 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     private Map<String, String> getSerdeInfoParameters(int serdeId) {
         String sql = "SELECT \"PARAM_KEY\", \"PARAM_VALUE\" from \"SERDE_PARAMS\" WHERE \"SERDE_ID\" = " + serdeId;
-        LOG.debug("getSerdeInfoParameters exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getSerdeInfoParameters exec sql: {}", sql);
+        }
 
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
             ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
             while (rs.next()) {
-                builder.put(rs.getString("PARAM_KEY"), rs.getString("PARAM_VALUE"));
+                builder.put(rs.getString("PARAM_KEY"), getStringResult(rs, "PARAM_VALUE"));
             }
             return builder.build();
         } catch (Exception e) {
@@ -319,7 +357,9 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     private List<FieldSchema> getTablePartitionKeys(int tableId) {
         String sql = "SELECT \"PKEY_NAME\", \"PKEY_TYPE\", \"PKEY_COMMENT\" from \"PARTITION_KEYS\""
                 + " WHERE \"TBL_ID\"= " + tableId;
-        LOG.debug("getTablePartitionKeys exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getTablePartitionKeys exec sql: {}", sql);
+        }
 
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
@@ -332,10 +372,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
             }
 
             List<FieldSchema> fieldSchemas = builder.build();
-            // must reverse fields
-            List<FieldSchema> reversedFieldSchemas = Lists.newArrayList(fieldSchemas);
-            Collections.reverse(reversedFieldSchemas);
-            return reversedFieldSchemas;
+            return fieldSchemas;
         } catch (Exception e) {
             throw new HMSClientException("failed to get TablePartitionKeys in tableId %s", e, tableId);
         }
@@ -343,14 +380,16 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     private Map<String, String> getTableParameters(int tableId) {
         String sql = "SELECT \"PARAM_KEY\", \"PARAM_VALUE\" from \"TABLE_PARAMS\" WHERE \"TBL_ID\" = " + tableId;
-        LOG.debug("getParameters exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getParameters exec sql: {}", sql);
+        }
 
         try (Connection conn = getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
             ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
             while (rs.next()) {
-                builder.put(rs.getString("PARAM_KEY"), rs.getString("PARAM_VALUE"));
+                builder.put(rs.getString("PARAM_KEY"), getStringResult(rs, "PARAM_VALUE"));
             }
             return builder.build();
         } catch (Exception e) {
@@ -378,7 +417,9 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
                 + " join \"SDS\" on \"SDS\".\"SD_ID\" = \"TBLS\".\"SD_ID\""
                 + " join \"COLUMNS_V2\" on \"COLUMNS_V2\".\"CD_ID\" = \"SDS\".\"CD_ID\""
                 + " WHERE \"DBS\".\"NAME\" = '" + dbName + "' AND \"TBLS\".\"TBL_NAME\"='" + tblName + "';";
-        LOG.debug("getSchema exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getSchema exec sql: {}", sql);
+        }
 
         Builder<FieldSchema> builder = ImmutableList.builder();
         int tableId = -1;
@@ -405,7 +446,9 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         String sql = "SELECT \"COLUMN_NAME\", \"TYPE_NAME\", \"COMMENT\""
                 + " FROM \"SDS\" join \"COLUMNS_V2\" on \"COLUMNS_V2\".\"CD_ID\" = \"SDS\".\"CD_ID\""
                 + " WHERE \"SDS\".\"SD_ID\" = " + sdId;
-        LOG.debug("getSchema exec sql: {}", sql);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getSchema exec sql: {}", sql);
+        }
 
         Builder<FieldSchema> colsExcludePartitionKeys = ImmutableList.builder();
         try (Connection conn = getConnection();
@@ -420,6 +463,15 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
             throw new HMSClientException("Can not get schema of SD_ID = " + sdId);
         }
         return colsExcludePartitionKeys.build();
+    }
+
+    private String getStringResult(ResultSet rs, String columnLabel) throws Exception {
+        String s = rs.getString(columnLabel);
+        if (rs.wasNull()) {
+            LOG.debug("get `NULL` value of field `" + columnLabel + "`.");
+            return "";
+        }
+        return s;
     }
 
     @Override
@@ -466,12 +518,53 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
+    protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+
+    public void createDatabase(DatabaseMetadata database) {
+        throw new NotImplementedException("PostgreSQL createDatabase not implemented");
+    }
+
+    public void dropDatabase(String dbName) {
+        throw new NotImplementedException("PostgreSQL dropDatabase not implemented");
+    }
+
+    public void createTable(TableMetadata hiveTable, boolean ignoreIfExists) {
+        throw new NotImplementedException("PostgreSQL createTable not implemented");
+    }
+
+    @Override
+    public void updateTableStatistics(String dbName,
+                                      String tableName,
+                                      Function<HivePartitionStatistics, HivePartitionStatistics> update) {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
-    protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
+    public void updatePartitionStatistics(String dbName,
+                                          String tableName,
+                                          String partitionName,
+                                          Function<HivePartitionStatistics, HivePartitionStatistics> update) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+
+    @Override
+    public void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+
+    @Override
+    public void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+
+    public void dropTable(String dbName, String tblName) {
+        throw new NotImplementedException("PostgreSQL dropTable not implemented");
+    }
+
+    @Override
+    public String getCatalogLocation(String catalogName) {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 }

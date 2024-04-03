@@ -56,6 +56,29 @@ class SegmentWriter;
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
 
+class SegmentFileCollection {
+public:
+    ~SegmentFileCollection();
+
+    Status add(int seg_id, io::FileWriterPtr&& writer);
+
+    // Return `nullptr` if no file writer matches `seg_id`
+    io::FileWriter* get(int seg_id) const;
+
+    // Close all file writers
+    Status close();
+
+    // Get segments file size in segment id order.
+    // `seg_id_offset` is the offset of the segment id relative to the subscript of `_file_writers`,
+    // for more details, see `Tablet::create_transient_rowset_writer`.
+    Result<std::vector<size_t>> segments_file_size(int seg_id_offset);
+
+private:
+    mutable SpinLock _lock;
+    std::unordered_map<int /* seg_id */, io::FileWriterPtr> _file_writers;
+    bool _closed {false};
+};
+
 class BaseBetaRowsetWriter : public RowsetWriter {
 public:
     BaseBetaRowsetWriter();
@@ -85,8 +108,6 @@ public:
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block) override;
 
-    Status build(RowsetSharedPtr& rowset) override;
-
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 
     PUniqueId load_id() override { return _context.load_id; }
@@ -102,7 +123,7 @@ public:
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard l(_segid_statistics_map_mutex);
         *segment_num_rows = _segment_num_rows;
         return Status::OK();
     }
@@ -126,36 +147,30 @@ public:
         return _context.partial_update_info && _context.partial_update_info->is_partial_update;
     }
 
-    const RowsetWriterContext& context() const override { return _context; }
-
 private:
-    virtual Status _generate_delete_bitmap(int32_t segment_id) = 0;
-    void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
-
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
+    Status _generate_delete_bitmap(int32_t segment_id);
+    Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit();
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
-    RowsetSharedPtr _build_tmp();
-
-    RowsetWriterContext _context;
-    std::shared_ptr<RowsetMeta> _rowset_meta;
+    Status _build_tmp(RowsetSharedPtr& rowset_ptr);
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
     std::mutex _segment_set_mutex;     // mutex for _segment_set
     int32_t _segment_start_id;         // basic write start from 0, partial update may be different
 
-    mutable SpinLock _lock; // protect following vectors.
+    SegmentFileCollection _seg_files;
+
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
-    std::vector<io::FileWriterPtr> _file_writers;
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
 
@@ -166,7 +181,7 @@ protected:
     // TODO rowset Zonemap
 
     std::map<uint32_t, SegmentStatistics> _segid_statistics_map;
-    std::mutex _segid_statistics_map_mutex;
+    mutable std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;
     bool _already_built = false;
@@ -190,6 +205,8 @@ public:
 
     ~BetaRowsetWriter() override;
 
+    Status build(RowsetSharedPtr& rowset) override;
+
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
 
@@ -198,8 +215,6 @@ public:
             KeyBoundsPB& key_bounds);
 
 private:
-    Status _generate_delete_bitmap(int32_t segment_id) override;
-
     // segment compaction
     friend class SegcompactionWorker;
     Status _close_file_writers() override;
@@ -225,11 +240,11 @@ private:
                                                   // already been segment compacted
     std::atomic<int32_t> _num_segcompacted {0};   // index for segment compaction
 
-    std::unique_ptr<SegcompactionWorker> _segcompaction_worker;
+    std::shared_ptr<SegcompactionWorker> _segcompaction_worker;
 
     // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction {false};
-    // enforce compare-and-swap on _is_doing_segcompaction
+    // enforce condition variable on _is_doing_segcompaction
     std::mutex _is_doing_segcompaction_lock;
     std::condition_variable _segcompacting_cond;
 

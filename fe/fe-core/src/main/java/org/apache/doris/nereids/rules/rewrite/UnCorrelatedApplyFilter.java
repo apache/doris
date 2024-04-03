@@ -69,7 +69,7 @@ public class UnCorrelatedApplyFilter extends OneRewriteRuleFactory {
             return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
                     ExpressionUtils.optionalAnd(correlatedPredicate), apply.getMarkJoinSlotReference(),
                     apply.isNeedAddSubOutputToProjects(),
-                    apply.isInProject(), apply.left(), child);
+                    apply.isInProject(), apply.isMarkJoinSlotNotNull(), apply.left(), child);
         }).toRule(RuleType.UN_CORRELATED_APPLY_FILTER);
     }
 }

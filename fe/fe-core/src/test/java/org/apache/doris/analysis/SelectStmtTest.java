@@ -301,9 +301,9 @@ public class SelectStmtTest {
         String commonExpr2 = "`t3`.`k3` = `t1`.`k3`";
         String commonExpr3 = "`t1`.`k1` = `t5`.`k1`";
         String commonExpr4 = "t5`.`k2` = 'United States'";
-        String betweenExpanded1 = "CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 100 AND CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 150";
-        String betweenExpanded2 = "CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 50 AND CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 100";
-        String betweenExpanded3 = "`t1`.`k4` >= 50 AND `t1`.`k4` <= 250";
+        String betweenExpanded1 = "(CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 100) AND (CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 150)";
+        String betweenExpanded2 = "(CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 50) AND (CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 100)";
+        String betweenExpanded3 = "(`t1`.`k4` >= 50) AND (`t1`.`k4` <= 250)";
 
         String rewrittenSql = stmt.toSql();
         Assert.assertTrue(rewrittenSql.contains(commonExpr1));
@@ -347,17 +347,17 @@ public class SelectStmtTest {
         SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
         stmt2.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         String fragment3 =
-                "(((`t1`.`k4` >= 50 AND `t1`.`k4` <= 300) AND `t2`.`k2` IN ('United States', 'United States1') "
+                "((((`t1`.`k4` >= 50) AND (`t1`.`k4` <= 300)) AND `t2`.`k2` IN ('United States', 'United States1') "
                         + "AND `t2`.`k3` IN ('CO', 'IL', 'MN', 'OH', 'MT', 'NM', 'TX', 'MO', 'MI')) "
-                        + "AND `t1`.`k1` = `t2`.`k3` AND `t2`.`k2` = 'United States' "
-                        + "AND `t2`.`k3` IN ('CO', 'IL', 'MN') AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 200 "
+                        + "AND (`t1`.`k1` = `t2`.`k3`) AND (`t2`.`k2` = 'United States') "
+                        + "AND `t2`.`k3` IN ('CO', 'IL', 'MN') AND (`t1`.`k4` >= 100) AND (`t1`.`k4` <= 200) "
                         + "OR "
-                        + "`t1`.`k1` = `t2`.`k1` AND `t2`.`k2` = 'United States1' "
-                        + "AND `t2`.`k3` IN ('OH', 'MT', 'NM') AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 300 "
+                        + "(`t1`.`k1` = `t2`.`k1`) AND (`t2`.`k2` = 'United States1') "
+                        + "AND `t2`.`k3` IN ('OH', 'MT', 'NM') AND (`t1`.`k4` >= 150) AND (`t1`.`k4` <= 300) "
                         + "OR "
-                        + "`t1`.`k1` = `t2`.`k1` AND `t2`.`k2` = 'United States' "
+                        + "(`t1`.`k1` = `t2`.`k1`) AND (`t2`.`k2` = 'United States') "
                         + "AND `t2`.`k3` IN ('TX', 'MO', 'MI') "
-                        + "AND `t1`.`k4` >= 50 AND `t1`.`k4` <= 250)";
+                        + "AND (`t1`.`k4` >= 50) AND (`t1`.`k4` <= 250))";
         Assert.assertTrue(stmt2.toSql().contains(fragment3));
 
         String sql3 = "select\n"
@@ -370,7 +370,7 @@ public class SelectStmtTest {
         SelectStmt stmt3 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql3, ctx);
         stmt3.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         Assert.assertFalse(
-                stmt3.toSql().contains("`t1`.`k1` = `t2`.`k3` OR `t1`.`k1` = `t2`.`k3` OR" + " `t1`.`k1` = `t2`.`k3`"));
+                stmt3.toSql().contains("(`t1`.`k1` = `t2`.`k3`) OR (`t1`.`k1` = `t2`.`k3`) OR" + " (`t1`.`k1` = `t2`.`k3`)"));
 
         String sql4 = "select\n"
                 + "   avg(t1.k4)\n"
@@ -381,7 +381,7 @@ public class SelectStmtTest {
                 + "   t1.k1 = t2.k2 or t1.k1 = t2.k3 or t1.k1 = t2.k3";
         SelectStmt stmt4 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql4, ctx);
         stmt4.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt4.toSql().contains("`t1`.`k1` = `t2`.`k2` OR `t1`.`k1` = `t2`.`k3`"));
+        Assert.assertTrue(stmt4.toSql().contains("(`t1`.`k1` = `t2`.`k2`) OR (`t1`.`k1` = `t2`.`k3`)"));
 
         String sql5 = "select\n"
                 + "   avg(t1.k4)\n"
@@ -435,7 +435,7 @@ public class SelectStmtTest {
         SelectStmt stmt9 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql9, ctx);
         stmt9.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         Assert.assertTrue(
-                stmt9.toSql().contains("`k1` = 'shutdown' AND `k4` < 1 OR `k1` = 'switchOff' AND `k4` >= 1"));
+                stmt9.toSql().contains("(`k1` = 'shutdown') AND (`k4` < 1) OR (`k1` = 'switchOff') AND (`k4` >= 1)"));
     }
 
     @Test
@@ -479,7 +479,7 @@ public class SelectStmtTest {
 
                 + "character_set_name,\n"
 
-                + "is_default collate utf8_general_ci = 'Yes' as is_default\n"
+                + "is_default collate utf8mb4_0900_bin = 'Yes' as is_default\n"
                 + "from information_schema.collations";
         dorisAssert.query(sql).explainQuery();
     }
@@ -528,21 +528,21 @@ public class SelectStmtTest {
         String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=true, ENABLE_FALLBACK_TO_ORIGINAL_PLANNER=false) */ * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         String explain = dorisAssert.query(sql1).explainQuery();
         Assert.assertTrue(explain
-                .contains("PREDICATES: __DORIS_DELETE_SIGN__ = 0"));
+                .contains("__DORIS_DELETE_SIGN__ = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
         String sql2 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         explain = dorisAssert.query(sql2).explainQuery();
         Assert.assertTrue(explain
-                .contains("PREDICATES: `db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("`db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         Assert.assertTrue(explain
-                .contains("PREDICATES: `db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("`db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
         String sql3 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1";
         Assert.assertTrue(dorisAssert.query(sql3).explainQuery()
-                .contains("PREDICATES: `db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("`db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         String sql4 = " SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 table2";
         Assert.assertTrue(dorisAssert.query(sql4).explainQuery()
-                .contains("PREDICATES: `table2`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
         new MockUp<Util>() {
             @Mock
             public boolean showHiddenColumns() {
@@ -961,6 +961,11 @@ public class SelectStmtTest {
         OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
+
+        String sql17 = "SELECT * FROM db1.table1 TABLESAMPLE(15 PERCENT) where siteid != 0";
+        OriginalPlanner planner17 = (OriginalPlanner) dorisAssert.query(sql17).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds17 = ((OlapScanNode) planner17.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(2, sampleTabletIds17.size());
         FeConstants.runningUnitTest = false;
     }
 

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -41,6 +42,9 @@ public class DbsProcDirTest {
     private Env env;
     @Mocked
     private InternalCatalog catalog;
+
+    @Mocked
+    GlobalTransactionMgr transactionMgr;
 
     // construct test case
     //  catalog
@@ -154,6 +158,18 @@ public class DbsProcDirTest {
                 minTimes = 0;
                 result = catalog;
 
+                env.getGlobalTransactionMgr();
+                minTimes = 0;
+                result = transactionMgr;
+
+                transactionMgr.getRunningTxnNums(db1.getId());
+                minTimes = 0;
+                result = 10;
+
+                transactionMgr.getRunningTxnNums(db2.getId());
+                minTimes = 0;
+                result = 20;
+
                 catalog.getDbNames();
                 minTimes = 0;
                 result = Lists.newArrayList("db1", "db2");
@@ -193,13 +209,13 @@ public class DbsProcDirTest {
         Assert.assertTrue(result instanceof BaseProcResult);
 
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
-                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "TransactionQuota", "LastUpdateTime"),
-                result.getColumnNames());
+                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
+                "LastUpdateTime"), result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
         rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "1024.000 TB",
-                FeConstants.null_string, "0", "1073741824", "1000", FeConstants.null_string));
+                FeConstants.null_string, "0", "1073741824", "10", "1000", FeConstants.null_string));
         rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "1024.000 TB",
-                FeConstants.null_string, "0", "1073741824", "1000", FeConstants.null_string));
+                FeConstants.null_string, "0", "1073741824", "20", "1000", FeConstants.null_string));
         Assert.assertEquals(rows, result.getRows());
     }
 
@@ -230,7 +246,8 @@ public class DbsProcDirTest {
         dir = new DbsProcDir(env, catalog);
         result = dir.fetchResult();
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
-                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "TransactionQuota", "LastUpdateTime"),
+                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
+                "LastUpdateTime"),
                 result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
         Assert.assertEquals(rows, result.getRows());

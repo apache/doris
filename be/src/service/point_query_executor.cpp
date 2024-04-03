@@ -20,12 +20,17 @@
 #include <fmt/format.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <stdlib.h>
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
@@ -50,27 +55,29 @@ namespace doris {
 Reusable::~Reusable() {}
 constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                      size_t block_size) {
+                      const TQueryOptions& query_options, size_t block_size) {
     SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
+    _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
-    for (int i = 0; i < _block_pool.size(); ++i) {
-        _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
+    for (auto& i : _block_pool) {
+        i = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
         // Name is useless but cost space
-        _block_pool[i]->clear_names();
+        i->clear_names();
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
     RowDescriptor row_desc(tuple_desc(), false);
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
+    RETURN_IF_ERROR(vectorized::VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
-        auto slot = tuple_desc()->slots()[i];
+        auto* slot = tuple_desc()->slots()[i];
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
     }
@@ -107,20 +114,19 @@ int64_t Reusable::mem_size() const {
 
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
     DCHECK(ExecEnv::GetInstance()->get_lookup_connection_cache() == nullptr);
-    LookupConnectionCache* res = new LookupConnectionCache(capacity);
+    auto* res = new LookupConnectionCache(capacity);
     return res;
 }
 
-RowCache::RowCache(int64_t capacity, int num_shards) {
-    // Create Row Cache
-    _cache = std::unique_ptr<Cache>(
-            new ShardedLRUCache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
-}
+RowCache::RowCache(int64_t capacity, int num_shards)
+        : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
+                         LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
+                         num_shards) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
     DCHECK(ExecEnv::GetInstance()->get_row_cache() == nullptr);
-    RowCache* res = new RowCache(capacity, num_shards);
+    auto* res = new RowCache(capacity, num_shards);
     return res;
 }
 
@@ -130,29 +136,38 @@ RowCache* RowCache::instance() {
 
 bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
     const std::string& encoded_key = key.encode();
-    auto lru_handle = _cache->lookup(encoded_key);
+    auto* lru_handle = LRUCachePolicy::lookup(encoded_key);
     if (!lru_handle) {
         // cache miss
         return false;
     }
-    *handle = CacheHandle(_cache.get(), lru_handle);
+    *handle = CacheHandle(this, lru_handle);
     return true;
 }
 
 void RowCache::insert(const RowCacheKey& key, const Slice& value) {
-    auto deleter = [](const doris::CacheKey& key, void* value) { free(value); };
     char* cache_value = static_cast<char*>(malloc(value.size));
     memcpy(cache_value, value.data, value.size);
+    auto* row_cache_value = new RowCacheValue;
+    row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto handle =
-            _cache->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
+    auto* handle = LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, value.size,
+                                          CachePriority::NORMAL);
     // handle will released
-    auto tmp = CacheHandle {_cache.get(), handle};
+    auto tmp = CacheHandle {this, handle};
 }
 
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
-    _cache->erase(encoded_key);
+    LRUCachePolicy::erase(encoded_key);
+}
+
+PointQueryExecutor::~PointQueryExecutor() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _tablet.reset();
+    _reusable.reset();
+    _result_block.reset();
+    _row_read_ctxs.clear();
 }
 
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
@@ -162,6 +177,10 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     // using cache
     __int128_t uuid =
             static_cast<__int128_t>(request->uuid().uuid_high()) << 64 | request->uuid().uuid_low();
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::QUERY,
+            fmt::format("PointQueryExecutor:{}#{}", uuid, request->tablet_id()));
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
     if (cache_handle != nullptr) {
@@ -181,20 +200,26 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                 reinterpret_cast<const uint8_t*>(request->output_expr().data()), &len, false,
                 &t_output_exprs));
         _reusable = reusable_ptr;
+        TQueryOptions t_query_options;
+        len = request->query_options().size();
+        if (request->has_query_options()) {
+            RETURN_IF_ERROR(deserialize_thrift_msg(
+                    reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
+                    &t_query_options));
+        }
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
-            RETURN_IF_ERROR(
-                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, s_preallocted_blocks_num));
+            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
+                                               s_preallocted_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
+            RETURN_IF_ERROR(
+                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options, 1));
         }
     }
-    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request->tablet_id());
-    if (_tablet == nullptr) {
-        LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
-                     << "] is not exist";
-        return Status::NotFound(fmt::format("tablet {} not exist", request->tablet_id()));
+    _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
+    if (request->has_version() && request->version() >= 0) {
+        _version = request->version();
     }
     RETURN_IF_ERROR(_init_keys(request));
     _result_block = _reusable->get_block();
@@ -203,6 +228,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
 }
 
 Status PointQueryExecutor::lookup_up() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     RETURN_IF_ERROR(_lookup_row_key());
     RETURN_IF_ERROR(_lookup_row_data());
     RETURN_IF_ERROR(_output_data());
@@ -264,6 +290,10 @@ Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     // 2. lookup row location
     Status st;
+    if (_version >= 0) {
+        CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+    }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -335,7 +365,7 @@ template <typename MysqlWriter>
 Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
                         PTabletKeyLookupResponse* response) {
     block.clear_names();
-    RETURN_IF_ERROR(mysql_writer.append_block(block));
+    RETURN_IF_ERROR(mysql_writer.write(block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;
     uint32_t len = 0;

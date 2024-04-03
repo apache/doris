@@ -65,7 +65,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn**, size_t, Arena*) const override {
+    void add(AggregateDataPtr __restrict place, const IColumn**, ssize_t, Arena*) const override {
         ++data(place).count;
     }
 
@@ -194,7 +194,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         data(place).count += !assert_cast<const ColumnNullable&>(*columns[0]).is_null_at(row_num);
     }

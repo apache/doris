@@ -17,6 +17,13 @@
 
 version: '3.3'
 
+networks:
+  doris--spark--network:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.47.0.0/24
+
 services:
   spark-master:
     image: bitnami/spark:3.2.0
@@ -26,6 +33,8 @@ services:
       - "7077:7077"
     environment:
       - SPARK_MASTER_HOST=spark-master
+    networks:
+      - doris--spark--network
 
   spark-worker-1:
     image: bitnami/spark:3.2.0
@@ -33,3 +42,5 @@ services:
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER=spark://spark-master:7077
+    networks:
+      - doris--spark--network

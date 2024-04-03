@@ -33,7 +33,7 @@ public:
 };
 
 class MultiCastDataStreamSinkOperator final
-        : public DataSinkOperator<MultiCastDataStreamSinkOperatorBuilder> {
+        : public DataSinkOperator<vectorized::MultiCastDataStreamSink> {
 public:
     MultiCastDataStreamSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
@@ -41,25 +41,16 @@ public:
     bool can_write() override { return _sink->can_write(); }
 };
 
-class MultiCastSinkDependency final : public Dependency {
-public:
-    using SharedState = MultiCastSharedState;
-    MultiCastSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "MultiCastSinkDependency", true, query_ctx) {}
-    ~MultiCastSinkDependency() override = default;
-};
-
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final
-        : public PipelineXSinkLocalState<MultiCastSinkDependency> {
+        : public PipelineXSinkLocalState<MultiCastSharedState> {
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSinkLocalState);
     MultiCastDataStreamSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
     friend class MultiCastDataStreamSinkOperatorX;
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
-    using Base = PipelineXSinkLocalState<MultiCastSinkDependency>;
+    using Base = PipelineXSinkLocalState<MultiCastSharedState>;
     using Parent = MultiCastDataStreamSinkOperatorX;
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     std::string name_suffix() override;
 
 private:
@@ -82,15 +73,14 @@ public:
               _sink(sink) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-        if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
+        if (in_block->rows() > 0 || eos) {
             COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-            auto st = local_state._shared_state->multi_cast_data_streamer.push(
-                    state, in_block, source_state == SourceState::FINISHED);
+            auto st =
+                    local_state._shared_state->multi_cast_data_streamer.push(state, in_block, eos);
             // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
             if (st.template is<ErrorCode::END_OF_FILE>()) {
                 return Status::OK();
@@ -100,20 +90,25 @@ public:
         return Status::OK();
     }
 
-    RowDescriptor& row_desc() override { return _row_desc; }
+    const RowDescriptor& row_desc() const override { return _row_desc; }
 
-    std::shared_ptr<MultiCastSharedState> create_multi_cast_data_streamer() {
-        auto multi_cast_data_streamer =
+    std::shared_ptr<BasicSharedState> create_shared_state() const override {
+        std::shared_ptr<BasicSharedState> ss =
                 std::make_shared<MultiCastSharedState>(_row_desc, _pool, _cast_sender_count);
-        return multi_cast_data_streamer;
+        ss->id = operator_id();
+        for (auto& dest : dests_id()) {
+            ss->related_op_ids.insert(dest);
+        }
+        return ss;
     }
+
     const TMultiCastDataStreamSink& sink_node() { return _sink; }
 
 private:
     friend class MultiCastDataStreamSinkLocalState;
     ObjectPool* _pool;
     RowDescriptor _row_desc;
-    int _cast_sender_count;
+    const int _cast_sender_count;
     const TMultiCastDataStreamSink& _sink;
     friend class MultiCastDataStreamSinkLocalState;
 };

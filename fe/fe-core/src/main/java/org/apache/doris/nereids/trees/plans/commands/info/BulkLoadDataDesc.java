@@ -330,4 +330,3 @@ public class BulkLoadDataDesc {
         return false;
     }
 }
-

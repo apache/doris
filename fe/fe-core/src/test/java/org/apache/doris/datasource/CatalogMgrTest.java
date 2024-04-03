@@ -38,14 +38,16 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.catalog.external.EsExternalTable;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.es.EsExternalCatalog;
+import org.apache.doris.datasource.es.EsExternalDatabase;
+import org.apache.doris.datasource.es.EsExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheKey;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.HivePartitionValues;
@@ -363,10 +365,6 @@ public class CatalogMgrTest extends TestWithFeService {
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
         env.changeCatalog(user2Ctx, switchHive.getCatalogName());
         Assert.assertEquals(user2Ctx.getDefaultCatalog(), "hive");
-        // user2 can grant select_priv to tpch.customer
-        GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on tpch.customer to 'user2'@'%';", user2Ctx);
-        auth.grant(user2GrantHiveTable);
 
         showCatalogSql = "SHOW CATALOGS";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);

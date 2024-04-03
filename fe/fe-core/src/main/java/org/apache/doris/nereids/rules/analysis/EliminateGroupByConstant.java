@@ -26,11 +26,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -54,23 +57,26 @@ public class EliminateGroupByConstant extends OneRewriteRuleFactory {
             List<Expression> groupByExprs = aggregate.getGroupByExpressions();
             List<NamedExpression> outputExprs = aggregate.getOutputExpressions();
             Set<Expression> slotGroupByExprs = Sets.newLinkedHashSet();
+            Map<Expression, Expression> constantExprsReplaceMap = new HashMap<>(groupByExprs.size());
             Expression lit = null;
             for (Expression expression : groupByExprs) {
                 // NOTICE: we should not use the expression after fold as new aggregate's output or group expr
                 //   because we rely on expression matching to replace subtree that same as group by expr in output
                 //   if we do constant folding before normalize aggregate, the subtree will change and matching fail
                 //   such as: select a + 1 + 2 + 3, sum(b) from t group by a + 1 + 2
-                Expression foldExpression = FoldConstantRule.INSTANCE.rewrite(expression, context);
+                Expression foldExpression = FoldConstantRule.evaluate(expression, context);
                 if (!foldExpression.isConstant()) {
                     slotGroupByExprs.add(expression);
                 } else {
+                    constantExprsReplaceMap.put(expression, foldExpression);
                     lit = expression;
                 }
             }
-            if (slotGroupByExprs.isEmpty() && lit != null && aggregate.getAggregateFunctions().isEmpty()) {
+            if (slotGroupByExprs.isEmpty() && lit != null) {
                 slotGroupByExprs.add(lit);
             }
-            return aggregate.withGroupByAndOutput(ImmutableList.copyOf(slotGroupByExprs), outputExprs);
+            return aggregate.withGroupByAndOutput(ImmutableList.copyOf(slotGroupByExprs),
+                    ExpressionUtils.replaceNamedExpressions(outputExprs, constantExprsReplaceMap));
         }).toRule(RuleType.ELIMINATE_GROUP_BY_CONSTANT);
     }
 }

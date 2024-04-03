@@ -1,3 +1,0 @@
-set global experimental_enable_nereids_planner=true;
-set global experimental_enable_pipeline_engine=true;
-set global runtime_filter_wait_time_ms=10000;

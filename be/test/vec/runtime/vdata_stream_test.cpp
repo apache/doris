@@ -150,8 +150,9 @@ TEST_F(VDataStreamTest, BasicTest) {
     doris::RowDescriptor row_desc(tuple_desc, false);
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
-                                     doris::TQueryGlobals(), nullptr);
-    runtime_stat.init_mem_trackers();
+                                     doris::TQueryGlobals(), nullptr, nullptr);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    runtime_stat.set_task_execution_context(task_ctx_lock);
     runtime_stat.set_desc_tbl(desc_tbl);
     runtime_stat.set_be_number(1);
     runtime_stat._exec_env = _object_pool.add(new ExecEnv);
@@ -169,9 +170,8 @@ TEST_F(VDataStreamTest, BasicTest) {
     int num_senders = 1;
     RuntimeProfile profile("profile");
     bool is_merge = false;
-    std::shared_ptr<QueryStatisticsRecvr> statistics = std::make_shared<QueryStatisticsRecvr>();
     auto recv = _instance.create_recvr(&runtime_stat, row_desc, uid, nid, num_senders, &profile,
-                                       is_merge, statistics);
+                                       is_merge);
 
     // Test Sender
     int sender_id = 1;
@@ -192,10 +192,8 @@ TEST_F(VDataStreamTest, BasicTest) {
         dest.__set_server(addr);
         dests.push_back(dest);
     }
-    bool send_query_statistics_with_every_batch = false;
     VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
-                             dests, send_query_statistics_with_every_batch);
-    sender.set_query_statistics(std::make_shared<QueryStatistics>());
+                             dests);
     static_cast<void>(sender.init(tsink));
     static_cast<void>(sender.prepare(&runtime_stat));
     static_cast<void>(sender.open(&runtime_stat));

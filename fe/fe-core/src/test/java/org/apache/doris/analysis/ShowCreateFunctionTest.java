@@ -34,28 +34,28 @@ public class ShowCreateFunctionTest extends TestWithFeService {
         createDatabase(dbName);
         useDatabase(dbName);
         createFunction(
-                "CREATE ALIAS FUNCTION id_masking(bigint) WITH PARAMETER(id) AS CONCAT(LEFT(id,3),'****',RIGHT(id,4));");
+                "CREATE ALIAS FUNCTION id_masking_create(bigint) WITH PARAMETER(id) AS CONCAT(LEFT(id,3),'****',RIGHT(id,4));");
 
         createFunction(
-                "CREATE GLOBAL ALIAS FUNCTION id_masking_global(bigint) WITH PARAMETER(id) AS CONCAT(LEFT(id,3),'****',RIGHT(id,4));");
+                "CREATE GLOBAL ALIAS FUNCTION id_masking_global_create(bigint) WITH PARAMETER(id) AS CONCAT(LEFT(id,3),'****',RIGHT(id,4));");
     }
 
 
     @Test
     public void testNormal() throws Exception {
-        String sql = "SHOW CREATE FUNCTION id_masking(bigint)";
+        String sql = "SHOW CREATE FUNCTION id_masking_create(bigint)";
         ShowResultSet showResultSet = showCreateFunction(sql);
         String showSql = showResultSet.getResultRows().get(0).get(1);
-        Assertions.assertTrue(showSql.contains("CREATE ALIAS FUNCTION id_masking(BIGINT) WITH PARAMETER(id)"));
+        Assertions.assertTrue(showSql.contains("CREATE ALIAS FUNCTION id_masking_create(BIGINT) WITH PARAMETER(id)"));
     }
 
     @Test
     public void testShowCreateGlobalFunction() throws Exception {
-        String sql = "SHOW CREATE GLOBAL FUNCTION id_masking_global(bigint)";
+        String sql = "SHOW CREATE GLOBAL FUNCTION id_masking_global_create(bigint)";
         ShowResultSet showResultSet = showCreateFunction(sql);
         String showSql = showResultSet.getResultRows().get(0).get(1);
         Assertions.assertTrue(
-                showSql.contains("CREATE GLOBAL ALIAS FUNCTION id_masking_global(BIGINT) WITH PARAMETER(id)"));
+                showSql.contains("CREATE GLOBAL ALIAS FUNCTION id_masking_global_create(BIGINT) WITH PARAMETER(id)"));
     }
 
 }

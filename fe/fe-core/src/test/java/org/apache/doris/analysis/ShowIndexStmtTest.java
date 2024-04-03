@@ -43,7 +43,7 @@ public class ShowIndexStmtTest {
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAccess(accessManager);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        MockedAuth.mockedConnectContext(ctx, "root", "%");
     }
 
     @Test

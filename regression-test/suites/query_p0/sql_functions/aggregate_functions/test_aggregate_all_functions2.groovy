@@ -67,7 +67,7 @@ suite("test_aggregate_all_functions2") {
     qt_select_intersect_count_1 """ select intersect_count(bitmap_from_array(array(1,2,3,4,5)),cast(k1 as string),1,2) from baseall; """ 
     qt_select_intersect_count_2 """ select intersect_count(bitmap_from_array(array(1,2,3,4,5)),k1,1,2) from baseall; """ 
     qt_select_percentile_approx1 """ select percentile_approx(k2,10001) from baseall; """ 
-    qt_select_percentile_array """ select percentile_array(k2,[0.3,0.5,0.9]) from baseall; """ 
+    qt_select_percentile_array """ select percentile_array(k2,[0.2,0.5,0.7]) from baseall; """ 
     qt_select_array_product """ select array_product(array(cast(k5 as decimalv3(30,10)))) from baseall order by k1; """ 
     qt_select_quantile_percent """ select QUANTILE_PERCENT(QUANTILE_UNION(TO_QUANTILE_STATE(k1,2048)),0.5) from baseall;  """ 
     qt_select_sum """ select sum(cast(k5 as decimalv3(38,18))) from baseall; """ 

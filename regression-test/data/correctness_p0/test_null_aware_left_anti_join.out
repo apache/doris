@@ -9,3 +9,17 @@
 
 -- !select --
 
+-- !anti_emtpy_right --
+\N
+1
+3
+
+-- !semi_emtpy_right --
+
+-- !select_2 --
+
+-- !semi_emtpy_right_false --
+\N	false
+1	false
+3	false
+

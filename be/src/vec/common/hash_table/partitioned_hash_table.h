@@ -97,17 +97,6 @@ public:
         }
     }
 
-    template <typename Func>
-    void ALWAYS_INLINE for_each_value(Func&& func) {
-        if (_is_partitioned) {
-            for (auto i = 0u; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                level1_sub_tables[i].for_each_value(func);
-            }
-        } else {
-            level0_sub_table.for_each_value(func);
-        }
-    }
-
     size_t size() {
         size_t count = 0;
         if (_is_partitioned) {

@@ -35,6 +35,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -211,12 +212,23 @@ public class UpdateStmt extends DdlStmt {
                 && !hasVariant) {
             isPartialUpdate = true;
         }
+        Optional<Column> sequenceMapCol = Optional.empty();
+        OlapTable olapTable = (OlapTable) targetTable;
+        if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null) {
+            sequenceMapCol = olapTable.getFullSchema().stream()
+                    .filter(col -> col.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findFirst();
+        }
         for (Column column : targetTable.getColumns()) {
             Expr expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             boolean existInExpr = false;
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
-                if (((SlotRef) lhs).getColumn().equals(column)) {
+                Column exprColumn = ((SlotRef) lhs).getColumn();
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = sequenceMapCol.isPresent()
+                        && exprColumn.equals(sequenceMapCol.get());
+                if (exprColumn.equals(column) || (olapTable.hasSequenceCol()
+                        && column.equals(olapTable.getSequenceCol()) && isSequenceMapColumn)) {
                     expr = setExpr.getChild(1);
                     existInExpr = true;
                 }

@@ -17,11 +17,8 @@
 
 package org.apache.doris.avro;
 
-import org.apache.doris.avro.AvroFileCache.AvroFileCacheKey;
-import org.apache.doris.avro.AvroFileCache.AvroFileMeta;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.thrift.TFileType;
 
@@ -70,10 +67,12 @@ public class AvroJNIScanner extends JniScanner {
     private StructField[] structFields;
     private ObjectInspector[] fieldInspectors;
     private String serde;
-    private AvroFileCacheKey avroFileCacheKey;
-    private AvroFileMeta avroFileMeta;
+    private AvroFileContext avroFileContext;
     private AvroWrapper<Pair<Integer, Long>> inputPair;
     private NullWritable ignore;
+    private Long splitStartOffset;
+    private Long splitSize;
+    private Long splitFileSize;
 
     /**
      * Call by JNI for get table data or get table schema
@@ -100,6 +99,9 @@ public class AvroJNIScanner extends JniScanner {
             this.fieldInspectors = new ObjectInspector[requiredFields.length];
             this.inputPair = new AvroWrapper<>(null);
             this.ignore = NullWritable.get();
+            this.splitStartOffset = Long.parseLong(requiredParams.get(AvroProperties.SPLIT_START_OFFSET));
+            this.splitSize = Long.parseLong(requiredParams.get(AvroProperties.SPLIT_SIZE));
+            this.splitFileSize = Long.parseLong(requiredParams.get(AvroProperties.SPLIT_FILE_SIZE));
         }
     }
 
@@ -163,22 +165,25 @@ public class AvroJNIScanner extends JniScanner {
         if (!isGetTableSchema) {
             initDataReader();
         }
-        this.avroReader.open(avroFileMeta, isGetTableSchema);
+        this.avroReader.open(avroFileContext, isGetTableSchema);
     }
 
     private void initDataReader() {
         try {
-            avroFileCacheKey = new AvroFileCacheKey(fileType.name(), uri);
-            avroFileMeta = AvroFileCache.getAvroFileMeta(avroFileCacheKey);
-            avroFileMeta.setRequiredFields(requiredFieldSet);
+            initAvroFileContext();
             initFieldInspector();
-            initTableInfo(requiredTypes, requiredFields, new ScanPredicate[0], fetchSize);
+            initTableInfo(requiredTypes, requiredFields, fetchSize);
         } catch (Exception e) {
             LOG.warn("Failed to init avro scanner. ", e);
             throw new RuntimeException(e);
-        } finally {
-            AvroFileCache.invalidateFileCache(avroFileCacheKey);
         }
+    }
+
+    private void initAvroFileContext() {
+        avroFileContext = new AvroFileContext();
+        avroFileContext.setRequiredFields(requiredFieldSet);
+        avroFileContext.setSplitStartOffset(splitStartOffset);
+        avroFileContext.setSplitSize(splitSize);
     }
 
     @Override
@@ -212,18 +217,7 @@ public class AvroJNIScanner extends JniScanner {
     @Override
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
         Schema schema = avroReader.getSchema();
-        addFileMeta2Cache(schema);
         return AvroTypeUtils.parseTableSchema(schema);
     }
 
-    /**
-     * Cache avro file metadata in order to push down the projection of the actual read data.
-     *
-     * @param schema avro file schema
-     */
-    private void addFileMeta2Cache(Schema schema) {
-        AvroFileMeta avroFileMeta = new AvroFileMeta(schema.toString());
-        AvroFileCacheKey avroFileCacheKey = new AvroFileCacheKey(fileType.name(), uri);
-        AvroFileCache.addFileMeta(avroFileCacheKey, avroFileMeta);
-    }
 }

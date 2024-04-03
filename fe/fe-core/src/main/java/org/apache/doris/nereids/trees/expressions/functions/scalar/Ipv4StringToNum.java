@@ -33,7 +33,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function Ipv4StringToNum
+ * scalar function ipv4_string_to_num
  */
 public class Ipv4StringToNum extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
@@ -43,13 +43,13 @@ public class Ipv4StringToNum extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(StringType.INSTANCE));
 
     public Ipv4StringToNum(Expression arg0) {
-        super("ipv4stringtonum", arg0);
+        super("ipv4_string_to_num", arg0);
     }
 
     @Override
     public Ipv4StringToNum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "ipv4stringtonum accept 1 args, but got %s (%s)",
+                "ipv4_string_to_num accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
         return new Ipv4StringToNum(children.get(0));

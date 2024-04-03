@@ -25,6 +25,7 @@
 #include "olap/iterators.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -40,6 +41,9 @@ struct RowSetSplits {
     // [pair.first, pair.second) segment in rs_reader, only effective in dup key
     // and pipeline
     std::pair<int, int> segment_offsets;
+
+    // RowRanges of each segment.
+    std::vector<RowRanges> segment_row_ranges;
 
     RowSetSplits(RowsetReaderSharedPtr rs_reader_)
             : rs_reader(rs_reader_), segment_offsets({0, 0}) {}

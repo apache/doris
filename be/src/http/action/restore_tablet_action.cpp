@@ -52,9 +52,9 @@ namespace doris {
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-RestoreTabletAction::RestoreTabletAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
-                                         TPrivilegeType::type type)
-        : HttpHandlerWithAuth(exec_env, hier, type) {}
+RestoreTabletAction::RestoreTabletAction(ExecEnv* exec_env, StorageEngine& engine,
+                                         TPrivilegeHier::type hier, TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type), _engine(engine) {}
 
 void RestoreTabletAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
@@ -88,7 +88,7 @@ Status RestoreTabletAction::_handle(HttpRequest* req) {
     int32_t schema_hash = std::atoi(schema_hash_str.c_str());
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet != nullptr) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
         return Status::InternalError("tablet already exists, can not restore.");
@@ -121,7 +121,7 @@ Status RestoreTabletAction::_reload_tablet(const std::string& key, const std::st
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
     Status res = Status::OK();
-    res = StorageEngine::instance()->load_header(shard_path, clone_req, /*restore=*/true);
+    res = _engine.load_header(shard_path, clone_req, /*restore=*/true);
     if (!res.ok()) {
         LOG(WARNING) << "load header failed. status: " << res << ", signature: " << tablet_id;
         // remove tablet data path in data path
@@ -175,7 +175,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
 
     std::string root_path =
             DataDir::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
-    DataDir* store = StorageEngine::instance()->get_store(root_path);
+    DataDir* store = _engine.get_store(root_path);
     std::string restore_schema_hash_path = store->get_absolute_tablet_path(
             tablet_meta.shard_id(), tablet_meta.tablet_id(), tablet_meta.schema_hash());
     RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(restore_schema_hash_path));
@@ -183,8 +183,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
     Status s = _create_hard_link_recursive(latest_tablet_path, restore_schema_hash_path);
     if (!s.ok()) {
         // do not check the status of delete_directory, return status of link operation
-        static_cast<void>(
-                io::global_local_filesystem()->delete_directory(restore_schema_hash_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(restore_schema_hash_path));
         return s;
     }
     std::string restore_shard_path = store->get_absolute_shard_path(tablet_meta.shard_id());
@@ -213,7 +212,7 @@ Status RestoreTabletAction::_create_hard_link_recursive(const std::string& src,
 bool RestoreTabletAction::_get_latest_tablet_path_from_trash(int64_t tablet_id, int32_t schema_hash,
                                                              std::string* path) {
     std::vector<std::string> tablet_paths;
-    std::vector<DataDir*> stores = StorageEngine::instance()->get_stores();
+    std::vector<DataDir*> stores = _engine.get_stores();
     for (auto& store : stores) {
         store->find_tablet_in_trash(tablet_id, &tablet_paths);
     }

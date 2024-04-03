@@ -76,7 +76,7 @@ public:
 };
 
 TEST_F(ParquetThriftReaderTest, normal) {
-    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
+    auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/localfile.parquet",
                                   &reader);
@@ -110,7 +110,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     //   `friend` map<string,string>,
     //   `mark` struct<math:int,english:int>)
 
-    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
+    auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/hive-complex.parquet",
                                   &reader);
@@ -266,10 +266,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     }
     if (need_convert) {
         std::unique_ptr<ParquetConvert::ColumnConvert> converter;
-        ParquetConvert::ConvertParams convert_params;
-        convert_params.init(field_schema, &ctz, doris_column->size());
         RETURN_IF_ERROR(ParquetConvert::get_converter(parquet_physical_type, show_type, data_type,
-                                                      &converter, &convert_params));
+                                                      &converter, field_schema, &ctz));
         auto x = doris_column->assume_mutable();
         RETURN_IF_ERROR(converter->convert(src_column, x));
     }
@@ -401,7 +399,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
      * `list_string` array<string>) // 14
      */
 
-    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
+    auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file(parquet_file, &reader);
     EXPECT_TRUE(st.ok());

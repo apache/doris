@@ -28,7 +28,22 @@ public:
     VLambdaFunctionExpr(const TExprNode& node) : VExpr(node) {}
     ~VLambdaFunctionExpr() override = default;
 
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
+        RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
+        _prepare_finished = true;
+        return Status::OK();
+    }
+
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        DCHECK(_prepare_finished);
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
+        _open_finished = true;
+        return Status::OK();
+    }
+
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        DCHECK(_open_finished || _getting_const_col);
         return get_child(0)->execute(context, block, result_column_id);
     }
 

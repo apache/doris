@@ -56,8 +56,9 @@ public class DateTimeFormatterUtils {
             .appendValue(ChronoField.HOUR_OF_DAY, 2)
             .appendLiteral(':').appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+            // microsecond maxWidth is 7, we may need 7th digit to judge overflow
             .appendOptional(new DateTimeFormatterBuilder()
-                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, true).toFormatter())
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Time without delimiter: HHmmss[.microsecond]
     private static final DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
@@ -65,7 +66,7 @@ public class DateTimeFormatterUtils {
             .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
             .appendOptional(new DateTimeFormatterBuilder()
-                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, true).toFormatter())
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // yyyymmdd
     private static final DateTimeFormatter BASIC_DATE_FORMATTER = new DateTimeFormatterBuilder()

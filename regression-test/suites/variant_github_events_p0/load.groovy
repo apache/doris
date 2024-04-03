@@ -15,8 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_github_events_p0", "variant_type"){
-    sql "set enable_memtable_on_sink_node = true"
+suite("regression_test_variant_github_events_p0", "nonConcurrent"){
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    } 
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -51,13 +59,14 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant,
+            v variant not null,
             INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
     """
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
@@ -69,6 +78,7 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
     // TODO fix compaction issue, this case could be stable
-    qt_sql """select cast(v:payload.pull_request.additions as int)  from github_events where cast(v:repo.name as string) = 'xpressengine/xe-core' order by 1;"""
+    qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
+    qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
 }

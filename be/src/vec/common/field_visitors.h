@@ -59,10 +59,10 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor(field.template get<DecimalField<Decimal32>>());
     case Field::Types::Decimal64:
         return visitor(field.template get<DecimalField<Decimal64>>());
-    case Field::Types::Decimal128:
-        return visitor(field.template get<DecimalField<Decimal128>>());
-    case Field::Types::Decimal128I:
-        return visitor(field.template get<DecimalField<Decimal128I>>());
+    case Field::Types::Decimal128V2:
+        return visitor(field.template get<DecimalField<Decimal128V2>>());
+    case Field::Types::Decimal128V3:
+        return visitor(field.template get<DecimalField<Decimal128V3>>());
     case Field::Types::Decimal256:
         return visitor(field.template get<DecimalField<Decimal256>>());
     case Field::Types::JSONB:

@@ -73,6 +73,10 @@ suite('load') {
             rowCount = sql "select count(*) from ${table}"
         }
         assertEquals(rows, rowCount[0][0])
+    }
+
+    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    tables.each { table, rows ->
         sql """SET query_timeout = 1800"""
         sql """ ANALYZE TABLE $table WITH SYNC """
     }

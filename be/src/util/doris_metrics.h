@@ -86,14 +86,11 @@ public:
     IntCounter* base_compaction_bytes_total = nullptr;
     IntCounter* cumulative_compaction_deltas_total = nullptr;
     IntCounter* cumulative_compaction_bytes_total = nullptr;
+    IntCounter* full_compaction_deltas_total = nullptr;
+    IntCounter* full_compaction_bytes_total = nullptr;
 
     IntCounter* publish_task_request_total = nullptr;
     IntCounter* publish_task_failed_total = nullptr;
-
-    IntCounter* meta_write_request_total = nullptr;
-    IntCounter* meta_write_request_duration_us = nullptr;
-    IntCounter* meta_read_request_total = nullptr;
-    IntCounter* meta_read_request_duration_us = nullptr;
 
     // Counters for segment_v2
     // -----------------------
@@ -193,14 +190,10 @@ public:
     UIntGauge* query_cache_sql_total_count = nullptr;
     UIntGauge* query_cache_partition_total_count = nullptr;
 
-    IntGauge* lru_cache_memory_bytes = nullptr;
-
     UIntGauge* scanner_thread_pool_queue_size = nullptr;
     UIntGauge* add_batch_task_queue_size = nullptr;
     UIntGauge* send_batch_thread_pool_thread_num = nullptr;
     UIntGauge* send_batch_thread_pool_queue_size = nullptr;
-    UIntGauge* download_cache_thread_pool_thread_num = nullptr;
-    UIntGauge* download_cache_thread_pool_queue_size = nullptr;
     UIntGauge* fragment_thread_pool_queue_size = nullptr;
 
     // Upload metrics

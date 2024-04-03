@@ -19,12 +19,13 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
-import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
@@ -32,11 +33,10 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -62,10 +62,20 @@ public class TableStatsMeta implements Writable {
     public long updatedTime;
 
     @SerializedName("colNameToColStatsMeta")
-    private ConcurrentMap<String, ColStatsMeta> colNameToColStatsMeta = new ConcurrentHashMap<>();
+    private ConcurrentMap<String, ColStatsMeta> deprecatedColNameToColStatsMeta = new ConcurrentHashMap<>();
+
+    @SerializedName("colToColStatsMeta")
+    // <IndexName, ColumnName> -> ColStatsMeta
+    private ConcurrentMap<Pair<String, String>, ColStatsMeta> colToColStatsMeta = new ConcurrentHashMap<>();
 
     @SerializedName("trigger")
     public JobType jobType;
+
+    @SerializedName("newPartitionLoaded")
+    public AtomicBoolean newPartitionLoaded = new AtomicBoolean(false);
+
+    @SerializedName("userInjected")
+    public boolean userInjected;
 
     @VisibleForTesting
     public TableStatsMeta() {
@@ -92,50 +102,34 @@ public class TableStatsMeta implements Writable {
         String json = Text.readString(dataInput);
         TableStatsMeta tableStats = GsonUtils.GSON.fromJson(json, TableStatsMeta.class);
         // Might be null counterintuitively, for compatible
-        if (tableStats.colNameToColStatsMeta == null) {
-            tableStats.colNameToColStatsMeta = new ConcurrentHashMap<>();
+        if (tableStats.colToColStatsMeta == null) {
+            tableStats.colToColStatsMeta = new ConcurrentHashMap<>();
+        }
+        if (tableStats.deprecatedColNameToColStatsMeta != null) {
+            tableStats.convertDeprecatedColStatsToNewVersion();
         }
         return tableStats;
     }
 
-    public long findColumnLastUpdateTime(String colName) {
-        ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(colName);
-        if (colStatsMeta == null) {
-            return 0;
-        }
-        return colStatsMeta.updatedTime;
+    public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+        return colToColStatsMeta.get(Pair.of(indexName, colName));
     }
 
-    public ColStatsMeta findColumnStatsMeta(String colName) {
-        return colNameToColStatsMeta.get(colName);
+    public void removeColumn(String indexName, String colName) {
+        colToColStatsMeta.remove(Pair.of(indexName, colName));
     }
 
-    public void removeColumn(String colName) {
-        colNameToColStatsMeta.remove(colName);
-    }
-
-    public Set<String> analyzeColumns() {
-        return colNameToColStatsMeta.keySet();
-    }
-
-    public void reset() {
-        updatedTime = 0;
-        colNameToColStatsMeta.values().forEach(ColStatsMeta::clear);
+    public Set<Pair<String, String>> analyzeColumns() {
+        return colToColStatsMeta.keySet();
     }
 
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
-        String colNameStr = analyzedJob.colName;
-        // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
-        // TODO: Refactor this later
-        if (analyzedJob.colName.startsWith("[") && analyzedJob.colName.endsWith("]")) {
-            colNameStr = colNameStr.substring(1, colNameStr.length() - 1);
-        }
-        List<String> cols = Arrays.stream(colNameStr.split(",")).map(String::trim).collect(Collectors.toList());
-        for (String col : cols) {
-            ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(col);
+        userInjected = analyzedJob.userInject;
+        for (Pair<String, String> colPair : analyzedJob.jobColumns) {
+            ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
-                colNameToColStatsMeta.put(col, new ColStatsMeta(updatedTime,
+                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime,
                         analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
             } else {
                 colStatsMeta.updatedTime = updatedTime;
@@ -147,14 +141,29 @@ public class TableStatsMeta implements Writable {
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
-                rowCount = tableIf.getRowCount();
+                rowCount = analyzedJob.emptyJob ? 0 : tableIf.getRowCount();
             }
-            if (analyzedJob.colToPartitions.keySet()
-                    .containsAll(tableIf.getBaseSchema().stream()
-                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                            .map(Column::getName).collect(Collectors.toSet()))) {
+            if (analyzedJob.emptyJob) {
+                return;
+            }
+            if (analyzedJob.jobColumns.containsAll(
+                    tableIf.getColumnIndexPairs(
+                    tableIf.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet())))) {
                 updatedRows.set(0);
+                newPartitionLoaded.set(false);
+            }
+            if (tableIf instanceof OlapTable) {
+                PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
+                if (partitionInfo != null && analyzedJob.jobColumns
+                        .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
+                            .map(Column::getName).collect(Collectors.toSet())))) {
+                    newPartitionLoaded.set(false);
+                }
             }
         }
+    }
+
+    public void convertDeprecatedColStatsToNewVersion() {
+        deprecatedColNameToColStatsMeta = null;
     }
 }

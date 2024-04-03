@@ -17,12 +17,13 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.LinkedHashSet;
@@ -35,18 +36,22 @@ import java.util.Set;
  * transform (a = 1) and (b > 2) and (a = 1)  to (a = 1) and (b > 2)
  * transform (a = 1) or (a = 1) to (a = 1)
  */
-public class DistinctPredicatesRule extends AbstractExpressionRewriteRule {
-
+public class DistinctPredicatesRule implements ExpressionPatternRuleFactory {
     public static final DistinctPredicatesRule INSTANCE = new DistinctPredicatesRule();
 
     @Override
-    public Expression visitCompoundPredicate(CompoundPredicate expr, ExpressionRewriteContext context) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesTopType(CompoundPredicate.class).then(DistinctPredicatesRule::distinct)
+        );
+    }
+
+    private static Expression distinct(CompoundPredicate expr) {
         List<Expression> extractExpressions = ExpressionUtils.extract(expr);
         Set<Expression> distinctExpressions = new LinkedHashSet<>(extractExpressions);
         if (distinctExpressions.size() != extractExpressions.size()) {
-            return ExpressionUtils.combine(expr.getClass(), Lists.newArrayList(distinctExpressions));
+            return ExpressionUtils.combineAsLeftDeepTree(expr.getClass(), Lists.newArrayList(distinctExpressions));
         }
         return expr;
     }
 }
-

@@ -6,7 +6,7 @@ SELECT
 FROM
 (
     SELECT
-        cast(repo:name as string) as repo_name,
+        cast(repo["name"] as string) as repo_name,
         CASE year(created_at) WHEN 2022 THEN 1 ELSE 0 END AS created_at_2022,
         CASE year(created_at) WHEN 2015 THEN 1 ELSE 0 END AS created_at_2015,
         created_at as created_at

@@ -122,7 +122,9 @@ public class ClusterStatePublisher {
                     LOG.warn("Backend execute publish failed. backend=[{}], message=[{}]",
                             addr, tAgentResult.getStatus().getErrorMsgs());
                 }
-                LOG.debug("Success publish to backend([{}])", addr);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Success publish to backend([{}])", addr);
+                }
                 // Publish here
                 handler.onResponse(node);
             } catch (TException e) {

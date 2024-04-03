@@ -330,6 +330,8 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING>();

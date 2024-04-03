@@ -27,19 +27,19 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable.DLAType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
 
@@ -51,8 +51,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
 
 public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -119,7 +117,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(db, "initialized", true);
 
         Deencapsulation.setField(tbl, "objectCreated", true);
-        Deencapsulation.setField(tbl, "rwLock", new ReentrantReadWriteLock(true));
         Deencapsulation.setField(tbl, "schemaUpdateTime", NOW);
         Deencapsulation.setField(tbl, "eventUpdateTime", 0);
         new Expectations(tbl) {
@@ -159,11 +156,14 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 // mock initSchemaAndUpdateTime and do nothing
                 tbl.initSchemaAndUpdateTime();
                 minTimes = 0;
+
+                tbl.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
         Deencapsulation.setField(tbl2, "objectCreated", true);
-        Deencapsulation.setField(tbl2, "rwLock", new ReentrantReadWriteLock(true));
         Deencapsulation.setField(tbl2, "schemaUpdateTime", NOW);
         Deencapsulation.setField(tbl2, "eventUpdateTime", 0);
         new Expectations(tbl2) {
@@ -203,11 +203,14 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 // mock initSchemaAndUpdateTime and do nothing
                 tbl2.initSchemaAndUpdateTime();
                 minTimes = 0;
+
+                tbl2.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
         Deencapsulation.setField(view1, "objectCreated", true);
-        Deencapsulation.setField(view1, "rwLock", new ReentrantReadWriteLock(true));
 
         new Expectations(view1) {
             {
@@ -254,11 +257,14 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view1.getUpdateTime();
                 minTimes = 0;
                 result = NOW;
+
+                view1.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
         Deencapsulation.setField(view2, "objectCreated", true);
-        Deencapsulation.setField(view2, "rwLock", new ReentrantReadWriteLock(true));
         new Expectations(view2) {
             {
                 view2.getId();
@@ -304,6 +310,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view2.getUpdateTime();
                 minTimes = 0;
                 result = NOW;
+
+                view2.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 

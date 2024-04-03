@@ -39,7 +39,6 @@ public class StatisticConstants {
     public static final int ID_LEN = 4096;
 
     public static final int STATISTICS_CACHE_REFRESH_INTERVAL = 24 * 2;
-
     /**
      * Bucket count fot column_statistics and analysis_job table.
      */
@@ -86,9 +85,9 @@ public class StatisticConstants {
     public static final int INSERT_MERGE_ITEM_COUNT = 200;
 
     public static final long HUGE_TABLE_DEFAULT_SAMPLE_ROWS = 4194304;
-    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 5L * 1024 * 1024 * 1024;
+    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 0;
 
-    public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(12);
+    public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(0);
 
     public static final long EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(24);
 
@@ -98,7 +97,7 @@ public class StatisticConstants {
 
     public static final int TASK_QUEUE_CAP = 10;
 
-    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 70;
+    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 100;
 
     public static final int MSG_LEN_UPPER_BOUND = 1024;
 

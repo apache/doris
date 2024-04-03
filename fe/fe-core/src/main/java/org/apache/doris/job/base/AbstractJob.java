@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
@@ -48,6 +50,9 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 @Data
@@ -76,15 +81,57 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     private JobExecutionConfiguration jobConfig;
 
     @SerializedName(value = "ctms")
-    private Long createTimeMs;
+    private long createTimeMs;
 
-    @SerializedName(value = "sql")
-    String executeSql;
+    @SerializedName(value = "stm")
+    private long startTimeMs = -1L;
 
     @SerializedName(value = "ftm")
     private long finishTimeMs;
 
-    private List<T> runningTasks = new ArrayList<>();
+    @SerializedName(value = "sql")
+    String executeSql;
+
+    public AbstractJob() {
+    }
+
+    public AbstractJob(Long id) {
+        jobId = id;
+    }
+
+    /**
+     * executeSql and runningTasks is not required for load.
+     */
+    public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
+                       String currentDbName,
+                       String comment,
+                       UserIdentity createUser,
+                       JobExecutionConfiguration jobConfig) {
+        this(jobId, jobName, jobStatus, currentDbName, comment,
+                createUser, jobConfig, System.currentTimeMillis(), null);
+    }
+
+    public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
+                       String currentDbName,
+                       String comment,
+                       UserIdentity createUser,
+                       JobExecutionConfiguration jobConfig,
+                       Long createTimeMs,
+                       String executeSql) {
+        this.jobId = jobId;
+        this.jobName = jobName;
+        this.jobStatus = jobStatus;
+        this.currentDbName = currentDbName;
+        this.comment = comment;
+        this.createUser = createUser;
+        this.jobConfig = jobConfig;
+        this.createTimeMs = createTimeMs;
+        this.executeSql = executeSql;
+    }
+
+    private CopyOnWriteArrayList<T> runningTasks = new CopyOnWriteArrayList<>();
+
+    private Lock createTaskLock = new ReentrantLock();
 
     @Override
     public void cancelAllTasks() throws JobException {
@@ -94,6 +141,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         for (T task : runningTasks) {
             task.cancel();
         }
+        runningTasks = new CopyOnWriteArrayList<>();
     }
 
     private static final ImmutableList<String> TITLE_NAMES =
@@ -109,13 +157,18 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                     .add("Comment")
                     .build();
 
+    protected static long getNextJobId() {
+        return System.nanoTime() + RandomUtils.nextInt();
+    }
+
     @Override
     public void cancelTaskById(long taskId) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             throw new JobException("no running task");
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
-                .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
+                .orElseThrow(() -> new JobException("Not found task id: " + taskId)).cancel();
+        runningTasks.removeIf(task -> task.getTaskId().equals(taskId));
         if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
             updateJobStatus(JobStatus.FINISHED);
         }
@@ -151,20 +204,30 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             log.info("job is not ready for scheduling, job id is {}", jobId);
             return new ArrayList<>();
         }
-        return createTasks(taskType, taskContext);
+        try {
+            //it's better to use tryLock and add timeout limit
+            createTaskLock.lock();
+            if (!isReadyForScheduling(taskContext)) {
+                log.info("job is not ready for scheduling, job id is {}", jobId);
+                return new ArrayList<>();
+            }
+            List<T> tasks = createTasks(taskType, taskContext);
+            tasks.forEach(task -> log.info("common create task, job id is {}, task id is {}", jobId, task.getTaskId()));
+            return tasks;
+        } finally {
+            createTaskLock.unlock();
+        }
     }
 
-    public void initTasks(List<? extends AbstractTask> tasks) {
+    public void initTasks(Collection<? extends T> tasks, TaskType taskType) {
         tasks.forEach(task -> {
-            task.setJobId(jobId);
-            task.setTaskId(getNextId());
+            task.setTaskType(taskType);
+            task.setJobId(getJobId());
             task.setCreateTimeMs(System.currentTimeMillis());
             task.setStatus(TaskStatus.PENDING);
         });
-        if (CollectionUtils.isEmpty(getRunningTasks())) {
-            setRunningTasks(new ArrayList<>());
-        }
-        getRunningTasks().addAll((Collection<? extends T>) tasks);
+        getRunningTasks().addAll(tasks);
+        this.startTimeMs = System.currentTimeMillis();
     }
 
     public void checkJobParams() {
@@ -182,11 +245,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (null == newJobStatus) {
             throw new IllegalArgumentException("jobStatus cannot be null");
         }
+        if (jobStatus == newJobStatus) {
+            return;
+        }
         String errorMsg = String.format("Can't update job %s status to the %s status",
                 jobStatus.name(), newJobStatus.name());
-        if (jobStatus == newJobStatus) {
-            throw new IllegalArgumentException(errorMsg);
-        }
         if (newJobStatus.equals(JobStatus.RUNNING) && !jobStatus.equals(JobStatus.PAUSED)) {
             throw new IllegalArgumentException(errorMsg);
         }
@@ -196,7 +259,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (newJobStatus.equals(JobStatus.FINISHED)) {
             this.finishTimeMs = System.currentTimeMillis();
         }
-        if (JobStatus.PAUSED.equals(newJobStatus)) {
+        if (JobStatus.PAUSED.equals(newJobStatus) || JobStatus.STOPPED.equals(newJobStatus)) {
             cancelAllTasks();
         }
         jobStatus = newJobStatus;
@@ -208,25 +271,38 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     public static AbstractJob readFields(DataInput in) throws IOException {
         String jsonJob = Text.readString(in);
         AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
-        job.setRunningTasks(new ArrayList<>());
+        job.runningTasks = new CopyOnWriteArrayList();
+        job.createTaskLock = new ReentrantLock();
         return job;
+    }
+
+    public void logCreateOperation() {
+        Env.getCurrentEnv().getEditLog().logCreateJob(this);
+    }
+
+    public void logDeleteOperation() {
+        Env.getCurrentEnv().getEditLog().logDeleteJob(this);
+    }
+
+    public void logUpdateOperation() {
+        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
     @Override
     public void onTaskFail(T task) throws JobException {
-        updateJobStatusIfEnd();
+        updateJobStatusIfEnd(false);
         runningTasks.remove(task);
     }
 
     @Override
     public void onTaskSuccess(T task) throws JobException {
-        updateJobStatusIfEnd();
+        updateJobStatusIfEnd(true);
         runningTasks.remove(task);
 
     }
 
 
-    private void updateJobStatusIfEnd() throws JobException {
+    private void updateJobStatusIfEnd(boolean taskSuccess) throws JobException {
         JobExecuteType executeType = getJobConfig().getExecuteType();
         if (executeType.equals(JobExecuteType.MANUAL)) {
             return;
@@ -234,7 +310,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         switch (executeType) {
             case ONE_TIME:
             case INSTANT:
-                Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
+                this.finishTimeMs = System.currentTimeMillis();
+                if (taskSuccess) {
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
+                } else {
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.STOPPED);
+                }
                 break;
             case RECURRING:
                 TimerDefinition timerDefinition = getJobConfig().getTimerDefinition();
@@ -303,7 +384,21 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         return builder.build();
     }
 
-    private static long getNextId() {
-        return System.nanoTime() + RandomUtils.nextInt();
+    @Override
+    public void onRegister() throws JobException {
+    }
+
+    @Override
+    public void onUnRegister() throws JobException {
+    }
+
+    @Override
+    public void onReplayCreate() throws JobException {
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay create scheduler job").build());
+    }
+
+    @Override
+    public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
     }
 }

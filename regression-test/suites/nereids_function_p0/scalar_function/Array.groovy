@@ -1260,4 +1260,18 @@ suite("nereids_scalar_fn_Array") {
     // array_zip
     sql "select array_zip([1], ['1'], [1.0])"
 
+    // array_range with datetime argument, sequence with int and datetime argument
+    qt_array_range_datetime1 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 day), interval kint day) from fn_test order by kdtmv2s1;"""
+    qt_array_range_datetime2 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 week), interval kint week) from fn_test order by kdtmv2s1;"""
+    qt_sequence_int_one_para """select sequence(kint) from fn_test order by kint;"""
+    qt_sequence_int_two_para """select sequence(kint, kint+2) from fn_test order by kint;"""
+    qt_sequence_int_three_para """select sequence(kint-1, kint+2, 1) from fn_test order by kint;"""
+    qt_sequence_datetime_default """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 day)) from fn_test order by kdtmv2s1;"""
+    qt_sequence_datetime_day """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 day), interval kint day) from fn_test order by kdtmv2s1;"""
+    qt_sequence_datetime_week """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 week), interval kint week) from fn_test order by kdtmv2s1;"""
+    qt_sequence_datetime_month """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+3 month), interval kint month) from fn_test order by kdtmv2s1;"""
+    qt_sequence_datetime_year """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+3 year), interval kint year) from fn_test order by kdtmv2s1;"""
+    qt_sequence_datetime_hour """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 hour), interval kint hour) from fn_test order by kdtmv2s1;"""
+    qt_sequence_datetime_minute """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 minute), interval kint minute) from fn_test order by kdtmv2s1;"""
+    qt_sequence_datetime_second """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint second), interval kint-1 second) from fn_test order by kdtmv2s1;"""
 }

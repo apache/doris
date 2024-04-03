@@ -75,8 +75,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             boolean conjunctsChanged = false;
             if (!notNullSlots.isEmpty()) {
                 for (Slot slot : notNullSlots) {
-                    Not isNotNull = new Not(new IsNull(slot));
-                    isNotNull.isGeneratedIsNotNull = true;
+                    Not isNotNull = new Not(new IsNull(slot), true);
                     conjunctsChanged |= conjuncts.add(isNotNull);
                 }
             }
@@ -107,9 +106,9 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             }
             if (conjunctsChanged) {
                 return filter.withConjuncts(conjuncts.stream().collect(ImmutableSet.toImmutableSet()))
-                        .withChildren(join.withJoinType(newJoinType));
+                        .withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
             }
-            return filter.withChildren(join.withJoinType(newJoinType));
+            return filter.withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
         }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
     }
 
@@ -135,13 +134,11 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
     private boolean createIsNotNullIfNecessary(EqualPredicate swapedEqualTo, Collection<Expression> container) {
         boolean containerChanged = false;
         if (swapedEqualTo.left().nullable()) {
-            Not not = new Not(new IsNull(swapedEqualTo.left()));
-            not.isGeneratedIsNotNull = true;
+            Not not = new Not(new IsNull(swapedEqualTo.left()), true);
             containerChanged |= container.add(not);
         }
         if (swapedEqualTo.right().nullable()) {
-            Not not = new Not(new IsNull(swapedEqualTo.right()));
-            not.isGeneratedIsNotNull = true;
+            Not not = new Not(new IsNull(swapedEqualTo.right()), true);
             containerChanged |= container.add(not);
         }
         return containerChanged;

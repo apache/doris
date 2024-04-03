@@ -17,7 +17,9 @@
 
 suite("push_down_count_through_join") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 
     sql """
         DROP TABLE IF EXISTS count_t;
@@ -46,7 +48,7 @@ suite("push_down_count_through_join") {
     sql "insert into count_t values (9, 3, null)"
     sql "insert into count_t values (10, null, null)"
 
-    sql "SET ENABLE_NEREIDS_RULES=push_down_count_through_join"
+    sql "SET ENABLE_NEREIDS_RULES=push_down_agg_through_join"
 
     qt_groupby_pushdown_basic """
         explain shape plan select count(t1.score) from count_t t1, count_t t2 where t1.id = t2.id group by t1.name;

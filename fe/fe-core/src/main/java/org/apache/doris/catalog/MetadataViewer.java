@@ -17,11 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
-import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowDataSkewStmt;
+import org.apache.doris.analysis.ShowReplicaDistributionStmt;
+import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.DdlException;
@@ -34,12 +34,13 @@ import com.google.common.collect.Maps;
 
 import java.text.DecimalFormat;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class MetadataViewer {
 
-    public static List<List<String>> getTabletStatus(AdminShowReplicaStatusStmt stmt) throws DdlException {
+    public static List<List<String>> getTabletStatus(ShowReplicaStatusStmt stmt) throws DdlException {
         return getTabletStatus(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions(),
                                stmt.getStatusFilter(), stmt.getOp());
     }
@@ -93,6 +94,8 @@ public class MetadataViewer {
 
                             } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
                                 status = ReplicaStatus.SCHEMA_ERROR;
+                            } else if (replica.isUserDrop()) {
+                                status = ReplicaStatus.DROP;
                             }
 
                             if (filterReplica(status, statusFilter, op)) {
@@ -109,6 +112,7 @@ public class MetadataViewer {
                             row.add(String.valueOf(replica.getSchemaHash()));
                             row.add(String.valueOf(replica.getVersionCount()));
                             row.add(String.valueOf(replica.isBad()));
+                            row.add(String.valueOf(replica.isUserDrop()));
                             row.add(replica.getState().name());
                             row.add(status.name());
                             result.add(row);
@@ -129,6 +133,7 @@ public class MetadataViewer {
                             row.add("-1");
                             row.add("-1");
                             row.add("-1");
+                            row.add(FeConstants.null_string);
                             row.add(FeConstants.null_string);
                             row.add(FeConstants.null_string);
                             row.add(ReplicaStatus.MISSING.name());
@@ -155,7 +160,7 @@ public class MetadataViewer {
         }
     }
 
-    public static List<List<String>> getTabletDistribution(AdminShowReplicaDistributionStmt stmt) throws DdlException {
+    public static List<List<String>> getTabletDistribution(ShowReplicaDistributionStmt stmt) throws DdlException {
         return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
@@ -263,55 +268,70 @@ public class MetadataViewer {
         List<List<String>> result = Lists.newArrayList();
         Env env = Env.getCurrentEnv();
 
-        if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
-            throw new DdlException("Should specify one and only one partitions");
-        }
-
         Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+
+        if (olapTable.getPartitionNames().isEmpty()) {
+            throw new DdlException("Can not find any partition from " + dbName + "." + tblName);
+        }
+
+        // patition -> isTmep
+        Map<String, Boolean> allPartionNames = new HashMap<>();
+        if (partitionNames == null) {
+            for (Partition p : olapTable.getPartitions()) {
+                allPartionNames.put(p.getName(), false);
+            }
+            for (Partition p : olapTable.getTempPartitions()) {
+                allPartionNames.put(p.getName(), true);
+            }
+        } else {
+            for (String name : partitionNames.getPartitionNames()) {
+                allPartionNames.put(name, partitionNames.isTemp());
+            }
+        }
 
         olapTable.readLock();
         try {
             Partition partition = null;
             // check partition
-            for (String partName : partitionNames.getPartitionNames()) {
-                partition = olapTable.getPartition(partName, partitionNames.isTemp());
+            for (Map.Entry<String, Boolean> partName : allPartionNames.entrySet()) {
+                partition = olapTable.getPartition(partName.getKey(), partName.getValue());
                 if (partition == null) {
                     throw new DdlException("Partition does not exist: " + partName);
                 }
-                break;
-            }
-            DistributionInfo distributionInfo = partition.getDistributionInfo();
-            List<Long> rowCountTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
-            List<Long> dataSizeTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
-            for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
-                rowCountTabletInfos.add(0L);
-                dataSizeTabletInfos.add(0L);
-            }
-
-            long totalSize = 0;
-            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                List<Long> tabletIds = mIndex.getTabletIdsInOrder();
-                for (int i = 0; i < tabletIds.size(); i++) {
-                    Tablet tablet = mIndex.getTablet(tabletIds.get(i));
-                    long rowCount = tablet.getRowCount(true);
-                    long dataSize = tablet.getDataSize(true);
-                    rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
-                    dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
-                    totalSize += dataSize;
+                DistributionInfo distributionInfo = partition.getDistributionInfo();
+                List<Long> rowCountTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+                List<Long> dataSizeTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+                for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
+                    rowCountTabletInfos.add(0L);
+                    dataSizeTabletInfos.add(0L);
                 }
-            }
 
-            // graph
-            for (int i = 0; i < distributionInfo.getBucketNum(); i++) {
-                List<String> row = Lists.newArrayList();
-                row.add(String.valueOf(i));
-                row.add(rowCountTabletInfos.get(i).toString());
-                row.add(dataSizeTabletInfos.get(i).toString());
-                row.add(graph(dataSizeTabletInfos.get(i), totalSize));
-                row.add(totalSize == dataSizeTabletInfos.get(i) ? (totalSize == 0L ? "0.00%" : "100.00%") :
-                        df.format((double) dataSizeTabletInfos.get(i) / totalSize));
-                result.add(row);
+                long totalSize = 0;
+                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    List<Long> tabletIds = mIndex.getTabletIdsInOrder();
+                    for (int i = 0; i < tabletIds.size(); i++) {
+                        Tablet tablet = mIndex.getTablet(tabletIds.get(i));
+                        long rowCount = tablet.getRowCount(true);
+                        long dataSize = tablet.getDataSize(true);
+                        rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
+                        dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
+                        totalSize += dataSize;
+                    }
+                }
+
+                // graph
+                for (int i = 0; i < distributionInfo.getBucketNum(); i++) {
+                    List<String> row = Lists.newArrayList();
+                    row.add(partName.getKey());
+                    row.add(String.valueOf(i));
+                    row.add(rowCountTabletInfos.get(i).toString());
+                    row.add(dataSizeTabletInfos.get(i).toString());
+                    row.add(graph(dataSizeTabletInfos.get(i), totalSize));
+                    row.add(totalSize == dataSizeTabletInfos.get(i) ? (totalSize == 0L ? "0.00%" : "100.00%") :
+                            df.format((double) dataSizeTabletInfos.get(i) / totalSize));
+                    result.add(row);
+                }
             }
         } finally {
             olapTable.readUnlock();

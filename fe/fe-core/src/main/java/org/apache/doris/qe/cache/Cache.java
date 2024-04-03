@@ -86,14 +86,18 @@ public abstract class Cache {
             return false;
         }
         if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
-            LOG.debug("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize(),
-                    Config.cache_result_max_row_count);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize(),
+                        Config.cache_result_max_row_count);
+            }
             rowBatchBuilder.clear();
             disableCache = true;
             return false;
         } else if (rowBatchBuilder.getDataSize() > Config.cache_result_max_data_size) {
-            LOG.debug("can not be cached. rowbatch data size {} is more than {}", rowBatchBuilder.getDataSize(),
-                    Config.cache_result_max_data_size);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("can not be cached. rowbatch data size {} is more than {}", rowBatchBuilder.getDataSize(),
+                        Config.cache_result_max_data_size);
+            }
             rowBatchBuilder.clear();
             disableCache = true;
             return false;

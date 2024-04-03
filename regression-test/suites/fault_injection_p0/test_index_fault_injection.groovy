@@ -130,16 +130,16 @@ suite("test_index_failure_injection", "nonConcurrent") {
         create_httplogs_unique_table.call(testTable_unique)
 
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexWriter._set_fulltext_data_out_nullptr")
+            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexWriter._set_bkd_data_out_nullptr")
             load_httplogs_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexWriter._set_fulltext_data_out_nullptr")
+            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexWriter._set_bkd_data_out_nullptr")
         }
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexWriter._throw_clucene_error_in_bkd_writer_close")
+            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close")
             load_httplogs_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexWriter._throw_clucene_error_in_bkd_writer_close")
+            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close")
         }
         qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
     } finally {

@@ -24,6 +24,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
@@ -81,7 +82,7 @@ public:
     std::unordered_map<uint32_t, std::shared_ptr<roaring::Roaring>> delete_bitmap;
 
     std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
-            std::make_shared<AndBlockColumnPredicate>();
+            AndBlockColumnPredicate::create_shared();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     std::vector<ColumnPredicate*> column_predicates;
@@ -96,9 +97,11 @@ public:
     int block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
 
     TabletSchemaSPtr tablet_schema = nullptr;
+    bool enable_unique_key_merge_on_write = false;
     bool record_rowids = false;
     // flag for enable topn opt
     bool use_topn_opt = false;
+    std::vector<int> topn_filter_source_node_ids;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
@@ -115,6 +118,7 @@ public:
     int32_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    RowRanges row_ranges;
 };
 
 class RowwiseIterator;

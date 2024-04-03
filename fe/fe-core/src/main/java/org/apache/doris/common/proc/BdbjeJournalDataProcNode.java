@@ -29,7 +29,7 @@ import com.google.common.collect.Lists;
 public class BdbjeJournalDataProcNode implements ProcNodeInterface  {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JournalId").add("OpType").add("Data").build();
+            .add("JournalId").add("OpType").add("Size").add("Data").build();
 
     private String dbName;
     private Long journalId;
@@ -53,7 +53,8 @@ public class BdbjeJournalDataProcNode implements ProcNodeInterface  {
 
         short opCode = entity.entity == null ? -1 : entity.entity.getOpCode();
         String data = entity.entity == null ? entity.errMsg : entity.entity.getData().toString();
-        result.addRow(Lists.newArrayList(entity.journalId.toString(), OperationType.getOpName(opCode), data));
+        result.addRow(Lists.newArrayList(entity.journalId.toString(),
+                    OperationType.getOpName(opCode), entity.size.toString(), data));
 
         return result;
     }

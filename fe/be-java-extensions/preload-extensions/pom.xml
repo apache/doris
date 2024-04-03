@@ -60,6 +60,8 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
+            <!-- Must be provided, we use hadoop_libs in BE's 3rd party instead -->
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.hudi</groupId>
@@ -138,6 +140,12 @@ under the License.
             <artifactId>spark-sql_${scala.binary.version}</artifactId>
             <version>${spark.version}</version>
             <scope>compile</scope>
+            <exclusions>
+                <exclusion>
+                    <artifactId>hadoop-client-api</artifactId>
+                    <groupId>org.apache.hadoop</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.spark</groupId>
@@ -158,6 +166,10 @@ under the License.
                 <exclusion>
                     <groupId>org.codehaus.janino</groupId>
                     <artifactId>commons-compiler</artifactId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>antlr4-runtime</artifactId>
+                    <groupId>org.antlr</groupId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -220,6 +232,18 @@ under the License.
             <artifactId>hadoop-cos</artifactId>
             <version>3.3.5</version>
         </dependency>
+        <!-- For BE Paimon OSS/S3 Access -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-s3</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-oss</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -228,23 +252,30 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>make-assembly-project</id>
                         <phase>package</phase>
                         <goals>
                             <goal>single</goal>
                         </goals>
+                        <configuration>
+                            <descriptors>
+                            <descriptor>src/main/resources/package-proj.xml</descriptor>
+                            </descriptors>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>make-assembly-deps</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                        <configuration>
+                            <descriptors>
+                            <descriptor>src/main/resources/package-deps.xml</descriptor>
+                            </descriptors>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

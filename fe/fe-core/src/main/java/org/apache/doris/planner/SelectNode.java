@@ -93,7 +93,9 @@ public class SelectNode extends PlanNode {
         } else {
             this.cardinality = Math.round(cardinality * selectivity);
         }
-        LOG.debug("stats Select: cardinality={}", this.cardinality);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Select: cardinality={}", this.cardinality);
+        }
     }
 
     @Override

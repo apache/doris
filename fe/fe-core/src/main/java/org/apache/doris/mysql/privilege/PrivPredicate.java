@@ -54,6 +54,10 @@ public class PrivPredicate {
     public static final PrivPredicate ADMIN = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV),
             Operator.OR);
 
+    public static final PrivPredicate ADMIN_OR_NODE = PrivPredicate.of(
+            PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV),
+            Operator.OR);
+
     // load
     public static final PrivPredicate LOAD = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
             Privilege.LOAD_PRIV),
@@ -61,22 +65,35 @@ public class PrivPredicate {
 
     // alter
     public static final PrivPredicate ALTER = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.ALTER_PRIV),
+                    Privilege.ALTER_PRIV),
             Operator.OR);
 
     // create
     public static final PrivPredicate CREATE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.CREATE_PRIV),
+                    Privilege.CREATE_PRIV),
+            Operator.OR);
+
+    // alter create
+    public static final PrivPredicate ALTER_CREATE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                    Privilege.ALTER_PRIV,
+                    Privilege.CREATE_PRIV),
+            Operator.OR);
+
+    // alter create drop
+    public static final PrivPredicate ALTER_CREATE_DROP = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                    Privilege.ALTER_PRIV,
+                    Privilege.CREATE_PRIV,
+                    Privilege.DROP_PRIV),
             Operator.OR);
 
     // drop
     public static final PrivPredicate DROP = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.DROP_PRIV),
+                    Privilege.DROP_PRIV),
             Operator.OR);
 
     // select
     public static final PrivPredicate SELECT = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.SELECT_PRIV),
+                    Privilege.SELECT_PRIV),
             Operator.OR);
 
     // operator
@@ -85,8 +102,8 @@ public class PrivPredicate {
 
     // resource/workloadGroup usage
     public static final PrivPredicate USAGE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.USAGE_PRIV),
-            Operator.OR);
+            Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV, Privilege.STAGE_USAGE_PRIV), Operator.OR);
+
 
     // all
     public static final PrivPredicate ALL = PrivPredicate.of(PrivBitSet.of(Privilege.NODE_PRIV,
@@ -96,7 +113,9 @@ public class PrivPredicate {
             Privilege.ALTER_PRIV,
             Privilege.CREATE_PRIV,
             Privilege.DROP_PRIV,
-            Privilege.USAGE_PRIV),
+            Privilege.USAGE_PRIV,
+            Privilege.CLUSTER_USAGE_PRIV,
+            Privilege.STAGE_USAGE_PRIV),
             Operator.OR);
 
     private PrivBitSet privs;

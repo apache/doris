@@ -19,7 +19,9 @@
 
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
+#include <bvar/bvar.h>
 #include <fmt/format.h>
+#include <gen_cpp/cloud.pb.h>
 #include <stdint.h>
 
 #include <map>
@@ -44,15 +46,15 @@ class Adder;
 namespace doris {
 
 namespace s3_bvar {
-extern bvar::Adder<uint64_t> s3_get_total;
-extern bvar::Adder<uint64_t> s3_put_total;
-extern bvar::Adder<uint64_t> s3_delete_total;
-extern bvar::Adder<uint64_t> s3_head_total;
-extern bvar::Adder<uint64_t> s3_multi_part_upload_total;
-extern bvar::Adder<uint64_t> s3_list_total;
-extern bvar::Adder<uint64_t> s3_list_object_versions_total;
-extern bvar::Adder<uint64_t> s3_get_bucket_version_total;
-extern bvar::Adder<uint64_t> s3_copy_object_total;
+extern bvar::LatencyRecorder s3_get_latency;
+extern bvar::LatencyRecorder s3_put_latency;
+extern bvar::LatencyRecorder s3_delete_latency;
+extern bvar::LatencyRecorder s3_head_latency;
+extern bvar::LatencyRecorder s3_multi_part_upload_latency;
+extern bvar::LatencyRecorder s3_list_latency;
+extern bvar::LatencyRecorder s3_list_object_versions_latency;
+extern bvar::LatencyRecorder s3_get_bucket_version_latency;
+extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 class S3URI;
@@ -66,42 +68,51 @@ const static std::string S3_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
 const static std::string S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
 const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
 
-struct S3Conf {
+struct S3ClientConf {
+    std::string endpoint;
+    std::string region;
     std::string ak;
     std::string sk;
     std::string token;
-    std::string endpoint;
-    std::string region;
-    std::string bucket;
-    std::string prefix;
     int max_connections = -1;
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
     bool use_virtual_addressing = true;
 
-    std::string to_string() const {
-        return fmt::format(
-                "(ak={}, sk=*, token={}, endpoint={}, region={}, bucket={}, prefix={}, "
-                "max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, "
-                "use_virtual_addressing={})",
-                ak, token, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
-                connect_timeout_ms, use_virtual_addressing);
-    }
-
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
-        hash_code += Fingerprint(ak);
-        hash_code += Fingerprint(sk);
-        hash_code += Fingerprint(token);
-        hash_code += Fingerprint(endpoint);
-        hash_code += Fingerprint(region);
-        hash_code += Fingerprint(bucket);
-        hash_code += Fingerprint(prefix);
-        hash_code += Fingerprint(max_connections);
-        hash_code += Fingerprint(request_timeout_ms);
-        hash_code += Fingerprint(connect_timeout_ms);
-        hash_code += Fingerprint(use_virtual_addressing);
+        hash_code ^= Fingerprint(ak);
+        hash_code ^= Fingerprint(sk);
+        hash_code ^= Fingerprint(token);
+        hash_code ^= Fingerprint(endpoint);
+        hash_code ^= Fingerprint(region);
+        hash_code ^= Fingerprint(max_connections);
+        hash_code ^= Fingerprint(request_timeout_ms);
+        hash_code ^= Fingerprint(connect_timeout_ms);
+        hash_code ^= Fingerprint(use_virtual_addressing);
         return hash_code;
+    }
+
+    std::string to_string() const {
+        return fmt::format(
+                "(ak={}, token={}, endpoint={}, region={}, max_connections={}, "
+                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}",
+                ak, token, endpoint, region, max_connections, request_timeout_ms,
+                connect_timeout_ms, use_virtual_addressing);
+    }
+};
+
+struct S3Conf {
+    std::string bucket;
+    std::string prefix;
+    S3ClientConf client_conf;
+
+    bool sse_enabled = false;
+    cloud::ObjectStoreInfoPB::Provider provider;
+
+    std::string to_string() const {
+        return fmt::format("(bucket={}, prefix={}, client_conf={})", bucket, prefix,
+                           client_conf.to_string());
     }
 };
 
@@ -111,11 +122,7 @@ public:
 
     static S3ClientFactory& instance();
 
-    std::shared_ptr<Aws::S3::S3Client> create(const S3Conf& s3_conf);
-
-    static bool is_s3_conf_valid(const std::map<std::string, std::string>& prop);
-
-    static bool is_s3_conf_valid(const S3Conf& s3_conf);
+    std::shared_ptr<Aws::S3::S3Client> create(const S3ClientConf& s3_conf);
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
                                                 const S3URI& s3_uri, S3Conf* s3_conf);
@@ -132,10 +139,12 @@ public:
 
 private:
     S3ClientFactory();
+    static std::string get_valid_ca_cert_path();
 
     Aws::SDKOptions _aws_options;
     std::mutex _lock;
     std::unordered_map<uint64_t, std::shared_ptr<Aws::S3::S3Client>> _cache;
+    std::string _ca_cert_file_path;
 };
 
 } // end namespace doris

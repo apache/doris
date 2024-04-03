@@ -453,7 +453,9 @@ public class RuntimeProfile {
             if (tmp != null) {
                 ret.add(profile.getChildMap().get(profileName));
             } else {
-                LOG.debug("could not find {} from {}", profileName, profile.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("could not find {} from {}", profileName, profile.toString());
+                }
             }
         }
         return ret;

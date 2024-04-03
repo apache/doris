@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
@@ -43,9 +43,10 @@ public class InferJoinNotNull extends OneRewriteRuleFactory {
         // TODO: maybe consider ANTI?
         return logicalJoin(any(), any())
             .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
+            .whenNot(LogicalJoin::isMarkJoin)
             .thenApply(ctx -> {
                 LogicalJoin<Plan, Plan> join = ctx.root;
-                Set<Expression> conjuncts = new HashSet<>();
+                Set<Expression> conjuncts = new LinkedHashSet<>();
                 conjuncts.addAll(join.getHashJoinConjuncts());
                 conjuncts.addAll(join.getOtherJoinConjuncts());
 

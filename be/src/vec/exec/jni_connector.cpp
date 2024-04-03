@@ -44,33 +44,29 @@ class RuntimeProfile;
 
 namespace doris::vectorized {
 
-#define FOR_FIXED_LENGTH_TYPES(M)                                     \
-    M(TypeIndex::Int8, ColumnVector<Int8>, Int8)                      \
-    M(TypeIndex::UInt8, ColumnVector<UInt8>, UInt8)                   \
-    M(TypeIndex::Int16, ColumnVector<Int16>, Int16)                   \
-    M(TypeIndex::UInt16, ColumnVector<UInt16>, UInt16)                \
-    M(TypeIndex::Int32, ColumnVector<Int32>, Int32)                   \
-    M(TypeIndex::UInt32, ColumnVector<UInt32>, UInt32)                \
-    M(TypeIndex::Int64, ColumnVector<Int64>, Int64)                   \
-    M(TypeIndex::UInt64, ColumnVector<UInt64>, UInt64)                \
-    M(TypeIndex::Int128, ColumnVector<Int128>, Int128)                \
-    M(TypeIndex::Float32, ColumnVector<Float32>, Float32)             \
-    M(TypeIndex::Float64, ColumnVector<Float64>, Float64)             \
-    M(TypeIndex::Decimal128, ColumnDecimal<Decimal<Int128>>, Int128)  \
-    M(TypeIndex::Decimal128I, ColumnDecimal<Decimal<Int128>>, Int128) \
-    M(TypeIndex::Decimal32, ColumnDecimal<Decimal<Int32>>, Int32)     \
-    M(TypeIndex::Decimal64, ColumnDecimal<Decimal<Int64>>, Int64)     \
-    M(TypeIndex::Date, ColumnVector<Int64>, Int64)                    \
-    M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)                \
-    M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)                \
+#define FOR_FIXED_LENGTH_TYPES(M)                                      \
+    M(TypeIndex::Int8, ColumnVector<Int8>, Int8)                       \
+    M(TypeIndex::UInt8, ColumnVector<UInt8>, UInt8)                    \
+    M(TypeIndex::Int16, ColumnVector<Int16>, Int16)                    \
+    M(TypeIndex::UInt16, ColumnVector<UInt16>, UInt16)                 \
+    M(TypeIndex::Int32, ColumnVector<Int32>, Int32)                    \
+    M(TypeIndex::UInt32, ColumnVector<UInt32>, UInt32)                 \
+    M(TypeIndex::Int64, ColumnVector<Int64>, Int64)                    \
+    M(TypeIndex::UInt64, ColumnVector<UInt64>, UInt64)                 \
+    M(TypeIndex::Int128, ColumnVector<Int128>, Int128)                 \
+    M(TypeIndex::Float32, ColumnVector<Float32>, Float32)              \
+    M(TypeIndex::Float64, ColumnVector<Float64>, Float64)              \
+    M(TypeIndex::Decimal128V2, ColumnDecimal<Decimal<Int128>>, Int128) \
+    M(TypeIndex::Decimal128V3, ColumnDecimal<Decimal<Int128>>, Int128) \
+    M(TypeIndex::Decimal32, ColumnDecimal<Decimal<Int32>>, Int32)      \
+    M(TypeIndex::Decimal64, ColumnDecimal<Decimal<Int64>>, Int64)      \
+    M(TypeIndex::Date, ColumnVector<Int64>, Int64)                     \
+    M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)                 \
+    M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)                 \
     M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
 
 JniConnector::~JniConnector() {
-    Status st = close();
-    if (!st.ok()) {
-        // Ensure successful resource release
-        LOG(FATAL) << "Failed to release jni resource: " << st.to_string();
-    }
+    static_cast<void>(close());
 }
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
@@ -102,17 +98,20 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
 
 Status JniConnector::init(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _generate_predicates(colname_to_value_range);
-    if (_predicates_length != 0 && _predicates != nullptr) {
-        int64_t predicates_address = (int64_t)_predicates.get();
-        // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
-        // serialized predicates in java side.
-        _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
-    }
+    // TODO: This logic need to be changed.
+    // See the comment of "predicates" field in JniScanner.java
+
+    // _generate_predicates(colname_to_value_range);
+    // if (_predicates_length != 0 && _predicates != nullptr) {
+    //     int64_t predicates_address = (int64_t)_predicates.get();
+    //     // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
+    //     // serialized predicates in java side.
+    //     _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
+    // }
     return Status::OK();
 }
 
-Status JniConnector::get_nex_block(Block* block, size_t* read_rows, bool* eof) {
+Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     // Call org.apache.doris.common.jni.JniScanner#getNextBatchMeta
     // return the address of meta information
     JNIEnv* env = nullptr;
@@ -169,32 +168,6 @@ Status JniConnector::close() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         if (_scanner_opened) {
-            // update scanner metrics
-            for (const auto& metric : get_statistics(env)) {
-                std::vector<std::string> type_and_name = split(metric.first, ":");
-                if (type_and_name.size() != 2) {
-                    LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
-                                 << "'metricType:metricName'";
-                    continue;
-                }
-                long metric_value = std::stol(metric.second);
-                RuntimeProfile::Counter* scanner_counter;
-                if (type_and_name[0] == "timer") {
-                    scanner_counter =
-                            ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
-                } else if (type_and_name[0] == "counter") {
-                    scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
-                                                        _connector_name.c_str());
-                } else if (type_and_name[0] == "bytes") {
-                    scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
-                                                        _connector_name.c_str());
-                } else {
-                    LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
-                    continue;
-                }
-                COUNTER_UPDATE(scanner_counter, metric_value);
-            }
-
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
@@ -205,8 +178,9 @@ Status JniConnector::close() {
         _closed = true;
         jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {
-            LOG(WARNING) << "Failed to release jni resource: "
-                         << JniUtil::GetJniExceptionMsg(env).to_string();
+            // Ensure successful resource release
+            LOG(FATAL) << "Failed to release jni resource: "
+                       << JniUtil::GetJniExceptionMsg(env).to_string();
         }
     }
     return Status::OK();
@@ -215,11 +189,14 @@ Status JniConnector::close() {
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_IF_ERROR(
             JniUtil::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-    if (_jni_scanner_cls == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
+    if (_jni_scanner_cls == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
         return Status::InternalError("Fail to get JniScanner class.");
     }
     RETURN_ERROR_IF_EXC(env);
+
     jmethodID scanner_constructor =
             env->GetMethodID(_jni_scanner_cls, "<init>", "(ILjava/util/Map;)V");
     RETURN_ERROR_IF_EXC(env);
@@ -228,6 +205,10 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     jobject hashmap_object = JniUtil::convert_to_java_map(env, _scanner_params);
     jobject jni_scanner_obj =
             env->NewObject(_jni_scanner_cls, scanner_constructor, batch_size, hashmap_object);
+
+    RETURN_ERROR_IF_EXC(env);
+
+    // prepare constructor parameters
     env->DeleteLocalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
 
@@ -249,13 +230,10 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
 
 Status JniConnector::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
     if (table_address == 0) {
-        return Status::OK();
+        return Status::InternalError("table_address is 0");
     }
     TableMetaAddress table_meta(table_address);
     long num_rows = table_meta.next_meta_as_long();
-    if (num_rows == 0) {
-        return Status::OK();
-    }
     for (size_t i : arguments) {
         if (block->get_by_position(i).column == nullptr) {
             auto return_type = block->get_data_type(i);
@@ -348,15 +326,19 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
 
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    if (num_rows == 0) {
-        return Status::OK();
-    }
     auto& string_col = static_cast<const ColumnString&>(*doris_column);
     ColumnString::Chars& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
     ColumnString::Offsets& string_offsets =
             const_cast<ColumnString::Offsets&>(string_col.get_offsets());
     int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
+
+    // This judgment is necessary, otherwise the following statement `offsets[num_rows - 1]` out of bounds
+    // What's more, This judgment must be placed after `address.next_meta_as_ptr()`
+    // because `address.next_meta_as_ptr` will make `address._meta_index` plus 1
+    if (num_rows == 0) {
+        return Status::OK();
+    }
 
     size_t origin_chars_size = string_chars.size();
     string_chars.resize(origin_chars_size + offsets[num_rows - 1]);
@@ -480,9 +462,10 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];
-    case TYPE_TIMEV2:
-        // can ignore precision of timestamp in jni
-        return "datetimev2";
+    case TYPE_TIMEV2: {
+        buffer << "datetimev2(" << type->get_scale() << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_DECIMALV2: {
@@ -563,9 +546,10 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];
-    case TYPE_TIMEV2:
-        // can ignore precision of timestamp in jni
-        return "datetimev2";
+    case TYPE_TIMEV2: {
+        buffer << "datetimev2(" << desc.scale << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_CHAR: {
@@ -755,4 +739,39 @@ std::pair<std::string, std::string> JniConnector::parse_table_schema(Block* bloc
     return parse_table_schema(block, arguments, true);
 }
 
+void JniConnector::_collect_profile_before_close() {
+    if (_scanner_opened && _profile != nullptr) {
+        JNIEnv* env = nullptr;
+        Status st = JniUtil::GetJNIEnv(&env);
+        if (!st) {
+            LOG(WARNING) << "failed to get jni env when collect profile: " << st;
+            return;
+        }
+        // update scanner metrics
+        for (const auto& metric : get_statistics(env)) {
+            std::vector<std::string> type_and_name = split(metric.first, ":");
+            if (type_and_name.size() != 2) {
+                LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
+                             << "'metricType:metricName'";
+                continue;
+            }
+            long metric_value = std::stol(metric.second);
+            RuntimeProfile::Counter* scanner_counter;
+            if (type_and_name[0] == "timer") {
+                scanner_counter =
+                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+            } else if (type_and_name[0] == "counter") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
+                                                    _connector_name.c_str());
+            } else if (type_and_name[0] == "bytes") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
+                                                    _connector_name.c_str());
+            } else {
+                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+                continue;
+            }
+            COUNTER_UPDATE(scanner_counter, metric_value);
+        }
+    }
+}
 } // namespace doris::vectorized

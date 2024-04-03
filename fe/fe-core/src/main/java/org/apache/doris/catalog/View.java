@@ -147,11 +147,6 @@ public class View extends Table {
         return inlineViewDef;
     }
 
-    @Override
-    public String getDdlSql() {
-        return inlineViewDef;
-    }
-
     /**
      * Initializes the originalViewDef, inlineViewDef, and queryStmt members
      * by parsing the expanded view definition SQL-string.
@@ -225,7 +220,9 @@ public class View extends Table {
         sb.append(inlineViewDef);
         sb.append(sqlMode);
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of view {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of view {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
     }
 

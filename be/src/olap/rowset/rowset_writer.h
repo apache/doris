@@ -155,10 +155,17 @@ public:
     virtual std::shared_ptr<PartialUpdateInfo> get_partial_update_info() = 0;
 
     virtual bool is_partial_update() = 0;
-    virtual const RowsetWriterContext& context() const = 0;
+
+    const RowsetWriterContext& context() { return _context; }
+
+    const RowsetMetaSharedPtr& rowset_meta() { return _rowset_meta; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
+
+protected:
+    RowsetWriterContext _context;
+    RowsetMetaSharedPtr _rowset_meta;
 };
 
 } // namespace doris

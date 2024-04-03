@@ -125,7 +125,6 @@ std::string PrintFrontendInfos(const std::vector<TFrontendInfo>& fe_infos) {
 std::string PrintFrontendInfo(const TFrontendInfo& fe_info) {
     std::stringstream ss;
     fe_info.printTo(ss);
-
     return ss.str();
 }
 

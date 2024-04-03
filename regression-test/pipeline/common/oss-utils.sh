@@ -18,22 +18,22 @@
 
 function install_ossutil() {
     if command -v ossutil >/dev/null; then return 0; fi
-    if [[ -z ${OSS_accessKeyID} || -z ${OSS_accessKeySecret} ]]; then
-        echo "ERROR: env OSS_accessKeyID or OSS_accessKeySecret not set."
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak or oss_sk not set."
         return 1
     fi
     curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
     echo "[Credentials]
 language=EN
 endpoint=oss-cn-hongkong-internal.aliyuncs.com
-accessKeyID=${OSS_accessKeyID:-}
-accessKeySecret=${OSS_accessKeySecret:-}
+accessKeyID=${oss_ak:-}
+accessKeySecret=${oss_sk:-}
 " >~/.ossutilconfig
 }
 
 function check_oss_file_exist() {
-    if [[ -z ${OSS_accessKeyID} || -z ${OSS_accessKeySecret} ]]; then
-        echo "ERROR: env OSS_accessKeyID and OSS_accessKeySecret not set"
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk not set"
         return 1
     fi
     # Check if the file exists.
@@ -42,8 +42,8 @@ function check_oss_file_exist() {
     OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile-release"}"
     install_ossutil
     if ossutil stat \
-        -i "${OSS_accessKeyID}" \
-        -k "${OSS_accessKeySecret}" \
+        -i "${oss_ak}" \
+        -k "${oss_sk}" \
         "${OSS_DIR}/${file_name}"; then
         echo "INFO: ${file_name} file exists." && return 0
     else
@@ -58,6 +58,8 @@ function download_oss_file() {
     OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile-release"}"
     install_ossutil
     if ossutil cp -f \
+        -i "${oss_ak}" \
+        -k "${oss_sk}" \
         "${OSS_DIR}/${file_name}" \
         "${file_name}"; then
         echo "INFO: download ${file_name} success" && return 0
@@ -67,8 +69,8 @@ function download_oss_file() {
 }
 
 function upload_file_to_oss() {
-    if [[ -z ${OSS_accessKeyID} || -z ${OSS_accessKeySecret} ]]; then
-        echo "ERROR: env OSS_accessKeyID and OSS_accessKeySecret not set"
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk not set"
         return 1
     fi
     if [[ ! -f "$1" ]] || [[ "$1" != "/"* ]]; then
@@ -85,8 +87,8 @@ function upload_file_to_oss() {
     install_ossutil
     cd "${dir_name}" || return 1
     if ossutil cp -f \
-        -i "${OSS_accessKeyID}" \
-        -k "${OSS_accessKeySecret}" \
+        -i "${oss_ak}" \
+        -k "${oss_sk}" \
         "${file_name}" \
         "${OSS_DIR}/${file_name}"; then
         if ! check_oss_file_exist "${file_name}"; then return 1; fi

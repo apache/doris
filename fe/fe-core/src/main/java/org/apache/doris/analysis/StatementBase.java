@@ -85,6 +85,9 @@ public abstract class StatementBase implements ParseNode {
         }
     }
 
+    public void checkPriv() throws AnalysisException {
+    }
+
     public Analyzer getAnalyzer() {
         return analyzer;
     }
@@ -209,6 +212,16 @@ public abstract class StatementBase implements ParseNode {
     public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         throw new IllegalStateException(
                 "foldConstant() not implemented for this stmt: " + getClass().getSimpleName());
+    }
+
+    /**
+     * rewrite element_at to slot in statement
+     * @throws AnalysisException
+     * @param rewriter
+     */
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+        throw new IllegalStateException(
+                "rewriteElementAtToSlot() not implemented for this stmt: " + getClass().getSimpleName());
     }
 
     public void setOrigStmt(OriginStatement origStmt) {

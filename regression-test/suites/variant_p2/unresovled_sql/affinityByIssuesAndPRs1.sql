@@ -1,16 +1,16 @@
 -- ERROR: unmatched column
 -- SELECT
---     cast(repo:name as string),
+--     cast(repo["name"] as string),
 --     count() AS prs,
---     count(distinct cast(actor:login as string)) AS authors
+--     count(distinct cast(actor["login"] as string)) AS authors
 -- FROM github_events
--- WHERE (type = 'PullRequestEvent') AND (cast(payload:action as string) = 'opened') AND (cast(actor:login as string) IN
+-- WHERE (type = 'PullRequestEvent') AND (cast(payload["action"] as string) = 'opened') AND (cast(actor["login"] as string) IN
 -- (
---     SELECT cast(actor:login as string)
+--     SELECT cast(actor["login"] as string)
 --     FROM github_events
---     WHERE (type = 'PullRequestEvent') AND (cast(payload:action as string)= 'opened') AND (cast(repo:name as string) IN ('rspec/rspec-core', 'golden-warning/giraffedraft-server', 'apache/spark'))
--- )) AND (lower(cast(repo:name as string)) NOT LIKE '%clickhouse%')
--- GROUP BY cast(repo:name as string)
--- ORDER BY authors DESC, prs DESC, length(cast(repo:name as string)) DESC
+--     WHERE (type = 'PullRequestEvent') AND (cast(payload["action"] as string)= 'opened') AND (cast(repo["name"] as string) IN ('rspec/rspec-core', 'golden-warning/giraffedraft-server', 'apache/spark'))
+-- )) AND (lower(cast(repo["name"] as string)) NOT LIKE '%clickhouse%')
+-- GROUP BY cast(repo["name"] as string)
+-- ORDER BY authors DESC, prs DESC, length(cast(repo["name"] as string)) DESC
 -- LIMIT 50
 -- 

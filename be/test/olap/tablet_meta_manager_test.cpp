@@ -33,7 +33,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "olap/data_dir.h"
-
+#include "olap/storage_engine.h"
 using std::string;
 
 namespace doris {
@@ -46,7 +46,8 @@ public:
     virtual void SetUp() {
         std::string root_path = "./store";
         EXPECT_TRUE(std::filesystem::create_directory(root_path));
-        _data_dir = new (std::nothrow) DataDir(root_path);
+        _engine = std::make_unique<StorageEngine>(EngineOptions {});
+        _data_dir = new (std::nothrow) DataDir(*_engine, root_path);
         EXPECT_NE(nullptr, _data_dir);
         Status st = _data_dir->init();
         EXPECT_TRUE(st.ok());
@@ -68,6 +69,7 @@ public:
     }
 
 private:
+    std::unique_ptr<StorageEngine> _engine;
     DataDir* _data_dir;
     std::string _json_header;
 };
@@ -111,7 +113,7 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
     // EXPECT_EQ(_json_header, json_meta_read);
 }
 
-TEST_F(TabletMetaManagerTest, TestDeleteBimapEncode) {
+TEST_F(TabletMetaManagerTest, TestDeleteBitmapEncode) {
     TTabletId tablet_id = 1234;
     int64_t version = 456;
     std::string key = TabletMetaManager::encode_delete_bitmap_key(tablet_id, version);
@@ -123,7 +125,7 @@ TEST_F(TabletMetaManagerTest, TestDeleteBimapEncode) {
     EXPECT_EQ(version, de_version);
 }
 
-TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
+TEST_F(TabletMetaManagerTest, TestSaveDeleteBitmap) {
     int64_t test_tablet_id = 10086;
     std::shared_ptr<DeleteBitmap> dbmp = std::make_shared<DeleteBitmap>(test_tablet_id);
     auto gen1 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_row) {

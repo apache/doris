@@ -43,7 +43,8 @@ public:
     VCSVTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                     const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data,
                     std::string_view header_type, std::string_view header,
-                    std::string_view column_separator, std::string_view line_delimiter);
+                    std::string_view column_separator, std::string_view line_delimiter,
+                    bool with_bom);
 
     ~VCSVTransformer() = default;
 
@@ -71,6 +72,8 @@ private:
     // For example: bitmap_to_string() may return large volume of data.
     // And the speed is relative low, in my test, is about 6.5MB/s.
     fmt::memory_buffer _outstream_buffer;
+
+    bool _with_bom = false;
 };
 
 } // namespace doris::vectorized

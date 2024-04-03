@@ -36,9 +36,21 @@ public class AlterJobStatusStmt extends DdlStmt {
     @Getter
     private JobStatus jobStatus;
 
+    @Getter
+    private boolean isDrop = false;
+
+    @Getter
+    private boolean ifExists;
+
     public AlterJobStatusStmt(Expr whereClause, JobStatus jobStatus) {
         this.expr = whereClause;
         this.jobStatus = jobStatus;
+    }
+
+    public AlterJobStatusStmt(Expr whereClause, boolean isDrop, boolean ifExists) {
+        this.expr = whereClause;
+        this.isDrop = isDrop;
+        this.ifExists = ifExists;
     }
 
     @Override
@@ -58,6 +70,8 @@ public class AlterJobStatusStmt extends DdlStmt {
             throw new AnalysisException("Value can't is null");
         }
         this.jobName = inputValue;
-
+        if (CreateJobStmt.isInnerJob(jobName)) {
+            throw new AnalysisException("Can't alter inner job status");
+        }
     }
 }

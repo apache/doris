@@ -18,7 +18,6 @@
 #include "olap/task/engine_checksum_task.h"
 
 #include <glog/logging.h>
-#include <stddef.h>
 
 #include <ostream>
 #include <string>
@@ -27,11 +26,11 @@
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/reader.h"
 #include "olap/rowset/rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_reader.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
@@ -41,16 +40,22 @@
 
 namespace doris {
 
-EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
-                                       TVersion version, uint32_t* checksum)
-        : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version), _checksum(checksum) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
+EngineChecksumTask::EngineChecksumTask(StorageEngine& engine, TTabletId tablet_id,
+                                       TSchemaHash schema_hash, TVersion version,
+                                       uint32_t* checksum)
+        : _engine(engine),
+          _tablet_id(tablet_id),
+          _schema_hash(schema_hash),
+          _version(version),
+          _checksum(checksum) {
+    _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::LOAD,
             "EngineChecksumTask#tabletId=" + std::to_string(tablet_id));
 }
 
+EngineChecksumTask::~EngineChecksumTask() = default;
+
 Status EngineChecksumTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     return _compute_checksum();
 } // execute
 
@@ -64,7 +69,7 @@ Status EngineChecksumTask::_compute_checksum() {
         return Status::InvalidArgument("invalid checksum which is nullptr");
     }
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id);
+    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_tablet_id);
     if (nullptr == tablet) {
         return Status::InternalError("could not find tablet {}", _tablet_id);
     }
@@ -76,7 +81,8 @@ Status EngineChecksumTask::_compute_checksum() {
     vectorized::Block block;
     {
         std::shared_lock rdlock(tablet->get_header_lock());
-        Status acquire_reader_st = tablet->capture_consistent_rowsets(version, &input_rowsets);
+        Status acquire_reader_st =
+                tablet->capture_consistent_rowsets_unlocked(version, &input_rowsets);
         if (!acquire_reader_st.ok()) {
             LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->tablet_id()
                          << "res=" << acquire_reader_st;

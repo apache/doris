@@ -61,8 +61,10 @@ public final class HttpAuthManager {
         for (String sessionId : sessionIds) {
             SessionValue sv = authSessions.getIfPresent(sessionId);
             if (sv != null) {
-                LOG.debug("get session value {} by session id: {}, left size: {}",
-                        sv == null ? null : sv.currentUser, sessionId, authSessions.size());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get session value {} by session id: {}, left size: {}",
+                            sv == null ? null : sv.currentUser, sessionId, authSessions.size());
+                }
                 return sv;
             }
         }
@@ -72,7 +74,9 @@ public final class HttpAuthManager {
     public void removeSession(String sessionId) {
         if (!Strings.isNullOrEmpty(sessionId)) {
             authSessions.invalidate(sessionId);
-            LOG.debug("remove session id: {}, left size: {}", sessionId, authSessions.size());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remove session id: {}, left size: {}", sessionId, authSessions.size());
+            }
         }
     }
 

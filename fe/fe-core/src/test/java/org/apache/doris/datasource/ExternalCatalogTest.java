@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;

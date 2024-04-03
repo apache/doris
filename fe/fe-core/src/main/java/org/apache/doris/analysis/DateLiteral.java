@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -45,6 +44,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.sql.Timestamp;
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.ZoneId;
@@ -53,10 +53,12 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
+import java.time.format.SignStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
+import java.time.temporal.WeekFields;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -108,6 +110,7 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
     static {
         try {
@@ -188,6 +191,14 @@ public class DateLiteral extends LiteralExpr {
     }
 
     private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof DateLiteral) {
+            return compareLiteral((LiteralExpr) o) == 0;
+        }
+        return super.equals(o);
+    }
 
     // Date Literal persist type in meta
     private enum DateLiteralType {
@@ -558,11 +569,14 @@ public class DateLiteral extends LiteralExpr {
         switch (type.getPrimitiveType()) {
             case DATE:
             case DATEV2:
-                return this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
             case DATETIME:
-                return this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
             case DATETIMEV2:
-                return this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
             default:
                 return false;
         }
@@ -622,6 +636,34 @@ public class DateLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
+        if (expr instanceof DateLiteral) {
+            DateLiteral other = (DateLiteral) expr;
+            long yearMonthDay = year * 10000 + month * 100 + day;
+            long otherYearMonthDay = other.year * 10000 + other.month * 100 + other.day;
+            long diffDay = yearMonthDay - otherYearMonthDay;
+            if (diffDay != 0) {
+                return diffDay < 0 ? -1 : 1;
+            }
+
+            int typeAsInt = isDateType() ? 0 : 1;
+            int thatTypeAsInt = other.isDateType() ? 0 : 1;
+            int typeDiff = typeAsInt - thatTypeAsInt;
+            if (typeDiff != 0) {
+                return typeDiff;
+            } else if (typeAsInt == 0) {
+                // if all is date and equals date, then return
+                return 0;
+            }
+
+            long hourMinuteSecond = hour * 10000 + minute * 100 + second;
+            long otherHourMinuteSecond = other.hour * 10000 + other.minute * 100 + other.second;
+            long diffSecond = hourMinuteSecond - otherHourMinuteSecond;
+            if (diffSecond != 0) {
+                return diffSecond < 0 ? -1 : 1;
+            }
+            long diff = getMicroPartWithinScale() - other.getMicroPartWithinScale();
+            return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
+        }
         // date time will not overflow when doing addition and subtraction
         return getStringValue().compareTo(expr.getStringValue());
     }
@@ -637,6 +679,14 @@ public class DateLiteral extends LiteralExpr {
             buffer[i] = (char) ('0' + value % 10);
             value /= 10;
         }
+    }
+
+    public boolean isDateType() {
+        return this.type.isDate() || this.type.isDateV2();
+    }
+
+    public boolean isDateTimeType() {
+        return this.type.isDatetime() || this.type.isDatetimeV2();
     }
 
     @Override
@@ -746,12 +796,9 @@ public class DateLiteral extends LiteralExpr {
         try {
             checkValueValid();
         } catch (AnalysisException e) {
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().getState().reset();
-            }
-            // If date value is invalid, set this to null
-            msg.node_type = TExprNodeType.NULL_LITERAL;
-            msg.setIsNullable(true);
+            // we must check before here. when we think we are ready to send thrift msg,
+            // the invalid value is not acceptable. we can't properly deal with it.
+            LOG.warn("meet invalid value when plan to translate " + toString() + " to thrift node");
         }
     }
 
@@ -1043,7 +1090,7 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendPattern("HH:mm:ss");
                         break;
                     case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
-                        builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
+                        builder.appendValue(weekFields.weekOfWeekBasedYear(), 2);
                         break;
                     case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
                         builder.appendValue(IsoFields.WEEK_OF_WEEK_BASED_YEAR, 2);
@@ -1055,6 +1102,8 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendValue(IsoFields.WEEK_BASED_YEAR, 4);
                         break;
                     case 'X':
+                        builder.appendValue(weekFields.weekBasedYear(), 4, 10, SignStyle.EXCEEDS_PAD);
+                        break;
                     case 'Y': // %Y Year, numeric, four digits
                         // %X Year for the week, where Sunday is the first day of the week,
                         // numeric, four digits; used with %v
@@ -1199,16 +1248,28 @@ public class DateLiteral extends LiteralExpr {
     // this method is exaclty same as from_date_format_str() in be/src/runtime/datetime_value.cpp
     // change this method should also change that.
     public int fromDateFormatStr(String format, String value, boolean hasSubVal) throws InvalidFormatException {
-        int fp = 0; // pointer to the current format string
-        int fend = format.length(); // end of format string
-        int vp = 0; // pointer to the date string value
-        int vend = value.length(); // end of date string value
+        int pFormat = 0; // pointer to the current format string
+        int endFormat = format.length(); // end of format string
+        int pValue = 0; // pointer to the date string value
+        int endValue = value.length(); // end of date string value
 
-        boolean datePartUsed = false;
-        boolean timePartUsed = false;
-        boolean microSecondPartUsed = false;
+        int partUsed = 0;
+        final int yearPart = 1 << 0;
+        final int monthPart = 1 << 1;
+        final int dayPart = 1 << 2;
+        final int weekdayPart = 1 << 3;
+        final int yeardayPart = 1 << 4;
+        final int weekNumPart = 1 << 5;
+        final int normalDatePart = yearPart | monthPart | dayPart;
+        final int specialDatePart = weekdayPart | yeardayPart | weekNumPart;
+        final int datePart = normalDatePart | specialDatePart;
+        final int hourPart = 1 << 6;
+        final int minutePart = 1 << 7;
+        final int secondPart = 1 << 8;
+        final int fracPart = 1 << 9;
+        final int timePart = hourPart | minutePart | secondPart | fracPart;
 
-        int dayPart = 0;
+        int halfDay = 0; // 0 for am/none, 12 for pm.
         long weekday = -1;
         long yearday = -1;
         long weekNum = -1;
@@ -1217,169 +1278,170 @@ public class DateLiteral extends LiteralExpr {
         boolean sundayFirst = false;
         boolean strictWeekNumberYearType = false;
         long strictWeekNumberYear = -1;
-        boolean usaTime = false;
+        boolean hourSystem12 = false; // hour in [0..12] and with am/pm
 
-        char f;
-        while (fp < fend && vp < vend) {
+        char now;
+        while (pFormat < endFormat && pValue < endValue) {
             // Skip space character
-            while (vp < vend && Character.isSpaceChar(value.charAt(vp))) {
-                vp++;
+            while (pValue < endValue && Character.isSpaceChar(value.charAt(pValue))) {
+                pValue++;
             }
-            if (vp >= vend) {
+            if (pValue >= endValue) {
                 break;
             }
 
             // Check switch
-            f = format.charAt(fp);
-            if (f == '%' && fp + 1 < fend) {
+            now = format.charAt(pFormat);
+            if (now == '%' && pFormat + 1 < endFormat) {
                 int tmp = 0;
                 long intValue = 0;
-                fp++;
-                f = format.charAt(fp);
-                fp++;
-                switch (f) {
+                pFormat++;
+                now = format.charAt(pFormat);
+                pFormat++;
+                switch (now) {
                     // Year
                     case 'y':
                         // Year, numeric (two digits)
-                        tmp = vp + Math.min(2, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = pValue + Math.min(2, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         intValue += intValue >= 70 ? 1900 : 2000;
                         this.year = intValue;
-                        vp = tmp;
-                        datePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= yearPart;
                         break;
                     case 'Y':
                         // Year, numeric, four digits
-                        tmp = vp + Math.min(4, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
-                        if (tmp - vp <= 2) {
+                        tmp = pValue + Math.min(4, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
+                        if (tmp - pValue <= 2) {
                             intValue += intValue >= 70 ? 1900 : 2000;
                         }
                         this.year = intValue;
-                        vp = tmp;
-                        datePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= yearPart;
                         break;
                     // Month
                     case 'm':
                     case 'c':
-                        tmp = vp + Math.min(2, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = pValue + Math.min(2, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         this.month = intValue;
-                        vp = tmp;
-                        datePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= monthPart;
                         break;
                     case 'M': {
-                        int nextPos = findWord(value, vp);
-                        intValue = checkWord(MONTH_NAME_DICT, value.substring(vp, nextPos));
+                        int nextPos = findWord(value, pValue);
+                        intValue = checkWord(MONTH_NAME_DICT, value.substring(pValue, nextPos));
                         this.month = intValue;
-                        vp = nextPos;
+                        pValue = nextPos;
+                        partUsed |= monthPart;
                         break;
                     }
                     case 'b': {
-                        int nextPos = findWord(value, vp);
-                        intValue = checkWord(MONTH_ABBR_NAME_DICT, value.substring(vp, nextPos));
+                        int nextPos = findWord(value, pValue);
+                        intValue = checkWord(MONTH_ABBR_NAME_DICT, value.substring(pValue, nextPos));
                         this.month = intValue;
-                        vp = nextPos;
+                        pValue = nextPos;
+                        partUsed |= monthPart;
                         break;
                     }
                     // Day
                     case 'd':
                     case 'e':
-                        tmp = vp + Math.min(2, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = pValue + Math.min(2, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         this.day = intValue;
-                        vp = tmp;
-                        datePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= dayPart;
                         break;
                     case 'D':
-                        tmp = vp + Math.min(2, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = pValue + Math.min(2, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         this.day = intValue;
-                        vp = tmp + Math.min(2, vend - tmp);
-                        datePartUsed = true;
+                        pValue = tmp + Math.min(2, endValue - tmp);
+                        partUsed |= dayPart;
                         break;
                     // Hour
                     case 'h':
                     case 'I':
                     case 'l':
-                        usaTime = true;
+                        hourSystem12 = true;
+                        partUsed |= hourPart;
                     case 'k': // CHECKSTYLE IGNORE THIS LINE: Fall through
                     case 'H':
-                        tmp = findNumber(value, vp, 2);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = findNumber(value, pValue, 2);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         this.hour = intValue;
-                        vp = tmp;
-                        timePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= hourPart;
                         break;
                     // Minute
                     case 'i':
-                        tmp = vp + Math.min(2, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = pValue + Math.min(2, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         this.minute = intValue;
-                        vp = tmp;
-                        timePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= minutePart;
                         break;
                     // Second
                     case 's':
                     case 'S':
-                        tmp = vp + Math.min(2, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = pValue + Math.min(2, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         this.second = intValue;
-                        vp = tmp;
-                        timePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= secondPart;
                         break;
                     // Micro second
                     case 'f':
-                        // FIXME: fix same with BE
-                        tmp = vp;
+                        tmp = pValue;
                         // when there's still something to the end, fix the scale of ms.
-                        while (tmp < vend && Character.isDigit(value.charAt(tmp))) {
+                        while (tmp < endValue && Character.isDigit(value.charAt(tmp))) {
                             tmp += 1;
                         }
 
-                        if (tmp - vp > 6) {
-                            int tmp2 = vp + 6;
-                            intValue = strToLong(value.substring(vp, tmp2));
+                        if (tmp - pValue > 6) {
+                            int tmp2 = pValue + 6;
+                            intValue = strToLong(value.substring(pValue, tmp2));
                         } else {
-                            intValue = strToLong(value.substring(vp, tmp));
+                            intValue = strToLong(value.substring(pValue, tmp));
                         }
-                        this.microsecond = (long) (intValue * Math.pow(10, 6 - Math.min(6, tmp - vp)));
-                        timePartUsed = true;
-                        microSecondPartUsed = true;
-                        vp = tmp;
+                        this.microsecond = (long) (intValue * Math.pow(10, 6 - Math.min(6, tmp - pValue)));
+                        partUsed |= fracPart;
+                        pValue = tmp;
                         break;
                     // AM/PM
                     case 'p':
-                        if ((vend - vp) < 2 || Character.toUpperCase(value.charAt(vp + 1)) != 'M' || !usaTime) {
+                        if ((endValue - pValue) < 2 || Character.toUpperCase(value.charAt(pValue + 1)) != 'M'
+                                || !hourSystem12) {
                             throw new InvalidFormatException("Invalid %p format");
                         }
-                        if (Character.toUpperCase(value.charAt(vp)) == 'P') {
+                        if (Character.toUpperCase(value.charAt(pValue)) == 'P') {
                             // PM
-                            dayPart = 12;
+                            halfDay = 12;
                         }
-                        timePartUsed = true;
-                        vp += 2;
+                        pValue += 2;
                         break;
                     // Weekday
                     case 'W': {
-                        int nextPos = findWord(value, vp);
-                        intValue = checkWord(WEEK_DAY_NAME_DICT, value.substring(vp, nextPos));
+                        int nextPos = findWord(value, pValue);
+                        intValue = checkWord(WEEK_DAY_NAME_DICT, value.substring(pValue, nextPos));
                         intValue++;
                         weekday = intValue;
-                        datePartUsed = true;
+                        partUsed |= weekdayPart;
                         break;
                     }
                     case 'a': {
-                        int nextPos = findWord(value, vp);
-                        intValue = checkWord(WEEK_DAY_NAME_DICT, value.substring(vp, nextPos));
+                        int nextPos = findWord(value, pValue);
+                        intValue = checkWord(WEEK_DAY_NAME_DICT, value.substring(pValue, nextPos));
                         intValue++;
                         weekday = intValue;
-                        datePartUsed = true;
+                        partUsed |= weekdayPart;
                         break;
                     }
                     case 'w':
-                        tmp = vp + Math.min(1, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = pValue + Math.min(1, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         if (intValue >= 7) {
                             throw new InvalidFormatException("invalid day of week: " + intValue);
                         }
@@ -1387,97 +1449,97 @@ public class DateLiteral extends LiteralExpr {
                             intValue = 7;
                         }
                         weekday = intValue;
-                        vp = tmp;
-                        datePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= weekdayPart;
                         break;
                     case 'j':
-                        tmp = vp + Math.min(3, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
+                        tmp = pValue + Math.min(3, endValue - pValue);
+                        intValue = strToLong(value.substring(pValue, tmp));
                         yearday = intValue;
-                        vp = tmp;
-                        datePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= yeardayPart;
                         break;
                     case 'u':
                     case 'v':
                     case 'U':
                     case 'V':
-                        sundayFirst = (format.charAt(fp - 1) == 'U' || format.charAt(fp - 1) == 'V');
+                        sundayFirst = (format.charAt(pFormat - 1) == 'U' || format.charAt(pFormat - 1) == 'V');
                         // Used to check if there is %x or %X
-                        strictWeekNumber = (format.charAt(fp - 1) == 'V' || format.charAt(fp - 1) == 'v');
-                        tmp = vp + Math.min(2, vend - vp);
-                        intValue = Long.valueOf(value.substring(vp, tmp));
+                        strictWeekNumber = (format.charAt(pFormat - 1) == 'V' || format.charAt(pFormat - 1) == 'v');
+                        tmp = pValue + Math.min(2, endValue - pValue);
+                        intValue = Long.valueOf(value.substring(pValue, tmp));
                         weekNum = intValue;
                         if (weekNum > 53 || (strictWeekNumber && weekNum == 0)) {
                             throw new InvalidFormatException("invalid num of week: " + weekNum);
                         }
-                        vp = tmp;
-                        datePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= weekNumPart;
                         break;
                     // strict week number, must be used with %V or %v
                     case 'x':
                     case 'X':
-                        strictWeekNumberYearType = (format.charAt(fp - 1) == 'X');
-                        tmp = vp + Math.min(4, vend - vp);
-                        intValue = Long.valueOf(value.substring(vp, tmp));
+                        strictWeekNumberYearType = (format.charAt(pFormat - 1) == 'X');
+                        tmp = pValue + Math.min(4, endValue - pValue);
+                        intValue = Long.valueOf(value.substring(pValue, tmp));
                         strictWeekNumberYear = intValue;
-                        vp = tmp;
-                        datePartUsed = true;
+                        pValue = tmp;
+                        partUsed |= weekNumPart;
                         break;
                     case 'r':
-                        tmp = fromDateFormatStr("%I:%i:%S %p", value.substring(vp, vend), true);
-                        vp = tmp;
-                        timePartUsed = true;
+                        tmp = fromDateFormatStr("%I:%i:%S %p", value.substring(pValue, endValue), true);
+                        pValue = tmp;
+                        partUsed |= timePart;
                         break;
                     case 'T':
-                        tmp = fromDateFormatStr("%H:%i:%S", value.substring(vp, vend), true);
-                        vp = tmp;
-                        timePartUsed = true;
+                        tmp = fromDateFormatStr("%H:%i:%S", value.substring(pValue, endValue), true);
+                        pValue = tmp;
+                        partUsed |= timePart;
                         break;
                     case '.':
-                        while (vp < vend && Character.toString(value.charAt(vp)).matches("\\p{Punct}")) {
-                            vp++;
+                        while (pValue < endValue && Character.toString(value.charAt(pValue)).matches("\\p{Punct}")) {
+                            pValue++;
                         }
                         break;
                     case '@':
-                        while (vp < vend && Character.isLetter(value.charAt(vp))) {
-                            vp++;
+                        while (pValue < endValue && Character.isLetter(value.charAt(pValue))) {
+                            pValue++;
                         }
                         break;
                     case '#':
-                        while (vp < vend && Character.isDigit(value.charAt(vp))) {
-                            vp++;
+                        while (pValue < endValue && Character.isDigit(value.charAt(pValue))) {
+                            pValue++;
                         }
                         break;
                     case '%': // %%, escape the %
-                        if ('%' != value.charAt(vp)) {
-                            throw new InvalidFormatException("invalid char after %: " + value.charAt(vp));
+                        if ('%' != value.charAt(pValue)) {
+                            throw new InvalidFormatException("invalid char after %: " + value.charAt(pValue));
                         }
-                        vp++;
+                        pValue++;
                         break;
                     default:
-                        throw new InvalidFormatException("Invalid format pattern: " + f);
+                        throw new InvalidFormatException("Invalid format pattern: " + now);
                 }
-            } else if (format.charAt(fp) != ' ') {
-                if (format.charAt(fp) != value.charAt(vp)) {
-                    throw new InvalidFormatException("Invalid char: " + value.charAt(vp) + ", expected: "
-                            + format.charAt(fp));
+            } else if (format.charAt(pFormat) != ' ') {
+                if (format.charAt(pFormat) != value.charAt(pValue)) {
+                    throw new InvalidFormatException("Invalid char: " + value.charAt(pValue) + ", expected: "
+                            + format.charAt(pFormat));
                 }
-                fp++;
-                vp++;
+                pFormat++;
+                pValue++;
             } else {
-                fp++;
+                pFormat++;
             }
         }
 
         // continue to iterate pattern if has
         // to find out if it has time part.
-        while (fp < fend) {
-            f = format.charAt(fp);
-            if (f == '%' && fp + 1 < fend) {
-                fp++;
-                f = format.charAt(fp);
-                fp++;
-                switch (f) {
+        while (pFormat < endFormat) {
+            now = format.charAt(pFormat);
+            if (now == '%' && pFormat + 1 < endFormat) {
+                pFormat++;
+                now = format.charAt(pFormat);
+                pFormat++;
+                switch (now) {
                     case 'H':
                     case 'h':
                     case 'I':
@@ -1489,25 +1551,29 @@ public class DateLiteral extends LiteralExpr {
                     case 'S':
                     case 'p':
                     case 'T':
-                        timePartUsed = true;
+                        partUsed |= timePart;
                         break;
                     default:
                         break;
                 }
             } else {
-                fp++;
+                pFormat++;
             }
         }
 
-        if (usaTime) {
+        if (partUsed == 0) {
+            throw new InvalidFormatException("Nothing for legal Date: " + value);
+        }
+
+        if (hourSystem12) {
             if (this.hour > 12 || this.hour < 1) {
                 throw new InvalidFormatException("Invalid hour: " + hour);
             }
-            this.hour = (this.hour % 12) + dayPart;
+            this.hour = (this.hour % 12) + halfDay;
         }
 
         if (hasSubVal) {
-            return vp;
+            return pValue;
         }
 
         // Year day
@@ -1536,13 +1602,21 @@ public class DateLiteral extends LiteralExpr {
             getDateFromDaynr(days);
         }
 
+        // complete default month/day
+        if ((partUsed & ~normalDatePart) == 0) { // only date here
+            if ((partUsed & dayPart) == 0) {
+                day = 1;
+                if ((partUsed & monthPart) == 0) {
+                    month = 1;
+                }
+            }
+        }
+
         // Compute timestamp type
-        // TODO(Gabriel): we still use old version datetime/date and change this to new version when
-        //  we think it's stable enough
-        if (datePartUsed) {
-            if (microSecondPartUsed) {
+        if ((partUsed & datePart) != 0) { // Ymd part only
+            if ((partUsed & fracPart) != 0) {
                 this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
-            } else if (timePartUsed) {
+            } else if ((partUsed & timePart) != 0) {
                 this.type = ScalarType.getDefaultDateType(Type.DATETIME);
             } else {
                 this.type = ScalarType.getDefaultDateType(Type.DATE);
@@ -1694,6 +1768,15 @@ public class DateLiteral extends LiteralExpr {
             return i;
         }
         throw new InvalidFormatException("'" + value + "' is invalid");
+    }
+
+    private long getMicroPartWithinScale() {
+        if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
+            return (long) (microsecond / SCALE_FACTORS[scale]);
+        } else {
+            return 0;
+        }
     }
 
     public void setMinValue() {

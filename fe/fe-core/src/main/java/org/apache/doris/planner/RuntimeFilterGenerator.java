@@ -28,7 +28,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.BitUtil;
-import org.apache.doris.planner.external.FileQueryScanNode;
+import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterMode;

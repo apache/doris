@@ -19,6 +19,7 @@
 
 #include <roaring/roaring.hh>
 
+#include "common/exception.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -26,6 +27,7 @@
 #include "olap/selection_vector.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
 
 using namespace doris::segment_v2;
 
@@ -181,16 +183,36 @@ public:
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
 
+    virtual double get_ignore_threshold() const {
+        return vectorized::VRuntimeFilterWrapper::EXPECTED_FILTER_RATE;
+    }
+
     // evaluate predicate on IColumn
     // a short circuit eval way
-    virtual uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                              uint16_t size) const {
-        return size;
+    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
+        if (_always_true) {
+            return size;
+        }
+
+        uint16_t new_size = _evaluate_inner(column, sel, size);
+        _evaluated_rows += size;
+        _passed_rows += new_size;
+        if (_can_ignore()) {
+            // If the pass rate is very high, for example > 50%, then the filter is useless.
+            // Some filter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
+            // useless.
+            vectorized::VRuntimeFilterWrapper::calculate_filter(
+                    get_ignore_threshold(), _evaluated_rows - _passed_rows, _evaluated_rows,
+                    _has_calculate_filter, _always_true);
+        }
+        return new_size;
     }
     virtual void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                               bool* flags) const {}
     virtual void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                              bool* flags) const {}
+
+    virtual bool support_zonemap() const { return true; }
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         return true;
@@ -245,11 +267,6 @@ public:
                ", opposite=" + (_opposite ? "true" : "false");
     }
 
-    /// Some predicates need to be cloned for each segment.
-    virtual bool need_to_clone() const { return false; }
-
-    virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
-
     virtual int get_filter_id() const { return -1; }
     // now InListPredicateBase BloomFilterColumnPredicate BitmapFilterColumnPredicate  = true
     virtual bool is_filter() const { return false; }
@@ -260,7 +277,7 @@ public:
 
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
 
-    const std::string pred_type_string(PredicateType type) {
+    static std::string pred_type_string(PredicateType type) {
         switch (type) {
         case PredicateType::EQ:
             return "eq";
@@ -291,8 +308,21 @@ public:
         }
     }
 
+    bool always_true() const { return _always_true; }
+
 protected:
     virtual std::string _debug_string() const = 0;
+    virtual bool _can_ignore() const {
+        if (_predicate_params) {
+            // minmax filter will set marked_by_runtime_filter to true
+            return _predicate_params->marked_by_runtime_filter;
+        }
+        return false;
+    }
+    virtual uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                                     uint16_t size) const {
+        throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
+    }
 
     uint32_t _column_id;
     // TODO: the value is only in delete condition, better be template value
@@ -300,6 +330,8 @@ protected:
     std::shared_ptr<PredicateParams> _predicate_params;
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
+    mutable bool _always_true = false;
+    mutable bool _has_calculate_filter = false;
 };
 
 } //namespace doris

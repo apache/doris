@@ -29,8 +29,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -48,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
@@ -63,12 +67,14 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -126,12 +132,24 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(collectSet, context);
     }
 
+    default R visitCorr(Corr corr, C context) {
+        return visitAggregateFunction(corr, context);
+    }
+
     default R visitCount(Count count, C context) {
         return visitAggregateFunction(count, context);
     }
 
     default R visitCountByEnum(CountByEnum count, C context) {
         return visitAggregateFunction(count, context);
+    }
+
+    default R visitCovar(Covar covar, C context) {
+        return visitAggregateFunction(covar, context);
+    }
+
+    default R visitCovarSamp(CovarSamp covarSamp, C context) {
+        return visitAggregateFunction(covarSamp, context);
     }
 
     default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
@@ -144,6 +162,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitMultiDistinctSum(MultiDistinctSum multiDistinctSum, C context) {
         return visitAggregateFunction(multiDistinctSum, context);
+    }
+
+    default R visitMultiDistinctSum0(MultiDistinctSum0 multiDistinctSum0, C context) {
+        return visitAggregateFunction(multiDistinctSum0, context);
     }
 
     default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {
@@ -258,6 +280,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitNullableAggregateFunction(sum, context);
     }
 
+    default R visitSum0(Sum0 sum0, C context) {
+        return visitAggregateFunction(sum0, context);
+    }
+
     default R visitTopN(TopN topN, C context) {
         return visitAggregateFunction(topN, context);
     }
@@ -287,6 +313,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitUnionCombinator(UnionCombinator combinator, C context) {
+        return visitAggregateFunction(combinator, context);
+    }
+
+    default R visitForEachCombinator(ForEachCombinator combinator, C context) {
         return visitAggregateFunction(combinator, context);
     }
 

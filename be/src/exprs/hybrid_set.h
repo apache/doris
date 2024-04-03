@@ -175,7 +175,7 @@ private:
 };
 
 // TODO Maybe change void* parameter to template parameter better.
-class HybridSetBase : public FilterFuncBase {
+class HybridSetBase : public RuntimeFilterFuncBase {
 public:
     HybridSetBase() = default;
     virtual ~HybridSetBase() = default;
@@ -192,6 +192,7 @@ public:
             insert(value);
             iter->next();
         }
+        _contains_null |= set->_contains_null;
     }
 
     virtual int size() = 0;
@@ -231,6 +232,9 @@ public:
     };
 
     virtual IteratorBase* begin() = 0;
+
+    bool contain_null() const { return _contains_null && _null_aware; }
+    bool _contains_null = false;
 };
 
 template <typename Type>
@@ -268,13 +272,17 @@ public:
 
     void insert(const void* data) override {
         if (data == nullptr) {
+            _contains_null = true;
             return;
         }
         _set.insert(*reinterpret_cast<const ElementType*>(data));
     }
+
     void insert(void* data, size_t /*unused*/) override { insert(data); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+        const auto size = column->size();
+
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
@@ -283,14 +291,16 @@ public:
                             .get_data();
 
             const ElementType* data = (ElementType*)col.get_raw_data().data;
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 if (!nullmap[i]) {
                     _set.insert(*(data + i));
+                } else {
+                    _contains_null = true;
                 }
             }
         } else {
             const ElementType* data = (ElementType*)column->get_raw_data().data;
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < size; i++) {
                 _set.insert(*(data + i));
             }
         }
@@ -390,6 +400,7 @@ public:
 
     void insert(const void* data) override {
         if (data == nullptr) {
+            _contains_null = true;
             return;
         }
 
@@ -399,8 +410,12 @@ public:
     }
 
     void insert(void* data, size_t size) override {
-        std::string str_value(reinterpret_cast<char*>(data), size);
-        _set.insert(str_value);
+        if (data == nullptr) {
+            insert(nullptr);
+        } else {
+            std::string str_value(reinterpret_cast<char*>(data), size);
+            _set.insert(str_value);
+        }
     }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
@@ -412,14 +427,16 @@ public:
                     assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
                             .get_data();
 
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < nullable->size(); i++) {
                 if (!nullmap[i]) {
                     _set.insert(col.get_data_at(i).to_string());
+                } else {
+                    _contains_null = true;
                 }
             }
         } else {
             const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < col->size(); i++) {
                 _set.insert(col->get_data_at(i).to_string());
             }
         }
@@ -532,6 +549,7 @@ public:
 
     void insert(const void* data) override {
         if (data == nullptr) {
+            _contains_null = true;
             return;
         }
 
@@ -541,8 +559,12 @@ public:
     }
 
     void insert(void* data, size_t size) override {
-        StringRef sv(reinterpret_cast<char*>(data), size);
-        _set.insert(sv);
+        if (data == nullptr) {
+            insert(nullptr);
+        } else {
+            StringRef sv(reinterpret_cast<char*>(data), size);
+            _set.insert(sv);
+        }
     }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
@@ -554,14 +576,16 @@ public:
                     assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
                             .get_data();
 
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < nullable->size(); i++) {
                 if (!nullmap[i]) {
                     _set.insert(col.get_data_at(i));
+                } else {
+                    _contains_null = true;
                 }
             }
         } else {
             const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < column->size(); i++) {
+            for (size_t i = start; i < col->size(); i++) {
                 _set.insert(col->get_data_at(i));
             }
         }

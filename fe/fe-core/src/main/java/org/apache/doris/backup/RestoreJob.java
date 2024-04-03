@@ -28,7 +28,9 @@ import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -246,8 +248,10 @@ public class RestoreJob extends AbstractJob {
         if (removedTabletId != null) {
             taskErrMsg.remove(task.getSignature());
             Preconditions.checkState(task.getTabletId() == removedTabletId, removedTabletId);
-            LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
-                      info, unfinishedSignatureToId.size(), this, removedTabletId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
+                          info, unfinishedSignatureToId.size(), this, removedTabletId);
+            }
             return true;
         }
         return false;
@@ -336,6 +340,28 @@ public class RestoreJob extends AbstractJob {
     @Override
     public boolean isCancelled() {
         return state == RestoreJobState.CANCELLED;
+    }
+
+    @Override
+    public synchronized Status updateRepo(Repository repo) {
+        this.repo = repo;
+
+        if (this.state == RestoreJobState.DOWNLOADING) {
+            for (Map.Entry<Long, Long> entry : unfinishedSignatureToId.entrySet()) {
+                long signature = entry.getKey();
+                long beId = entry.getValue();
+                AgentTask task = AgentTaskQueue.getTask(beId, TTaskType.DOWNLOAD, signature);
+                if (task == null || task.getTaskType() != TTaskType.DOWNLOAD) {
+                    continue;
+                }
+                ((DownloadTask) task).updateBrokerProperties(
+                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                AgentTaskQueue.updateTask(beId, TTaskType.DOWNLOAD, signature, task);
+            }
+            LOG.info("finished to update download job properties. {}", this);
+        }
+        LOG.info("finished to update repo of job. {}", this);
+        return Status.OK;
     }
 
     @Override
@@ -591,7 +617,9 @@ public class RestoreJob extends AbstractJob {
                             status = st;
                             return;
                         }
-                        LOG.debug("get intersect part names: {}, job: {}", intersectPartNames, this);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("get intersect part names: {}, job: {}", intersectPartNames, this);
+                        }
                         if (!localOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames)
                                 .equals(remoteOlapTbl.getSignature(
                                         BackupHandler.SIGNATURE_VERSION, intersectPartNames))) {
@@ -704,7 +732,9 @@ public class RestoreJob extends AbstractJob {
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
                     remoteOlapTbl.setState(allowLoad ? OlapTableState.RESTORE_WITH_LOAD : OlapTableState.RESTORE);
-                    LOG.debug("put remote table {} to restoredTbls", remoteOlapTbl.getName());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("put remote table {} to restoredTbls", remoteOlapTbl.getName());
+                    }
                     restoredTbls.add(remoteOlapTbl);
                 }
             } // end of all restore olap tables
@@ -751,7 +781,9 @@ public class RestoreJob extends AbstractJob {
                 }
             }
 
-            LOG.debug("finished to prepare restored partitions and tables. {}", this);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finished to prepare restored partitions and tables. {}", this);
+            }
             // for now, nothing is modified in catalog
 
             // generate create replica tasks for all restored partitions
@@ -785,7 +817,9 @@ public class RestoreJob extends AbstractJob {
                 restoreTbl.setName(jobInfo.getAliasByOriginNameIfSet(restoreTbl.getName()));
             }
 
-            LOG.debug("finished to generate create replica tasks. {}", this);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finished to generate create replica tasks. {}", this);
+            }
         } finally {
             db.readUnlock();
         }
@@ -795,7 +829,9 @@ public class RestoreJob extends AbstractJob {
         if (!status.ok()) {
             return;
         }
-        LOG.debug("finished to restore resources. {}", this.jobId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finished to restore resources. {}", this.jobId);
+        }
 
         // Send create replica task to BE outside the db lock
         boolean ok = false;
@@ -823,7 +859,9 @@ public class RestoreJob extends AbstractJob {
         }
 
         if (ok) {
-            LOG.debug("finished to create all restored replcias. {}", this);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finished to create all restored replcias. {}", this);
+            }
             // add restored partitions.
             // table should be in State RESTORE, so no other partitions can be
             // added to or removed from this table during the restore process.
@@ -868,7 +906,7 @@ public class RestoreJob extends AbstractJob {
                 }
                 tbl.writeLock();
                 try {
-                    if (!db.createTable(tbl)) {
+                    if (!db.registerTable(tbl)) {
                         status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
                                 + " already exist in db: " + db.getFullName());
                         return;
@@ -1021,6 +1059,8 @@ public class RestoreJob extends AbstractJob {
         }
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
+            List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
+                                    ? localTbl.getCopiedIndexes() : null;
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
@@ -1034,7 +1074,7 @@ public class RestoreJob extends AbstractJob {
                             indexMeta.getKeysType(), TStorageType.COLUMN,
                             TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
-                            localTbl.getCopiedIndexes(),
+                            indexes,
                             localTbl.isInMemory(),
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,
@@ -1047,6 +1087,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
                             localTbl.getTimeSeriesCompactionFileCountThreshold(),
                             localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                            localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                            localTbl.getTimeSeriesCompactionLevelThreshold(),
                             localTbl.storeRowColumn(),
                             binlogConfig);
 
@@ -1091,6 +1133,7 @@ public class RestoreJob extends AbstractJob {
         long visibleVersion = remotePart.getVisibleVersion();
 
         // tablets
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
@@ -1098,14 +1141,15 @@ public class RestoreJob extends AbstractJob {
             for (int i = 0; i < remotetabletSize; i++) {
                 // generate new tablet id
                 long newTabletId = env.getNextId();
-                Tablet newTablet = new Tablet(newTabletId);
+                Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
                 // add tablet to index, but not add to TabletInvertedIndex
                 remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
 
                 // replicas
                 try {
-                    Map<Tag, List<Long>> beIds = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, null, false, false);
+                    Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs, null, false, false);
+                    Map<Tag, List<Long>> beIds = beIdsAndMedium.first;
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = env.getNextId();
@@ -1127,14 +1171,18 @@ public class RestoreJob extends AbstractJob {
     private void genFileMapping(OlapTable localTbl, Partition localPartition, Long remoteTblId,
             BackupPartitionInfo backupPartInfo, boolean overwrite) {
         for (MaterializedIndex localIdx : localPartition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-            LOG.debug("get index id: {}, index name: {}", localIdx.getId(),
-                    localTbl.getIndexNameById(localIdx.getId()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get index id: {}, index name: {}", localIdx.getId(),
+                        localTbl.getIndexNameById(localIdx.getId()));
+            }
             BackupIndexInfo backupIdxInfo = backupPartInfo.getIdx(localTbl.getIndexNameById(localIdx.getId()));
             Preconditions.checkState(backupIdxInfo.sortedTabletInfoList.size() == localIdx.getTablets().size());
             for (int i = 0; i < localIdx.getTablets().size(); i++) {
                 Tablet localTablet = localIdx.getTablets().get(i);
                 BackupTabletInfo backupTabletInfo = backupIdxInfo.sortedTabletInfoList.get(i);
-                LOG.debug("get tablet mapping: {} to {}, index {}", backupTabletInfo.id, localTablet.getId(), i);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get tablet mapping: {} to {}, index {}", backupTabletInfo.id, localTablet.getId(), i);
+                }
                 for (Replica localReplica : localTablet.getReplicas()) {
                     IdChain src = new IdChain(remoteTblId, backupPartInfo.id, backupIdxInfo.id, backupTabletInfo.id,
                             -1L /* no replica id */);
@@ -1243,7 +1291,7 @@ public class RestoreJob extends AbstractJob {
             db.writeLock();
             restoreTbl.writeLock();
             try {
-                db.createTable(restoreTbl);
+                db.registerTable(restoreTbl);
             } finally {
                 restoreTbl.writeUnlock();
                 db.writeUnlock();
@@ -1337,11 +1385,16 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beToSnapshots.keySet()) {
                     List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
                     int totalNum = beSnapshotInfos.size();
-                    int batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
+                    int batchNum = totalNum;
+                    if (Config.restore_download_task_num_per_be > 0) {
+                        batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
+                    }
                     // each task contains several upload sub tasks
                     int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
-                    LOG.debug("backend {} has {} batch, total {} tasks, {}",
-                              beId, batchNum, totalNum, this);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("backend {} has {} batch, total {} tasks, {}",
+                                  beId, batchNum, totalNum, this);
+                    }
 
                     List<FsBroker> brokerAddrs = null;
                     brokerAddrs = Lists.newArrayList();
@@ -1425,7 +1478,9 @@ public class RestoreJob extends AbstractJob {
                                 // download to previous exist snapshot dir
                                 String dest = snapshotInfo.getTabletPath();
                                 srcToDest.put(src, dest);
-                                LOG.debug("create download src path: {}, dest path: {}", src, dest);
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("create download src path: {}, dest path: {}", src, dest);
+                                }
 
                             } finally {
                                 olapTbl.readUnlock();
@@ -1489,7 +1544,10 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beToSnapshots.keySet()) {
                     List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
                     int totalNum = beSnapshotInfos.size();
-                    int batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
+                    int batchNum = totalNum;
+                    if (Config.restore_download_task_num_per_be > 0) {
+                        batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
+                    }
                     // each task contains several upload sub tasks
                     int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
 
@@ -1723,8 +1781,10 @@ public class RestoreJob extends AbstractJob {
                         }
                     }
 
-                    LOG.debug("restore set partition {} version in table {}, version: {}",
-                            partId, tblId, entry.getValue());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("restore set partition {} version in table {}, version: {}",
+                                partId, tblId, entry.getValue());
+                    }
                 }
             } finally {
                 tbl.writeUnlock();
@@ -1887,7 +1947,7 @@ public class RestoreJob extends AbstractJob {
                                         }
                                     }
                                 }
-                                db.dropTable(restoreTbl.getName());
+                                db.unregisterTable(restoreTbl.getName());
                             } finally {
                                 restoreTbl.writeUnlock();
                             }
@@ -2159,4 +2219,3 @@ public class RestoreJob extends AbstractJob {
         return sb.toString();
     }
 }
-

@@ -19,10 +19,12 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -38,18 +40,17 @@ import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -77,8 +78,39 @@ import java.util.stream.IntStream;
  *                                                              plan
  */
 public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements CustomRewriter {
+    private Set<Slot> keys;
+
+    /**
+     * collect all columns used in expressions, which should not be pruned
+     */
+    public static class KeyColumnCollector
+            extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
+        public Set<Slot> keys = Sets.newHashSet();
+
+        @Override
+        public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+            return plan.accept(this, jobContext);
+        }
+
+        @Override
+        public Plan visit(Plan plan, JobContext jobContext) {
+            for (Plan child : plan.children()) {
+                child.accept(this, jobContext);
+            }
+            for (Expression expression : plan.getExpressions()) {
+                if (!(expression instanceof SlotReference)) {
+                    keys.addAll(expression.getInputSlots());
+                }
+            }
+            return plan;
+        }
+    }
+
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        KeyColumnCollector keyColumnCollector = new KeyColumnCollector();
+        plan.accept(keyColumnCollector, jobContext);
+        keys = keyColumnCollector.keys;
         return plan.accept(this, new PruneContext(plan.getOutputSet(), null));
     }
 
@@ -115,9 +147,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         if (union.getQualifier() == Qualifier.DISTINCT) {
             return skipPruneThisAndFirstLevelChildren(union);
         }
-
-        LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
-
+        LogicalUnion prunedOutputUnion = pruneUnionOutput(union, context);
         // start prune children of union
         List<Slot> originOutput = union.getOutput();
         Set<Slot> prunedOutput = prunedOutputUnion.getOutputSet();
@@ -174,53 +204,66 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         // first try to prune group by and aggregate functions
         Aggregate prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
 
-        List<Expression> groupByExpressions = prunedOutputAgg.getGroupByExpressions();
-        List<NamedExpression> outputExpressions = prunedOutputAgg.getOutputExpressions();
+        Aggregate fillUpAggr = fillUpGroupByAndOutput(prunedOutputAgg);
 
-        // then fill up group by
-        Aggregate fillUpOutputRepeat = fillUpGroupByToOutput(groupByExpressions, outputExpressions)
-                .map(fullOutput -> prunedOutputAgg.withAggOutput(fullOutput))
-                .orElse(prunedOutputAgg);
-
-        return pruneChildren(fillUpOutputRepeat);
+        return pruneChildren(fillUpAggr);
     }
 
     private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
-        Set<Slot> requireAllOutputOfChildren = plan.children()
-                .stream()
-                .flatMap(child -> child.getOutputSet().stream())
-                .collect(Collectors.toSet());
-        return pruneChildren(plan, requireAllOutputOfChildren);
+        ImmutableSet.Builder<Slot> requireAllOutputOfChildren = ImmutableSet.builder();
+        for (Plan child : plan.children()) {
+            requireAllOutputOfChildren.addAll(child.getOutput());
+        }
+        return pruneChildren(plan, requireAllOutputOfChildren.build());
     }
 
-    private static Optional<List<NamedExpression>> fillUpGroupByToOutput(
-            List<Expression> groupBy, List<NamedExpression> output) {
+    private static Aggregate<Plan> fillUpGroupByAndOutput(Aggregate<Plan> prunedOutputAgg) {
+        List<Expression> groupBy = prunedOutputAgg.getGroupByExpressions();
+        List<NamedExpression> output = prunedOutputAgg.getOutputExpressions();
 
-        if (output.containsAll(groupBy)) {
-            return Optional.empty();
+        if (!(prunedOutputAgg instanceof LogicalAggregate)) {
+            return prunedOutputAgg;
         }
 
-        List<NamedExpression> aggFunctions = Lists.newArrayList(output);
-        aggFunctions.removeAll(groupBy);
+        ImmutableList.Builder<NamedExpression> newOutputListBuilder
+                = ImmutableList.builderWithExpectedSize(output.size());
+        newOutputListBuilder.addAll((List) groupBy);
+        for (NamedExpression ne : output) {
+            if (!groupBy.contains(ne)) {
+                newOutputListBuilder.add(ne);
+            }
+        }
 
-        return Optional.of(ImmutableList.<NamedExpression>builder()
-                .addAll((List) groupBy)
-                .addAll(aggFunctions)
-                .build());
+        List<NamedExpression> newOutputList = newOutputListBuilder.build();
+        Set<AggregateFunction> aggregateFunctions = prunedOutputAgg.getAggregateFunctions();
+        ImmutableList.Builder<Expression> newGroupByExprList
+                = ImmutableList.builderWithExpectedSize(newOutputList.size());
+        for (NamedExpression e : newOutputList) {
+            if (!(aggregateFunctions.contains(e)
+                    || (e instanceof Alias && aggregateFunctions.contains(e.child(0))))) {
+                newGroupByExprList.add(e);
+            }
+        }
+        return ((LogicalAggregate<Plan>) prunedOutputAgg).withGroupByAndOutput(
+                newGroupByExprList.build(), newOutputList);
     }
 
     /** prune output */
-    public static <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
+    public <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
             Function<List<NamedExpression>, P> withPrunedOutput, PruneContext context) {
         if (originOutput.isEmpty()) {
             return plan;
         }
-        List<NamedExpression> prunedOutputs = originOutput.stream()
-                .filter(output -> context.requiredSlots.contains(output.toSlot()))
-                .collect(ImmutableList.toImmutableList());
+        List<NamedExpression> prunedOutputs =
+                Utils.filterImmutableList(originOutput, output -> context.requiredSlots.contains(output.toSlot()));
 
         if (prunedOutputs.isEmpty()) {
-            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(originOutput);
+            List<NamedExpression> candidates = Lists.newArrayList(originOutput);
+            candidates.retainAll(keys);
+            if (candidates.isEmpty()) {
+                candidates = originOutput;
+            }
+            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(candidates);
             prunedOutputs = ImmutableList.of(minimumColumn);
         }
 
@@ -228,6 +271,49 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan;
         } else {
             return withPrunedOutput.apply(prunedOutputs);
+        }
+    }
+
+    private LogicalUnion pruneUnionOutput(LogicalUnion union, PruneContext context) {
+        List<NamedExpression> originOutput = union.getOutputs();
+        if (originOutput.isEmpty()) {
+            return union;
+        }
+        List<NamedExpression> prunedOutputs = Lists.newArrayList();
+        List<List<NamedExpression>> constantExprsList = union.getConstantExprsList();
+        List<Integer> extractColumnIndex = Lists.newArrayList();
+        for (int i = 0; i < originOutput.size(); i++) {
+            NamedExpression output = originOutput.get(i);
+            if (context.requiredSlots.contains(output.toSlot())) {
+                prunedOutputs.add(output);
+                extractColumnIndex.add(i);
+            }
+        }
+        int len = extractColumnIndex.size();
+        ImmutableList.Builder<List<NamedExpression>> prunedConstantExprsList
+                = ImmutableList.builderWithExpectedSize(constantExprsList.size());
+        for (List<NamedExpression> row : constantExprsList) {
+            ImmutableList.Builder<NamedExpression> newRow = ImmutableList.builderWithExpectedSize(len);
+            for (int idx : extractColumnIndex) {
+                newRow.add(row.get(idx));
+            }
+            prunedConstantExprsList.add(newRow.build());
+        }
+
+        if (prunedOutputs.isEmpty()) {
+            List<NamedExpression> candidates = Lists.newArrayList(originOutput);
+            candidates.retainAll(keys);
+            if (candidates.isEmpty()) {
+                candidates = originOutput;
+            }
+            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(candidates);
+            prunedOutputs = ImmutableList.of(minimumColumn);
+        }
+
+        if (prunedOutputs.equals(originOutput)) {
+            return union;
+        } else {
+            return union.withNewOutputsAndConstExprsList(prunedOutputs, prunedConstantExprsList.build());
         }
     }
 
@@ -244,24 +330,31 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         Set<Slot> currentUsedSlots = plan.getInputSlots();
         Set<Slot> childrenRequiredSlots = parentRequiredSlots.isEmpty()
                 ? currentUsedSlots
-                : ImmutableSet.<Slot>builder()
+                : ImmutableSet.<Slot>builderWithExpectedSize(parentRequiredSlots.size() + currentUsedSlots.size())
                         .addAll(parentRequiredSlots)
                         .addAll(currentUsedSlots)
                         .build();
 
-        List<Plan> newChildren = new ArrayList<>();
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
-            Set<Slot> childOutputSet = child.getOutputSet();
-            Set<Slot> childRequiredSlots = childOutputSet.stream()
-                    .filter(childrenRequiredSlots::contains).collect(Collectors.toSet());
+            Set<Slot> childRequiredSlots;
+            List<Slot> childOutputs = child.getOutput();
+            ImmutableSet.Builder<Slot> childRequiredSlotBuilder
+                    = ImmutableSet.builderWithExpectedSize(childOutputs.size());
+            for (Slot childOutput : childOutputs) {
+                if (childrenRequiredSlots.contains(childOutput)) {
+                    childRequiredSlotBuilder.add(childOutput);
+                }
+            }
+            childRequiredSlots = childRequiredSlotBuilder.build();
             Plan prunedChild = doPruneChild(plan, child, childRequiredSlots);
             if (prunedChild != child) {
                 hasNewChildren = true;
             }
             newChildren.add(prunedChild);
         }
-        return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
+        return hasNewChildren ? (P) plan.withChildren(newChildren.build()) : plan;
     }
 
     private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots) {
@@ -273,7 +366,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
         // the case 2 in the class comment, prune child's output failed
         if (!isProject && !Sets.difference(prunedChild.getOutputSet(), childRequiredSlots).isEmpty()) {
-            prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
+            prunedChild = new LogicalProject<>(Utils.fastToImmutableList(childRequiredSlots), prunedChild);
         }
         return prunedChild;
     }

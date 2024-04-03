@@ -35,7 +35,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.text.NumberFormat;
 
-public class FloatLiteral extends LiteralExpr {
+public class FloatLiteral extends NumericLiteralExpr {
     private double value;
 
     public FloatLiteral() {
@@ -137,6 +137,11 @@ public class FloatLiteral extends LiteralExpr {
         }
         NumberFormat nf = NumberFormat.getInstance();
         nf.setGroupingUsed(false);
+        if (type == Type.FLOAT) {
+            nf.setMaximumFractionDigits(7);
+        } else {
+            nf.setMaximumFractionDigits(16);
+        }
         return nf.format(value);
     }
 

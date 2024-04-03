@@ -99,7 +99,7 @@ public class ShowLoadStmtTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
         stmt = new ShowLoadStmt(null, binaryPredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE `label` = \'abc\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE (`label` = \'abc\') LIMIT 10", stmt.toString());
 
         StringLiteral stringLiteralLike = new StringLiteral("ab%");
         LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef, stringLiteralLike);
@@ -111,7 +111,7 @@ public class ShowLoadStmtTest {
         BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
         stmt = new ShowLoadStmt(null, statePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE `state` = \'PENDING\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE (`state` = \'PENDING\') LIMIT 10", stmt.toString());
     }
 
     @Test

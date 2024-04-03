@@ -121,6 +121,7 @@ private:
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
     friend class PInternalServiceImpl;
+    friend class RowIdStorageReader;
     friend class Tablet;
     friend class TabletSchema;
 
@@ -238,6 +239,8 @@ public:
     const std::string region() const { return _region; }
     const std::string project() const { return _project; }
     const std::string table() const { return _table; }
+    const std::string odps_url() const { return _odps_url; }
+    const std::string tunnel_url() const { return _tunnel_url; }
     const std::string access_key() const { return _access_key; }
     const std::string secret_key() const { return _secret_key; }
     const std::string public_access() const { return _public_access; }
@@ -246,9 +249,20 @@ private:
     std::string _region;
     std::string _project;
     std::string _table;
+    std::string _odps_url;
+    std::string _tunnel_url;
     std::string _access_key;
     std::string _secret_key;
     std::string _public_access;
+};
+
+class TrinoConnectorTableDescriptor : public TableDescriptor {
+public:
+    TrinoConnectorTableDescriptor(const TTableDescriptor& tdesc);
+    ~TrinoConnectorTableDescriptor() override;
+    std::string debug_string() const override;
+
+private:
 };
 
 class EsTableDescriptor : public TableDescriptor {
@@ -310,6 +324,7 @@ class JdbcTableDescriptor : public TableDescriptor {
 public:
     JdbcTableDescriptor(const TTableDescriptor& tdesc);
     std::string debug_string() const override;
+    int64_t jdbc_catalog_id() const { return _jdbc_catalog_id; }
     const std::string& jdbc_resource_name() const { return _jdbc_resource_name; }
     const std::string& jdbc_driver_url() const { return _jdbc_driver_url; }
     const std::string& jdbc_driver_class() const { return _jdbc_driver_class; }
@@ -318,8 +333,14 @@ public:
     const std::string& jdbc_table_name() const { return _jdbc_table_name; }
     const std::string& jdbc_user() const { return _jdbc_user; }
     const std::string& jdbc_passwd() const { return _jdbc_passwd; }
+    int32_t connection_pool_min_size() const { return _connection_pool_min_size; }
+    int32_t connection_pool_max_size() const { return _connection_pool_max_size; }
+    int32_t connection_pool_max_wait_time() const { return _connection_pool_max_wait_time; }
+    int32_t connection_pool_max_life_time() const { return _connection_pool_max_life_time; }
+    bool connection_pool_keep_alive() const { return _connection_pool_keep_alive; }
 
 private:
+    int64_t _jdbc_catalog_id;
     std::string _jdbc_resource_name;
     std::string _jdbc_driver_url;
     std::string _jdbc_driver_class;
@@ -328,6 +349,11 @@ private:
     std::string _jdbc_table_name;
     std::string _jdbc_user;
     std::string _jdbc_passwd;
+    int32_t _connection_pool_min_size;
+    int32_t _connection_pool_max_size;
+    int32_t _connection_pool_max_wait_time;
+    int32_t _connection_pool_max_life_time;
+    bool _connection_pool_keep_alive;
 };
 
 class TupleDescriptor {
@@ -394,6 +420,7 @@ private:
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
     friend class PInternalServiceImpl;
+    friend class RowIdStorageReader;
     friend class TabletSchema;
 
     const TupleId _id;
@@ -489,10 +516,12 @@ public:
               _has_varlen_slots(desc._has_varlen_slots) {
         _num_materialized_slots = 0;
         _num_null_slots = 0;
+        _num_slots = 0;
         std::vector<TupleDescriptor*>::const_iterator it = desc._tuple_desc_map.begin();
         for (; it != desc._tuple_desc_map.end(); ++it) {
             _num_materialized_slots += (*it)->num_materialized_slots();
             _num_null_slots += (*it)->num_null_slots();
+            _num_slots += (*it)->slots().size();
         }
         _num_null_bytes = (_num_null_slots + 7) / 8;
     }
@@ -514,6 +543,8 @@ public:
     int num_null_slots() const { return _num_null_slots; }
 
     int num_null_bytes() const { return _num_null_bytes; }
+
+    int num_slots() const { return _num_slots; }
 
     static const int INVALID_IDX;
 
@@ -569,6 +600,7 @@ private:
     int _num_materialized_slots;
     int _num_null_slots;
     int _num_null_bytes;
+    int _num_slots;
 };
 
 } // namespace doris

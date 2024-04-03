@@ -17,18 +17,24 @@
 
 package org.apache.doris.nereids.trees;
 
+import org.apache.doris.nereids.util.Utils;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * interface for all node in Nereids, include plan node and expression.
@@ -44,8 +50,23 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     int arity();
 
+    <T> Optional<T> getMutableState(String key);
+
+    /** getOrInitMutableState */
+    default <T> T getOrInitMutableState(String key, Supplier<T> initState) {
+        Optional<T> mutableState = getMutableState(key);
+        if (!mutableState.isPresent()) {
+            T state = initState.get();
+            setMutableState(key, state);
+            return state;
+        }
+        return mutableState.get();
+    }
+
+    void setMutableState(String key, Object value);
+
     default NODE_TYPE withChildren(NODE_TYPE... children) {
-        return withChildren(ImmutableList.copyOf(children));
+        return withChildren(Utils.fastToImmutableList(children));
     }
 
     NODE_TYPE withChildren(List<NODE_TYPE> children);
@@ -140,14 +161,25 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         boolean changed = false;
         for (NODE_TYPE child : children()) {
             NODE_TYPE newChild = child.rewriteUp(rewriteFunction);
-            if (child != newChild) {
-                changed = true;
-            }
+            changed |= child != newChild;
             newChildren.add(newChild);
         }
 
         NODE_TYPE rewrittenChildren = changed ? withChildren(newChildren.build()) : (NODE_TYPE) this;
         return rewriteFunction.apply(rewrittenChildren);
+    }
+
+    /**
+     * Foreach treeNode. Top-down traverse implicitly, stop traverse if satisfy test.
+     * @param func foreach function
+     */
+    default void foreach(Predicate<TreeNode<NODE_TYPE>> func) {
+        boolean valid = func.test(this);
+        if (!valid) {
+            for (NODE_TYPE child : children()) {
+                child.foreach(func);
+            }
+        }
     }
 
     /**
@@ -158,6 +190,18 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         func.accept(this);
         for (NODE_TYPE child : children()) {
             child.foreach(func);
+        }
+    }
+
+    /** foreachBreath */
+    default void foreachBreath(Predicate<TreeNode<NODE_TYPE>> func) {
+        LinkedList<TreeNode<NODE_TYPE>> queue = new LinkedList<>();
+        queue.add(this);
+        while (!queue.isEmpty()) {
+            TreeNode<NODE_TYPE> current = queue.pollFirst();
+            if (!func.test(current)) {
+                queue.addAll(current.children());
+            }
         }
     }
 
@@ -183,23 +227,6 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             }
         }
         return false;
-    }
-
-    /**
-     * iterate top down and test predicate if any matched. Top-down traverse implicitly.
-     * @param predicate predicate
-     * @return the first node which match the predicate
-     */
-    default TreeNode<NODE_TYPE> firstMatch(Predicate<TreeNode<NODE_TYPE>> predicate) {
-        if (predicate.test(this)) {
-            return this;
-        }
-        for (NODE_TYPE child : children()) {
-            if (child.anyMatch(predicate)) {
-                return child;
-            }
-        }
-        return this;
     }
 
     /**
@@ -239,6 +266,20 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             }
         });
         return (Set<T>) result.build();
+    }
+
+    /**
+     * Collect the nodes that satisfied the predicate firstly.
+     */
+    default <T> List<T> collectFirst(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        List<TreeNode<NODE_TYPE>> result = new ArrayList<>();
+        foreach(node -> {
+            if (result.isEmpty() && predicate.test(node)) {
+                result.add(node);
+            }
+            return !result.isEmpty();
+        });
+        return (List<T>) ImmutableList.copyOf(result);
     }
 
     /**

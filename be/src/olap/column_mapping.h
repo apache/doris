@@ -30,6 +30,8 @@ struct ColumnMapping {
     ColumnMapping() = default;
     virtual ~ColumnMapping() = default;
 
+    bool has_reference() const { return expr != nullptr || ref_column >= 0; }
+
     // <0: use default value
     // >=0: use origin column
     int32_t ref_column = -1;

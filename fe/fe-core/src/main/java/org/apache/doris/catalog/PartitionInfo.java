@@ -20,10 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MaxLiteral;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -288,7 +290,9 @@ public class PartitionInfo implements Writable {
 
     public ReplicaAllocation getReplicaAllocation(long partitionId) {
         if (!idToReplicaAllocation.containsKey(partitionId)) {
-            LOG.debug("failed to get replica allocation for partition: {}", partitionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to get replica allocation for partition: {}", partitionId);
+            }
             return ReplicaAllocation.DEFAULT_ALLOCATION;
         }
         return idToReplicaAllocation.get(partitionId);
@@ -366,12 +370,14 @@ public class PartitionInfo implements Writable {
         throw new RuntimeException("Should implement it in derived classes.");
     }
 
-    static List<PartitionValue> toPartitionValue(PartitionKey partitionKey) {
+    public static List<PartitionValue> toPartitionValue(PartitionKey partitionKey) {
         return partitionKey.getKeys().stream().map(expr -> {
             if (expr == MaxLiteral.MAX_VALUE) {
                 return PartitionValue.MAX_VALUE;
             } else if (expr instanceof DateLiteral) {
                 return new PartitionValue(expr.getStringValue());
+            } else if (expr instanceof NullLiteral) {
+                return new PartitionValue("NULL", true);
             } else {
                 return new PartitionValue(expr.getRealValue().toString());
             }
@@ -414,6 +420,14 @@ public class PartitionInfo implements Writable {
 
             idToReplicaAllocation.get(entry.getKey()).write(out);
             out.writeBoolean(idToInMemory.get(entry.getKey()));
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     out.writeBoolean(idToPersistent.get(entry.getKey()));
+                //
+                // keep the compatibility here.
+                out.writeBoolean(false);
+            }
         }
         int size = partitionExprs.size();
         out.writeInt(size);
@@ -447,6 +461,14 @@ public class PartitionInfo implements Writable {
             }
 
             idToInMemory.put(partitionId, in.readBoolean());
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     idToPersistent.put(partitionId, in.readBoolean());
+                //
+                // keep the compatibility here.
+                in.readBoolean();
+            }
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
             int size = in.readInt();

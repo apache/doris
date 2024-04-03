@@ -66,7 +66,9 @@ public class FunctionUtil {
         List<Function> existFuncs = name2Function.get(functionName);
         if (existFuncs == null) {
             if (ifExists) {
-                LOG.debug("function name does not exist: " + functionName);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("function name does not exist: " + functionName);
+                }
                 return false;
             }
             throw new UserException("function name does not exist: " + functionName);
@@ -82,7 +84,9 @@ public class FunctionUtil {
         }
         if (!isFound) {
             if (ifExists) {
-                LOG.debug("function does not exist: " + function);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("function does not exist: " + function);
+                }
                 return false;
             }
             throw new UserException("function does not exist: " + function);
@@ -113,7 +117,9 @@ public class FunctionUtil {
                 for (Function existFunc : existFuncs) {
                     if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
                         if (ifNotExists) {
-                            LOG.debug("function already exists");
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("function already exists");
+                            }
                             return false;
                         }
                         throw new UserException("function already exists");

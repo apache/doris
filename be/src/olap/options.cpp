@@ -53,6 +53,9 @@ static std::string REMOTE_CACHE_UC = "REMOTE_CACHE";
 static std::string CACHE_PATH = "path";
 static std::string CACHE_TOTAL_SIZE = "total_size";
 static std::string CACHE_QUERY_LIMIT_SIZE = "query_limit";
+static std::string CACHE_NORMAL_PERCENT = "normal_percent";
+static std::string CACHE_DISPOSABLE_PERCENT = "disposable_percent";
+static std::string CACHE_INDEX_PERCENT = "index_percent";
 
 // TODO: should be a general util method
 // static std::string to_upper(const std::string& str) {
@@ -200,7 +203,7 @@ void parse_conf_broken_store_paths(const string& config_path, std::set<std::stri
  *  [
  *    {"path": "storage1", "total_size":53687091200,"query_limit": "10737418240"},
  *    {"path": "storage2", "total_size":53687091200},
- *    {"path": "storage3", "total_size":53687091200},
+ *    {"path": "storage3", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
  *  ]
  */
 Status parse_conf_cache_paths(const std::string& config_path, std::vector<CachePath>& paths) {
@@ -235,7 +238,38 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
             return Status::InvalidArgument(
                     "total_size or query_limit should not less than or equal to zero");
         }
-        paths.emplace_back(std::move(path), total_size, query_limit_bytes);
+
+        // percent
+        auto get_percent_value = [&](const std::string& key, size_t& percent) {
+            auto& value = map.FindMember(key.c_str())->value;
+            if (value.IsUint()) {
+                percent = value.GetUint();
+            } else {
+                return Status::InvalidArgument("percent should be uint");
+            }
+            return Status::OK();
+        };
+
+        size_t normal_percent = 85;
+        size_t disposable_percent = 10;
+        size_t index_percent = 5;
+        bool has_normal_percent = map.HasMember(CACHE_NORMAL_PERCENT.c_str());
+        bool has_disposable_percent = map.HasMember(CACHE_DISPOSABLE_PERCENT.c_str());
+        bool has_index_percent = map.HasMember(CACHE_INDEX_PERCENT.c_str());
+        if (has_normal_percent && has_disposable_percent && has_index_percent) {
+            RETURN_IF_ERROR(get_percent_value(CACHE_NORMAL_PERCENT, normal_percent));
+            RETURN_IF_ERROR(get_percent_value(CACHE_DISPOSABLE_PERCENT, disposable_percent));
+            RETURN_IF_ERROR(get_percent_value(CACHE_INDEX_PERCENT, index_percent));
+        } else if (has_normal_percent || has_disposable_percent || has_index_percent) {
+            return Status::InvalidArgument(
+                    "cache percent config must either be all set or all unset.");
+        }
+        if ((normal_percent + disposable_percent + index_percent) != 100) {
+            return Status::InvalidArgument("The sum of cache percent config must equal 100.");
+        }
+
+        paths.emplace_back(std::move(path), total_size, query_limit_bytes, normal_percent,
+                           disposable_percent, index_percent);
     }
     if (paths.empty()) {
         return Status::InvalidArgument("fail to parse storage_root_path config. value={}",
@@ -245,27 +279,8 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
 }
 
 io::FileCacheSettings CachePath::init_settings() const {
-    io::FileCacheSettings settings;
-    settings.total_size = total_bytes;
-    settings.max_file_segment_size = config::file_cache_max_file_segment_size;
-    settings.max_query_cache_size = query_limit_bytes;
-    size_t per_size = settings.total_size / io::percentage[3];
-    settings.disposable_queue_size = per_size * io::percentage[1];
-    settings.disposable_queue_elements =
-            std::max(settings.disposable_queue_size / settings.max_file_segment_size,
-                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-
-    settings.index_queue_size = per_size * io::percentage[2];
-    settings.index_queue_elements =
-            std::max(settings.index_queue_size / settings.max_file_segment_size,
-                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-
-    settings.query_queue_size =
-            settings.total_size - settings.disposable_queue_size - settings.index_queue_size;
-    settings.query_queue_elements =
-            std::max(settings.query_queue_size / settings.max_file_segment_size,
-                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-    return settings;
+    return io::get_file_cache_settings(total_bytes, query_limit_bytes, normal_percent,
+                                       disposable_percent, index_percent);
 }
 
 } // end namespace doris

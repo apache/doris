@@ -22,10 +22,7 @@
 #include "common/status.h"
 #include "runtime/large_int_value.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/sip_hash.h"
-#include "vec/common/uint128.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
@@ -100,7 +97,6 @@ public:
     }
 
     // TODO(zhiqiang): May be override open function?
-
     Status execute_impl(FunctionContext* /*context*/, Block& block,
                         const ColumnNumbers& /*arguments*/, size_t result,
                         size_t input_rows_count) const override {
@@ -140,14 +136,16 @@ private:
     UInt64 randomSeed() const {
         struct timespec times {};
 
+        clock_gettime(CLOCK_MONOTONIC, &times);
         /// Not cryptographically secure as time, pid and stack address can be predictable.
+        auto ret = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&times.tv_nsec),
+                                              sizeof(times.tv_nsec), 0);
+        ret = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&times.tv_sec),
+                                         sizeof(times.tv_sec), ret);
+        ret = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>((uintptr_t)pthread_self()),
+                                         sizeof(pthread_t), ret);
 
-        SipHash hash;
-        hash.update(times.tv_nsec);
-        hash.update(times.tv_sec);
-        hash.update((uintptr_t)pthread_self());
-
-        return hash.get64();
+        return ret;
     }
 };
 

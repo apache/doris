@@ -77,3 +77,21 @@ true	false
 -- !like24 --
 false	true
 
+-- !escape1 --
+true
+
+-- !escape2 --
+false
+
+-- !escape3 --
+false
+
+-- !escape4 --
+true
+
+-- !escape5 --
+true
+
+-- !escape6 --
+true
+

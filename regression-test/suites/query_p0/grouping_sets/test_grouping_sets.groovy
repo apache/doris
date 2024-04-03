@@ -49,18 +49,9 @@ suite("test_grouping_sets", "p0") {
               SELECT /*+ SET_VAR(enable_nereids_planner=false) */ k1, k2, SUM(k3) FROM test_query_db.test
               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
             """
-        exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
+        exception "k3"
     }
 
-    sql """set enable_nereids_planner=true;"""
-    sql """set enable_fallback_to_original_planner=false;"""
-    test {
-        sql """
-              SELECT k1, k2, SUM(k3) FROM test_query_db.test
-              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
-            """
-        exception "errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions"
-    }
     sql """set enable_nereids_planner=false;"""
     sql """set enable_fallback_to_original_planner=true;"""
     test {
@@ -71,15 +62,6 @@ suite("test_grouping_sets", "p0") {
         exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
     }
 
-    sql """set enable_nereids_planner=true;"""
-    sql """set enable_fallback_to_original_planner=false;"""
-    test {
-        sql """
-              SELECT k1, k2, SUM(k3)/(SUM(k3)+1) FROM test_query_db.test
-              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
-            """
-        exception "errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions"
-    }
     sql """set enable_nereids_planner=false;"""
     sql """set enable_fallback_to_original_planner=true;"""
 
@@ -269,9 +251,8 @@ suite("test_grouping_sets", "p0") {
     sql """set enable_nereids_planner=true;"""
     sql """set enable_fallback_to_original_planner=false;"""
 
-    test {
-        sql "select k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))"
-        exception "k1 cannot both in select list and aggregate functions " +
-                "when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
-    }
+    qt_select24 """
+        select k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))
+        order by 1,2
+        """
 }

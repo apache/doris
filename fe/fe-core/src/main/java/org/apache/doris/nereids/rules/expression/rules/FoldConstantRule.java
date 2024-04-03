@@ -17,25 +17,46 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.ExpressionBottomUpRewriter;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Constant evaluation of an expression.
  */
-public class FoldConstantRule extends AbstractExpressionRewriteRule {
+public class FoldConstantRule implements ExpressionPatternRuleFactory {
 
     public static final FoldConstantRule INSTANCE = new FoldConstantRule();
 
+    private static final ExpressionBottomUpRewriter FULL_FOLD_REWRITER = ExpressionRewrite.bottomUp(
+            FoldConstantRuleOnFE.VISITOR_INSTANCE,
+            FoldConstantRuleOnBE.INSTANCE
+    );
+
+    /** evaluate by pattern match */
     @Override
-    public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.<ExpressionPatternMatcher<? extends Expression>>builder()
+                .addAll(FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE.buildRules())
+                .addAll(FoldConstantRuleOnBE.INSTANCE.buildRules())
+                .build();
+    }
+
+    /** evaluate by visitor */
+    public static Expression evaluate(Expression expr, ExpressionRewriteContext ctx) {
         if (ctx.cascadesContext != null
                 && ctx.cascadesContext.getConnectContext() != null
                 && ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoldConstantByBe()) {
-            return new FoldConstantRuleOnBE().rewrite(expr, ctx);
+            return FULL_FOLD_REWRITER.rewrite(expr, ctx);
+        } else {
+            return FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(expr, ctx);
         }
-        return FoldConstantRuleOnFE.INSTANCE.rewrite(expr, ctx);
     }
 }
-

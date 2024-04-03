@@ -19,6 +19,7 @@ package org.apache.doris.master;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -56,7 +57,7 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;
             }
-            if (db.isMysqlCompatibleDatabase()) {
+            if (db instanceof MysqlCompatibleDatabase) {
                 continue;
             }
             try {

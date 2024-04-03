@@ -34,8 +34,18 @@ class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
-    List<String> feConfigs = []
+    List<String> feConfigs = ['heartbeat_interval_second=5']
     List<String> beConfigs = []
+    boolean connectToFollower = false
+
+    // 1. cloudMode = true, only create cloud cluster.
+    // 2. cloudMode = false, only create none-cloud cluster.
+    // 3. cloudMode = null, create both cloud and none-cloud cluster, depend on the running pipeline mode.
+    Boolean cloudMode = false
+
+    // when cloudMode = true/false,  but the running pipeline is diff with cloudMode,
+    // skip run this docker test or not.
+    boolean skipRunWhenPipelineDiff = true
 
     // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
     // here disk_type=HDD or SSD,  disk capacity is in gb unit.
@@ -83,6 +93,10 @@ class ServerNode {
         node.host = (String) fields.get(header.indexOf('IP'))
         node.httpPort = (Integer) fields.get(header.indexOf('http_port'))
         node.alive = fields.get(header.indexOf('alive')) == 'true'
+    }
+
+    static long toLongOrDefault(Object val, long defValue) {
+        return val == '' ? defValue : (long) val
     }
 
     def getHttpAddress() {
@@ -137,8 +151,8 @@ class Backend extends ServerNode {
     static Backend fromCompose(ListHeader header, int index, List<Object> fields) {
         Backend be = new Backend()
         ServerNode.fromCompose(be, header, index, fields)
-        be.backendId = (long) fields.get(header.indexOf('backend_id'))
-        be.tabletNum = (int) fields.get(header.indexOf('tablet_num'))
+        be.backendId = toLongOrDefault(fields.get(header.indexOf('backend_id')), -1L)
+        be.tabletNum = (int) toLongOrDefault(fields.get(header.indexOf('tablet_num')), 0L)
         return be
     }
 
@@ -164,7 +178,7 @@ class SuiteCluster {
         this.running = false
     }
 
-    void init(ClusterOptions options) {
+    void init(ClusterOptions options, boolean isCloud) {
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
@@ -194,6 +208,9 @@ class SuiteCluster {
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
+        }
+        if (isCloud) {
+            cmd += ['--cloud']
         }
         cmd += ['--wait-timeout', String.valueOf(180)]
 
@@ -236,6 +253,10 @@ class SuiteCluster {
 
     Frontend getMasterFe() {
         return getFrontends().stream().filter(fe -> fe.isMaster).findFirst().orElse(null)
+    }
+
+    Frontend getOneFollowerFe() {
+        return getFrontends().stream().filter(fe -> !fe.isMaster).findFirst().orElse(null)
     }
 
     Frontend getFeByIndex(int index) {
@@ -287,6 +308,8 @@ class SuiteCluster {
             } else if (name.startsWith('fe-')) {
                 int index = name.substring('fe-'.length()) as int
                 frontends.add(Frontend.fromCompose(header, index, row))
+            } else if (name.startsWith('ms-') || name.startsWith('recycle-') || name.startsWith('fdb-')) {
+            // TODO: handle these nodes
             } else {
                 assert false : 'Unknown node type with name: ' + name
             }
@@ -438,6 +461,7 @@ class SuiteCluster {
     }
 
     private void waitHbChanged() {
+        // heart beat interval is 5s
         Thread.sleep(7000)
     }
 
@@ -467,14 +491,15 @@ class SuiteCluster {
         } else {
             proc.waitFor()
         }
-        def out = outBuf.toString()
-        def err = errBuf.toString()
-        if (proc.exitValue()) {
+        if (proc.exitValue() != 0) {
             throw new Exception(String.format('Exit value: %s != 0, stdout: %s, stderr: %s',
-                                              proc.exitValue(), out, err))
+                                              proc.exitValue(), outBuf.toString(), errBuf.toString()))
         }
         def parser = new JsonSlurper()
-        def object = (Map<String, Object>) parser.parseText(out)
+        if (outBuf.toString().size() == 0) {
+            throw new Exception(String.format('doris compose output is empty, err: %s', errBuf.toString()))
+        }
+        def object = (Map<String, Object>) parser.parseText(outBuf.toString())
         if (object.get('code') != 0) {
             throw new Exception(String.format('Code: %s != 0, err: %s', object.get('code'), object.get('err')))
         }

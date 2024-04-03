@@ -53,7 +53,7 @@ public:
 
     DataTypePtr get_return_type() const override { return _return_type; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         //the range is [begin, end]
         _function->deserialize_and_merge_from_column_range(place, *columns[0], row_num, row_num,

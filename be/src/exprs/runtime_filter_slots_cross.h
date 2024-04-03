@@ -34,17 +34,14 @@ namespace doris {
 // this class used in cross join node
 class VRuntimeFilterSlotsCross {
 public:
-    VRuntimeFilterSlotsCross(const std::vector<TRuntimeFilterDesc>& runtime_filter_descs,
+    VRuntimeFilterSlotsCross(const std::vector<IRuntimeFilter*>& runtime_filters,
                              const vectorized::VExprContextSPtrs& src_expr_ctxs)
-            : _runtime_filter_descs(runtime_filter_descs), filter_src_expr_ctxs(src_expr_ctxs) {}
+            : _runtime_filters(runtime_filters), filter_src_expr_ctxs(src_expr_ctxs) {}
 
     ~VRuntimeFilterSlotsCross() = default;
 
     Status init(RuntimeState* state) {
-        for (auto& filter_desc : _runtime_filter_descs) {
-            IRuntimeFilter* runtime_filter = nullptr;
-            RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(filter_desc.filter_id,
-                                                                             &runtime_filter));
+        for (auto* runtime_filter : _runtime_filters) {
             if (runtime_filter == nullptr) {
                 return Status::InternalError("runtime filter is nullptr");
             }
@@ -53,7 +50,6 @@ public:
                 runtime_filter->has_remote_target()) {
                 return Status::InternalError("cross join runtime filter has remote target");
             }
-            _runtime_filters.push_back(runtime_filter);
         }
         return Status::OK();
     }
@@ -82,12 +78,11 @@ public:
         return Status::OK();
     }
 
-    bool empty() { return _runtime_filters.empty(); }
+    bool empty() const { return _runtime_filters.empty(); }
 
 private:
-    const std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
+    const std::vector<IRuntimeFilter*>& _runtime_filters;
     const vectorized::VExprContextSPtrs filter_src_expr_ctxs;
-    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 
 } // namespace doris

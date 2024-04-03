@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <memory>
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
@@ -39,18 +40,18 @@ class StorageEngineTest : public testing::Test {
 public:
     virtual void SetUp() {
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
-        EXPECT_TRUE(
-                io::global_local_filesystem()->delete_and_create_directory(_engine_data_path).ok());
+        auto st = io::global_local_filesystem()->delete_directory(_engine_data_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(_engine_data_path);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(
                 io::global_local_filesystem()->create_directory(_engine_data_path + "/meta").ok());
-        _data_dir.reset(new DataDir(_engine_data_path, 100000000));
-        static_cast<void>(_data_dir->init());
 
         EngineOptions options;
         options.backend_uid = UniqueId::gen_uid();
-
-        _storage_engine.reset(new StorageEngine(options));
-        ExecEnv::GetInstance()->set_storage_engine(_storage_engine.get());
+        _storage_engine = std::make_unique<StorageEngine>(options);
+        _data_dir = std::make_unique<DataDir>(*_storage_engine, _engine_data_path, 100000000);
+        static_cast<void>(_data_dir->init());
     }
 
     virtual void TearDown() {
@@ -104,7 +105,7 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     auto st = ThreadPoolBuilder("TabletPublishTxnThreadPool")
                       .set_min_threads(config::tablet_publish_txn_max_thread)
                       .set_max_threads(config::tablet_publish_txn_max_thread)
-                      .build(&_storage_engine->tablet_publish_txn_thread_pool());
+                      .build(&_storage_engine->_tablet_publish_txn_thread_pool);
     EXPECT_EQ(st, Status::OK());
 
     int64_t partition_id = 1;

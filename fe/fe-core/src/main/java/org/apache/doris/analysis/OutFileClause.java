@@ -129,13 +129,14 @@ public class OutFileClause {
     private static final String HADOOP_FS_PROP_PREFIX = "dfs.";
     private static final String HADOOP_PROP_PREFIX = "hadoop.";
     private static final String BROKER_PROP_PREFIX = "broker.";
-    private static final String PROP_BROKER_NAME = "broker.name";
+    public static final String PROP_BROKER_NAME = "broker.name";
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
     public static final String PROP_LINE_DELIMITER = "line_delimiter";
     public static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     public static final String PROP_FILE_SUFFIX = "file_suffix";
+    public static final String PROP_WITH_BOM = "with_bom";
 
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String SCHEMA = "schema";
@@ -155,6 +156,7 @@ public class OutFileClause {
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
     private boolean deleteExistingFiles = false;
     private String fileSuffix = "";
+    private boolean withBom = false;
     private BrokerDesc brokerDesc = null;
     // True if result is written to local disk.
     // If set to true, the brokerDesc must be null.
@@ -295,15 +297,21 @@ public class OutFileClause {
                 }
                 orcType = "string";
                 break;
+            case DATEV2:
+                orcType = "date";
+                break;
             case DATETIMEV2:
                 orcType = "timestamp";
+                break;
+            case CHAR:
+                orcType = "char(" + dorisType.getLength() + ")";
+                break;
+            case VARCHAR:
+                orcType = "varchar(" + dorisType.getLength() + ")";
                 break;
             case LARGEINT:
             case DATE:
             case DATETIME:
-            case DATEV2:
-            case CHAR:
-            case VARCHAR:
                 orcType = "string";
                 break;
             case DECIMALV2:
@@ -400,74 +408,50 @@ public class OutFileClause {
                 case FLOAT:
                 case DOUBLE:
                 case STRING:
-                    if (!schema.second.equals(resultType.getPrimitiveType().toString().toLowerCase())) {
-                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
-                                + ", should use " + resultType.getPrimitiveType().toString() + ","
-                                + " but the type of column " + i + " is " + schema.second);
-                    }
+                    checkOrcType(schema.second, resultType.getPrimitiveType().toString().toLowerCase(), true,
+                            resultType.getPrimitiveType().toString());
+                    break;
+                case DATEV2:
+                    checkOrcType(schema.second, "date", true, resultType.getPrimitiveType().toString());
                     break;
                 case DATETIMEV2:
-                    if (!schema.second.equals("timestamp")) {
-                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
-                                + ", should use timestamp, but the definition type of column " + i + " is "
-                                + schema.second);
-                    }
+                    checkOrcType(schema.second, "timestamp", true, resultType.getPrimitiveType().toString());
+                    break;
+                case CHAR:
+                    checkOrcType(schema.second, "char", false, resultType.getPrimitiveType().toString());
+                    break;
+                case VARCHAR:
+                    checkOrcType(schema.second, "varchar", false, resultType.getPrimitiveType().toString());
                     break;
                 case LARGEINT:
                 case DATE:
                 case DATETIME:
-                case DATEV2:
-                case CHAR:
-                case VARCHAR:
-                    if (!schema.second.equals("string")) {
-                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
-                                + ", should use string, but the definition type of column " + i + " is "
-                                + schema.second);
-                    }
+                    checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
                     break;
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
                 case DECIMALV2:
-                    if (!schema.second.startsWith("decimal")) {
-                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
-                                + ", should use string, but the definition type of column " + i + " is "
-                                + schema.second);
-                    }
+                    checkOrcType(schema.second, "decimal", false, resultType.getPrimitiveType().toString());
                     break;
                 case HLL:
                 case BITMAP:
                     if (ConnectContext.get() != null && ConnectContext.get()
                             .getSessionVariable().isReturnObjectDataAsBinary()) {
-                        if (!schema.second.equals("string")) {
-                            throw new AnalysisException("project field type is HLL/BITMAP, should use string, "
-                                    + "but the definition type of column " + i + " is " + schema.second);
-                        }
+                        checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
                     } else {
                         throw new AnalysisException("Orc format does not support column type: "
                                 + resultType.getPrimitiveType());
                     }
                     break;
                 case STRUCT:
-                    if (!schema.second.startsWith("struct")) {
-                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
-                                + ", should use struct, but the definition type of column " + i + " is "
-                                + schema.second);
-                    }
+                    checkOrcType(schema.second, "struct", false, resultType.getPrimitiveType().toString());
                     break;
                 case MAP:
-                    if (!schema.second.startsWith("map")) {
-                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
-                                + ", should use map, but the definition type of column " + i + " is "
-                                + schema.second);
-                    }
+                    checkOrcType(schema.second, "map", false, resultType.getPrimitiveType().toString());
                     break;
                 case ARRAY:
-                    if (!schema.second.startsWith("array")) {
-                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
-                                + ", should use array, but the definition type of column " + i + " is "
-                                + schema.second);
-                    }
+                    checkOrcType(schema.second, "array", false, resultType.getPrimitiveType().toString());
                     break;
                 default:
                     throw new AnalysisException("Orc format does not support column type: "
@@ -475,6 +459,22 @@ public class OutFileClause {
             }
         }
     }
+
+    private void checkOrcType(String orcType, String expectType, boolean isEqual, String dorisType)
+            throws AnalysisException {
+        if (isEqual) {
+            if (orcType.equals(expectType)) {
+                return;
+            }
+        } else {
+            if (orcType.startsWith(expectType)) {
+                return;
+            }
+        }
+        throw new AnalysisException("project field type is " + dorisType
+                + ", should use " + expectType + ", but the definition type is " + orcType);
+    }
+
 
     private void analyzeForParquetFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
         if (this.parquetSchemas.isEmpty()) {
@@ -566,6 +566,11 @@ public class OutFileClause {
             processedPropKeys.add(PROP_FILE_SUFFIX);
         }
 
+        if (properties.containsKey(PROP_WITH_BOM)) {
+            withBom = Boolean.valueOf(properties.get(PROP_WITH_BOM)).booleanValue();
+            processedPropKeys.add(PROP_WITH_BOM);
+        }
+
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
             FeNameFormat.checkOutfileSuccessFileName("file name", successFileName);
@@ -581,7 +586,9 @@ public class OutFileClause {
         }
 
         if (processedPropKeys.size() != properties.size()) {
-            LOG.debug("{} vs {}", processedPropKeys, properties);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("{} vs {}", processedPropKeys, properties);
+            }
             throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
                     .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
         }
@@ -805,6 +812,7 @@ public class OutFileClause {
         sinkOptions.setMaxFileSizeBytes(maxFileSizeBytes);
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         sinkOptions.setFileSuffix(fileSuffix);
+        sinkOptions.setWithBom(withBom);
 
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getProperties());

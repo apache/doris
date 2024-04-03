@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_build_index_fault", "inverted_index"){
+suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
     // prepare test table
     def timeout = 60000
     def delta_time = 1000
@@ -73,6 +73,7 @@ suite("test_build_index_fault", "inverted_index"){
             useTime = t
             sleep(delta_time)
         }
+        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
         return "wait_timeout"
     }
@@ -91,7 +92,8 @@ suite("test_build_index_fault", "inverted_index"){
             useTime = t
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
+        logger.info("wait_for_last_build_index_on_table_running debug: " + alter_res)
+        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_running timeout")
         return "wait_timeout"
     }
 

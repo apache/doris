@@ -61,6 +61,7 @@ suite("test_runtime_filter") {
     sql "set enable_fallback_to_original_planner=false"
     sql "set disable_join_reorder=true"
 
+    sql "set ignore_storage_data_distribution=false"
     explain{
         sql ("""select * from rf_tblA join rf_tblB on a < b""")
         contains "runtime filters: RF000[max] -> a"

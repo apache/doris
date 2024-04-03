@@ -19,7 +19,7 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace doris {
 
@@ -34,7 +34,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class OlapTableSinkOperator final : public DataSinkOperator<OlapTableSinkOperatorBuilder> {
+class OlapTableSinkOperator final : public DataSinkOperator<vectorized::VOlapTableSink> {
 public:
     OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
@@ -91,17 +91,17 @@ public:
         RETURN_IF_ERROR(Base::open(state));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-        return local_state.sink(state, in_block, source_state);
+        return local_state.sink(state, in_block, eos);
     }
 
 private:
     friend class OlapTableSinkLocalState;
     template <typename Writer, typename Parent>
+        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
     const RowDescriptor& _row_desc;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;

@@ -20,16 +20,17 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
-import org.apache.doris.statistics.util.SimpleQueue;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -45,9 +46,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
@@ -57,12 +58,13 @@ public class AnalysisManagerTest {
 
         new MockUp<AnalysisManager>() {
             @Mock
-            public void logCreateAnalysisTask(AnalysisInfo job) {
-            }
+            public void logCreateAnalysisTask(AnalysisInfo job) {}
 
             @Mock
-            public void logCreateAnalysisJob(AnalysisInfo job) {
-            }
+            public void logCreateAnalysisJob(AnalysisInfo job) {}
+
+            @Mock
+            public void updateTableStats(AnalysisInfo jobInfo) {}
 
         };
 
@@ -108,7 +110,7 @@ public class AnalysisManagerTest {
     // test build sync job
     @Test
     public void testBuildAndAssignJob1() throws Exception {
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setColToPartitions(new HashMap<>()).build();
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobColumns(new ArrayList<>()).build();
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -166,12 +168,7 @@ public class AnalysisManagerTest {
 
         AnalysisManager analysisManager = new AnalysisManager();
         Assertions.assertNull(analysisManager.buildAndAssignJob(analyzeTblStmt));
-        analysisInfo.colToPartitions.put("c1", new HashSet<String>() {
-            {
-                add("p1");
-                add("p2");
-            }
-        });
+        analysisInfo.jobColumns.add(Pair.of("index1", "c1"));
         analysisManager.buildAndAssignJob(analyzeTblStmt);
         new Expectations() {
             {
@@ -190,7 +187,7 @@ public class AnalysisManagerTest {
     // test build async job
     @Test
     public void testBuildAndAssignJob2(@Injectable OlapAnalysisTask analysisTask) throws Exception {
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
                 .setScheduleType(ScheduleType.PERIOD)
                 .build();
         new MockUp<StatisticsUtil>() {
@@ -254,12 +251,7 @@ public class AnalysisManagerTest {
             }
         }));
         AnalysisManager analysisManager = new AnalysisManager();
-        analysisInfo.colToPartitions.put("c1", new HashSet<String>() {
-            {
-                add("p1");
-                add("p2");
-            }
-        });
+        analysisInfo.jobColumns.add(Pair.of("index1", "c1"));
         analysisManager.buildAndAssignJob(analyzeTblStmt);
         new Expectations() {
             {
@@ -270,123 +262,10 @@ public class AnalysisManagerTest {
     }
 
     @Test
-    public void testSystemJobStatusUpdater() {
-        new MockUp<BaseAnalysisTask>() {
-
-            @Mock
-            protected void init(AnalysisInfo info) {
-
-            }
-        };
-
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void updateTableStats(AnalysisInfo jobInfo) {}
-
-            @Mock
-            protected void logAutoJob(AnalysisInfo autoJob) {
-
-            }
-        };
-
-        AnalysisManager analysisManager = new AnalysisManager();
-        AnalysisInfo job = new AnalysisInfoBuilder()
-                .setJobId(0)
-                .setColName("col1, col2").build();
-        analysisManager.systemJobInfoMap.put(job.jobId, job);
-        AnalysisInfo task1 = new AnalysisInfoBuilder()
-                .setJobId(0)
-                .setTaskId(1)
-                .setState(AnalysisState.RUNNING)
-                .setColName("col1").build();
-        AnalysisInfo task2 = new AnalysisInfoBuilder()
-                .setJobId(0)
-                .setTaskId(1)
-                .setState(AnalysisState.FINISHED)
-                .setColName("col2").build();
-        OlapAnalysisTask ot1 = new OlapAnalysisTask(task1);
-        OlapAnalysisTask ot2 = new OlapAnalysisTask(task2);
-        Map<Long, BaseAnalysisTask> taskMap = new HashMap<>();
-        taskMap.put(ot1.info.taskId, ot1);
-        taskMap.put(ot2.info.taskId, ot2);
-        analysisManager.analysisJobIdToTaskMap.put(job.jobId, taskMap);
-
-        // test invalid job
-        AnalysisInfo invalidJob = new AnalysisInfoBuilder().setJobId(-1).build();
-        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(invalidJob,
-                AnalysisState.FAILED, "", 0));
-
-        // test finished
-        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1, AnalysisState.FAILED, "", 0));
-        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1, AnalysisState.FINISHED, "", 0));
-        Assertions.assertEquals(1, analysisManager.autoJobs.size());
-        Assertions.assertTrue(analysisManager.systemJobInfoMap.isEmpty());
-    }
-
-    @Test
-    public void testSystemJobStartTime() {
-        new MockUp<BaseAnalysisTask>() {
-
-            @Mock
-            protected void init(AnalysisInfo info) {
-
-            }
-        };
-
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void updateTableStats(AnalysisInfo jobInfo) {
-            }
-
-            @Mock
-            protected void logAutoJob(AnalysisInfo autoJob) {
-
-            }
-        };
-
-        AnalysisManager analysisManager = new AnalysisManager();
-        AnalysisInfo job = new AnalysisInfoBuilder()
-            .setJobId(0)
-            .setColName("col1, col2").build();
-        analysisManager.systemJobInfoMap.put(job.jobId, job);
-        AnalysisInfo task1 = new AnalysisInfoBuilder()
-            .setJobId(0)
-            .setTaskId(1)
-            .setState(AnalysisState.PENDING)
-            .setColName("col1").build();
-        AnalysisInfo task2 = new AnalysisInfoBuilder()
-            .setJobId(0)
-            .setTaskId(1)
-            .setState(AnalysisState.PENDING)
-            .setColName("col2").build();
-        OlapAnalysisTask ot1 = new OlapAnalysisTask(task1);
-        OlapAnalysisTask ot2 = new OlapAnalysisTask(task2);
-        Map<Long, BaseAnalysisTask> taskMap = new HashMap<>();
-        taskMap.put(ot1.info.taskId, ot1);
-        taskMap.put(ot2.info.taskId, ot2);
-        analysisManager.analysisJobIdToTaskMap.put(job.jobId, taskMap);
-
-        job.state = AnalysisState.PENDING;
-        long l = System.currentTimeMillis();
-        analysisManager.systemJobInfoMap.put(job.jobId, job);
-        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1,
-            AnalysisState.RUNNING, "", 0));
-        Assertions.assertTrue(job.startTime >= l);
-    }
-
-    @Test
     public void testReAnalyze() {
         new MockUp<OlapTable>() {
 
-            int count = 0;
-            int[] rowCount = new int[]{100, 100, 200, 200};
-
             final Column c = new Column("col1", PrimitiveType.INT);
-            @Mock
-            public long getRowCount() {
-                return rowCount[count++];
-            }
-
             @Mock
             public List<Column> getBaseSchema() {
                 return Lists.newArrayList(c);
@@ -395,19 +274,54 @@ public class AnalysisManagerTest {
             @Mock
             public List<Column> getColumns() { return Lists.newArrayList(c); }
 
+            @Mock
+            public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+                List<Pair<String, String>> jobList = Lists.newArrayList();
+                jobList.add(Pair.of("1", "1"));
+                jobList.add(Pair.of("2", "2"));
+                jobList.add(Pair.of("3", "3"));
+                return jobList;
+            }
         };
         OlapTable olapTable = new OlapTable();
+        List<Pair<String, String>> jobList = Lists.newArrayList();
+        jobList.add(Pair.of("1", "1"));
+        jobList.add(Pair.of("2", "2"));
+        TableStatsMeta stats0 = new TableStatsMeta(
+            0, new AnalysisInfoBuilder().setJobColumns(jobList)
+            .setColName("col1").build(), olapTable);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats0));
+
+        new MockUp<OlapTable>() {
+            int count = 0;
+            int[] rowCount = new int[]{100, 100, 200, 200, 1, 1};
+
+            @Mock
+            public long getRowCount() {
+                return rowCount[count++];
+            }
+            @Mock
+            public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+                List<Pair<String, String>> jobList = Lists.newArrayList();
+                return jobList;
+            }
+        };
         TableStatsMeta stats1 = new TableStatsMeta(
-                50, new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
+                50, new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
                 .setColName("col1").build(), olapTable);
         stats1.updatedRows.addAndGet(50);
 
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
         TableStatsMeta stats2 = new TableStatsMeta(
                 190, new AnalysisInfoBuilder()
-                .setColToPartitions(new HashMap<>()).setColName("col1").build(), olapTable);
+                .setJobColumns(new ArrayList<>()).setColName("col1").build(), olapTable);
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
+
+        TableStatsMeta stats3 = new TableStatsMeta(0, new AnalysisInfoBuilder()
+                .setJobColumns(new ArrayList<>()).setEmptyJob(true).setColName("col1").build(), olapTable);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats3));
+
     }
 
     @Test
@@ -435,25 +349,54 @@ public class AnalysisManagerTest {
     }
 
     @Test
-    public void testRecordLimit3() {
-        Config.analyze_record_limit = 2;
+    public void testShowAutoJobs(@Injectable ShowAnalyzeStmt stmt) {
+        new MockUp<ShowAnalyzeStmt>() {
+            @Mock
+            public String getStateValue() {
+                return null;
+            }
+
+            @Mock
+            public TableName getDbTableName() {
+                return null;
+            }
+
+            @Mock
+            public boolean isAuto() {
+                return true;
+            }
+        };
         AnalysisManager analysisManager = new AnalysisManager();
-        analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(1).build());
-        analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(2).build());
-        analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(3).build());
-        Assertions.assertEquals(2, analysisManager.autoJobs.size());
+        analysisManager.analysisJobInfoMap.put(
+            1L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.MANUAL).build());
+        analysisManager.analysisJobInfoMap.put(
+            2L, new AnalysisInfoBuilder().setJobId(2).setJobType(JobType.SYSTEM).setState(AnalysisState.RUNNING).build());
+        analysisManager.analysisJobInfoMap.put(
+            3L, new AnalysisInfoBuilder().setJobId(3).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
+        analysisManager.analysisJobInfoMap.put(
+            4L, new AnalysisInfoBuilder().setJobId(4).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
+        List<AnalysisInfo> analysisInfos = analysisManager.showAnalysisJob(stmt);
+        Assertions.assertEquals(3, analysisInfos.size());
+        Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
+        Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
+        Assertions.assertEquals(AnalysisState.FAILED, analysisInfos.get(2).getState());
     }
 
     @Test
-    public void testCreateSimpleQueue() {
+    public void testShowAutoTasks(@Injectable ShowAnalyzeStmt stmt) {
         AnalysisManager analysisManager = new AnalysisManager();
-        ArrayList<AnalysisInfo> jobs = Lists.newArrayList();
-        jobs.add(new AnalysisInfoBuilder().setJobId(1).build());
-        jobs.add(new AnalysisInfoBuilder().setJobId(2).build());
-        SimpleQueue<AnalysisInfo> simpleQueue = analysisManager.createSimpleQueue(jobs, analysisManager);
-        Assertions.assertEquals(2, simpleQueue.size());
-        simpleQueue = analysisManager.createSimpleQueue(null, analysisManager);
-        Assertions.assertEquals(0, simpleQueue.size());
+        analysisManager.analysisTaskInfoMap.put(
+            1L, new AnalysisInfoBuilder().setJobId(2).setJobType(JobType.MANUAL).build());
+        analysisManager.analysisTaskInfoMap.put(
+            2L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.RUNNING).build());
+        analysisManager.analysisTaskInfoMap.put(
+            3L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
+        analysisManager.analysisTaskInfoMap.put(
+            4L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
+        List<AnalysisInfo> analysisInfos = analysisManager.findTasks(1);
+        Assertions.assertEquals(3, analysisInfos.size());
+        Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
+        Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
+        Assertions.assertEquals(AnalysisState.FAILED, analysisInfos.get(2).getState());
     }
-
 }

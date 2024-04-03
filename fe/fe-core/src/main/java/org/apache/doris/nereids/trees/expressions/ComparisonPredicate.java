@@ -33,7 +33,11 @@ import java.util.List;
 public abstract class ComparisonPredicate extends BinaryOperator {
 
     public ComparisonPredicate(List<Expression> children, String symbol) {
-        super(children, symbol);
+        this(children, symbol, false);
+    }
+
+    public ComparisonPredicate(List<Expression> children, String symbol, boolean inferred) {
+        super(children, symbol, inferred);
     }
 
     @Override
@@ -57,10 +61,10 @@ public abstract class ComparisonPredicate extends BinaryOperator {
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        children().forEach(c -> {
-            if (c.getDataType().isComplexType()) {
+        for (Expression c : children) {
+            if (c.getDataType().isComplexType() && !c.getDataType().isArrayType()) {
                 throw new AnalysisException("comparison predicate could not contains complex type: " + this.toSql());
             }
-        });
+        }
     }
 }

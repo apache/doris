@@ -17,9 +17,13 @@
 
 package org.apache.doris.regression
 
+import ch.qos.logback.classic.PatternLayout
+import ch.qos.logback.core.OutputStreamAppender
 import com.google.common.collect.Lists
 import groovy.transform.CompileStatic
 import jodd.util.Wildcard
+import org.apache.doris.regression.logger.TeamcityServiceMessageEncoder
+import org.apache.doris.regression.suite.Suite
 import org.apache.doris.regression.suite.event.EventListener
 import org.apache.doris.regression.suite.GroovyFileSource
 import org.apache.doris.regression.suite.ScriptContext
@@ -35,6 +39,8 @@ import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.codehaus.groovy.control.CompilerConfiguration
+import org.codehaus.groovy.vmplugin.v8.IndyInterface
+import org.slf4j.LoggerFactory
 
 import java.beans.Introspector
 import java.util.concurrent.Executors
@@ -57,6 +63,19 @@ class RegressionTest {
     static final int cleanLoadedClassesThreshold = 20
     static String nonConcurrentTestGroup = "nonConcurrent"
 
+    static {
+        ch.qos.logback.classic.Logger loggerOfSuite =
+                LoggerFactory.getLogger(Suite.class) as ch.qos.logback.classic.Logger
+        def context = loggerOfSuite.getLoggerContext()
+        def frameworkPackages = context.getFrameworkPackages()
+
+        // don't print this class name as the log class name
+        frameworkPackages.add(TeamcityServiceMessageEncoder.class.getPackage().getName())
+        frameworkPackages.add(IndyInterface.class.getPackage().getName())
+        frameworkPackages.add(OutputStreamAppender.class.getPackage().getName())
+        frameworkPackages.add(PatternLayout.class.getPackage().getName())
+    }
+
     static void main(String[] args) {
         CommandLine cmd = ConfigOptions.initCommands(args)
         if (cmd == null) {
@@ -76,6 +95,10 @@ class RegressionTest {
             log.info("=== run ${i} time ===")
             if (config.times > 1) {
                 TeamcityUtils.postfix = i.toString()
+            }
+
+            if (config.caseNamePrefix) {
+                TeamcityUtils.prefix = config.caseNamePrefix.toString()
             }
 
             Recorder recorder = runScripts(config)
@@ -131,6 +154,7 @@ class RegressionTest {
         actionExecutors = Executors.newFixedThreadPool(config.actionParallel, actionFactory)
 
         loadPlugins(config)
+        installDorisCompose(config)
     }
 
     static List<ScriptSource> findScriptSources(String root, Predicate<String> directoryFilter,
@@ -396,6 +420,23 @@ class RegressionTest {
                 })
             }
         })
+    }
+
+    static void installDorisCompose(Config config) {
+        if (config.excludeDockerTest) {
+            return
+        }
+        def requirements = new File(config.dorisComposePath).getParent() + "/requirements.txt"
+        def cmd = "python -m pip install --user -r " + requirements
+        def proc = cmd.execute()
+        def sout = new StringBuilder()
+        def serr = new StringBuilder()
+        proc.consumeProcessOutput(sout, serr)
+        proc.waitForOrKill(120_000)
+        if (proc.exitValue() != 0) {
+            log.warn("install doris compose requirements failed: code=${proc.exitValue()}, "
+                    + "output: ${sout.toString()}, error: ${serr.toString()}")
+        }
     }
 
     static void printPassed() {

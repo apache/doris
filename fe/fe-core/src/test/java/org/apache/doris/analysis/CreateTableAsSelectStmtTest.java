@@ -94,11 +94,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showCreateTableByName("select_decimal_table").getResultRows().get(0).get(1));
         String selectFromDecimal1 =
@@ -117,11 +120,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                             + "\"min_load_replica_num\" = \"-1\",\n"
                             + "\"is_being_synced\" = \"false\",\n"
+                            + "\"storage_medium\" = \"hdd\",\n"
                             + "\"storage_format\" = \"V2\",\n"
+                            + "\"inverted_index_storage_format\" = \"V1\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
                             + "\"disable_auto_compaction\" = \"false\",\n"
                             + "\"enable_single_replica_compaction\" = \"false\",\n"
-                            + "\"group_commit_interval_ms\" = \"10000\"\n"
+                            + "\"group_commit_interval_ms\" = \"10000\",\n"
+                            + "\"group_commit_data_bytes\" = \"134217728\"\n"
                             + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         } else {
@@ -136,11 +142,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                             + "\"min_load_replica_num\" = \"-1\",\n"
                             + "\"is_being_synced\" = \"false\",\n"
+                            + "\"storage_medium\" = \"hdd\",\n"
                             + "\"storage_format\" = \"V2\",\n"
+                            + "\"inverted_index_storage_format\" = \"V1\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
                             + "\"disable_auto_compaction\" = \"false\",\n"
                             + "\"enable_single_replica_compaction\" = \"false\",\n"
-                            + "\"group_commit_interval_ms\" = \"10000\"\n"
+                            + "\"group_commit_interval_ms\" = \"10000\",\n"
+                            + "\"group_commit_data_bytes\" = \"134217728\"\n"
                             + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         }
@@ -173,11 +182,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -199,11 +211,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet1.getResultRows().get(0).get(1));
 
@@ -227,11 +242,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet2.getResultRows().get(0).get(1));
     }
@@ -252,11 +270,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                 + "\"min_load_replica_num\" = \"-1\",\n"
                 + "\"is_being_synced\" = \"false\",\n"
+                + "\"storage_medium\" = \"hdd\",\n"
                 + "\"storage_format\" = \"V2\",\n"
+                + "\"inverted_index_storage_format\" = \"V1\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
                 + "\"disable_auto_compaction\" = \"false\",\n"
                 + "\"enable_single_replica_compaction\" = \"false\",\n"
-                + "\"group_commit_interval_ms\" = \"10000\"\n"
+                + "\"group_commit_interval_ms\" = \"10000\",\n"
+                + "\"group_commit_data_bytes\" = \"134217728\"\n"
                 + ");", showResultSet1.getResultRows().get(0).get(1));
         String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") "
                 + "as select userId as alias_name, username from `test`.`varchar_table`";
@@ -273,11 +294,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet2.getResultRows().get(0).get(1));
     }
@@ -301,11 +325,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
         String selectFromJoin1 = "create table `test`.`select_join1` PROPERTIES(\"replication_num\" = \"1\") "
@@ -326,11 +353,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet1.getResultRows().get(0).get(1));
     }
@@ -355,11 +385,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -381,11 +414,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");", showResultSet.getResultRows().get(0).get(1));
     }
 
@@ -406,11 +442,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
         String selectFromCteAndUnion = "create table `test`.`select_cte_union` PROPERTIES(\"replication_num\" = \"1\")"
@@ -427,11 +466,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                 + "\"min_load_replica_num\" = \"-1\",\n"
                 + "\"is_being_synced\" = \"false\",\n"
+                + "\"storage_medium\" = \"hdd\",\n"
                 + "\"storage_format\" = \"V2\",\n"
+                + "\"inverted_index_storage_format\" = \"V1\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
                 + "\"disable_auto_compaction\" = \"false\",\n"
                 + "\"enable_single_replica_compaction\" = \"false\",\n"
-                + "\"group_commit_interval_ms\" = \"10000\"\n"
+                + "\"group_commit_interval_ms\" = \"10000\",\n"
+                + "\"group_commit_data_bytes\" = \"134217728\"\n"
                 + ");", showResultSet1.getResultRows().get(0).get(1));
     }
 
@@ -455,11 +497,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -482,11 +527,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -508,11 +556,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -535,12 +586,15 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -587,11 +641,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                                 + "\"min_load_replica_num\" = \"-1\",\n"
                                 + "\"is_being_synced\" = \"false\",\n"
+                                + "\"storage_medium\" = \"hdd\",\n"
                                 + "\"storage_format\" = \"V2\",\n"
+                                + "\"inverted_index_storage_format\" = \"V1\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
                                 + "\"disable_auto_compaction\" = \"false\",\n"
                                 + "\"enable_single_replica_compaction\" = \"false\",\n"
-                                + "\"group_commit_interval_ms\" = \"10000\"\n"
+                                + "\"group_commit_interval_ms\" = \"10000\",\n"
+                                + "\"group_commit_data_bytes\" = \"134217728\"\n"
                                 + ");",
                         createTableStmts.get(0));
             } else {
@@ -606,11 +663,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                                 + "\"min_load_replica_num\" = \"-1\",\n"
                                 + "\"is_being_synced\" = \"false\",\n"
+                                + "\"storage_medium\" = \"hdd\",\n"
                                 + "\"storage_format\" = \"V2\",\n"
+                                + "\"inverted_index_storage_format\" = \"V1\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
                                 + "\"disable_auto_compaction\" = \"false\",\n"
                                 + "\"enable_single_replica_compaction\" = \"false\",\n"
-                                + "\"group_commit_interval_ms\" = \"10000\"\n"
+                                + "\"group_commit_interval_ms\" = \"10000\",\n"
+                                + "\"group_commit_data_bytes\" = \"134217728\"\n"
                                 + ");",
                         createTableStmts.get(0));
             }
@@ -639,11 +699,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"inverted_index_storage_format\" = \"V1\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
-                        + "\"group_commit_interval_ms\" = \"10000\"\n"
+                        + "\"group_commit_interval_ms\" = \"10000\",\n"
+                        + "\"group_commit_data_bytes\" = \"134217728\"\n"
                         + ");",
                 showStr);
     }

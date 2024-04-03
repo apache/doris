@@ -19,7 +19,6 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.base.Supplier;
@@ -45,7 +44,8 @@ public class LogicalProperties {
     protected final Supplier<FunctionalDependencies> fdSupplier;
     private Integer hashCode = null;
 
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier, Supplier<FunctionalDependencies> fdSupplier) {
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
+            Supplier<FunctionalDependencies> fdSupplier) {
         this(outputSupplier, fdSupplier, ImmutableList::of);
     }
 
@@ -56,25 +56,45 @@ public class LogicalProperties {
      *                       throw exception for which children have UnboundRelation
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<FunctionalDependencies> fdSupplier, Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
+            Supplier<FunctionalDependencies> fdSupplier,
+            Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );
-        this.outputExprIdsSupplier = Suppliers.memoize(
-                () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId).map(Id.class::cast)
-                        .collect(ImmutableList.toImmutableList())
-        );
-        this.outputSetSupplier = Suppliers.memoize(
-                () -> ImmutableSet.copyOf(this.outputSupplier.get())
-        );
-        this.outputMapSupplier = Suppliers.memoize(
-                () -> this.outputSetSupplier.get().stream().collect(ImmutableMap.toImmutableMap(s -> s, s -> s))
-        );
-        this.outputExprIdSetSupplier = Suppliers.memoize(
-                () -> this.outputSupplier.get().stream()
-                        .map(NamedExpression::getExprId)
-                        .collect(ImmutableSet.toImmutableSet())
-        );
+        this.outputExprIdsSupplier = Suppliers.memoize(() -> {
+            List<Slot> output = this.outputSupplier.get();
+            ImmutableList.Builder<Id> exprIdSet
+                    = ImmutableList.builderWithExpectedSize(output.size());
+            for (Slot slot : output) {
+                exprIdSet.add(slot.getExprId());
+            }
+            return exprIdSet.build();
+        });
+        this.outputSetSupplier = Suppliers.memoize(() -> {
+            List<Slot> output = outputSupplier.get();
+            ImmutableSet.Builder<Slot> slots = ImmutableSet.builderWithExpectedSize(output.size());
+            for (Slot slot : output) {
+                slots.add(slot);
+            }
+            return slots.build();
+        });
+        this.outputMapSupplier = Suppliers.memoize(() -> {
+            Set<Slot> slots = outputSetSupplier.get();
+            ImmutableMap.Builder<Slot, Slot> map = ImmutableMap.builderWithExpectedSize(slots.size());
+            for (Slot slot : slots) {
+                map.put(slot, slot);
+            }
+            return map.build();
+        });
+        this.outputExprIdSetSupplier = Suppliers.memoize(() -> {
+            List<Slot> output = this.outputSupplier.get();
+            ImmutableSet.Builder<ExprId> exprIdSet
+                    = ImmutableSet.builderWithExpectedSize(output.size());
+            for (Slot slot : output) {
+                exprIdSet.add(slot.getExprId());
+            }
+            return exprIdSet.build();
+        });
         this.fdSupplier = Suppliers.memoize(
                 Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
         );

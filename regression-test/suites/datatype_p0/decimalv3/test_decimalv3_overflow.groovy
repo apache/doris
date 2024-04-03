@@ -32,7 +32,7 @@ suite("test_decimalv3_overflow") {
 	def tblName2 = "test_decimalv3_overflow2"
 	sql "drop table if exists ${tblName2}"
     sql """ CREATE  TABLE ${tblName2} (
-              `c2`  decimalv3(20, 2),
+              `c2`  decimalv3(20, 2)
           ) ENGINE=OLAP
         UNIQUE KEY(`c2`)
         DISTRIBUTED BY HASH(`c2`) BUCKETS 10

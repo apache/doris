@@ -167,9 +167,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         auto child = &node_field->children[0];
         parse_physical_field(t_schema, false, child);
 
-        std::string lower_case_name;
-        transform(t_schema.name.begin(), t_schema.name.end(), lower_case_name.begin(), ::tolower);
-        node_field->name = lower_case_name;
+        node_field->name = to_lower(t_schema.name);
         node_field->type.type = TYPE_ARRAY;
         node_field->type.add_sub_type(child->type);
         node_field->is_nullable = false;
@@ -187,9 +185,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
 
 void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physical_schema,
                                            bool is_nullable, FieldSchema* physical_field) {
-    std::string lower_case_name = physical_schema.name;
-    transform(lower_case_name.begin(), lower_case_name.end(), lower_case_name.begin(), ::tolower);
-    physical_field->name = lower_case_name;
+    physical_field->name = to_lower(physical_schema.name);
     physical_field->parquet_schema = physical_schema;
     physical_field->is_nullable = is_nullable;
     physical_field->physical_type = physical_schema.type;
@@ -443,7 +439,7 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         // produce a non-null list<struct>
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, struct_field));
 
-        group_field->name = group_schema.name;
+        group_field->name = to_lower(group_schema.name);
         group_field->type.type = TYPE_ARRAY;
         group_field->type.add_sub_type(struct_field->type);
         group_field->is_nullable = false;
@@ -511,7 +507,7 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
         _next_schema_pos = curr_pos + 2;
     }
 
-    list_field->name = first_level.name;
+    list_field->name = to_lower(first_level.name);
     list_field->type.type = TYPE_ARRAY;
     list_field->type.add_sub_type(list_field->children[0].type);
     list_field->is_nullable = is_optional;
@@ -574,7 +570,7 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     // produce MAP<STRUCT<KEY, VALUE>>
     RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, map_kv_field));
 
-    map_field->name = map_schema.name;
+    map_field->name = to_lower(map_schema.name);
     map_field->type.type = TYPE_MAP;
     map_field->type.add_sub_type(map_kv_field->type.children[0]);
     map_field->type.add_sub_type(map_kv_field->type.children[1]);
@@ -598,7 +594,7 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     for (int i = 0; i < num_children; ++i) {
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &struct_field->children[i]));
     }
-    struct_field->name = struct_schema.name;
+    struct_field->name = to_lower(struct_schema.name);
     struct_field->is_nullable = is_optional;
     struct_field->type.type = TYPE_STRUCT;
     for (int i = 0; i < num_children; ++i) {

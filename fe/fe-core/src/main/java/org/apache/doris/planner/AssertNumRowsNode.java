@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -43,20 +44,34 @@ public class AssertNumRowsNode extends PlanNode {
     private String subqueryString;
     private AssertNumRowsElement.Assertion assertion;
 
+    private boolean shouldConvertOutputToNullable = false;
+
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement) {
+        this(id, input, assertNumRowsElement, false, null);
+    }
+
+    public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement,
+                             boolean convertToNullable, TupleDescriptor tupleDescriptor) {
         super(id, "ASSERT NUMBER OF ROWS", StatisticalType.ASSERT_NUM_ROWS_NODE);
         this.desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
         this.subqueryString = assertNumRowsElement.getSubqueryString();
         this.assertion = assertNumRowsElement.getAssertion();
         this.children.add(input);
-        if (input.getOutputTupleDesc() != null) {
-            this.tupleIds.add(input.getOutputTupleDesc().getId());
+        if (tupleDescriptor != null) {
+            this.tupleIds.add(tupleDescriptor.getId());
         } else {
-            this.tupleIds.addAll(input.getTupleIds());
+            if (input.getOutputTupleDesc() != null) {
+                this.tupleIds.add(input.getOutputTupleDesc().getId());
+            } else {
+                this.tupleIds.addAll(input.getTupleIds());
+            }
         }
+
         this.tblRefIds.addAll(input.getTblRefIds());
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
+        this.shouldConvertOutputToNullable = convertToNullable;
     }
+
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
@@ -79,6 +94,11 @@ public class AssertNumRowsNode extends PlanNode {
         StringBuilder output = new StringBuilder()
                 .append(prefix).append("assert number of rows: ")
                 .append(assertion).append(" ").append(desiredNumOfRows).append("\n");
+
+        if (!conjuncts.isEmpty()) {
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+        }
+
         return output.toString();
     }
 
@@ -89,6 +109,7 @@ public class AssertNumRowsNode extends PlanNode {
         msg.assert_num_rows_node.setDesiredNumRows(desiredNumOfRows);
         msg.assert_num_rows_node.setSubqueryString(subqueryString);
         msg.assert_num_rows_node.setAssertion(assertion.toThrift());
+        msg.assert_num_rows_node.setShouldConvertOutputToNullable(shouldConvertOutputToNullable);
     }
 
     @Override

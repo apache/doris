@@ -48,7 +48,7 @@ class ExistsApplyToJoinTest implements MemoPatternMatchSupported {
         LogicalApply<LogicalOlapScan, LogicalOlapScan> apply =
                 new LogicalApply<>(ImmutableList.of(leftSlots.get(0), rightSlots.get(0)),
                         exists, Optional.of(equalTo), Optional.empty(),
-                        false, false, left, right);
+                        false, false, false, left, right);
         PlanChecker.from(MemoTestUtils.createConnectContext(), apply)
                 .applyTopDown(new ExistsApplyToJoin())
                 .matchesFromRoot(logicalJoin(
@@ -68,7 +68,7 @@ class ExistsApplyToJoinTest implements MemoPatternMatchSupported {
         LogicalApply<LogicalOlapScan, LogicalOlapScan> apply =
                 new LogicalApply<>(Collections.emptyList(),
                         exists, Optional.of(equalTo), Optional.empty(),
-                        false, false, left, right);
+                        false, false, false, left, right);
         PlanChecker.from(MemoTestUtils.createConnectContext(), apply)
                 .applyTopDown(new ExistsApplyToJoin())
                 .matchesFromRoot(logicalJoin(
@@ -88,7 +88,7 @@ class ExistsApplyToJoinTest implements MemoPatternMatchSupported {
         LogicalApply<LogicalOlapScan, LogicalOlapScan> apply =
                 new LogicalApply<>(Collections.emptyList(),
                         exists, Optional.of(equalTo), Optional.empty(),
-                        false, false, left, right);
+                        false, false, false, left, right);
         PlanChecker.from(MemoTestUtils.createConnectContext(), apply)
                 .applyTopDown(new ExistsApplyToJoin())
                 .matchesFromRoot(logicalFilter(logicalJoin(
@@ -109,7 +109,7 @@ class ExistsApplyToJoinTest implements MemoPatternMatchSupported {
         LogicalApply<LogicalOlapScan, LogicalOlapScan> apply =
                 new LogicalApply<>(ImmutableList.of(leftSlots.get(0), rightSlots.get(0)),
                         exists, Optional.of(equalTo), Optional.empty(),
-                        false, false, left, right);
+                        false, false, false, left, right);
         PlanChecker.from(MemoTestUtils.createConnectContext(), apply)
                 .applyTopDown(new ExistsApplyToJoin())
                 .matchesFromRoot(logicalJoin(

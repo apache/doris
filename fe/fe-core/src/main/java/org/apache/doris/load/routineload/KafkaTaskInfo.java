@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
@@ -47,14 +48,16 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private Map<Integer, Long> partitionIdToOffset;
 
     public KafkaTaskInfo(UUID id, long jobId,
-                         long timeoutMs, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
-        super(id, jobId, timeoutMs, isMultiTable);
+                        long timeoutMs, int timeoutBackOffCount,
+                        Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
+        super(id, jobId, timeoutMs, timeoutBackOffCount, isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
         super(UUID.randomUUID(), kafkaTaskInfo.getJobId(),
-                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(), isMultiTable);
+                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getTimeoutBackOffCount(),
+                kafkaTaskInfo.getBeId(), isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
@@ -108,6 +111,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         } else {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_CSV_PLAIN);
         }
+        tRoutineLoadTask.setMemtableOnSinkNode(routineLoadJob.isMemtableOnSinkNode());
+        tRoutineLoadTask.setQualifiedUser(routineLoadJob.getQualifiedUser());
+        tRoutineLoadTask.setCloudCluster(routineLoadJob.getCloudCluster());
         return tRoutineLoadTask;
     }
 
@@ -118,7 +124,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     }
 
     @Override
-    boolean hasMoreDataToConsume() {
+    boolean hasMoreDataToConsume() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
         return routineLoadJob.hasMoreDataToConsume(id, partitionIdToOffset);
     }
@@ -129,6 +135,24 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
+        // it needs update timeout to make task timeout backoff work
+        long timeoutS = this.getTimeoutMs() / 1000;
+        tPlanFragment.getOutputSink().getOlapTableSink().setLoadChannelTimeoutS(timeoutS);
+        tExecPlanFragmentParams.getQueryOptions().setQueryTimeout((int) timeoutS);
+        tExecPlanFragmentParams.getQueryOptions().setExecutionTimeout((int) timeoutS);
+
+        long wgId = routineLoadJob.getWorkloadId();
+        List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
+        if (wgId > 0) {
+            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getTWorkloadGroupById(wgId);
+        }
+        if (tWgList.size() == 0) {
+            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getTWorkloadGroupByUserIdentity(routineLoadJob.getUserIdentity());
+        }
+        tExecPlanFragmentParams.setWorkloadGroups(tWgList);
+
         return tExecPlanFragmentParams;
     }
 
@@ -138,6 +162,24 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.planForPipeline(loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
+        // it needs update timeout to make task timeout backoff work
+        long timeoutS = this.getTimeoutMs() / 1000;
+        tPlanFragment.getOutputSink().getOlapTableSink().setLoadChannelTimeoutS(timeoutS);
+        tExecPlanFragmentParams.getQueryOptions().setQueryTimeout((int) timeoutS);
+        tExecPlanFragmentParams.getQueryOptions().setExecutionTimeout((int) timeoutS);
+
+        long wgId = routineLoadJob.getWorkloadId();
+        List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
+        if (wgId > 0) {
+            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getTWorkloadGroupById(wgId);
+        }
+        if (tWgList.size() == 0) {
+            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getTWorkloadGroupByUserIdentity(routineLoadJob.getUserIdentity());
+        }
+        tExecPlanFragmentParams.setWorkloadGroups(tWgList);
+
         return tExecPlanFragmentParams;
     }
 

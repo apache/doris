@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -66,7 +67,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
         if (this.microSecond >= 1000000) {
             LocalDateTime localDateTime = DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND,
-                            getStringValue()).plusSeconds(1);
+                    getStringValue()).plusSeconds(1);
             this.year = localDateTime.getYear();
             this.month = localDateTime.getMonthValue();
             this.day = localDateTime.getDayOfMonth();
@@ -75,6 +76,15 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             this.second = localDateTime.getSecond();
             this.microSecond -= 1000000;
         }
+        if (checkRange() || checkDate()) {
+            // may fallback to legacy planner. make sure the behaviour of rounding is same.
+            throw new AnalysisException("datetime literal [" + toString() + "] is out of range");
+        }
+    }
+
+    public String getFullMicroSecondValue() {
+        return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d",
+                year, month, day, hour, minute, second, microSecond);
     }
 
     @Override
@@ -165,7 +175,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     public Expression plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getFullMicroSecondValue())
                         .plusNanos(microSeconds * 1000L), getDataType().getScale());
     }
 

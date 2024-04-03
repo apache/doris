@@ -1160,6 +1160,25 @@ suite("test_join", "query,p0") {
         qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k1 > b.k1
             order by a.k1, b.k1"""
     }
+    
+    // test null <=> runtime filter
+    sql"set enable_runtime_filter_prune = false"
+    for (index in range(1, 7)) {
+        qt_left_join"""select * from ${null_table_1} a join ${null_table_1} b on  a.k${index}<=>b.k${index} 
+            order by a.k1, b.k1"""
+        qt_left_join"""select * from ${null_table_1} a left join ${null_table_1} b on  a.k${index}<=>b.k${index} 
+            order by a.k1, b.k1"""
+        qt_right_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index}
+            order by a.k1, b.k1"""
+        qt_hash_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k2=b.k2
+            order by a.k1, b.k1"""
+        qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k2 !=b.k2
+            order by a.k1, b.k1"""
+        qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k1 > b.k1
+            order by a.k1, b.k1"""
+    }
+    sql"set enable_runtime_filter_prune = true"
+    
     //  windows
     def res97 = sql"""select * from (select k1, k2, sum(k2) over (partition by k1) as ss from ${null_table_2})a
        left join ${null_table_1} b on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
@@ -1275,4 +1294,45 @@ suite("test_join", "query,p0") {
     sql """INSERT INTO t0 (c0) VALUES (true);"""
     sql """INSERT INTO t0 (c0) VALUES (false);"""
     qt_test """SELECT t1.c0 FROM  t1 RIGHT JOIN t0 ON true WHERE  (abs(1)=0) GROUP BY  t1.c0;"""
+
+    sql """ DROP TABLE IF EXISTS tbl2; """
+    sql """ DROP TABLE IF EXISTS tbl1; """
+    sql """ CREATE TABLE tbl1 (
+            data_dt DATE NULL COMMENT '数据日期',
+            engineer VARCHAR(100) NULL COMMENT '工程师'
+            ) ENGINE=OLAP
+            UNIQUE KEY(data_dt, engineer)
+            PARTITION BY RANGE(data_dt)
+            (
+              FROM ('2022-11-05') TO ('2024-03-20') INTERVAL 1 DAY
+            )
+            DISTRIBUTED BY HASH(data_dt) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "group_commit_interval_ms" = "10000",
+            "group_commit_data_bytes" = "134217728"
+            ); """
+    sql """ CREATE TABLE tbl2 (
+            data_dt DATE NULL COMMENT '数据日期'
+            ) ENGINE=OLAP
+            UNIQUE KEY(data_dt)
+            PARTITION BY RANGE(data_dt)
+            (
+              FROM ('2022-11-05') TO ('2024-03-20') INTERVAL 1 DAY
+            )
+            DISTRIBUTED BY HASH(data_dt) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "min_load_replica_num" = "-1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "group_commit_interval_ms" = "10000",
+            "group_commit_data_bytes" = "134217728"
+            ); """
+
+    sql """ insert into tbl1 values('2023-01-01', 'engineer1'),('2023-01-01', 'engineer2'),('2023-01-02', 'engineer3'),('2023-01-02', 'enginee4'); """
+    sql """ insert into tbl2 values('2023-01-01'); """
+    qt_sql """ select /*+SET_VAR(batch_size=1, enable_nereids_planner=false)*/ count(DISTINCT dcqewrt.engineer)  as active_person_count from tbl1 dcqewrt left join [broadcast] tbl2 dd on dd.data_dt = dcqewrt.data_dt; """
+    sql """ DROP TABLE IF EXISTS tbl2; """
+    sql """ DROP TABLE IF EXISTS tbl1; """
 }

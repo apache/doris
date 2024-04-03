@@ -24,6 +24,18 @@
 1
 
 -- !sql --
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+
+-- !sql --
 1
 1
 1
@@ -34,6 +46,18 @@
 1
 1
 1
+
+-- !sql --
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
+1	hello world
 
 -- !sql --
 1	hello world

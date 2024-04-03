@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
-suite("mem_gc_when_load") {
+suite("mem_gc_when_load", "nonConcurrent") {
     // init query case data
     sql """
         CREATE TABLE IF NOT EXISTS `baseall` (

@@ -17,8 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
 #include <map>
-#include <unordered_set>
 
 #include "common/status.h"
 #include "exec/tablet_info.h"
@@ -53,6 +53,7 @@ public:
 
     bool is_single_tablet() { return _partition_to_tablet_map.size() == 1; }
 
+    // all partitions for multi find-processes of its relative writer.
     const vectorized::flat_hash_set<int64_t>& partition_ids() { return _partition_ids; }
 
     int64_t num_filtered_rows() const { return _num_filtered_rows; }

@@ -128,7 +128,7 @@ public class AnalysisJob {
                 values.add(data.toSQL(true));
             }
             insertStmt += values.toString();
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
                 stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
                 executeWithExceptionOnFail(stmtExecutor);
             } catch (Exception t) {
@@ -136,7 +136,6 @@ public class AnalysisJob {
             }
         }
         updateTaskState(AnalysisState.FINISHED, "");
-        syncLoadStats();
         queryFinished.clear();
         buf.clear();
     }
@@ -145,7 +144,9 @@ public class AnalysisJob {
         if (killed) {
             return;
         }
-        LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
+        }
         try {
             stmtExecutor.execute();
             QueryState queryState = stmtExecutor.getContext().getState();
@@ -179,30 +180,20 @@ public class AnalysisJob {
     public void deregisterJob() {
         analysisManager.removeJob(jobInfo.jobId);
         for (BaseAnalysisTask task : queryingTask) {
-            task.info.colToPartitions.clear();
+            task.info.jobColumns.clear();
             if (task.info.partitionNames != null) {
                 task.info.partitionNames.clear();
             }
         }
         for (BaseAnalysisTask task : queryFinished) {
-            task.info.colToPartitions.clear();
+            task.info.jobColumns.clear();
             if (task.info.partitionNames != null) {
                 task.info.partitionNames.clear();
             }
         }
     }
 
-    protected void syncLoadStats() {
-        long tblId = jobInfo.tblId;
-        for (BaseAnalysisTask task : queryFinished) {
-            if (task.info.externalTableLevelTask) {
-                continue;
-            }
-            String colName = task.col.getName();
-            if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
-                analysisManager.removeColStatsStatus(tblId, colName);
-            }
-        }
+    public AnalysisInfo getJobInfo() {
+        return jobInfo;
     }
-
 }

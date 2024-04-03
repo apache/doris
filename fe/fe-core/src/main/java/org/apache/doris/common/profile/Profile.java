@@ -21,11 +21,13 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.planner.Planner;
 
+import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,21 +35,27 @@ import java.util.Map;
  * following structure: root profile: // summary of this profile, such as start
  * time, end time, query id, etc. [SummaryProfile] // each execution profile is
  * a complete execution of a query, a job may contain multiple queries.
- * [List<ExecutionProfile>]
+ * [List<ExecutionProfile>].
+ * There maybe multi execution profiles for one job, for example broker load job.
+ * It will create one execution profile for every single load task.
  *
  * SummaryProfile: Summary: Execution Summary:
  *
  *
- * ExecutionProfile: Fragment 0: Fragment 1: ...
+ * ExecutionProfile1: Fragment 0: Fragment 1: ...
+ * ExecutionProfile2: Fragment 0: Fragment 1: ...
+ *
  */
 public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
+    private static final int MergedProfileLevel = 1;
     private RuntimeProfile rootProfile;
     private SummaryProfile summaryProfile;
-    private AggregatedProfile aggregatedProfile;
-    private ExecutionProfile executionProfile;
+    private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     private boolean isFinished;
     private Map<Integer, String> planNodeMap;
+
+    private int profileLevel = 3;
 
     public Profile(String name, boolean isEnable) {
         this.rootProfile = new RuntimeProfile(name);
@@ -56,14 +64,13 @@ public class Profile {
         this.isFinished = !isEnable;
     }
 
-    public void setExecutionProfile(ExecutionProfile executionProfile) {
+    public void addExecutionProfile(ExecutionProfile executionProfile) {
         if (executionProfile == null) {
             LOG.warn("try to set a null excecution profile, it is abnormal", new Exception());
             return;
         }
-        this.executionProfile = executionProfile;
-        this.executionProfile.addToProfileAsChild(rootProfile);
-        this.aggregatedProfile = new AggregatedProfile(rootProfile, executionProfile);
+        this.executionProfiles.add(executionProfile);
+        executionProfile.addToProfileAsChild(rootProfile);
     }
 
     public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished,
@@ -72,12 +79,10 @@ public class Profile {
             if (this.isFinished) {
                 return;
             }
-            if (executionProfile == null) {
-                // Sometimes execution profile is not set
-                return;
-            }
             summaryProfile.update(summaryInfo);
-            executionProfile.update(startTime, isFinished);
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                executionProfile.update(startTime, isFinished);
+            }
             rootProfile.computeTimeInProfile();
             // Nerids native insert not set planner, so it is null
             if (planner != null) {
@@ -86,6 +91,7 @@ public class Profile {
             rootProfile.setIsPipelineX(isPipelineX);
             ProfileManager.getInstance().pushProfile(this);
             this.isFinished = isFinished;
+            this.profileLevel = profileLevel;
         } catch (Throwable t) {
             LOG.warn("update profile failed", t);
             throw t;
@@ -105,15 +111,25 @@ public class Profile {
         // add summary to builder
         summaryProfile.prettyPrint(builder);
         LOG.info(builder.toString());
-        builder.append("\n MergedProfile \n");
-        aggregatedProfile.getAggregatedFragmentsProfile(planNodeMap).prettyPrint(builder, "     ");
+        // Only generate merged profile for select, insert into select.
+        // Not support broker load now.
+        if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
+            try {
+                builder.append("\n MergedProfile \n");
+                this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap).prettyPrint(builder, "     ");
+            } catch (Throwable aggProfileException) {
+                LOG.warn("build merged simple profile failed", aggProfileException);
+                builder.append("build merged simple profile failed");
+            }
+        }
         try {
-            builder.append("\n");
-            executionProfile.getExecutionProfile().prettyPrint(builder, "");
-            LOG.info(builder.toString());
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                builder.append("\n");
+                executionProfile.getExecutionProfile().prettyPrint(builder, "");
+            }
         } catch (Throwable aggProfileException) {
-            LOG.warn("build merged simple profile failed", aggProfileException);
-            builder.append("build merged simple profile failed");
+            LOG.warn("build profile failed", aggProfileException);
+            builder.append("build  profile failed");
         }
         return builder.toString();
     }

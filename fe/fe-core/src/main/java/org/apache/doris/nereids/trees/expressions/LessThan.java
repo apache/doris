@@ -31,11 +31,19 @@ import java.util.List;
  */
 public class LessThan extends ComparisonPredicate implements PropagateNullable {
     public LessThan(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "<");
+        this(left, right, false);
+    }
+
+    public LessThan(Expression left, Expression right, boolean inferred) {
+        super(ImmutableList.of(left, right), "<", inferred);
     }
 
     private LessThan(List<Expression> children) {
-        super(children, "<");
+        this(children, false);
+    }
+
+    private LessThan(List<Expression> children, boolean inferred) {
+        super(children, "<", inferred);
     }
 
     @Override
@@ -51,7 +59,12 @@ public class LessThan extends ComparisonPredicate implements PropagateNullable {
     @Override
     public LessThan withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LessThan(children);
+        return new LessThan(children, this.isInferred());
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new LessThan(this.children, inferred);
     }
 
     @Override

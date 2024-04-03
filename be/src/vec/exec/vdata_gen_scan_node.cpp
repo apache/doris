@@ -81,17 +81,8 @@ Status VDataGenFunctionScanNode::prepare(RuntimeState* state) {
     // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : _runtime_filter_descs) {
         IRuntimeFilter* runtime_filter = nullptr;
-        if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
-            RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, state->query_options(), id(), false));
-            RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, id(), &runtime_filter));
-        } else {
-            RETURN_IF_ERROR(state->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, state->query_options(), id(), false));
-            RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
-                                                                            id(), &runtime_filter));
-        }
+        RETURN_IF_ERROR(
+                state->register_consumer_runtime_filter(filter_desc, false, id(), &runtime_filter));
         runtime_filter->init_profile(_runtime_profile.get());
     }
 

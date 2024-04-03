@@ -17,28 +17,19 @@
 
 #pragma once
 
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
-
-struct LocalExchangeSinkDependency final : public Dependency {
-public:
-    using SharedState = LocalExchangeSharedState;
-    LocalExchangeSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "LocalExchangeSinkDependency", true, query_ctx) {}
-    ~LocalExchangeSinkDependency() override = default;
-};
 
 class Exchanger;
 class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
+class PassToOneExchanger;
 class LocalExchangeSinkOperatorX;
-class LocalExchangeSinkLocalState final
-        : public PipelineXSinkLocalState<LocalExchangeSinkDependency> {
+class LocalExchangeSinkLocalState final : public PipelineXSinkLocalState<LocalExchangeSharedState> {
 public:
-    using Base = PipelineXSinkLocalState<LocalExchangeSinkDependency>;
+    using Base = PipelineXSinkLocalState<LocalExchangeSharedState>;
     ENABLE_FACTORY_CREATOR(LocalExchangeSinkLocalState);
 
     LocalExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -46,8 +37,8 @@ public:
     ~LocalExchangeSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-
-    int get_data_queue_idx() const;
+    Status close(RuntimeState* state, Status exec_status) override;
+    std::string debug_string(int indentation_level) const override;
 
 private:
     friend class LocalExchangeSinkOperatorX;
@@ -55,6 +46,7 @@ private:
     friend class BucketShuffleExchanger;
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
+    friend class PassToOneExchanger;
     friend class AdaptivePassthroughExchanger;
 
     Exchanger* _exchanger = nullptr;
@@ -67,6 +59,7 @@ private:
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
+    bool _release_count = false;
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
@@ -99,10 +92,27 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type, int num_buckets) override {
+    Status init(ExchangeType type, const int num_buckets, const bool is_shuffled_hash_join,
+                const std::map<int, int>& shuffle_idx_to_instance_idx) override {
         _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
         _type = type;
         if (_type == ExchangeType::HASH_SHUFFLE) {
+            // For shuffle join, if data distribution has been broken by previous operator, we
+            // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
+            // we should use map shuffle idx to instance idx because all instances will be
+            // distributed to all BEs. Otherwise, we should use shuffle idx directly.
+            if (is_shuffled_hash_join) {
+                std::for_each(shuffle_idx_to_instance_idx.begin(),
+                              shuffle_idx_to_instance_idx.end(), [&](const auto& item) {
+                                  DCHECK(item.first != -1);
+                                  _shuffle_idx_to_instance_idx.push_back({item.first, item.second});
+                              });
+            } else {
+                _shuffle_idx_to_instance_idx.resize(_num_partitions);
+                for (int i = 0; i < _num_partitions; i++) {
+                    _shuffle_idx_to_instance_idx[i] = {i, i};
+                }
+            }
             _partitioner.reset(
                     new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_num_partitions));
             RETURN_IF_ERROR(_partitioner->init(_texprs));
@@ -131,8 +141,7 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
     friend class LocalExchangeSinkLocalState;
@@ -142,6 +151,7 @@ private:
     const std::vector<TExpr>& _texprs;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     const std::map<int, int> _bucket_seq_to_instance_idx;
+    std::vector<std::pair<int, int>> _shuffle_idx_to_instance_idx;
 };
 
 } // namespace doris::pipeline

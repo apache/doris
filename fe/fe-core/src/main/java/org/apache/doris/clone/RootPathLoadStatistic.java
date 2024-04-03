@@ -34,7 +34,11 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     private long copingSizeB;
     private DiskState diskState;
 
-    private Classification clazz = Classification.INIT;
+    // localClazz is compare with other disks on the same backend
+    private Classification localClazz = Classification.INIT;
+
+    // globalClazz is compare with other disks on all backends
+    private Classification globalClazz = Classification.INIT;
 
     public RootPathLoadStatistic(long beId, String path, Long pathHash, TStorageMedium storageMedium,
             long capacityB, long usedCapacityB, DiskState diskState) {
@@ -80,12 +84,28 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         copingSizeB += size;
     }
 
-    public void setClazz(Classification clazz) {
-        this.clazz = clazz;
+    public void setLocalClazz(Classification clazz) {
+        this.localClazz = clazz;
     }
 
-    public Classification getClazz() {
-        return clazz;
+    public Classification getLocalClazz() {
+        return localClazz;
+    }
+
+    public void setGlobalClazz(Classification clazz) {
+        this.globalClazz = clazz;
+    }
+
+    public Classification getGlobalClazz() {
+        return globalClazz;
+    }
+
+    public boolean isGlobalHighUsage() {
+        return globalClazz == Classification.HIGH;
+    }
+
+    public boolean isGlobalLowUsage() {
+        return globalClazz == Classification.LOW;
     }
 
     public DiskState getDiskState() {

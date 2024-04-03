@@ -35,7 +35,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "io/cache/block/block_file_cache_profile.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -64,6 +64,7 @@
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -282,6 +283,7 @@ void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 }
 
 Status VFileScanner::open(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
@@ -309,6 +311,7 @@ Status VFileScanner::open(RuntimeState* state) {
 // _convert_to_output_block     -     -    -  -                 -                -      x
 Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     do {
+        RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
             RETURN_IF_ERROR(_get_next_reader());
         }
@@ -696,6 +699,11 @@ Status VFileScanner::_truncate_char_or_varchar_columns(Block* block) {
 void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int len) {
     auto int_type = std::make_shared<DataTypeInt32>();
     size_t num_columns_without_result = block->columns();
+    const ColumnNullable* col_nullable =
+            assert_cast<const ColumnNullable*>(block->get_by_position(idx).column.get());
+    const ColumnPtr& string_column_ptr = col_nullable->get_nested_column_ptr();
+    ColumnPtr null_map_column_ptr = col_nullable->get_null_map_column_ptr();
+    block->replace_by_position(idx, std::move(string_column_ptr));
     block->insert({int_type->create_column_const(block->rows(), to_field(1)), int_type,
                    "const 1"}); // pos is 1
     block->insert({int_type->create_column_const(block->rows(), to_field(len)), int_type,
@@ -706,14 +714,18 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
     temp_arguments[1] = num_columns_without_result;     // pos
     temp_arguments[2] = num_columns_without_result + 1; // len
     size_t result_column_id = num_columns_without_result + 2;
+
     SubstringUtil::substring_execute(*block, temp_arguments, result_column_id, block->rows());
-    block->replace_by_position(idx, block->get_by_position(result_column_id).column);
+    auto res = ColumnNullable::create(block->get_by_position(result_column_id).column,
+                                      null_map_column_ptr);
+    block->replace_by_position(idx, std::move(res));
     Block::erase_useless_column(block, num_columns_without_result);
 }
 
 Status VFileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
+            _cur_reader->collect_profile_before_close();
             RETURN_IF_ERROR(_cur_reader->close());
         }
         _cur_reader.reset(nullptr);
@@ -736,11 +748,22 @@ Status VFileScanner::_get_next_reader() {
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
-        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params &&
-            range.table_format_params.table_format_type == "hudi") {
-            if (range.table_format_params.hudi_params.delta_logs.empty()) {
+        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
+            if (range.table_format_params.table_format_type == "hudi" &&
+                range.table_format_params.hudi_params.delta_logs.empty()) {
                 // fall back to native reader if there is no log file
                 format_type = TFileFormatType::FORMAT_PARQUET;
+            } else if (range.table_format_params.table_format_type == "paimon" &&
+                       !range.table_format_params.paimon_params.__isset.paimon_split) {
+                // use native reader
+                auto format = range.table_format_params.paimon_params.file_format;
+                if (format == "orc") {
+                    format_type = TFileFormatType::FORMAT_ORC;
+                } else if (format == "parquet") {
+                    format_type = TFileFormatType::FORMAT_PARQUET;
+                } else {
+                    return Status::InternalError("Not supported paimon file format: {}", format);
+                }
             }
         }
         bool need_to_get_parsed_schema = false;
@@ -768,16 +791,32 @@ Status VFileScanner::_get_next_reader() {
                                                            _file_slot_descs, _state, _profile);
                 init_status =
                         ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "trino_connector") {
+                _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
+                                                                     _profile, range);
+                init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))
+                                      ->init_reader(_colname_to_value_range);
             }
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
+            static const cctz::time_zone utc0 = cctz::utc_time_zone();
+            cctz::time_zone* tz;
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "paimon") {
+                // The timestmap generated by paimon does not carry metadata information (e.g., isAdjustToUTC, etc.),
+                // and the stored data is UTC0 by default, so it is directly set to the UTC time zone.
+                // In version 0.7, paimon fixed this issue and can remove the judgment here
+                tz = const_cast<cctz::time_zone*>(&utc0);
+            } else {
+                tz = const_cast<cctz::time_zone*>(&_state->timezone_obj());
+            }
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
-                    _profile, *_params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    config::max_external_file_meta_cache_num <= 0
-                            ? nullptr
-                            : ExecEnv::GetInstance()->file_meta_cache(),
+                    _profile, *_params, range, _state->query_options().batch_size, tz,
+                    _io_ctx.get(), _state,
+                    _shoudl_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
+                                                     : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
             {
                 SCOPED_TIMER(_open_reader_timer);
@@ -812,9 +851,17 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
+            std::vector<orc::TypeKind>* unsupported_pushdown_types = nullptr;
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "paimon") {
+                static std::vector<orc::TypeKind> paimon_unsupport_type =
+                        std::vector<orc::TypeKind> {orc::TypeKind::CHAR};
+                unsupported_pushdown_types = &paimon_unsupport_type;
+            }
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
-                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
+                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat,
+                    unsupported_pushdown_types);
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -871,7 +918,7 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader.reset(new WalReader(_state));
-            init_status = ((WalReader*)(_cur_reader.get()))->init_reader();
+            init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {
@@ -884,19 +931,18 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
 
-        if (init_status.is<END_OF_FILE>()) {
+        COUNTER_UPDATE(_file_counter, 1);
+        if (init_status.is<END_OF_FILE>() || init_status.is<ErrorCode::NOT_FOUND>()) {
+            // The VFileScanner for external table may try to open not exist files,
+            // Because FE file cache for external table may out of date.
+            // So, NOT_FOUND for VFileScanner is not a fail case.
+            // Will remove this after file reader refactor.
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
-            if (init_status.is<ErrorCode::NOT_FOUND>()) {
-                COUNTER_UPDATE(_empty_file_counter, 1);
-                LOG(INFO) << "failed to find file: " << range.path;
-                return init_status;
-            }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
-        COUNTER_UPDATE(_file_counter, 1);
 
         _name_to_col_type.clear();
         _missing_cols.clear();
@@ -1097,11 +1143,6 @@ Status VFileScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
-        io::FileCacheProfileReporter cache_profile(_profile);
-        cache_profile.update(_file_cache_statistics.get());
-    }
-
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
@@ -1114,6 +1155,19 @@ void VFileScanner::try_stop() {
     VScanner::try_stop();
     if (_io_ctx) {
         _io_ctx->should_stop = true;
+    }
+}
+
+void VFileScanner::_collect_profile_before_close() {
+    VScanner::_collect_profile_before_close();
+    if (config::enable_file_cache && _state->query_options().enable_file_cache &&
+        _profile != nullptr) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
+    }
+
+    if (_cur_reader != nullptr) {
+        _cur_reader->collect_profile_before_close();
     }
 }
 

@@ -274,7 +274,6 @@ suite("test_array_load", "load_p0") {
         // test unified load
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
-            sql """ set enable_unified_load=true; """
 
             create_test_table.call(testTable)
 
@@ -286,7 +285,6 @@ suite("test_array_load", "load_p0") {
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
-            sql """ set enable_unified_load=false; """
         }
 
         // case7: import array data by hdfs in csv format and enable vectorized
@@ -307,7 +305,6 @@ suite("test_array_load", "load_p0") {
         // test unified load
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
-            sql """ set enable_unified_load=true; """
 
             create_test_table.call(testTable)
 
@@ -319,7 +316,6 @@ suite("test_array_load", "load_p0") {
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
-            sql """ set enable_unified_load=false; """
         }
 
         // case9: import array data by hdfs in orc format and enable vectorized
@@ -340,7 +336,6 @@ suite("test_array_load", "load_p0") {
         // test unified load
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
-            sql """ set enable_unified_load=true; """
 
             create_test_table.call(testTable)
 
@@ -352,7 +347,6 @@ suite("test_array_load", "load_p0") {
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
-            sql """ set enable_unified_load=false; """
         }
 
         // case11: import array data by hdfs in parquet format and enable vectorized
@@ -373,7 +367,6 @@ suite("test_array_load", "load_p0") {
         // test unified load
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
-            sql """ set enable_unified_load=true; """
 
             create_test_table.call(testTable)
 
@@ -385,7 +378,6 @@ suite("test_array_load", "load_p0") {
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
-            sql """ set enable_unified_load=false; """
         }
 
         // case13: import array data by hdfs in orc format(with array type) and enable vectorized
@@ -406,7 +398,6 @@ suite("test_array_load", "load_p0") {
         // test unified load
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
-            sql """ set enable_unified_load=true; """
 
             create_test_table.call(testTable)
 
@@ -418,7 +409,6 @@ suite("test_array_load", "load_p0") {
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
-            sql """ set enable_unified_load=false; """
         }
     }
 }

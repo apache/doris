@@ -37,7 +37,10 @@ public:
     const std::string kTestDir = "./ut_dir/ordinal_page_index_test";
 
     void SetUp() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());

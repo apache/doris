@@ -17,12 +17,14 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
 import org.apache.doris.nereids.trees.expressions.functions.window.LastValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
+import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 
@@ -43,8 +45,10 @@ public class BuiltinWindowFunctions implements FunctionHelper {
             window(LastValue.class, "last_value"),
             window(Lead.class, "lead"),
             window(Ntile.class, "ntile"),
+            window(PercentRank.class, "percent_rank"),
             window(Rank.class, "rank"),
-            window(RowNumber.class, "row_number")
+            window(RowNumber.class, "row_number"),
+            window(CumeDist.class, "cume_dist")
     );
 
     public static final BuiltinWindowFunctions INSTANCE = new BuiltinWindowFunctions();

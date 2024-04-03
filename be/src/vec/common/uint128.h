@@ -177,7 +177,7 @@ struct UInt136 {
     UInt64 b;
     UInt64 c;
 
-    bool operator==(const UInt136 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+    bool operator==(const UInt136& rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
 };
 #pragma pack()
 

@@ -44,6 +44,8 @@ public:
 
     PredicateType type() const override { return _nested->type(); }
 
+    void set_nested(ColumnPredicate* nested) { _nested.reset(nested); }
+
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         return _nested->evaluate(iterator, num_rows, roaring);
@@ -59,62 +61,19 @@ public:
         return _nested->can_do_apply_safely(input_type, is_null);
     }
 
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                      uint16_t size) const override {
-        if (column.has_null()) {
-            // create selected_flags
-            uint16_t max_idx = *std::max_element(sel, sel + size);
-            auto selected_flags_ptr = std::make_unique<bool[]>(max_idx + 1);
-            auto selected_flags = selected_flags_ptr.get();
-            // init to 0 / false
-            memset(selected_flags, 0, (max_idx + 1) * sizeof(bool));
-            for (uint16_t i = 0; i < size; ++i) {
-                uint16_t row_idx = sel[i];
-                if (column.is_null_at(row_idx)) {
-                    // set selected flag true for NULL value
-                    selected_flags[row_idx] = true;
-                }
-            }
-
-            // call nested predicate evaluate
-            uint16_t new_size = _nested->evaluate(column, sel, size);
-
-            // process NULL values
-            if (new_size < size) {
-                // add rows selected by _nested->evaluate
-                for (uint16_t i = 0; i < new_size; ++i) {
-                    uint16_t row_idx = sel[i];
-                    selected_flags[row_idx] = true;
-                }
-
-                // recaculate new_size and sel array
-                new_size = 0;
-                for (uint16_t row_idx = 0; row_idx < max_idx + 1; ++row_idx) {
-                    if (selected_flags[row_idx]) {
-                        sel[new_size++] = row_idx;
-                    }
-                }
-            }
-
-            return new_size;
-        } else {
-            return _nested->evaluate(column, sel, size);
-        }
-    }
-
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
         if (column.has_null()) {
             // copy original flags
-            auto original_flags_buf = std::make_unique<bool[]>(size);
-            auto original_flags = original_flags_buf.get();
+            bool original_flags[size];
             memcpy(original_flags, flags, size * sizeof(bool));
 
+            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
             // call evaluate_and and restore true for NULL rows
-            _nested->evaluate_and(column, sel, size, flags);
+            _nested->evaluate_and(nullable_col.get_nested_column(), sel, size, flags);
             for (uint16_t i = 0; i < size; ++i) {
                 uint16_t idx = sel[i];
-                if (original_flags[idx] && !flags[idx] && column.is_null_at(idx)) {
+                if (original_flags[i] && !flags[i] && nullable_col.is_null_at(idx)) {
                     flags[i] = true;
                 }
             }
@@ -126,11 +85,13 @@ public:
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
         if (column.has_null()) {
+            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
+            _nested->evaluate_or(nullable_col.get_nested_column(), sel, size, flags);
+
             // call evaluate_or and set true for NULL rows
-            _nested->evaluate_or(column, sel, size, flags);
             for (uint16_t i = 0; i < size; ++i) {
                 uint16_t idx = sel[i];
-                if (!flags[idx] && column.is_null_at(idx)) {
+                if (!flags[i] && nullable_col.is_null_at(idx)) {
                     flags[i] = true;
                 }
             }
@@ -159,14 +120,17 @@ public:
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
                       bool* flags) const override {
-        _nested->evaluate_vec(column, size, flags);
         if (column.has_null()) {
+            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
+            _nested->evaluate_vec(nullable_col.get_nested_column(), size, flags);
             for (uint16_t i = 0; i < size; ++i) {
-                if (!flags[i] && column.is_null_at(i)) {
+                if (!flags[i] && nullable_col.is_null_at(i)) {
                     // set true for NULL rows
                     flags[i] = true;
                 }
             }
+        } else {
+            _nested->evaluate_vec(column, size, flags);
         }
     }
 
@@ -174,14 +138,14 @@ public:
                           bool* flags) const override {
         if (column.has_null()) {
             // copy original flags
-            auto original_flags_buf = std::make_unique<bool[]>(size);
-            auto original_flags = original_flags_buf.get();
+            bool original_flags[size];
             memcpy(original_flags, flags, size * sizeof(bool));
 
+            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
             // call evaluate_and_vec and restore true for NULL rows
-            _nested->evaluate_and_vec(column, size, flags);
+            _nested->evaluate_and_vec(nullable_col.get_nested_column(), size, flags);
             for (uint16_t i = 0; i < size; ++i) {
-                if (original_flags[i] && !flags[i] && column.is_null_at(i)) {
+                if (original_flags[i] && !flags[i] && nullable_col.is_null_at(i)) {
                     flags[i] = true;
                 }
             }
@@ -192,22 +156,41 @@ public:
 
     std::string get_search_str() const override { return _nested->get_search_str(); }
 
-    std::string debug_string() const override {
-        return "passnull predicate for " + _nested->debug_string();
-    }
-
-    /// Some predicates need to be cloned for each segment.
-    bool need_to_clone() const override { return _nested->need_to_clone(); }
-
-    void clone(ColumnPredicate** to) const override {
-        if (need_to_clone()) {
-            ColumnPredicate* clone_nested;
-            _nested->clone(&clone_nested);
-            *to = new AcceptNullPredicate(clone_nested);
-        }
-    }
-
 private:
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override {
+        if (column.has_null()) {
+            if (size == 0) return 0;
+            // create selected_flags
+            uint16_t max_idx = sel[size - 1];
+            bool selected[max_idx + 1];
+
+            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
+            memcpy(selected, nullable_col.get_null_map_data().data(), (max_idx + 1) * sizeof(bool));
+            // call nested predicate evaluate
+            uint16_t new_size = _nested->evaluate(nullable_col.get_nested_column(), sel, size);
+
+            // process NULL values
+            if (new_size < size) {
+                // add rows selected by _nested->evaluate
+                for (uint16_t i = 0; i < new_size; ++i) {
+                    uint16_t row_idx = sel[i];
+                    selected[row_idx] = true;
+                }
+
+                // recaculate new_size and sel array
+                new_size = 0;
+                for (uint16_t row_idx = 0; row_idx < max_idx + 1; ++row_idx) {
+                    if (selected[row_idx]) {
+                        sel[new_size++] = row_idx;
+                    }
+                }
+            }
+            return new_size;
+        }
+        return _nested->evaluate(column, sel, size);
+    }
+
     std::string _debug_string() const override {
         return "passnull predicate for " + _nested->debug_string();
     }

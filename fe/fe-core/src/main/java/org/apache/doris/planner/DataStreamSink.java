@@ -27,8 +27,12 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDataStreamSink;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TOlapTableLocationParam;
+import org.apache.doris.thrift.TOlapTablePartitionParam;
+import org.apache.doris.thrift.TOlapTableSchemaParam;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.springframework.util.CollectionUtils;
 
@@ -51,6 +55,13 @@ public class DataStreamSink extends DataSink {
     protected List<Expr> conjuncts = Lists.newArrayList();
 
     protected List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
+
+    // use for tablet id shuffle sink only
+    protected TOlapTableSchemaParam tabletSinkSchemaParam = null;
+    protected TOlapTablePartitionParam tabletSinkPartitionParam = null;
+    protected TOlapTableLocationParam tabletSinkLocationParam = null;
+    protected TupleDescriptor tabletSinkTupleDesc = null;
+    protected long tabletSinkTxnId = -1;
 
     public DataStreamSink() {
 
@@ -118,6 +129,26 @@ public class DataStreamSink extends DataSink {
         this.runtimeFilters.add(runtimeFilter);
     }
 
+    public void setTabletSinkSchemaParam(TOlapTableSchemaParam schemaParam) {
+        this.tabletSinkSchemaParam = schemaParam;
+    }
+
+    public void setTabletSinkPartitionParam(TOlapTablePartitionParam partitionParam) {
+        this.tabletSinkPartitionParam = partitionParam;
+    }
+
+    public void setTabletSinkTupleDesc(TupleDescriptor tupleDesc) {
+        this.tabletSinkTupleDesc = tupleDesc;
+    }
+
+    public void setTabletSinkLocationParam(TOlapTableLocationParam locationParam) {
+        this.tabletSinkLocationParam = locationParam;
+    }
+
+    public void setTabletSinkTxnId(long txnId) {
+        this.tabletSinkTxnId = txnId;
+    }
+
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
@@ -179,6 +210,21 @@ public class DataStreamSink extends DataSink {
                 tStreamSink.addToRuntimeFilters(rf.toThrift());
             }
         }
+        Preconditions.checkState((tabletSinkSchemaParam != null) == (tabletSinkPartitionParam != null),
+                "schemaParam and partitionParam should be set together.");
+        if (tabletSinkSchemaParam != null) {
+            tStreamSink.setTabletSinkSchema(tabletSinkSchemaParam);
+        }
+        if (tabletSinkPartitionParam != null) {
+            tStreamSink.setTabletSinkPartition(tabletSinkPartitionParam);
+        }
+        if (tabletSinkTupleDesc != null) {
+            tStreamSink.setTabletSinkTupleId(tabletSinkTupleDesc.getId().asInt());
+        }
+        if (tabletSinkLocationParam != null) {
+            tStreamSink.setTabletSinkLocation(tabletSinkLocationParam);
+        }
+        tStreamSink.setTabletSinkTxnId(tabletSinkTxnId);
         result.setStreamSink(tStreamSink);
         return result;
     }

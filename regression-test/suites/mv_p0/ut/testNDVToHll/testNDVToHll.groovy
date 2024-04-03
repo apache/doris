@@ -48,4 +48,10 @@ suite ("testNDVToHll") {
         contains "(user_tags_mv)"
     }
     qt_select_mv "select user_id, ndv(tag_id) a from user_tags group by user_id order by user_id;"
+
+    explain {
+        sql("select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;")
+        contains "(user_tags_mv)"
+    }
+    qt_select_mv "select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;"
 }

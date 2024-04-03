@@ -37,11 +37,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.FileGroupInfo;
+import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.LoadScanProvider;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.planner.external.FederationBackendPolicy;
-import org.apache.doris.planner.external.FileGroupInfo;
-import org.apache.doris.planner.external.FileScanNode;
-import org.apache.doris.planner.external.LoadScanProvider;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -351,4 +351,3 @@ public class FileLoadScanNode extends FileScanNode {
         }
     }
 }
-

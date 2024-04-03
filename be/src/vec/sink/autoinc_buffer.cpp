@@ -19,6 +19,7 @@
 
 #include <gen_cpp/HeartbeatService_types.h>
 
+#include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/runtime_profile.h"
@@ -48,7 +49,7 @@ void AutoIncIDBuffer::_wait_for_prefetching() {
 Status AutoIncIDBuffer::sync_request_ids(size_t length,
                                          std::vector<std::pair<int64_t, size_t>>* result) {
     std::unique_lock<std::mutex> lock(_mutex);
-    _prefetch_ids(_prefetch_size());
+    RETURN_IF_ERROR(_prefetch_ids(_prefetch_size()));
     if (_front_buffer.second > 0) {
         auto min_length = std::min(_front_buffer.second, length);
         length -= min_length;
@@ -67,7 +68,7 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
             std::swap(_front_buffer, _backend_buffer);
         }
 
-        DCHECK(length <= _front_buffer.second);
+        DCHECK_LE(length, _front_buffer.second);
         result->emplace_back(_front_buffer.first, length);
         _front_buffer.first += length;
         _front_buffer.second -= length;
@@ -75,13 +76,13 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
     return Status::OK();
 }
 
-void AutoIncIDBuffer::_prefetch_ids(size_t length) {
+Status AutoIncIDBuffer::_prefetch_ids(size_t length) {
     if (_front_buffer.second > _low_water_level_mark() || _is_fetching) {
-        return;
+        return Status::OK();
     }
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     _is_fetching = true;
-    static_cast<void>(_rpc_token->submit_func([=, this]() {
+    RETURN_IF_ERROR(_rpc_token->submit_func([=, this]() {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
         request.__set_db_id(_db_id);
@@ -113,6 +114,7 @@ void AutoIncIDBuffer::_prefetch_ids(size_t length) {
         }
         _is_fetching = false;
     }));
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

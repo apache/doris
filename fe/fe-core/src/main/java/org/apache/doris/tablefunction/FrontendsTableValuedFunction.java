@@ -103,4 +103,3 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
         return SCHEMA;
     }
 }
-

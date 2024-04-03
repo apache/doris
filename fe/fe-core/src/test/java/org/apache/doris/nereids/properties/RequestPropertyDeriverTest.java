@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -28,8 +29,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -109,7 +110,7 @@ class RequestPropertyDeriverTest {
         };
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(),
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(),
                 logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));
@@ -145,7 +146,7 @@ class RequestPropertyDeriverTest {
         };
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(),
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(),
                 logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));

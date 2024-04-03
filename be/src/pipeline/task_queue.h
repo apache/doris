@@ -30,7 +30,7 @@
 
 #include "common/status.h"
 #include "pipeline_task.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 namespace pipeline {
@@ -51,9 +51,6 @@ public:
     virtual Status push_back(PipelineTask* task, size_t core_id) = 0;
 
     virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
-
-    virtual void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                                     taskgroup::TGPTEntityPtr entity) = 0;
 
     int cores() const { return _core_size; }
 
@@ -154,61 +151,12 @@ public:
                                                                          time_spent);
     }
 
-    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                             taskgroup::TGPTEntityPtr entity) override {
-        LOG(FATAL) << "update_tg_cpu_share not implemented";
-    }
-
 private:
     PipelineTask* _steal_take(size_t core_id);
 
     std::unique_ptr<PriorityTaskQueue[]> _prio_task_queue_list;
     std::atomic<size_t> _next_core = 0;
     std::atomic<bool> _closed;
-};
-
-class TaskGroupTaskQueue : public TaskQueue {
-public:
-    explicit TaskGroupTaskQueue(size_t);
-    ~TaskGroupTaskQueue() override;
-
-    void close() override;
-
-    PipelineTask* take(size_t core_id) override;
-
-    // from TaskScheduler or BlockedTaskScheduler
-    Status push_back(PipelineTask* task) override;
-
-    // from worker
-    Status push_back(PipelineTask* task, size_t core_id) override;
-
-    void update_statistics(PipelineTask* task, int64_t time_spent) override;
-
-    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                             taskgroup::TGPTEntityPtr entity) override;
-
-private:
-    template <bool from_executor>
-    Status _push_back(PipelineTask* task);
-    template <bool from_worker>
-    void _enqueue_task_group(taskgroup::TGPTEntityPtr);
-    void _dequeue_task_group(taskgroup::TGPTEntityPtr);
-    taskgroup::TGPTEntityPtr _next_tg_entity();
-    uint64_t _ideal_runtime_ns(taskgroup::TGPTEntityPtr tg_entity) const;
-    void _update_min_tg();
-
-    // Like cfs rb tree in sched_entity
-    struct TaskGroupSchedEntityComparator {
-        bool operator()(const taskgroup::TGPTEntityPtr&, const taskgroup::TGPTEntityPtr&) const;
-    };
-    using ResouceGroupSet = std::set<taskgroup::TGPTEntityPtr, TaskGroupSchedEntityComparator>;
-    ResouceGroupSet _group_entities;
-    std::condition_variable _wait_task;
-    std::mutex _rs_mutex;
-    bool _closed = false;
-    int _total_cpu_share = 0;
-    std::atomic<taskgroup::TGPTEntityPtr> _min_tg_entity = nullptr;
-    uint64_t _min_tg_v_runtime_ns = 0;
 };
 
 } // namespace pipeline

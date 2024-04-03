@@ -607,11 +607,15 @@ public enum PrimitiveType {
         builder.put(TIME, TIME);
         builder.put(TIME, TIMEV2);
         builder.put(TIME, DOUBLE);
+        builder.put(TIME, VARCHAR);
+        builder.put(TIME, STRING);
 
         //TIMEV2
         builder.put(TIMEV2, TIME);
         builder.put(TIMEV2, TIMEV2);
         builder.put(TIMEV2, DOUBLE);
+        builder.put(TIMEV2, VARCHAR);
+        builder.put(TIMEV2, STRING);
 
         implicitCastMap = builder.build();
     }
@@ -970,8 +974,6 @@ public enum PrimitiveType {
             case JSONB:
             case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
-            case MAP:
-                return MysqlColType.MYSQL_TYPE_MAP;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }
@@ -1008,4 +1010,3 @@ public enum PrimitiveType {
         }
     }
 }
-

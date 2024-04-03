@@ -27,7 +27,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<AnalyticSourceDependency>(state, parent),
+        : PipelineXLocalState<AnalyticSharedState>(state, parent),
           _output_block_index(0),
           _window_end_position(0),
           _next_partition(false),
@@ -159,7 +159,7 @@ bool AnalyticLocalState::_whether_need_next_partition(
 }
 
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSourceDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
@@ -167,9 +167,8 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
 
-    _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
+            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     _agg_functions.resize(p._agg_functions.size());
@@ -237,20 +236,19 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             std::bind<void>(&AnalyticLocalState::_execute_for_win_func, this, std::placeholders::_1,
                             std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
-    RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status()));
+    _create_agg_status();
     return Status::OK();
 }
 
-Status AnalyticLocalState::_reset_agg_status() {
+void AnalyticLocalState::_reset_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->reset(
                 _fn_place_ptr +
                 _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
-Status AnalyticLocalState::_create_agg_status() {
+void AnalyticLocalState::_create_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         try {
             _agg_functions[i]->create(
@@ -266,19 +264,17 @@ Status AnalyticLocalState::_create_agg_status() {
         }
     }
     _agg_functions_created = true;
-    return Status::OK();
 }
 
-Status AnalyticLocalState::_destroy_agg_status() {
+void AnalyticLocalState::_destroy_agg_status() {
     if (UNLIKELY(_fn_place_ptr == nullptr || !_agg_functions_created)) {
-        return Status::OK();
+        return;
     }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->destroy(
                 _fn_place_ptr +
                 _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
 //now is execute for lead/lag row_number/rank/dense_rank/ntile functions
@@ -360,7 +356,7 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
             range_end = _shared_state->current_row_position +
                         1; //going on calculate,add up data, no need to reset state
         } else {
-            static_cast<void>(_reset_agg_status());
+            _reset_agg_status();
             if (!_parent->cast<AnalyticSourceOperatorX>()
                          ._window.__isset
                          .window_start) { //[preceding, offset]        --unbound: [preceding, following]
@@ -391,8 +387,8 @@ Status AnalyticLocalState::_get_next_for_range(size_t current_block_rows) {
            _window_end_position < current_block_rows) {
         if (_shared_state->current_row_position >= _order_by_end.pos) {
             _update_order_by_range();
-            _executor.execute(_order_by_start.pos, _order_by_end.pos, _order_by_start.pos,
-                              _order_by_end.pos);
+            _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos,
+                              _order_by_start.pos, _order_by_end.pos);
         }
         _executor.insert_result(current_block_rows);
     }
@@ -419,7 +415,7 @@ void AnalyticLocalState::_update_order_by_range() {
     }
 }
 
-Status AnalyticLocalState::init_result_columns() {
+void AnalyticLocalState::init_result_columns() {
     if (!_window_end_position) {
         _result_window_columns.resize(_agg_functions_size);
         for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -427,7 +423,6 @@ Status AnalyticLocalState::init_result_columns() {
                     _agg_functions[i]->data_type()->create_column(); //return type
         }
     }
-    return Status::OK();
 }
 
 //calculate pos have arrive partition end, so it's needed to init next partition, and update the boundary of partition
@@ -438,7 +433,7 @@ bool AnalyticLocalState::init_next_partition(vectorized::BlockRowPos found_parti
         _partition_by_start = _shared_state->partition_by_end;
         _shared_state->partition_by_end = found_partition_end;
         _shared_state->current_row_position = _partition_by_start.pos;
-        static_cast<void>(_reset_agg_status());
+        _reset_agg_status();
         return true;
     }
     return false;
@@ -517,13 +512,13 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 }
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                          SourceState& source_state) {
+                                          bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||
          local_state._shared_state->input_total_rows == 0)) {
-        source_state = SourceState::FINISHED;
+        *eos = true;
         return Status::OK();
     }
 
@@ -538,7 +533,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         }
         local_state._next_partition =
                 local_state.init_next_partition(local_state._shared_state->found_partition_end);
-        static_cast<void>(local_state.init_result_columns());
+        local_state.init_result_columns();
         size_t current_block_rows =
                 local_state._shared_state->input_blocks[local_state._output_block_index].rows();
         static_cast<void>(local_state._executor.get_next(current_block_rows));
@@ -549,7 +544,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     RETURN_IF_ERROR(local_state.output_current_block(block));
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 
@@ -559,16 +554,13 @@ Status AnalyticLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    for (auto* agg_function : _agg_functions) {
-        agg_function->close(state);
-    }
 
-    static_cast<void>(_destroy_agg_status());
+    _destroy_agg_status();
     _agg_arena_pool = nullptr;
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
     _result_window_columns.swap(tmp_result_window_columns);
-    return PipelineXLocalState<AnalyticSourceDependency>::close(state);
+    return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
 Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {

@@ -17,12 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -31,17 +32,23 @@ import com.google.common.base.Strings;
 // DROP DB表达式
 public class DropDbStmt extends DdlStmt {
     private boolean ifExists;
+    private String ctlName;
     private String dbName;
     private boolean forceDrop;
 
-    public DropDbStmt(boolean ifExists, String dbName, boolean forceDrop) {
+    public DropDbStmt(boolean ifExists, DbName dbName, boolean forceDrop) {
         this.ifExists = ifExists;
-        this.dbName = dbName;
+        this.ctlName = dbName.getCtl();
+        this.dbName = dbName.getDb();
         this.forceDrop = forceDrop;
     }
 
     public boolean isSetIfExists() {
         return ifExists;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public String getDbName() {
@@ -58,10 +65,10 @@ public class DropDbStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
-
+        InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
         // Don't allow to drop mysql compatible databases
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
-        if (db != null && (db instanceof Database) && ((Database) db).isMysqlCompatibleDatabase()) {
+        if (db != null && db instanceof MysqlCompatibleDatabase) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     analyzer.getQualifiedUser(), dbName);
         }

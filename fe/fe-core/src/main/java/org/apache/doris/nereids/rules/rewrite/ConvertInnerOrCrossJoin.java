@@ -37,12 +37,14 @@ public class ConvertInnerOrCrossJoin implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             innerLogicalJoin()
-                .when(join -> join.getHashJoinConjuncts().size() == 0 && join.getOtherJoinConjuncts().size() == 0)
-                .then(join -> join.withJoinType(JoinType.CROSS_JOIN))
+                .when(join -> join.getHashJoinConjuncts().isEmpty() && join.getOtherJoinConjuncts().isEmpty()
+                        && join.getMarkJoinConjuncts().isEmpty())
+                .then(join -> join.withJoinTypeAndContext(JoinType.CROSS_JOIN, join.getJoinReorderContext()))
                 .toRule(RuleType.INNER_TO_CROSS_JOIN),
             crossLogicalJoin()
-                .when(join -> join.getHashJoinConjuncts().size() != 0 || join.getOtherJoinConjuncts().size() != 0)
-                .then(join -> join.withJoinType(JoinType.INNER_JOIN))
+                .when(join -> !join.getHashJoinConjuncts().isEmpty() || !join.getOtherJoinConjuncts().isEmpty()
+                        || !join.getMarkJoinConjuncts().isEmpty())
+                .then(join -> join.withJoinTypeAndContext(JoinType.INNER_JOIN, join.getJoinReorderContext()))
                 .toRule(RuleType.CROSS_TO_INNER_JOIN)
         );
     }

@@ -40,7 +40,7 @@ public class StructField {
     @SerializedName(value = "containsNull")
     private final boolean containsNull; // Now always true (nullable field)
 
-    private static final String DEFAULT_FIELD_NAME = "col";
+    public static final String DEFAULT_FIELD_NAME = "col";
 
     public StructField(String name, Type type, String comment, boolean containsNull) {
         this.name = name.toLowerCase();

@@ -26,3 +26,17 @@ true	15	1992	3021	11011920	0.000	true	9999-12-12	2015-04-02T00:00		3.141592653	2
 -- !sql_mark_join --
 1
 
+-- !select_sub --
+1	9
+2	\N
+
+-- !select_sub2 --
+9
+
+-- !select_assert_num_row --
+3	l	0
+3	s	5
+2		6
+\N		8
+5		9
+

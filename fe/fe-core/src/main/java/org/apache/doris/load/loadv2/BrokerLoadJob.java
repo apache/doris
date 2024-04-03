@@ -79,13 +79,19 @@ public class BrokerLoadJob extends BulkLoadJob {
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
 
     // Profile of this load job, including all tasks' profiles
-    private Profile jobProfile;
+    protected Profile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
-    private boolean enableProfile = false;
+    protected boolean enableProfile = false;
+
+    private boolean enableMemTableOnSinkNode = false;
 
     // for log replay and unit test
     public BrokerLoadJob() {
         super(EtlJobType.BROKER);
+    }
+
+    protected BrokerLoadJob(EtlJobType type) {
+        super(type);
     }
 
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc,
@@ -93,8 +99,9 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
-            enableProfile = true;
+        if (ConnectContext.get() != null) {
+            enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
+            enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
         }
     }
 
@@ -111,10 +118,13 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     @Override
     protected void unprotectedExecuteJob() {
-        LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
-                brokerDesc, getPriority());
+        LoadTask task = createPendingTask();
         idToTasks.put(task.getSignature(), task);
         Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(task);
+    }
+
+    protected LoadTask createPendingTask() {
+        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority());
     }
 
     /**
@@ -190,12 +200,32 @@ public class BrokerLoadJob extends BulkLoadJob {
         loadStartTimestamp = System.currentTimeMillis();
     }
 
+    protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
+            boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
+            throws UserException {
+        LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
+                brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
+                isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
+                getLoadParallelism(), getSendBatchParallelism(),
+                getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
+                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode);
+
+        UUID uuid = UUID.randomUUID();
+        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                attachment.getFileNumByTable(aggKey), getUserInfo());
+        task.settWorkloadGroups(tWorkloadGroups);
+        return task;
+    }
+
     private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
                 Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
-        this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true);
+        if (enableProfile) {
+            this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true);
+        }
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
         MetaLockUtils.readLockTables(tableList);
@@ -206,18 +236,11 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                        ? this.enableMemTableOnSinkNode : false;
                 // Generate loading task and init the plan of task
-                LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
-                        brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                        isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
-                        getLoadParallelism(), getSendBatchParallelism(),
-                        getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                        useNewLoadScanNode(), getPriority());
-
-                UUID uuid = UUID.randomUUID();
-                TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                task.init(loadId, attachment.getFileStatusByTable(aggKey),
-                        attachment.getFileNumByTable(aggKey), getUserInfo());
+                LoadLoadingTask task = createTask(db, table, brokerFileGroups,
+                        isEnableMemtableOnSinkNode, aggKey, attachment);
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.
@@ -292,7 +315,11 @@ public class BrokerLoadJob extends BulkLoadJob {
         try {
             db = getDb();
             tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
-            MetaLockUtils.writeLockTablesOrMetaException(tableList);
+            if (Config.isCloudMode()) {
+                MetaLockUtils.commitLockTables(tableList);
+            } else {
+                MetaLockUtils.writeLockTablesOrMetaException(tableList);
+            }
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
@@ -310,6 +337,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                     dbId, tableList, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                             finishTimestamp, state, failMsg));
+            afterLoadingTaskCommitTransaction(tableList);
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
@@ -317,8 +345,16 @@ public class BrokerLoadJob extends BulkLoadJob {
                     .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
         } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
+            if (Config.isCloudMode()) {
+                MetaLockUtils.commitUnlockTables(tableList);
+            } else {
+                MetaLockUtils.writeUnlockTables(tableList);
+            }
         }
+    }
+
+    // cloud override
+    protected void afterLoadingTaskCommitTransaction(List<Table> tableList) {
     }
 
     private void writeProfile() {
@@ -327,6 +363,8 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         jobProfile.update(createTimestamp, getSummaryInfo(true), true,
                 Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")), null, false);
+        // jobProfile has been pushed into ProfileManager, remove reference in brokerLoadJob
+        jobProfile = null;
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {

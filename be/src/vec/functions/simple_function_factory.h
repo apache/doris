@@ -24,8 +24,6 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
-#include "udf/udf.h"
-#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -48,6 +46,8 @@ void register_function_multiply(SimpleFunctionFactory& factory);
 void register_function_divide(SimpleFunctionFactory& factory);
 void register_function_int_div(SimpleFunctionFactory& factory);
 void register_function_bit(SimpleFunctionFactory& factory);
+void register_function_bit_count(SimpleFunctionFactory& factory);
+void register_function_bit_shift(SimpleFunctionFactory& factory);
 void register_function_math(SimpleFunctionFactory& factory);
 void register_function_modulo(SimpleFunctionFactory& factory);
 void register_function_bitmap(SimpleFunctionFactory& factory);
@@ -63,6 +63,7 @@ void register_function_running_difference(SimpleFunctionFactory& factory);
 void register_function_date_time_to_string(SimpleFunctionFactory& factory);
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory);
 void register_function_in(SimpleFunctionFactory& factory);
+void register_function_collection_in(SimpleFunctionFactory& factory);
 void register_function_if(SimpleFunctionFactory& factory);
 void register_function_nullif(SimpleFunctionFactory& factory);
 void register_function_date_time_computation(SimpleFunctionFactory& factory);
@@ -78,6 +79,7 @@ void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
+void register_function_uuid_transforms(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
@@ -88,6 +90,7 @@ void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
 void register_function_struct_element(SimpleFunctionFactory& factory);
+void register_function_variant_element(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -107,8 +110,8 @@ class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
-    /// @TEMPORARY: for be_exec_version=3
-    constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 3;
+    /// @TEMPORARY: for be_exec_version=4
+    constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 4;
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
@@ -147,7 +150,7 @@ public:
     /// @TEMPORARY: for be_exec_version=3
     template <class Function>
     void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_3_0"};
+        static std::string suffix {"_old_for_version_before_4_0"};
         function_to_replace[Function::name] = Function::name + suffix;
         register_function(Function::name + suffix, &createDefaultFunction<Function>);
     }
@@ -176,8 +179,12 @@ public:
 
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
-            LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
-            return nullptr;
+            // use original name as signature without variadic arguments
+            iter = function_creators.find(name);
+            if (iter == function_creators.end()) {
+                LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
+                return nullptr;
+            }
         }
 
         return iter->second()->build(arguments, return_type);
@@ -229,6 +236,8 @@ public:
             register_function_int_div(instance);
             register_function_modulo(instance);
             register_function_bit(instance);
+            register_function_bit_count(instance);
+            register_function_bit_shift(instance);
             register_function_is_null(instance);
             register_function_is_not_null(instance);
             register_function_nullables(instance);
@@ -236,6 +245,7 @@ public:
             register_function_time_of_function(instance);
             register_function_string(instance);
             register_function_in(instance);
+            register_function_collection_in(instance);
             register_function_if(instance);
             register_function_nullif(instance);
             register_function_date_time_computation(instance);
@@ -254,6 +264,7 @@ public:
             register_function_random(instance);
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
+            register_function_uuid_transforms(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);
@@ -276,6 +287,7 @@ public:
             register_function_ip(instance);
             register_function_tokenize(instance);
             register_function_ignore(instance);
+            register_function_variant_element(instance);
         });
         return instance;
     }

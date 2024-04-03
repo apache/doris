@@ -92,7 +92,9 @@ suite ("test_dup_mv_schema_change") {
         createMV("create materialized view mv1 as select date, user_id, city, age from ${tableName};")
 
         // alter and test light schema change
-        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+        if (!isCloudMode()) {
+            sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+        }
 
         //add materialized view
         createMV("create materialized view mv2 as select date, user_id, city, age, cost from ${tableName};")

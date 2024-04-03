@@ -102,8 +102,6 @@ public:
 
         auto get_ptr() const { return this; }
         size_t get_hash() const { return base_iterator->get_hash(); }
-
-        size_t get_collision_chain_length() const { return 0; }
     };
 
     class iterator : public iterator_base<iterator, false> {
@@ -200,12 +198,6 @@ public:
     template <bool read>
     void ALWAYS_INLINE prefetch(const Key& key, size_t hash_value) {
         _hash_map.prefetch_hash(hash_value);
-    }
-
-    /// Call func(const Key &, Mapped &) for each hash map element.
-    template <typename Func>
-    void for_each_value(Func&& func) {
-        for (auto& v : *this) func(v.get_first(), v.get_second());
     }
 
     /// Call func(Mapped &) for each hash map element.

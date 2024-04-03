@@ -53,8 +53,8 @@ using ColumnFloat64 = ColumnVector<Float64>;
 
 using ColumnDecimal32 = ColumnDecimal<Decimal32>;
 using ColumnDecimal64 = ColumnDecimal<Decimal64>;
-using ColumnDecimal128 = ColumnDecimal<Decimal128>;
-using ColumnDecimal128I = ColumnDecimal<Decimal128I>;
+using ColumnDecimal128V2 = ColumnDecimal<Decimal128V2>;
+using ColumnDecimal128V3 = ColumnDecimal<Decimal128V3>;
 using ColumnDecimal256 = ColumnDecimal<Decimal256>;
 
 using ColumnIPv4 = ColumnVector<IPv4>;

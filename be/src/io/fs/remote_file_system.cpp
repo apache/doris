@@ -22,12 +22,11 @@
 #include <algorithm>
 
 #include "common/config.h"
-#include "io/cache/block/cached_remote_file_reader.h"
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "util/async_io.h" // IWYU pragma: keep
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 Status RemoteFileSystem::upload(const Path& local_file, const Path& dest_file) {
     auto dest_path = absolute_path(dest_file);
@@ -43,29 +42,9 @@ Status RemoteFileSystem::batch_upload(const std::vector<Path>& local_files,
     FILESYSTEM_M(batch_upload_impl(local_files, remote_paths));
 }
 
-Status RemoteFileSystem::direct_upload(const Path& remote_file, const std::string& content) {
-    auto remote_path = absolute_path(remote_file);
-    FILESYSTEM_M(direct_upload_impl(remote_path, content));
-}
-
-Status RemoteFileSystem::upload_with_checksum(const Path& local_file, const Path& remote,
-                                              const std::string& checksum) {
-    auto remote_path = absolute_path(remote);
-    FILESYSTEM_M(upload_with_checksum_impl(local_file, remote_path, checksum));
-}
-
 Status RemoteFileSystem::download(const Path& remote_file, const Path& local) {
     auto remote_path = absolute_path(remote_file);
     FILESYSTEM_M(download_impl(remote_path, local));
-}
-
-Status RemoteFileSystem::direct_download(const Path& remote_file, std::string* content) {
-    auto remote_path = absolute_path(remote_file);
-    FILESYSTEM_M(direct_download_impl(remote_path, content));
-}
-
-Status RemoteFileSystem::connect() {
-    FILESYSTEM_M(connect_impl());
 }
 
 Status RemoteFileSystem::open_file_impl(const Path& path, FileReaderSPtr* reader,
@@ -75,21 +54,8 @@ Status RemoteFileSystem::open_file_impl(const Path& path, FileReaderSPtr* reader
         opts = &FileReaderOptions::DEFAULT;
     }
     RETURN_IF_ERROR(open_file_internal(path, &raw_reader, *opts));
-    switch (opts->cache_type) {
-    case io::FileCachePolicy::NO_CACHE: {
-        *reader = raw_reader;
-        break;
-    }
-    case io::FileCachePolicy::FILE_BLOCK_CACHE: {
-        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), *opts);
-        break;
-    }
-    default: {
-        return Status::InternalError("Unknown cache type: {}", opts->cache_type);
-    }
-    }
+    *reader = DORIS_TRY(create_cached_file_reader(raw_reader, *opts));
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

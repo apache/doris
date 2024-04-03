@@ -52,10 +52,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
-        if (Env.getCurrentEnv().getAnalysisManager().hasUnFinished()) {
-            LOG.info("Analyze tasks those submitted in last time is not finished, skip");
-            return;
-        }
         collect();
     }
 
@@ -65,7 +61,7 @@ public abstract class StatisticsCollector extends MasterDaemon {
     @VisibleForTesting
     protected void createSystemAnalysisJob(AnalysisInfo jobInfo)
             throws DdlException {
-        if (jobInfo.colToPartitions.isEmpty()) {
+        if (jobInfo.jobColumns.isEmpty()) {
             // No statistics need to be collected or updated
             return;
         }

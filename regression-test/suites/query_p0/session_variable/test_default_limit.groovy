@@ -23,7 +23,7 @@ suite('test_default_limit', "arrow_flight_sql") {
         create table baseall (
             k0 int,
             k1 int,
-            k2 int,
+            k2 int
         )
         distributed by hash(k0) buckets 16
         properties(
@@ -35,7 +35,7 @@ suite('test_default_limit', "arrow_flight_sql") {
         create table bigtable (
             k0 int,
             k1 int,
-            k2 int,
+            k2 int
         )
         distributed by hash(k0) buckets 16
         properties(

@@ -31,7 +31,6 @@ import org.apache.doris.nereids.properties.ChildrenPropertiesRegulator;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
@@ -79,10 +78,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
     public CostAndEnforcerJob(GroupExpression groupExpression, JobContext context) {
         super(JobType.OPTIMIZE_CHILDREN, context);
         this.groupExpression = groupExpression;
-    }
-
-    private ConnectContext getConnectContext() {
-        return context.getCascadesContext().getConnectContext();
     }
 
     private SessionVariable getSessionVariable() {

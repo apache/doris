@@ -228,12 +228,13 @@ private:
         auto& ts_val = *reinterpret_cast<DateValueType*>(&res[index]);
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
             null_map[index] = 1;
-        }
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
-                ts_val.to_datetime();
-            } else {
-                ts_val.cast_to_date();
+        } else {
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
+                    ts_val.to_datetime();
+                } else {
+                    ts_val.cast_to_date();
+                }
             }
         }
     }
@@ -558,6 +559,13 @@ struct UnixTimeStampImpl {
         return (Int32)timestamp;
     }
 
+    static std::pair<Int32, Int32> trim_timestamp(std::pair<Int64, Int64> timestamp) {
+        if (timestamp.first < 0 || timestamp.first > INT_MAX) {
+            return {0, 0};
+        }
+        return std::make_pair((Int32)timestamp.first, (Int32)timestamp.second);
+    }
+
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
@@ -834,8 +842,8 @@ struct UnixTimeStampStrImpl {
         const auto* col_source = assert_cast<const ColumnString*>(col_left.get());
         const auto* col_format = assert_cast<const ColumnString*>(col_right.get());
         for (int i = 0; i < input_rows_count; i++) {
-            StringRef source = col_source->get_data_at(i);
-            StringRef fmt = col_format->get_data_at(i);
+            StringRef source = col_source->get_data_at(index_check_const(i, source_const));
+            StringRef fmt = col_format->get_data_at(index_check_const(i, format_const));
 
             DateV2Value<DateTimeV2ValueType> ts_value;
             if (!ts_value.from_date_format_str(fmt.data, fmt.size, source.data, source.size)) {
@@ -845,16 +853,17 @@ struct UnixTimeStampStrImpl {
 
             std::pair<int64_t, int64_t> timestamp {};
             if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
-                null_map_data[i] = true;
+                null_map_data[i] = true; // impossible now
             } else {
                 null_map_data[i] = false;
 
-                auto& [sec, ms] = timestamp;
-                sec = UnixTimeStampImpl::trim_timestamp(sec);
+                auto [sec, ms] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                // trailing ms
                 auto ms_str = std::to_string(ms).substr(0, 6);
                 if (ms_str.empty()) {
                     ms_str = "0";
                 }
+
                 col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), 6).value;
             }
         }

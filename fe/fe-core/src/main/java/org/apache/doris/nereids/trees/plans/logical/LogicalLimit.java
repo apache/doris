@@ -18,11 +18,15 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.ExprFdItem;
+import org.apache.doris.nereids.properties.FdFactory;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -32,6 +36,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -151,8 +156,27 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
             Builder builder = new Builder();
             outputSupplier.get().forEach(builder::addUniformSlot);
             outputSupplier.get().forEach(builder::addUniqueSlot);
+            ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+            builder.addFdItems(fdItems);
             fd = builder.build();
         }
         return fd;
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
+        if (getLimit() == 1 && !phase.isLocal()) {
+            ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+            List<Slot> output = outputSupplier.get();
+            ImmutableSet<SlotReference> slotSet = output.stream()
+                    .filter(SlotReference.class::isInstance)
+                    .map(SlotReference.class::cast)
+                    .collect(ImmutableSet.toImmutableSet());
+            ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(slotSet, true, slotSet);
+            builder.add(fdItem);
+            fdItems = builder.build();
+        }
+        return fdItems;
     }
 }

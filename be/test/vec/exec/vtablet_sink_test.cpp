@@ -14,8 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/sink/vtablet_sink.h"
-
 #include <brpc/closure_guard.h>
 #include <brpc/server.h>
 #include <gen_cpp/DataSinks_types.h>
@@ -35,7 +33,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
@@ -48,6 +46,7 @@
 #include "util/threadpool.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace google {
 namespace protobuf {
@@ -404,8 +403,10 @@ public:
         TQueryOptions query_options;
         query_options.batch_size = 1;
         query_options.be_exec_version = be_exec_version;
-        RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
-        state.init_mem_trackers(TUniqueId());
+        RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env, nullptr);
+        std::shared_ptr<TaskExecutionContext> task_ctx_lock =
+                std::make_shared<TaskExecutionContext>();
+        state.set_task_execution_context(task_ctx_lock);
 
         ObjectPool obj_pool;
         TDescriptorTable tdesc_tbl;
@@ -497,7 +498,7 @@ public:
 private:
     ExecEnv* _env = nullptr;
     brpc::Server* _server = nullptr;
-    std::string wal_dir = "./wal_test";
+    std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
 };
 
 TEST_F(VOlapTableSinkTest, normal) {
@@ -523,8 +524,9 @@ TEST_F(VOlapTableSinkTest, convert) {
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     query_options.be_exec_version = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
-    state.init_mem_trackers(TUniqueId());
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env, nullptr);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;
@@ -653,8 +655,9 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     TQueryOptions query_options;
     query_options.batch_size = 1;
     query_options.be_exec_version = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
-    state.init_mem_trackers(TUniqueId());
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env, nullptr);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
 
     TDescriptorTable tdesc_tbl;
     auto t_data_sink = get_data_sink(&tdesc_tbl);
@@ -767,8 +770,9 @@ TEST_F(VOlapTableSinkTest, decimal) {
     TQueryOptions query_options;
     query_options.batch_size = 1;
     query_options.be_exec_version = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
-    state.init_mem_trackers(TUniqueId());
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env, nullptr);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;

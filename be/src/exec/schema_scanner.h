@@ -105,6 +105,10 @@ protected:
     Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
                                       const std::vector<void*>& datas);
 
+    // get dbname from catalogname.dbname
+    // if full_name does not have catalog part, just return origin name.
+    std::string get_db_from_full_name(const std::string& full_name);
+
     bool _is_init;
     // this is used for sub class
     SchemaScannerParam* _param = nullptr;

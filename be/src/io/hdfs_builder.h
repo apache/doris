@@ -56,12 +56,12 @@ public:
     Status init_hdfs_builder();
 
     hdfsBuilder* get() { return hdfs_builder; }
-    bool is_need_kinit() const { return need_kinit; }
-    Status run_kinit();
+    bool is_kerberos() const { return kerberos_login; }
+    Status check_krb_params();
 
 private:
     hdfsBuilder* hdfs_builder = nullptr;
-    bool need_kinit {false};
+    bool kerberos_login {false};
     std::string hdfs_kerberos_keytab;
     std::string hdfs_kerberos_principal;
 };

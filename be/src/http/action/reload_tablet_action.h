@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <string>
 
 #include "http/http_handler_with_auth.h"
@@ -26,11 +24,13 @@
 namespace doris {
 
 class ExecEnv;
+class StorageEngine;
 class HttpRequest;
 
 class ReloadTabletAction : public HttpHandlerWithAuth {
 public:
-    ReloadTabletAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
+    ReloadTabletAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
+                       TPrivilegeType::type type);
 
     ~ReloadTabletAction() override = default;
 
@@ -39,6 +39,7 @@ public:
 private:
     void reload(const std::string& path, int64_t tablet_id, int32_t schema_hash, HttpRequest* req);
 
+    StorageEngine& _engine;
 }; // end class ReloadTabletAction
 
 } // end namespace doris

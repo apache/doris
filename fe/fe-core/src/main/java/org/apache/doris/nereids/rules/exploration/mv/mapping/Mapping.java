@@ -135,6 +135,11 @@ public abstract class Mapping {
         public int hashCode() {
             return Objects.hash(exprId);
         }
+
+        @Override
+        public String toString() {
+            return "MappedSlot{" + "slot=" + slot + '}';
+        }
     }
 
     /** Chain fold tow mapping, such as this mapping is {[a -> b]}, the target mapping is

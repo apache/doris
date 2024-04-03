@@ -21,10 +21,10 @@
 #pragma once
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -78,6 +78,17 @@ public:
     // If overridden in subclass, must first call superclass's prepare().
     [[nodiscard]] virtual Status prepare(RuntimeState* state);
 
+    /*
+     * For open and alloc_resource:
+     *  Base class ExecNode's `open` only calls `alloc_resource`, which opens some public projections.
+     *  If was overrided, `open` must call corresponding `alloc_resource` since it's a (early) part of opening.
+     *  Or just call `ExecNode::open` is alternative way.
+     *  Then `alloc_resource` call father's after it's own business to make the progress completed, including the projections.
+     *  In Pipeline engine: 
+     *      PipeContext::prepare -> node::prepare
+     *      Task::open -> StreamingOp::open -> node::alloc_resource, for sink+source splits, only open in SinkOperator.
+     *  So in pipeline, the things directly done by open(like call child's) wouldn't be done in `open`.
+    */
     // Performs any preparatory work prior to calling get_next().
     // Can be called repeatedly (after calls to close()).
     // Caller must not be holding any io buffers. This will cause deadlock.
@@ -103,7 +114,7 @@ public:
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
     [[nodiscard]] virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    [[nodiscard]] Status get_next_after_projects(
+    [[nodiscard]] virtual Status get_next_after_projects(
             RuntimeState* state, vectorized::Block* block, bool* eos,
             const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
             bool clear_data = true);
@@ -116,7 +127,7 @@ public:
     bool has_output_row_descriptor() const { return _output_row_descriptor != nullptr; }
     // If use projection, we should clear `_origin_block`.
     void clear_origin_block() {
-        _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
+        _origin_block.clear_column_data(intermediate_row_desc().num_materialized_slots());
     }
 
     // Emit data, both need impl with method: sink
@@ -156,13 +167,6 @@ public:
     // so should be fast.
     [[nodiscard]] virtual Status reset(RuntimeState* state);
 
-    // This should be called before close() and after get_next(), it is responsible for
-    // collecting statistics sent with row batch, it can't be called when prepare() returns
-    // error.
-    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics);
-
-    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics,
-                                                          int sender_id);
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
     // prepare()/open()/get_next() returned with an error).
@@ -216,6 +220,26 @@ public:
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
     virtual const RowDescriptor& intermediate_row_desc() const { return _row_descriptor; }
+
+    //  input expr -> intermediate_projections[0] -> intermediate_projections[1] -> intermediate_projections[2]    ... ->     final projections         ->         output expr
+    //  prepare        _row_descriptor          intermediate_row_desc[0]             intermediate_row_desc[1]            intermediate_row_desc.end()          _output_row_descriptor
+
+    [[nodiscard]] const RowDescriptor& intermediate_row_desc(int idx) {
+        if (idx == 0) {
+            return intermediate_row_desc();
+        }
+        DCHECK((idx - 1) < _intermediate_output_row_descriptor.size());
+        return _intermediate_output_row_descriptor[idx - 1];
+    }
+
+    [[nodiscard]] const RowDescriptor& projections_row_desc() const {
+        if (_intermediate_output_row_descriptor.empty()) {
+            return intermediate_row_desc();
+        } else {
+            return _intermediate_output_row_descriptor.back();
+        }
+    }
+
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
@@ -238,6 +262,8 @@ public:
     ExecNode* child(int i) { return _children[i]; }
 
     size_t children_count() const { return _children.size(); }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 protected:
     friend class DataSink;
@@ -264,11 +290,15 @@ protected:
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
     vectorized::VExprContextSPtrs _projections;
 
+    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
+    // Used in common subexpression elimination to compute intermediate results.
+    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
+
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;
 
     int64_t _limit; // -1: no limit
-    int64_t _num_rows_returned;
+    int64_t _num_rows_returned = 0;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -304,15 +334,6 @@ protected:
 
     bool is_closed() const { return _is_closed; }
 
-    // TODO(zc)
-    /// Pointer to the containing SubplanNode or nullptr if not inside a subplan.
-    /// Set by SubplanNode::Init(). Not owned.
-    // SubplanNode* containing_subplan_;
-
-    /// Returns true if this node is inside the right-hand side plan tree of a SubplanNode.
-    /// Valid to call in or after Prepare().
-    bool is_in_subplan() const { return false; }
-
     // Create a single exec node derived from thrift node; place exec node in 'pool'.
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                               const DescriptorTbl& descs, ExecNode** node);
@@ -326,6 +347,12 @@ protected:
 
     std::atomic<bool> _can_read = false;
 
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+
+    //_keep_origin is used to avoid copying during projection,
+    // currently set to false only in the nestloop join.
+    bool _keep_origin = true;
+
 private:
     static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
                                      const std::vector<TPlanNode>& tnodes,
@@ -333,9 +360,9 @@ private:
                                      ExecNode** root);
 
     friend class pipeline::OperatorBase;
-    bool _is_closed;
+    bool _is_closed = false;
     bool _is_resource_released = false;
-    std::atomic_int _ref; // used by pipeline operator to release resource.
+    std::atomic_int _ref = 0; // used by pipeline operator to release resource.
 };
 
 } // namespace doris

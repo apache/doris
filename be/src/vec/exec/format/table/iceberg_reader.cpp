@@ -143,9 +143,11 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
         auto rows =
                 std::min(_remaining_push_down_count, (int64_t)_state->query_options().batch_size);
         _remaining_push_down_count -= rows;
-        for (auto& col : block->mutate_columns()) {
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
             col->resize(rows);
         }
+        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         if (_remaining_push_down_count == 0) {
             *eof = true;

@@ -28,14 +28,18 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
+#include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
 
 class RowsetMeta {
 public:
+    RowsetMeta() = default;
     ~RowsetMeta();
 
     bool init(const std::string& pb_rowset_meta);
+
+    bool init(const RowsetMeta* rowset_meta);
 
     bool init_from_pb(const RowsetMetaPB& rowset_meta_pb);
 
@@ -54,6 +58,8 @@ public:
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
+    bool has_variant_type_in_schema() const;
+
     RowsetId rowset_id() const { return _rowset_id; }
 
     void set_rowset_id(const RowsetId& rowset_id) {
@@ -66,6 +72,10 @@ public:
     int64_t tablet_id() const { return _rowset_meta_pb.tablet_id(); }
 
     void set_tablet_id(int64_t tablet_id) { _rowset_meta_pb.set_tablet_id(tablet_id); }
+
+    int64_t index_id() const { return _rowset_meta_pb.index_id(); }
+
+    void set_index_id(int64_t index_id) { _rowset_meta_pb.set_index_id(index_id); }
 
     TabletUid tablet_uid() const { return _rowset_meta_pb.tablet_uid(); }
 
@@ -193,9 +203,11 @@ public:
 
     void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const;
+    // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
+    void to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema = false) const;
 
-    RowsetMetaPB get_rowset_pb();
+    // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
+    RowsetMetaPB get_rowset_pb(bool skip_schema = false) const;
 
     inline DeletePredicatePB* mutable_delete_pred_pb() {
         return _rowset_meta_pb.mutable_delete_predicate();
@@ -258,7 +270,7 @@ public:
         }
     }
 
-    auto& get_segments_key_bounds() { return _rowset_meta_pb.segments_key_bounds(); }
+    auto& get_segments_key_bounds() const { return _rowset_meta_pb.segments_key_bounds(); }
 
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
@@ -284,8 +296,8 @@ public:
         }
     }
 
-    void add_segment_key_bounds(const KeyBoundsPB& segments_key_bounds) {
-        *_rowset_meta_pb.add_segments_key_bounds() = segments_key_bounds;
+    void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
+        *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);
         set_segments_overlap(OVERLAPPING);
     }
 
@@ -296,8 +308,32 @@ public:
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
+    void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
-    const TabletSchemaSPtr& tablet_schema() { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() const { return _schema; }
+
+    void set_txn_expiration(int64_t expiration) { _rowset_meta_pb.set_txn_expiration(expiration); }
+
+    void set_compaction_level(int64_t compaction_level) {
+        _rowset_meta_pb.set_compaction_level(compaction_level);
+    }
+
+    int64_t compaction_level() { return _rowset_meta_pb.compaction_level(); }
+
+    // `seg_file_size` MUST ordered by segment id
+    void add_segments_file_size(const std::vector<size_t>& seg_file_size);
+
+    // Return -1 if segment file size is unknown
+    int64_t segment_file_size(int seg_id);
+
+    const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
+
+    // Used for partial update, when publish, partial update may add a new rowset and we should update rowset meta
+    void merge_rowset_meta(const RowsetMeta& other);
+
+    // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
+    RowsetMeta(const RowsetMeta&) = delete;
+    RowsetMeta operator=(const RowsetMeta&) = delete;
 
 private:
     bool _deserialize_from_pb(const std::string& value);
@@ -313,6 +349,7 @@ private:
 private:
     RowsetMetaPB _rowset_meta_pb;
     TabletSchemaSPtr _schema;
+    Cache::Handle* _handle = nullptr;
     RowsetId _rowset_id;
     io::FileSystemSPtr _fs;
     bool _is_removed_from_rowset_meta = false;

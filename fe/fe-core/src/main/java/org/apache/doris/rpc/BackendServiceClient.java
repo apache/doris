@@ -110,6 +110,11 @@ public class BackendServiceClient {
         return stub.fetchTableSchema(request);
     }
 
+    public Future<InternalService.PJdbcTestConnectionResult> testJdbcConnection(
+            InternalService.PJdbcTestConnectionRequest request) {
+        return stub.testJdbcConnection(request);
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(InternalService.PUpdateCacheRequest request) {
         return stub.updateCache(request);
     }
@@ -173,6 +178,8 @@ public class BackendServiceClient {
 
 
     public void shutdown() {
+        ConnectivityState state = channel.getState(false);
+        LOG.warn("shut down backend service client: {}, channel state: {}", address, state);
         if (!channel.isShutdown()) {
             channel.shutdown();
             try {
@@ -194,7 +201,5 @@ public class BackendServiceClient {
                 return;
             }
         }
-
-        LOG.warn("shut down backend service client: {}", address);
     }
 }

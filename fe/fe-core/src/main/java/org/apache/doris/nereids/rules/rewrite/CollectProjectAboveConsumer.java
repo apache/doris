@@ -40,7 +40,7 @@ public class CollectProjectAboveConsumer implements RewriteRuleFactory {
 
     @Override
     public List<Rule> buildRules() {
-        return ImmutableList.of(RuleType.COLLECT_PROJECT_ABOVE_CONSUMER
+        return ImmutableList.of(RuleType.COLLECT_PROJECT_ABOVE_CTE_CONSUMER
                         .build(logicalProject(logicalCTEConsumer()).thenApply(ctx -> {
                             LogicalProject<LogicalCTEConsumer> project = ctx.root;
                             List<NamedExpression> namedExpressions = project.getProjects();
@@ -48,7 +48,7 @@ public class CollectProjectAboveConsumer implements RewriteRuleFactory {
                             collectProject(ctx.cascadesContext, namedExpressions, cteConsumer);
                             return ctx.root;
                         })),
-                RuleType.COLLECT_PROJECT_ABOVE_FILTER_CONSUMER
+                RuleType.COLLECT_PROJECT_ABOVE_FILTER_CTE_CONSUMER
                         .build(logicalProject(logicalFilter(logicalCTEConsumer())).thenApply(ctx -> {
                             LogicalProject<LogicalFilter<LogicalCTEConsumer>> project = ctx.root;
                             LogicalFilter<LogicalCTEConsumer> filter = project.child();

@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
@@ -26,7 +27,6 @@ import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class AnalysisInfoBuilder {
@@ -36,7 +36,7 @@ public class AnalysisInfoBuilder {
     private long catalogId;
     private long dbId;
     private long tblId;
-    private Map<String, Set<String>> colToPartitions;
+    private List<Pair<String, String>> jobColumns;
     private Set<String> partitionNames;
     private String colName;
     private long indexId = -1L;
@@ -61,8 +61,9 @@ public class AnalysisInfoBuilder {
     private CronExpression cronExpression;
     private boolean forceFull;
     private boolean usingSqlForPartitionColumn;
-
     private long tblUpdateTime;
+    private boolean emptyJob;
+    private boolean userInject;
 
     public AnalysisInfoBuilder() {
     }
@@ -74,7 +75,7 @@ public class AnalysisInfoBuilder {
         catalogId = info.catalogId;
         dbId = info.dbId;
         tblId = info.tblId;
-        colToPartitions = info.colToPartitions;
+        jobColumns = info.jobColumns;
         partitionNames = info.partitionNames;
         colName = info.colName;
         indexId = info.indexId;
@@ -100,6 +101,8 @@ public class AnalysisInfoBuilder {
         forceFull = info.forceFull;
         usingSqlForPartitionColumn = info.usingSqlForPartitionColumn;
         tblUpdateTime = info.tblUpdateTime;
+        emptyJob = info.emptyJob;
+        userInject = info.userInject;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -132,8 +135,8 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setColToPartitions(Map<String, Set<String>> colToPartitions) {
-        this.colToPartitions = colToPartitions;
+    public AnalysisInfoBuilder setJobColumns(List<Pair<String, String>> jobColumns) {
+        this.jobColumns = jobColumns;
         return this;
     }
 
@@ -262,12 +265,22 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setEmptyJob(boolean emptyJob) {
+        this.emptyJob = emptyJob;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setUserInject(boolean userInject) {
+        this.userInject = userInject;
+        return this;
+    }
+
     public AnalysisInfo build() {
-        return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, colToPartitions, partitionNames,
+        return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, jobColumns, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
-                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime);
+                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, emptyJob, userInject);
     }
 
 }

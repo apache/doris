@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -199,7 +200,7 @@ public class ShowAction extends RestBaseController {
         } else {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
                 DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-                if (db == null || !(db instanceof Database) || ((Database) db).isMysqlCompatibleDatabase()) {
+                if (db == null || !(db instanceof Database) || db instanceof MysqlCompatibleDatabase) {
                     continue;
                 }
                 totalSize += getDataSizeOfDatabase(db);
@@ -232,7 +233,7 @@ public class ShowAction extends RestBaseController {
         } else {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
                 DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-                if (db == null || !(db instanceof Database) || ((Database) db).isMysqlCompatibleDatabase()) {
+                if (db == null || !(db instanceof Database) || ((Database) db) instanceof MysqlCompatibleDatabase) {
                     continue;
                 }
                 Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);

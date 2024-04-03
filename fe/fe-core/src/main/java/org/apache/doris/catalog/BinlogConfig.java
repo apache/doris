@@ -44,7 +44,7 @@ public class BinlogConfig implements Writable {
     @SerializedName("maxHistoryNums")
     private long maxHistoryNums;
 
-    public static final long TTL_SECONDS = 0x7fffffffffffffffL;
+    public static final long TTL_SECONDS = 86400L; // 1 day
     public static final long MAX_BYTES = 0x7fffffffffffffffL;
     public static final long MAX_HISTORY_NUMS = 0x7fffffffffffffffL;
 

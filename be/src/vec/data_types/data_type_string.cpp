@@ -20,11 +20,12 @@
 
 #include "vec/data_types/data_type_string.h"
 
-#include <string.h>
+#include <lz4/lz4.h>
+#include <streamvbyte.h>
 
-#include <typeinfo>
-#include <utility>
+#include <cstring>
 
+#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
@@ -78,107 +79,153 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 //  <value array> : <value1> | <value2 | ...
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
+    if (be_exec_version >= USE_NEW_SERDE) {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
+        int64_t size = sizeof(uint32_t) + sizeof(uint64_t);
+        if (auto offsets_size = data_column.size() * sizeof(IColumn::Offset);
+            offsets_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            size += offsets_size;
+        } else {
+            size += sizeof(size_t) + std::max(offsets_size, streamvbyte_max_compressedbytes(
+                                                                    upper_int32(offsets_size)));
+        }
 
-    if (be_exec_version == 0) {
+        if (auto bytes = data_column.get_chars().size(); bytes <= SERIALIZED_MEM_SIZE_LIMIT) {
+            size += bytes;
+        } else {
+            size += sizeof(size_t) + std::max(bytes, (size_t)LZ4_compressBound(bytes));
+        }
+        return size;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
+
+        if (be_exec_version == 0) {
+            return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
+                   data_column.get_chars().size() + column.size();
+        }
+
         return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
-               data_column.get_chars().size() + column.size();
+               data_column.get_chars().size();
     }
-
-    return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
-           data_column.get_chars().size();
 }
 
 char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
+    if (be_exec_version >= USE_NEW_SERDE) {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-    if (be_exec_version == 0) {
+        // row num
+        uint32_t mem_size = data_column.size() * sizeof(IColumn::Offset);
+        *reinterpret_cast<uint32_t*>(buf) = mem_size;
+        buf += sizeof(uint32_t);
+        // offsets
+        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            memcpy(buf, data_column.get_offsets().data(), mem_size);
+            buf += mem_size;
+        } else {
+            auto encode_size = streamvbyte_encode(
+                    reinterpret_cast<const uint32_t*>(data_column.get_offsets().data()),
+                    upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
+            *reinterpret_cast<size_t*>(buf) = encode_size;
+            buf += (sizeof(size_t) + encode_size);
+        }
+
+        // values
+        uint64_t value_len = data_column.get_chars().size();
+        *reinterpret_cast<uint64_t*>(buf) = value_len;
+        buf += sizeof(uint64_t);
+        if (value_len <= SERIALIZED_MEM_SIZE_LIMIT) {
+            memcpy(buf, data_column.get_chars().data(), value_len);
+            buf += value_len;
+            return buf;
+        }
+        auto encode_size =
+                LZ4_compress_fast(data_column.get_chars().raw_data(), (buf + sizeof(size_t)),
+                                  value_len, LZ4_compressBound(value_len), 1);
+        *reinterpret_cast<size_t*>(buf) = encode_size;
+        buf += (sizeof(size_t) + encode_size);
+        return buf;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
         // row num
         *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
         buf += sizeof(IColumn::Offset);
         // offsets
-        for (int i = 0; i < column.size(); i++) {
-            *reinterpret_cast<IColumn::Offset*>(buf) = data_column.get_offsets()[i] + i + 1;
-            buf += sizeof(IColumn::Offset);
-        }
+        memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
+        buf += column.size() * sizeof(IColumn::Offset);
         // total length
-        *reinterpret_cast<uint64_t*>(buf) = data_column.get_chars().size() + column.size();
+        uint64_t value_len = data_column.get_chars().size();
+        *reinterpret_cast<uint64_t*>(buf) = value_len;
         buf += sizeof(uint64_t);
         // values
-        for (int i = 0; i < column.size(); i++) {
-            auto data = data_column.get_data_at(i);
-            memcpy(buf, data.data, data.size);
-            buf += data.size;
-            *buf = '\0';
-            buf++;
-        }
+        memcpy(buf, data_column.get_chars().data(), value_len);
+        buf += value_len;
+
         return buf;
     }
-
-    // row num
-    *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
-    buf += sizeof(IColumn::Offset);
-    // offsets
-    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
-    buf += column.size() * sizeof(IColumn::Offset);
-    // total length
-    uint64_t value_len = data_column.get_chars().size();
-    *reinterpret_cast<uint64_t*>(buf) = value_len;
-    buf += sizeof(uint64_t);
-    // values
-    memcpy(buf, data_column.get_chars().data(), value_len);
-    buf += value_len;
-
-    return buf;
 }
 
 const char* DataTypeString::deserialize(const char* buf, IColumn* column,
                                         int be_exec_version) const {
-    ColumnString* column_string = assert_cast<ColumnString*>(column);
-    ColumnString::Chars& data = column_string->get_chars();
-    ColumnString::Offsets& offsets = column_string->get_offsets();
+    if (be_exec_version >= USE_NEW_SERDE) {
+        auto* column_string = assert_cast<ColumnString*>(column);
+        ColumnString::Chars& data = column_string->get_chars();
+        ColumnString::Offsets& offsets = column_string->get_offsets();
 
-    if (be_exec_version == 0) {
+        uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
+        buf += sizeof(uint32_t);
+        offsets.resize(mem_size / sizeof(IColumn::Offset));
+        // offsets
+        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            memcpy(offsets.data(), buf, mem_size);
+            buf += mem_size;
+        } else {
+            size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+            buf += sizeof(size_t);
+            streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(offsets.data()),
+                               upper_int32(mem_size));
+            buf += encode_size;
+        }
+        // total length
+        uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
+        buf += sizeof(uint64_t);
+        data.resize(value_len);
+
+        // values
+        if (value_len <= SERIALIZED_MEM_SIZE_LIMIT) {
+            memcpy(data.data(), buf, value_len);
+            buf += value_len;
+        } else {
+            size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+            buf += sizeof(size_t);
+            LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()), encode_size, value_len);
+            buf += encode_size;
+        }
+        return buf;
+    } else {
+        auto* column_string = assert_cast<ColumnString*>(column);
+        ColumnString::Chars& data = column_string->get_chars();
+        ColumnString::Offsets& offsets = column_string->get_offsets();
         // row num
         IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
         buf += sizeof(IColumn::Offset);
         // offsets
         offsets.resize(row_num);
-        for (int i = 0; i < row_num; i++) {
-            offsets[i] = *reinterpret_cast<const IColumn::Offset*>(buf) - i - 1;
-            buf += sizeof(IColumn::Offset);
-        }
+        memcpy(offsets.data(), buf, sizeof(IColumn::Offset) * row_num);
+        buf += sizeof(IColumn::Offset) * row_num;
         // total length
         uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
         buf += sizeof(uint64_t);
         // values
-        data.resize(value_len - row_num);
-        for (int i = 0; i < row_num; i++) {
-            memcpy(data.data() + offsets[i - 1], buf, offsets[i] - offsets[i - 1]);
-            buf += offsets[i] - offsets[i - 1] + 1;
-        }
+        data.resize(value_len);
+        memcpy(data.data(), buf, value_len);
+        buf += value_len;
 
         return buf;
     }
-
-    // row num
-    IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
-    buf += sizeof(IColumn::Offset);
-    // offsets
-    offsets.resize(row_num);
-    memcpy(offsets.data(), buf, sizeof(IColumn::Offset) * row_num);
-    buf += sizeof(IColumn::Offset) * row_num;
-    // total length
-    uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
-    buf += sizeof(uint64_t);
-    // values
-    data.resize(value_len);
-    memcpy(data.data(), buf, value_len);
-    buf += value_len;
-
-    return buf;
 }
 
 } // namespace doris::vectorized

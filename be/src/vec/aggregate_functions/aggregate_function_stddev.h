@@ -214,7 +214,7 @@ struct BaseDatadecimal {
     }
 
     static DataTypePtr get_return_type() {
-        return std::make_shared<DataTypeDecimal<Decimal128>>(27, 9);
+        return std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9);
     }
 
     DecimalV2Value mean;
@@ -224,7 +224,7 @@ struct BaseDatadecimal {
 
 template <typename T, typename Data>
 struct PopData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>,
+    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
                                             ColumnVector<Float64>>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
@@ -258,7 +258,7 @@ struct StddevSampName : Data {
 
 template <typename T, typename Data>
 struct SampData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>,
+    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
                                             ColumnVector<Float64>>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
@@ -296,7 +296,7 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (is_pop) {
             this->data(place).add(columns[0], row_num);

@@ -324,7 +324,9 @@ public class Load {
                 } else {
                     columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
                 }
-                LOG.debug("add base column {} to stream load task", column.getName());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add base column {} to stream load task", column.getName());
+                }
                 copiedColumnExprs.add(columnDesc);
             }
             if (hiddenColumns != null) {
@@ -332,7 +334,9 @@ public class Load {
                     Column column = tbl.getColumn(columnName);
                     if (column != null && !column.isVisible()) {
                         ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
-                        LOG.debug("add hidden column {} to stream load task", column.getName());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("add hidden column {} to stream load task", column.getName());
+                        }
                         copiedColumnExprs.add(columnDesc);
                     }
                 }
@@ -449,7 +453,9 @@ public class Load {
             }
         }
 
-        LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
+        }
 
         /*
          * The extension column of the materialized view is added to the expression evaluation of load
@@ -460,23 +466,34 @@ public class Load {
         Map<String, Expr> mvDefineExpr = Maps.newHashMap();
         for (Column column : tbl.getFullSchema()) {
             if (column.getDefineExpr() != null) {
+                if (column.getDefineExpr().getType().isInvalid()) {
+                    column.getDefineExpr().setType(column.getType());
+                }
                 mvDefineExpr.put(column.getName(), column.getDefineExpr());
             }
         }
 
-        LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}", slotDescByName, exprsByName, mvDefineExpr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}",
+                    slotDescByName, exprsByName, mvDefineExpr);
+        }
 
         // in vectorized load, reanalyze exprs with castExpr type
         // otherwise analyze exprs with varchar type
         analyzeAllExprs(tbl, analyzer, exprsByName, mvDefineExpr, slotDescByName);
-        LOG.debug("after init column, exprMap: {}", exprsByName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after init column, exprMap: {}", exprsByName);
+        }
     }
 
-    private static Expr getExprFromDesc(Analyzer analyzer, SlotDescriptor slotDesc, SlotRef slot)
-            throws AnalysisException {
-        SlotRef newSlot = new SlotRef(slotDesc);
-        newSlot.setType(slotDesc.getType());
-        Expr rhs = newSlot;
+    private static SlotRef getSlotFromDesc(SlotDescriptor slotDesc) {
+        SlotRef slot = new SlotRef(slotDesc);
+        slot.setType(slotDesc.getType());
+        return slot;
+    }
+
+    public static Expr getExprFromDesc(Analyzer analyzer, Expr rhs, SlotRef slot) throws AnalysisException {
+        Type rhsType = rhs.getType();
         rhs = rhs.castTo(slot.getType());
 
         if (slot.getDesc() == null) {
@@ -484,13 +501,13 @@ public class Load {
             return rhs;
         }
 
-        if (newSlot.isNullable() && !slot.isNullable()) {
+        if (rhs.isNullable() && !slot.isNullable()) {
             rhs = new FunctionCallExpr("non_nullable", Lists.newArrayList(rhs));
-            rhs.setType(slotDesc.getType());
+            rhs.setType(rhsType);
             rhs.analyze(analyzer);
-        } else if (!newSlot.isNullable() && slot.isNullable()) {
+        } else if (!rhs.isNullable() && slot.isNullable()) {
             rhs = new FunctionCallExpr("nullable", Lists.newArrayList(rhs));
-            rhs.setType(slotDesc.getType());
+            rhs.setType(rhsType);
             rhs.analyze(analyzer);
         }
         return rhs;
@@ -551,13 +568,14 @@ public class Load {
             List<SlotRef> slots = Lists.newArrayList();
             entry.getValue().collect(SlotRef.class, slots);
             for (SlotRef slot : slots) {
-                if (slotDescByName.get(slot.getColumnName()) != null) {
-                    smap.getLhs().add(slot);
-                    smap.getRhs().add(getExprFromDesc(analyzer, slotDescByName.get(slot.getColumnName()), slot));
-                } else if (exprsByName.get(slot.getColumnName()) != null) {
+                if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
                             exprsByName.get(slot.getColumnName())));
+                } else if (slotDescByName.get(slot.getColumnName()) != null) {
+                    smap.getLhs().add(slot);
+                    smap.getRhs().add(
+                            getExprFromDesc(analyzer, getSlotFromDesc(slotDescByName.get(slot.getColumnName())), slot));
                 } else {
                     if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
                         throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());
@@ -706,7 +724,9 @@ public class Load {
                     exprs.add(NullLiteral.create(Type.VARCHAR));
                 }
 
-                LOG.debug("replace_value expr: {}", exprs);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("replace_value expr: {}", exprs);
+                }
                 FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
                 return newFn;
             } else if (funcName.equalsIgnoreCase("strftime")) {
@@ -1034,7 +1054,9 @@ public class Load {
             }
 
             long start = System.currentTimeMillis();
-            LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            }
 
             for (LoadJob loadJob : loadJobs) {
                 // filter first
@@ -1056,7 +1078,9 @@ public class Load {
                 loadJobInfos.add(composeJobInfoByLoadJob(loadJob));
             } // end for loadJobs
 
-            LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
+            }
         } finally {
             readUnlock();
         }
@@ -1171,7 +1195,9 @@ public class Load {
             }
 
             long start = System.currentTimeMillis();
-            LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            }
             PatternMatcher matcher = null;
             if (labelValue != null && !accurateMatch) {
                 matcher = PatternMatcherWrapper.createMysqlPattern(labelValue,
@@ -1226,7 +1252,9 @@ public class Load {
                 loadJobInfos.add(composeJobInfoByLoadJob(loadJob));
             } // end for loadJobs
 
-            LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
+            }
         } finally {
             readUnlock();
         }

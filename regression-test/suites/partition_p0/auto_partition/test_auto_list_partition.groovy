@@ -20,7 +20,7 @@ suite("test_auto_list_partition") {
     sql "drop table if exists list_table1"
     sql """
         CREATE TABLE `list_table1` (
-            `str` varchar not null
+            `str` varchar
         ) ENGINE=OLAP
         DUPLICATE KEY(`str`)
         COMMENT 'OLAP'
@@ -32,20 +32,25 @@ suite("test_auto_list_partition") {
             "replication_allocation" = "tag.location.default: 1"
         );
         """
-    sql """ insert into list_table1 values ("Beijing"), ("XXX"), ("xxx"), ("Beijing"), ("Abc") """
+    sql """ insert into list_table1 values ("Beijing"), ("XXX"), ("xxx"), ("Beijing"), ("Abc"), (null) """
+    sql """ insert into list_table1 values (null), ("") """ // not same partition
     qt_sql1 """ select * from list_table1 order by `str` """
     def result11 = sql "show partitions from list_table1"
-    assertEquals(result11.size(), 4)
-    sql """ insert into list_table1 values ("Beijing"), ("XXX"), ("xxx"), ("Beijing"), ("Abc"), ("new") """
+    assertEquals(result11.size(), 6)
+    sql """ insert into list_table1 values ("Beijing"), ("XXX"), ("xxx"), ("Beijing"), ("Abc"), ("new"), (null) """
     qt_sql2 """ select * from list_table1 order by `str` """
     def result12 = sql "show partitions from list_table1"
-    assertEquals(result12.size(), 5)
+    assertEquals(result12.size(), 7)
+    qt_sql_null0 " select * from list_table1 where str is not null order by str;" // should have empty string
+    qt_sql_null1 " select * from list_table1 where str is null order by str;"
+    qt_sql_null2 """ select * from list_table1 where str = "" order by str; """
+    qt_sql_null3 """ select * from list_table1 where str != "" order by str; """
 
     // char
     sql "drop table if exists list_table2"
     sql """
         CREATE TABLE `list_table2` (
-            `ch` char not null
+            `ch` char
         ) ENGINE=OLAP
         DUPLICATE KEY(`ch`)
         COMMENT 'OLAP'
@@ -72,7 +77,7 @@ suite("test_auto_list_partition") {
     sql """
         CREATE TABLE `${tblName3}` (
             `k1` INT,
-            `k2` VARCHAR(50) not null,
+            `k2` VARCHAR(50),
             `k3` DATETIMEV2(6)
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
@@ -85,10 +90,10 @@ suite("test_auto_list_partition") {
             "replication_allocation" = "tag.location.default: 1"
         );
         """
-    sql """ insert into ${tblName3} values (1, 'ABC', '2000-01-01 12:12:12.123456'), (2, 'AAA', '2000-01-01'), (3, 'aaa', '2000-01-01'), (3, 'AaA', '2000-01-01') """
+    sql """ insert into ${tblName3} values (1, 'ABC', '2000-01-01 12:12:12.123456'), (2, 'AAA', '2000-01-01'), (3, 'aaa', '2000-01-01'), (3, 'AaA', '2000-01-01'), (4, null, null) """
     def result3 = sql "show partitions from ${tblName3}"
     logger.info("${result3}")
-    assertEquals(result3.size(), 4)
+    assertEquals(result3.size(), 5)
 
     // int
     sql "drop table if exists list_table4"
@@ -178,7 +183,7 @@ suite("test_auto_list_partition") {
     sql "drop table if exists test_bigint"
     sql """
     CREATE TABLE test_bigint (
-	    k bigint not null
+	    k bigint
     )
     AUTO PARTITION BY LIST (`k`)
     (
@@ -197,7 +202,7 @@ suite("test_auto_list_partition") {
     sql "drop table if exists test_smallint"
     sql """
     CREATE TABLE test_smallint (
-	    k smallint not null
+	    k smallint
     )
     AUTO PARTITION BY LIST (`k`)
     (
@@ -253,9 +258,9 @@ suite("test_auto_list_partition") {
     sql "drop table if exists test_list_many_column2"
     sql """
         CREATE TABLE test_list_many_column2 (
-            id int not null,
-            k largeint not null,
-            str varchar not null,
+            id int,
+            k largeint,
+            str varchar
         )
         AUTO PARTITION BY LIST (`id`, `k`, `str`)
         (
@@ -267,31 +272,24 @@ suite("test_auto_list_partition") {
     """
     sql """ insert into test_list_many_column2 values (1,1,"asd"), (-1,-1,"vdf");"""
     sql """ insert into test_list_many_column2 values (2,2,"xxx"), (-3,-3,"qwe");"""
+    sql """ insert into test_list_many_column2 values (null,null,null), (-3,null,"qwe");"""
+    sql """ insert into test_list_many_column2 values (null,null,null), (-3,null,"qwe");"""
+    qt_sql_multi_col1 "select * from test_list_many_column2 order by id,k,str"
     result12 = sql "show partitions from test_list_many_column2"
     logger.info("${result12}")
-    assertEquals(result12.size(), 4)
-
-    sql "drop table if exists test_list_many_column3"
-    sql """
-        CREATE TABLE test_list_many_column3 (
-            id int not null,
-            k largeint not null,
-            str varchar not null,
-        )
-        AUTO PARTITION BY LIST (`id`, `k`, `str`)
-        (
-        )
-        DISTRIBUTED BY HASH(`k`) BUCKETS 16
-        PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
-        );
-    """
-    sql """ insert into test_list_many_column3 values (1,1,"asd"), (-1,-1,"vdf");"""
-    sql """ insert into test_list_many_column3 values (2,2,"xxx"), (-3,-3,"qwe");"""
-    sql """ insert into test_list_many_column3 values (5,5,"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA")"""
-    result12 = sql "show partitions from test_list_many_column3"
-    logger.info("${result12}")
-    assertEquals(result12.size(), 5)
+    assertEquals(result12.size(), 6)
+    explain {
+        sql "select * from test_list_many_column2 where id is null"
+        contains "partitions=1/6 (pXXX)"
+    }
+    explain {
+        sql "select * from test_list_many_column2 where id is null and k is not null"
+        contains "VEMPTYSET"
+    }
+    explain {
+        sql "select * from test_list_many_column2 where k is not null"
+        contains "partitions=4/6"
+    }
 
     sql "drop table if exists stream_load_list_test_table_string_key"
     sql """
@@ -309,10 +307,7 @@ suite("test_auto_list_partition") {
     """
     sql """ insert into stream_load_list_test_table_string_key values (1,"20"), (2," ");"""
     sql """ insert into stream_load_list_test_table_string_key values (3,"!"), (4,"! ");"""
-    sql """ insert into stream_load_list_test_table_string_key values (5,"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA")"""
     result12 = sql "show partitions from stream_load_list_test_table_string_key"
     logger.info("${result12}")
-    assertEquals(result12.size(), 5)
-
-
+    assertEquals(result12.size(), 4)
 }

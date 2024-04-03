@@ -44,8 +44,8 @@ There may be compatibility issues if there are changes to the schema of the stat
 |---|---|
 |AnalyzeStmt|Constructed by parsing user-input SQL, each AnalyzeStmt corresponds to a Job, and a Job can have multiple Tasks, with each Task responsible for collecting statistics information on a column.|
 |AnalysisManager|Mainly responsible for managing Analyze Jobs/Tasks, including creation, execution, cancellation, and status updates, etc.|
-|StatisticCache|The collected statistical information is cached here on demand.|
-|StatisticCacheLoader|When `StatsCalculator#computeScan` fails to find the corresponding stats for a column in the cache, the load logic will be triggered, which is implemented in this class.|
+|StatisticsCache|The collected statistical information is cached here on demand.|
+|StatisticsCacheLoader|When `StatsCalculator#computeScan` fails to find the corresponding stats for a column in the cache, the load logic will be triggered, which is implemented in this class.|
 |AnalysisTaskExecutor|Used to excute AnalyzeJob|
 |AnalysisTaskWrapper|This class encapsulates an `AnalysisTask` and extends `FutureTask`. It overrides some methods for state updates.|
 |AnalysisTaskScheduler|AnalysisTaskExecutor retrieves jobs from here for execution. Manually submitted jobs always have higher priority than automatically triggered ones.|
@@ -72,7 +72,7 @@ else is async task
     AnalysisTaskExecutor->>ThreadPoolExecutor: submit(AnalysisTaskWrapper)
     ThreadPoolExecutor->>AnalysisTaskWrapper: run
     AnalysisTaskWrapper->>BE: collect && write
-    AnalysisTaskWrapper->>StatisticCache: refresh
+    AnalysisTaskWrapper->>StatisticsCache: refresh
     AnalysisTaskWrapper->>AnalysisManager: updateTaskStatus
     alt is all task finished
         AnalysisManager->> StatisticsUtil: execUpdate mark job finished
@@ -85,25 +85,25 @@ end
 
 ```mermaid
 sequenceDiagram
-StatsCalculator->>StatisticCache: get
+StatsCalculator->>StatisticsCache: get
 alt is cached
-    StatisticCache->>StatsCalculator: return cached stats
+    StatisticsCache->>StatsCalculator: return cached stats
 else not cached
-    StatisticCache->>StatsCalculator: return UNKNOWN stats
-    StatisticCache->>ThreadPoolExecutor: submit load task
+    StatisticsCache->>StatsCalculator: return UNKNOWN stats
+    StatisticsCache->>ThreadPoolExecutor: submit load task
     ThreadPoolExecutor->>AsyncTask: get
     AsyncTask->>StatisticsUtil: execStatisticQuery
         alt exception occurred:
-        AsyncTask->>StatisticCache: return UNKNOWN stats
-        StatisticCache->> StatisticCache: cache UNKNOWN for the column
+        AsyncTask->>StatisticsCache: return UNKNOWN stats
+        StatisticsCache->> StatisticsCache: cache UNKNOWN for the column
     else no exception:
             StatisticsUtil->>AsyncTask: Return results rows
             AsyncTask->>StatisticsUtil: deserializeToColumnStatistics(result rows)
             alt exception occurred:
-                AsyncTask->>StatisticCache: return UNKNOWN stats
-                StatisticCache->> StatisticCache: cache UNKNOWN for the column
+                AsyncTask->>StatisticsCache: return UNKNOWN stats
+                StatisticsCache->> StatisticsCache: cache UNKNOWN for the column
             else no exception:
-                StatisticCache->> StatisticCache: cache normal stats
+                StatisticsCache->> StatisticsCache: cache normal stats
             end
     end
 
@@ -116,7 +116,7 @@ end
 
 # Test
 
-The regression tests now mainly cover the following. 
+The regression tests now mainly cover the following.
 
 - Analyze stats: mainly to verify the `ANALYZE` statement and its related characteristics, because some functions are affected by other factors (such as system metadata reporting time), may show instability, so this part is placed in p1.
 - Manage stats: mainly used to verify the injection, deletion, display and other related operations of statistical information.
@@ -132,21 +132,21 @@ p0 tests:
 p1 tests:
 
 1. Universal analysis
-2. Sampled analysis 
-3. Incremental analysis 
-4. Automatic analysis 
+2. Sampled analysis
+3. Incremental analysis
+4. Automatic analysis
 5. Periodic analysis
 
 ## Manage stats
 
 p0 tests:
 
-1. Alter table stats 
-2. Show table stats 
-3. Alter column stats 
-4. Show column stats 
-5. Show column histogram 
-6. Drop column stats 
+1. Alter table stats
+2. Show table stats
+3. Alter column stats
+4. Show column stats
+5. Show column histogram
+6. Drop column stats
 7. Drop expired stats
 
 For the modification of the statistics module, all the above cases should be guaranteed to pass!
