@@ -126,6 +126,7 @@ public:
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
+    bool is_variable_length() const override { return true; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
@@ -196,10 +197,6 @@ public:
 
     const ColumnPtr& get_offsets_ptr() const { return offsets; }
     ColumnPtr& get_offsets_ptr() { return offsets; }
-
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnArray>(num_columns, selector);
-    }
 
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {

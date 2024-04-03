@@ -82,7 +82,7 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     }
     size_t disk_total_size = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize);
     if (disk_total_size < file_cache_settings.capacity) {
-        file_cache_settings = get_file_cache_settings(disk_total_size * 0.9,
+        file_cache_settings = get_file_cache_settings(size_t(disk_total_size * 0.9),
                                                       file_cache_settings.max_query_cache_size);
     }
     auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);

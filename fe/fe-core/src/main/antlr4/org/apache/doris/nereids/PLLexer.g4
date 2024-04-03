@@ -208,7 +208,3 @@ SYSDATE: 'SYSDATE';
 VARIANCE: 'VARIANCE';
 
 DOT2: '..';
-
-LABEL_PL
-    : ([a-zA-Z] | DIGIT | '_')* ':'
-    ;

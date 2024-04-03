@@ -727,7 +727,8 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
             }
         }
         for (size_t i = 0; i < size; ++i) {
-            dst[i].value = FromFieldType(src[i] * multiplier.value + ((src[i] >= 0) ? 0.5 : -0.5));
+            dst[i].value = typename ToDataType::FieldType::NativeType(
+                    FromFieldType(src[i] * multiplier.value + ((src[i] >= 0) ? 0.5 : -0.5)));
         }
     } else if constexpr (IsDateV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>) {
         convert_to_decimals<FromDataType, ToDataType, multiply_may_overflow, narrow_integral>(
