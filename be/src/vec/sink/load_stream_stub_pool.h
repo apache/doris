@@ -115,8 +115,8 @@ public:
 
     ~LoadStreamStubPool();
 
-    std::shared_ptr<LoadStreamMap> get_or_create(UniqueId load_id, int64_t src_id,
-                                                 int num_streams, int num_use);
+    std::shared_ptr<LoadStreamMap> get_or_create(UniqueId load_id, int64_t src_id, int num_streams,
+                                                 int num_use);
 
     void erase(UniqueId load_id);
 
