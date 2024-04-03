@@ -16,12 +16,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/Descriptors_types.h>
-#include <gen_cpp/PaloInternalService_types.h>
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/olap_common.pb.h>
-#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -33,13 +27,10 @@
 #include <string>
 #include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/stringprintf.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
-#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -47,16 +38,14 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
-#include "olap/utils.h"
 namespace doris {
-namespace vectorized {
 
 static StorageEngine* engine_ref = nullptr;
 
 class SingleCompactionTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        const std::string dir_path = "ut_dir/path_gc_test";
+        const std::string dir_path = "ut_dir/single_compact_test";
         _engine = new StorageEngine({});
         _data_dir = new DataDir(*_engine, dir_path);
         engine_ref = _engine;
@@ -71,7 +60,7 @@ protected:
         tablet_meta->_schema_hash = tablet_id;
         return std::make_shared<Tablet>(*_engine, std::move(tablet_meta), _data_dir);
     }
-    RowsetSharedPtr create_rowset(TabletSharedPtr tablet, int64_t start, int64 end) {
+    auto create_rowset(TabletSharedPtr tablet, int64_t start, int64 end) {
         auto rowset_meta = std::make_shared<RowsetMeta>();
         Version version(start, end);
         rowset_meta->set_version(version);
@@ -92,7 +81,7 @@ private:
 };
 
 TEST_F(SingleCompactionTest, test_single) {
-    TabletSharedPtr tablet = create_tablet(10000);
+    TabletSharedPtr tablet = create_tablet(10001);
 
     SingleReplicaCompaction single_compaction(*engine_ref, tablet,
                                               CompactionType::CUMULATIVE_COMPACTION);
@@ -119,16 +108,43 @@ TEST_F(SingleCompactionTest, test_single) {
     // create peer compacted rowset
     auto v1 = Version(1, 32);
     auto v2 = Version(33, 38);
-    std::vector<Version> peer_version{v1, v2};
+    std::vector<Version> peer_version {v1, v2};
     Version proper_version;
     bool find = single_compaction._find_rowset_to_fetch(peer_version, &proper_version);
     EXPECT_EQ(find, true);
     EXPECT_EQ(single_compaction._input_rowsets.size(), 32);
     EXPECT_EQ(single_compaction._input_rowsets.front()->start_version(),
-              single_compaction._output_rowset->start_version());
+              single_compaction._output_version.first);
     EXPECT_EQ(single_compaction._input_rowsets.back()->end_version(),
-              single_compaction._output_rowset->end_version());
+              single_compaction._output_version.second);
 }
 
-} // namespace vectorized
+TEST_F(SingleCompactionTest, test_unmatch) {
+    TabletSharedPtr tablet = create_tablet(10000);
+
+    SingleReplicaCompaction single_compaction(*engine_ref, tablet,
+                                              CompactionType::CUMULATIVE_COMPACTION);
+    auto st = tablet->init();
+    ASSERT_TRUE(st.ok()) << st;
+    // local rowset [4-6]
+    auto rs = create_rowset(tablet, 4, 6);
+    st = tablet->add_inc_rowset(rs);
+    ASSERT_TRUE(st.ok()) << st;
+
+    // pick input rowsets, but picking is not needed now
+    st = single_compaction.prepare_compact();
+    ASSERT_TRUE(st.ok()) << st;
+
+    // create peer compacted rowset [3-5], [6-9]
+    auto v1 = Version(3, 5);
+    auto v2 = Version(6, 9);
+    std::vector<Version> peer_version {v1, v2};
+    Version proper_version;
+    bool find = single_compaction._find_rowset_to_fetch(peer_version, &proper_version);
+    EXPECT_EQ(find, false); // no matched version, find = false
+    EXPECT_EQ(single_compaction._input_rowsets.size(), 0);
+    EXPECT_EQ(single_compaction._output_version.first, 0);
+    EXPECT_EQ(single_compaction._output_version.second, 0);
+}
+
 } // namespace doris

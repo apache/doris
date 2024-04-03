@@ -240,11 +240,11 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
         //  4. reset input rowsets
         _input_rowsets.clear();
         std::vector<RowsetSharedPtr> candidate_rowsets;
-        tablet()->traverse_rowsets([&_input_rowsets, &proper_version](const auto& rs) {
+        tablet()->traverse_rowsets([this, &proper_version](const auto& rs) {
             // only need rowset in proper_version
             if (rs->is_local() && rs->start_version() >= proper_version->first &&
                 rs->end_version() <= proper_version->second) {
-                _input_rowsets.emplace_back(rs);
+                this->_input_rowsets.emplace_back(rs);
             }
         });
         std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
