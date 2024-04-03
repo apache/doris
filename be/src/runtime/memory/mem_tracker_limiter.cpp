@@ -202,7 +202,11 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
 
+#ifdef ADDRESS_SANITIZER
+    snapshot.type = "[ASAN]process resident memory"; // from /proc VmRSS VmHWM
+#else
     snapshot.type = "process resident memory"; // from /proc VmRSS VmHWM
+#endif
     snapshot.label = "";
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_rss();
