@@ -400,9 +400,12 @@ public:
                         _doc->add(*new_field);
                     }
                 }
-                RETURN_IF_ERROR(add_document());
-                _doc->clear();
-                _CLDELETE(ts);
+                if (!_doc->getFields()->empty()) {
+                    // if this array is null, we just ignore to write inverted index
+                    RETURN_IF_ERROR(add_document());
+                    _doc->clear();
+                    _CLDELETE(ts);
+                }
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
