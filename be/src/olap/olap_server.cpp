@@ -680,7 +680,8 @@ void StorageEngine::_update_replica_infos_callback() {
 
         int start = 0;
         int tablet_size = all_tablets.size();
-        while (start < tablet_size) {
+        // The while loop may take a long time, we should skip it when stop
+        while (start < tablet_size && _stop_background_threads_latch.count() > 0) {
             int batch_size = std::min(100, tablet_size - start);
             int end = start + batch_size;
             TGetTabletReplicaInfosRequest request;
