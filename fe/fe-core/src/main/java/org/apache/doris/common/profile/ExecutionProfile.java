@@ -247,6 +247,14 @@ public class ExecutionProfile {
         if (isPipelineXProfile) {
             int pipelineIdx = 0;
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
+
+            if (!params.isSetDetailedReport() || ! params.isSetFragmentId()) {
+                if (!params.isSetLoadChannelProfile()) {
+                    LOG.warn("Invalid profile params for {}", DebugUtil.printId(params.getQueryId()));
+                    return;
+                }
+            }
+
             for (TDetailedReportParams param : params.detailed_report) {
                 String name = "Pipeline :" + pipelineIdx + " "
                         + " (host=" + address + ")";
@@ -268,6 +276,11 @@ public class ExecutionProfile {
             }
             multiBeProfile.get(params.fragment_id).put(address, taskProfile);
         } else {
+            if (!params.isSetFragmentInstanceId()) {
+                LOG.warn("Invalid profile params for {}", DebugUtil.printId(params.getQueryId()));
+                return;
+            }
+
             PlanFragmentId fragmentId = instanceIdToFragmentId.get(params.fragment_instance_id);
             if (fragmentId == null) {
                 LOG.warn("Could not find related fragment for instance {}",

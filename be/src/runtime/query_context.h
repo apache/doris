@@ -18,11 +18,14 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -351,6 +354,50 @@ private:
     std::mutex _weighted_mem_lock;
     int64_t _weighted_consumption = 0;
     int64_t _weighted_limit = 0;
+
+    std::mutex _profile_mutex;
+
+    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    // flatten profile of one fragment:
+    // Pipeline 0
+    //      PipelineTask 0
+    //              Operator 1
+    //              Operator 2
+    //              Scanner
+    //      PipelineTask 1
+    //              Operator 1
+    //              Operator 2
+    //              Scanner
+    // Pipeline 1
+    //      PipelineTask 2
+    //              Operator 3
+    //      PipelineTask 3
+    //              Operator 3
+    // fragment_id -> list<profile>
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map_x;
+    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map_x;
+
+    // instance_id -> profile
+    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _profile_map;
+    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
+
+    void _async_report_profile();
+    void _async_report_profile_non_pipeline();
+    void _async_report_profile_x();
+
+public:
+    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    void add_fragment_profile_x(
+            int fragment_id,
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
+            std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
+
+    void add_instance_profile(const TUniqueId& iid, std::shared_ptr<TRuntimeProfileTree> profile,
+                              std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
+
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 };
 
 } // namespace doris

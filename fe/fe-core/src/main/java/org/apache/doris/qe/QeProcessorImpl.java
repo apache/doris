@@ -206,14 +206,23 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
+        final TReportExecStatusResult result = new TReportExecStatusResult();
+
+        if (!params.isSetQueryId()) {
+            result.setStatus(new TStatus(TStatusCode.INVALID_ARGUMENT));
+            return result;
+        }
+
         if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
-            LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
-                    DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
+            LOG.info("Processing profile from query {} instance {}, backend num: {}, ip: {}",
+                    DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id),
                     params.backend_num, beAddr);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("params: {}", params);
             }
+
             ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(params.query_id);
+            
             if (executionProfile != null) {
                 // Update profile may cost a lot of time, use a seperate pool to deal with it.
                 writeProfileExecutor.submit(new Runnable() {
@@ -226,8 +235,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 LOG.info("Could not find execution profile with query id {}", DebugUtil.printId(params.query_id));
             }
         }
-        final TReportExecStatusResult result = new TReportExecStatusResult();
-
+        
         if (params.isSetReportWorkloadRuntimeStatus()) {
             Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().updateBeQueryStats(params.report_workload_runtime_status);
             if (!params.isSetQueryId()) {
@@ -236,27 +244,30 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
-        final QueryInfo info = coordinatorMap.get(params.query_id);
+        if (params.isSetStatus()) {
+            final QueryInfo info = coordinatorMap.get(params.query_id);
 
-        if (info == null) {
-            // There is no QueryInfo for StreamLoad, so we return OK
-            if (params.query_type == TQueryType.LOAD) {
-                result.setStatus(new TStatus(TStatusCode.OK));
-            } else {
-                result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+            if (info == null) {
+                // There is no QueryInfo for StreamLoad, so we return OK
+                if (params.query_type == TQueryType.LOAD) {
+                    result.setStatus(new TStatus(TStatusCode.OK));
+                } else {
+                    result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+                }
+                LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
+                        DebugUtil.printId(params.query_id), params.query_type);
+                return result;
             }
-            LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
-                    DebugUtil.printId(params.query_id), params.query_type);
-            return result;
+            try {
+                info.getCoord().updateFragmentExecStatus(params);
+            } catch (Exception e) {
+                LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
+                        DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
+                return result;
+            }
+            result.setStatus(new TStatus(TStatusCode.OK));
         }
-        try {
-            info.getCoord().updateFragmentExecStatus(params);
-        } catch (Exception e) {
-            LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
-                    DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
-            return result;
-        }
-        result.setStatus(new TStatus(TStatusCode.OK));
+        
         return result;
     }
 
