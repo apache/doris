@@ -17,9 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.Maps;
+
 import java.util.List;
+import java.util.Map;
 
 /**
  * A fake catalog representation of an inline view. It's like a table. It has name
@@ -29,12 +33,16 @@ import java.util.List;
  */
 
 public class InlineView extends Table {
+
+    protected Map<String, Column> innerNameToColumn;
+
     /**
      * An inline view only has an alias and columns, but it won't have id, db and owner.
      */
     public InlineView(String alias, List<Column> columns) {
-        super(-1, alias, TableType.INLINE_VIEW, columns);
         // ID for inline view has no use.
+        super(-1, alias, TableType.INLINE_VIEW, columns);
+        initColumnInnerNameMap();
     }
 
     /**
@@ -43,6 +51,29 @@ public class InlineView extends Table {
     public InlineView(View view, List<Column> columns) {
         // TODO(zc): think about it
         super(-1, view.getName(), TableType.INLINE_VIEW, columns);
+        initColumnInnerNameMap();
+    }
+
+    /**
+     * Support get column from inline view with column name like '_c0', '_c1' etc. Same as hive.
+     */
+    public void initColumnInnerNameMap() {
+        innerNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        if (this.fullSchema != null) {
+            int counter = -1;
+            for (Column col : this.fullSchema) {
+                counter++;
+                // only set inner name for derived column
+                if (!col.getName().matches(FeNameFormat.getColumnNameRegex())) {
+                    innerNameToColumn.put("_c" + counter, col);
+                }
+
+            }
+        }
+    }
+
+    public Column getColumn(String name) {
+        return nameToColumn.containsKey(name) ? nameToColumn.get(name) : innerNameToColumn.get(name);
     }
 
     /**
