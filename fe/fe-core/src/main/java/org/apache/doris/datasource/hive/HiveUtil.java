@@ -29,6 +29,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.common.FileUtils;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
@@ -254,5 +255,16 @@ public final class HiveUtil {
             }
         }
         return Pair.of(hiveCols, hiveParts);
+    }
+
+    public static Database toHiveDatabase(HiveDatabaseMetadata hiveDb) {
+        Database database = new Database();
+        database.setName(hiveDb.getDbName());
+        if (StringUtils.isNotEmpty(hiveDb.getLocationUri())) {
+            database.setLocationUri(hiveDb.getLocationUri());
+        }
+        database.setParameters(hiveDb.getProperties());
+        database.setDescription(hiveDb.getComment());
+        return database;
     }
 }
