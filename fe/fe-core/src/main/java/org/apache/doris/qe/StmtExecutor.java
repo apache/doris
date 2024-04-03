@@ -1482,15 +1482,22 @@ public class StmtExecutor {
             }
             return;
         }
-        Coordinator coordRef = coord;
-        if (coordRef != null) {
-            coordRef.cancel();
-        }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
         if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
             Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
+        }
+
+        Coordinator coordRef = coord;
+        if (coordRef != null) {
+            coordRef.cancel();
+        } else {
+            // force cancel, for scenerios when above strategies does not work, like sql error in analyze period
+            if (context != null) {
+                context.cleanup();
+                context = null;
+            }
         }
     }
 
