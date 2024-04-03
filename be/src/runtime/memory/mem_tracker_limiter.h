@@ -137,11 +137,15 @@ public:
             return;
         }
         _consumption->add(bytes);
-        if (_consumption->current_value() < 0 && _type == Type::QUERY) {
-            LOG(WARNING) << "test_no_equal_0_query consume, mem tracker label: " << _label
-                         << ", consumption: " << _consumption->current_value()
-                         << ", peak consumption: " << _consumption->peak_value()
-                         << ", trace=" << get_stack_trace();
+        if (_type == Type::QUERY) {
+            _total_mem.fetch_add(bytes, std::memory_order_seq_cst);
+            if (_consumption->current_value() < 0) {
+                LOG(WARNING) << "test_no_equal_0_query consume, mem tracker label: " << _label
+                             << ", consumption: " << _consumption->current_value()
+                             << ", peak consumption: " << _consumption->peak_value()
+                             << ", total query: " << _total_mem.load(std::memory_order_seq_cst)
+                             << ", trace=" << get_stack_trace();
+            }
         }
 
         if (_query_statistics) {
@@ -152,23 +156,33 @@ public:
 
     void consume_no_update_peak(int64_t bytes) { // need extreme fast
         _consumption->add_no_update_peak(bytes);
-        if (_consumption->current_value() < 0 && _type == Type::QUERY) {
-            LOG(WARNING) << "test_no_equal_0_query consume_no_update_peak, mem tracker label: "
-                         << _label << ", consumption: " << _consumption->current_value()
-                         << ", peak consumption: " << _consumption->peak_value()
-                         << ", trace=" << get_stack_trace();
+        if (_type == Type::QUERY) {
+            _total_mem.fetch_add(bytes, std::memory_order_seq_cst);
+            if (_consumption->current_value() < 0) {
+                LOG(WARNING) << "test_no_equal_0_query consume_no_update_peak, mem tracker label: "
+                             << _label << ", consumption: " << _consumption->current_value()
+                             << ", peak consumption: " << _consumption->peak_value()
+                             << ", total query: " << _total_mem.load(std::memory_order_seq_cst)
+                             << ", trace=" << get_stack_trace();
+            }
         }
     }
 
     void release(int64_t bytes) {
         _consumption->sub(bytes);
-        if (_consumption->current_value() < 0 && _type == Type::QUERY) {
-            LOG(WARNING) << "test_no_equal_0_query release, mem tracker label: " << _label
-                         << ", consumption: " << _consumption->current_value()
-                         << ", peak consumption: " << _consumption->peak_value()
-                         << ", trace=" << get_stack_trace();
+        if (_type == Type::QUERY) {
+            _total_mem.fetch_sub(bytes, std::memory_order_seq_cst);
+            if (_consumption->current_value() < 0) {
+                LOG(WARNING) << "test_no_equal_0_query release, mem tracker label: " << _label
+                             << ", consumption: " << _consumption->current_value()
+                             << ", peak consumption: " << _consumption->peak_value()
+                             << ", total query: " << _total_mem.load(std::memory_order_seq_cst)
+                             << ", trace=" << get_stack_trace();
+            }
         }
     }
+
+    static int64_t get_total_mem() { return _total_mem.load(std::memory_order_seq_cst); }
 
     void set_consumption() { LOG(FATAL) << "MemTrackerLimiter set_consumption not supported"; }
     Type type() const { return _type; }
@@ -313,6 +327,7 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
+    static std::atomic<int64_t> _total_mem;
 };
 
 inline int64_t MemTrackerLimiter::add_untracked_mem(int64_t bytes) {

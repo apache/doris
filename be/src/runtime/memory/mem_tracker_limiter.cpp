@@ -45,6 +45,7 @@ bvar::Adder<int64_t> g_memtrackerlimiter_cnt("memtrackerlimiter_cnt");
 constexpr auto GC_MAX_SEEK_TRACKER = 1000;
 
 std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
+std::atomic<int64_t> MemTrackerLimiter::_total_mem {0};
 
 // Reset before each free
 static std::unique_ptr<RuntimeProfile> free_top_memory_task_profile {
