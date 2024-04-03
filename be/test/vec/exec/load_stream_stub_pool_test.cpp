@@ -32,29 +32,20 @@ TEST_F(LoadStreamStubPoolTest, test) {
     LoadStreamStubPool pool;
     int64_t src_id = 100;
     PUniqueId load_id;
-    load_id.set_lo(1);
+    load_id.set_hi(1);
     load_id.set_hi(2);
-    PUniqueId load_id2;
-    load_id2.set_lo(2);
-    load_id2.set_hi(1);
-    auto streams_for_node1 = pool.get_or_create(load_id, src_id, 5, 2);
-    auto streams_for_node2 = pool.get_or_create(load_id, src_id, 5, 2);
-    EXPECT_EQ(1, pool.size());
-    auto streams_for_node3 = pool.get_or_create(load_id2, src_id, 8, 1);
+    auto streams1 = pool.get_or_create(load_id, src_id, 101, 5, 1);
+    auto streams2 = pool.get_or_create(load_id, src_id, 102, 5, 1);
+    auto streams3 = pool.get_or_create(load_id, src_id, 101, 5, 1);
     EXPECT_EQ(2, pool.size());
-    EXPECT_EQ(streams_for_node1, streams_for_node2);
-    EXPECT_NE(streams_for_node1, streams_for_node3);
-
-    EXPECT_EQ(5, streams_for_node1->get_or_create(101)->size());
-    EXPECT_EQ(5, streams_for_node2->get_or_create(102)->size());
-    EXPECT_EQ(8, streams_for_node3->get_or_create(101)->size());
-
-    EXPECT_TRUE(streams_for_node3->release());
-    EXPECT_EQ(1, pool.size());
-    EXPECT_FALSE(streams_for_node1->release());
-    EXPECT_EQ(1, pool.size());
-    EXPECT_TRUE(streams_for_node2->release());
+    EXPECT_EQ(1, pool.templates_size());
+    EXPECT_EQ(streams1, streams3);
+    EXPECT_NE(streams1, streams2);
+    streams1->release();
+    streams2->release();
+    streams3->release();
     EXPECT_EQ(0, pool.size());
+    EXPECT_EQ(0, pool.templates_size());
 }
 
 } // namespace doris
