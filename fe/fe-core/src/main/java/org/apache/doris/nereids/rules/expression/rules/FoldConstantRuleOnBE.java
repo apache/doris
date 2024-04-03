@@ -39,10 +39,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -55,6 +57,8 @@ import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -83,6 +87,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -177,7 +183,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 return;
             }
             // eg: avg_state(1) return is agg function serialize data
-            if (expr.getDataType().isAggStateType()) {
+            if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()) {
                 return;
             }
             if (skipSleepFunction(expr)) {
@@ -295,7 +301,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
      */
     public static List<Literal> getResultExpression(DataType type, PValues resultContent) {
         List<Literal> res = new ArrayList<>();
-        if (type.isBooleanType()) {
+        if (type.isNullType()) {
+            int num = resultContent.getNullMapCount();
+            for (int i = 0; i < num; ++i) {
+                Literal literal = new NullLiteral(type);
+                res.add(literal);
+            }
+        } else if (type.isBooleanType()) {
             int num = resultContent.getUint32ValueCount();
             for (int i = 0; i < num; ++i) {
                 Literal literal = BooleanLiteral.of(resultContent.getUint32Value(i) == 1);
@@ -329,7 +341,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             int num = resultContent.getBytesValueCount();
             for (int i = 0; i < num; ++i) {
                 ByteString bytesValue = resultContent.getBytesValue(i);
-                BigInteger convertedBigInteger = new BigInteger(bytesValue.toByteArray());
+                byte[] bytes = convertByteOrder(bytesValue.toByteArray());
+                BigInteger convertedBigInteger = new BigInteger(bytes);
                 Literal literal = new LargeIntLiteral(convertedBigInteger);
                 res.add(literal);
             }
@@ -345,18 +358,49 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 Literal literal = new DoubleLiteral(resultContent.getDoubleValue(i));
                 res.add(literal);
             }
-        } else if (type.isDecimalV3Type() || type.isDecimalV2Type()) {
+        } else if (type.isDecimalV3Type()) {
             int num = resultContent.getBytesValueCount();
+            DecimalV3Type decimalV3Type = (DecimalV3Type) type;
             for (int i = 0; i < num; ++i) {
                 ByteString bytesValue = resultContent.getBytesValue(i);
-                BigDecimal bigDecimal = new BigDecimal(bytesValue.toStringUtf8());
-                Literal literal;
-                if (Config.enable_decimal_conversion) {
-                    literal = new DecimalV3Literal(bigDecimal);
-                } else {
-                    literal = new DecimalLiteral(bigDecimal);
-                }
+                byte[] bytes = convertByteOrder(bytesValue.toByteArray());
+                BigInteger value = new BigInteger(bytes);
+                BigDecimal bigDecimal = new BigDecimal(value, decimalV3Type.getScale());
+                Literal literal = new DecimalV3Literal(decimalV3Type, bigDecimal);
                 res.add(literal);
+            }
+        } else if (type.isDateTimeV2Type()) {
+            int num = resultContent.getUint64ValueCount();
+            for (int i = 0; i < num; ++i) {
+                long uint64Value = resultContent.getUint64Value(i);
+                LocalDateTime dateTimeV2 = convertToJavaDateTimeV2(uint64Value);
+                Literal literal = new DateTimeV2Literal((DateTimeV2Type) type, dateTimeV2.getYear(),
+                        dateTimeV2.getMonthValue(), dateTimeV2.getDayOfMonth(), dateTimeV2.getHour(),
+                        dateTimeV2.getMinute(), dateTimeV2.getSecond(), dateTimeV2.getNano() / 1000);
+                res.add(literal);
+            }
+        } else if (type.isDateV2Type()) {
+            int num = resultContent.getUint32ValueCount();
+            for (int i = 0; i < num; ++i) {
+                int uint32Value = resultContent.getUint32Value(i);
+                LocalDate localDate = convertToJavaDateV2(uint32Value);
+                DateV2Literal dateV2Literal = new DateV2Literal(localDate.getYear(), localDate.getMonthValue(),
+                        localDate.getDayOfMonth());
+                res.add(dateV2Literal);
+            }
+        } else if (type.isTimeV2Type()) {
+            int num = resultContent.getDoubleValueCount();
+            for (int i = 0; i < num; ++i) {
+                double doubleValue = resultContent.getDoubleValue(i);
+                DoubleLiteral doubleLiteral = new DoubleLiteral(doubleValue);
+                res.add(doubleLiteral);
+            }
+        } else if (type.isIPv6Type()) {
+            int num = resultContent.getStringValueCount();
+            for (int i = 0; i < num; ++i) {
+                String stringValue = resultContent.getStringValue(i);
+                IPv6Literal iPv6Literal = new IPv6Literal(stringValue);
+                res.add(iPv6Literal);
             }
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
@@ -400,7 +444,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         if (resultContent.hasHasNull()) {
             for (int i = 0; i < resultContent.getNullMapCount(); ++i) {
                 if (resultContent.getNullMap(i)) {
-                    res.set(i, new NullLiteral());
+                    res.set(i, new NullLiteral(type));
                 }
             }
         }
@@ -440,5 +484,49 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             parsedNodes = 1;
         }
         return Pair.of(type, parsedNodes);
+    }
+
+    private static LocalDateTime convertToJavaDateTimeV2(long time) {
+        int year = (int) (time >> 46);
+        int yearMonth = (int) (time >> 42);
+        int yearMonthDay = (int) (time >> 37);
+
+        int month = (yearMonth & 0XF);
+        int day = (yearMonthDay & 0X1F);
+
+        int hour = (int) ((time >> 32) & 0X1F);
+        int minute = (int) ((time >> 26) & 0X3F);
+        int second = (int) ((time >> 20) & 0X3F);
+        int microsecond = (int) (time & 0XFFFFF);
+
+        try {
+            return LocalDateTime.of(year, month, day, hour, minute, second, microsecond * 1000);
+        } catch (DateTimeException e) {
+            return null;
+        }
+    }
+
+    private static LocalDate convertToJavaDateV2(int date) {
+        int year = date >> 9;
+        int month = (date >> 5) & 0XF;
+        int day = date & 0X1F;
+        try {
+            return LocalDate.of(year, month, day);
+        } catch (DateTimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Change the order of the bytes, Because JVM is Big-Endian , x86 is Little-Endian.
+     */
+    private static byte[] convertByteOrder(byte[] bytes) {
+        int length = bytes.length;
+        for (int i = 0; i < length / 2; ++i) {
+            byte temp = bytes[i];
+            bytes[i] = bytes[length - 1 - i];
+            bytes[length - 1 - i] = temp;
+        }
+        return bytes;
     }
 }
