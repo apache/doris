@@ -95,7 +95,6 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         seg_iterators.push_back(std::move(iter));
     }
 
-
     TabletReader::ReaderParams reader_params;
     reader_params.is_segcompaction = true;
     reader_params.segment_iters_ptr = &seg_iterators;

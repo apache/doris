@@ -336,16 +336,13 @@ Status Merger::vertical_compact_one_group(
 }
 
 // for segcompaction
-Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_type,
-                                          const TabletSchema& tablet_schema, bool is_key,
-                                          const std::vector<uint32_t>& column_group,
-                                          vectorized::RowSourcesBuffer* row_source_buf,
-                                          vectorized::VerticalBlockReader& src_block_reader,
-                                          segment_v2::SegmentWriter& dst_segment_writer,
-                                          int64_t max_rows_per_segment, Statistics* stats_output,
-                                          uint64_t* index_size, KeyBoundsPB& key_bounds,
-                                          std::vector<uint32_t>& update_column_ids,
-                                          std::vector<uint32_t>& missing_column_ids) {
+Status Merger::vertical_compact_one_group(
+        int64_t tablet_id, ReaderType reader_type, const TabletSchema& tablet_schema, bool is_key,
+        const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
+        vectorized::VerticalBlockReader& src_block_reader,
+        segment_v2::SegmentWriter& dst_segment_writer, int64_t max_rows_per_segment,
+        Statistics* stats_output, uint64_t* index_size, KeyBoundsPB& key_bounds,
+        std::vector<uint32_t>& update_column_ids, std::vector<uint32_t>& missing_column_ids) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     // TODO: record_rowids
@@ -392,8 +389,8 @@ Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_t
         }
         auto mutable_full_columns = block.mutate_columns();
         for (auto j : missing_column_ids) {
-            auto rows =
-                    update_column_ids.empty() ? row_source_buf->total_size() : update_block_ptr->rows();
+            auto rows = update_column_ids.empty() ? row_source_buf->total_size()
+                                                  : update_block_ptr->rows();
             const auto& tablet_column = tablet_schema.column(j);
             for (size_t k = 0; k < rows; k++) {
                 // if the column is nullable, fill it with null value
