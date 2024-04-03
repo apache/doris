@@ -112,7 +112,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             const auto& column_ptr = tmp_block.get_by_position(result_column).column;
             const auto& column_type = tmp_block.get_by_position(result_column).type;
             // 4 from fe: Config.be_exec_version maybe need remove after next version, now in 2.1
-            if (_runtime_state->be_exec_version() >= 4) {
+            if (_runtime_state->be_exec_version() >= 4 && params.is_nereids) {
                 auto* p_type_desc = expr_result.mutable_type_desc();
                 auto* p_values = expr_result.mutable_result_content();
                 res_type.to_protobuf(p_type_desc);
@@ -120,7 +120,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                 RETURN_IF_ERROR(datatype_serde->write_column_to_pb(
                         *column_ptr->convert_to_full_column_if_const(), *p_values, 0, 1));
                 expr_result.set_success(true);
-                expr_result.set_content("");
+                // after refactor, this field is useless, but it's required
+                expr_result.set_content("ERROR");
                 expr_result.mutable_type()->set_type(t_type);
                 pexpr_result_map.mutable_map()->insert({n.first, expr_result});
             } else {

@@ -35,6 +35,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -113,8 +114,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 root(Expression.class)
-                    .whenCtx(FoldConstantRuleOnBE::isEnableFoldByBe)
-                    .thenApply(FoldConstantRuleOnBE::foldByBE)
+                        .whenCtx(FoldConstantRuleOnBE::isEnableFoldByBe)
+                        .thenApply(FoldConstantRuleOnBE::foldByBE)
         );
     }
 
@@ -187,10 +188,10 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             // eg: avg_state(1) return is agg function serialize data
             // and some type can't find a literal to represent
             if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
-                    || expr.getDataType().isVariantType() || expr.getDataType().isTimeV2Type()) {
+                    || expr.getDataType().isVariantType() || expr.getDataType().isTimeLikeType()) {
                 return;
             }
-            if (skipSleepFunction(expr)) {
+            if (skipSleepFunction(expr) || (expr instanceof TableGeneratingFunction)) {
                 return;
             }
             String id = idGenerator.getNextId().toString();
@@ -256,6 +257,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             tParams.setVecExec(true);
             tParams.setQueryOptions(tQueryOptions);
             tParams.setQueryId(context.queryId());
+            tParams.setIsNereids(true);
 
             // TODO: will be delete the debug log after find problem of timeout.
             LOG.info("fold query {} ", DebugUtil.printId(context.queryId()));
@@ -436,19 +438,25 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                         resultContent.getChildElement(i));
                 List<Literal> valueLiteral = getResultExpression(mapType.getValueType(),
                         resultContent.getChildElement(i + 1));
-                MapLiteral mapLiteral = new MapLiteral(keyLiteral, valueLiteral);
+                MapLiteral mapLiteral = new MapLiteral(keyLiteral, valueLiteral, mapType);
                 res.add(mapLiteral);
             }
         } else if (type.isStructType()) {
             StructType structType = (StructType) type;
             int childCount = resultContent.getChildElementCount();
-            List<Literal> fields = new ArrayList<>(childCount);
+            List<List<Literal>> allFields = new ArrayList<>();
             for (int i = 0; i < childCount; ++i) {
-                fields.add(getResultExpression(structType.getFields().get(i).getDataType(),
-                        resultContent.getChildElement(i)).get(0));
+                allFields.add(getResultExpression(structType.getFields().get(i).getDataType(),
+                        resultContent.getChildElement(i)));
             }
-            StructLiteral structLiteral = new StructLiteral(fields);
-            res.add(structLiteral);
+            for (int i = 0; i < allFields.get(0).size(); ++i) {
+                List<Literal> fields = new ArrayList<>();
+                for (int child = 0; child < childCount; ++child) {
+                    fields.add(allFields.get(child).get(i));
+                }
+                StructLiteral structLiteral = new StructLiteral(fields, structType);
+                res.add(structLiteral);
+            }
         } else {
             LOG.warn("the type: {} is not support, should implement it", type.toString());
         }
