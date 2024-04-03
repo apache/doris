@@ -983,8 +983,6 @@ Status VOlapTableSink::init(const TDataSink& t_sink) {
     _tuple_desc_id = table_sink.tuple_id;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
-    _schema->set_timestamp_ms(_state->timestamp_ms());
-    _schema->set_timezone(_state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
     if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {
@@ -1021,6 +1019,8 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
 
     _state = state;
+    _schema->set_timestamp_ms(_state->timestamp_ms());
+    _schema->set_timezone(_state->timezone());
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();

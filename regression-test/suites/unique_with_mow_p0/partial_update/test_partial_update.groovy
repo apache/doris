@@ -191,9 +191,9 @@ suite("test_primary_key_partial_update", "p0") {
             sql """ CREATE TABLE ${tableName} (
                         `name` VARCHAR(600) NULL,
                         `userid` INT NOT NULL,
-                        `seq` BIGINT NOT NULL AUTO_INCREMENT(1),
+                        `seq` BIGINT NOT NULL DEFAULT "1",
                         `ctime` DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
-                        `rtime` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+                        `rtime` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
                         `corp_name` VARCHAR(600) NOT NULL
                         ) ENGINE = OLAP UNIQUE KEY(`name`, `userid`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`name`) BUCKETS 10 
                         PROPERTIES ("replication_num" = "1",
