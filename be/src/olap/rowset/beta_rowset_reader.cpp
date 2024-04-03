@@ -238,9 +238,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     _read_options.io_ctx.expiration_time =
-            read_context->ttl_seconds == 0 || _rowset->rowset_meta()->newest_write_timestamp() > 0
-                    ? 0
-                    : _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds;
+            read_context->ttl_seconds > 0 && _rowset->rowset_meta()->newest_write_timestamp() > 0
+                    ? _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds
+                    : 0;
     if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
         _read_options.io_ctx.expiration_time = 0;
     }
