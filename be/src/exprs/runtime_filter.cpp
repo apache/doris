@@ -1255,6 +1255,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
     _is_broadcast_join = desc->is_broadcast_join;
+    _need_local_merge &= !_is_broadcast_join;
     _has_local_target = desc->has_local_targets;
     _has_remote_target = desc->has_remote_targets;
     _expr_order = desc->expr_order;
