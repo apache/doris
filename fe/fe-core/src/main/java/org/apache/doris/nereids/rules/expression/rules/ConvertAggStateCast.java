@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
@@ -42,7 +43,7 @@ public class ConvertAggStateCast implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesTopType(Cast.class).then(ConvertAggStateCast::convert)
+                matchesType(Cast.class).then(ConvertAggStateCast::convert)
         );
     }
 
@@ -50,24 +51,29 @@ public class ConvertAggStateCast implements ExpressionPatternRuleFactory {
         Expression child = cast.child();
         DataType originalType = child.getDataType();
         DataType targetType = cast.getDataType();
-        if (originalType instanceof AggStateType
-                && targetType instanceof AggStateType
-                && child instanceof StateCombinator) {
-            AggStateType target = (AggStateType) targetType;
-            ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(child.arity());
-            for (int i = 0; i < child.arity(); i++) {
-                Expression newChild = TypeCoercionUtils.castIfNotSameType(child.child(i), target.getSubTypes().get(i));
-                if (newChild.nullable() != target.getSubTypeNullables().get(i)) {
-                    if (newChild.nullable()) {
-                        newChild = new NonNullable(newChild);
-                    } else {
-                        newChild = new Nullable(newChild);
-                    }
-                }
-                newChildren.add(newChild);
+        if (originalType instanceof AggStateType && targetType instanceof AggStateType) {
+            // TODO remve it after we refactor mv rewriter to avoid generate Alias in expression
+            while (child instanceof Alias) {
+                child = ((Alias) child).child();
             }
-            child = child.withChildren(newChildren.build());
-            return cast.withChildren(ImmutableList.of(child));
+            if (child instanceof StateCombinator) {
+                AggStateType target = (AggStateType) targetType;
+                ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(child.arity());
+                for (int i = 0; i < child.arity(); i++) {
+                    Expression newChild = TypeCoercionUtils.castIfNotSameTypeStrict(
+                            child.child(i), target.getSubTypes().get(i));
+                    if (newChild.nullable() != target.getSubTypeNullables().get(i)) {
+                        if (newChild.nullable()) {
+                            newChild = new NonNullable(newChild);
+                        } else {
+                            newChild = new Nullable(newChild);
+                        }
+                    }
+                    newChildren.add(newChild);
+                }
+                child = child.withChildren(newChildren.build());
+                return cast.withChildren(ImmutableList.of(child));
+            }
         }
         return cast;
     }
