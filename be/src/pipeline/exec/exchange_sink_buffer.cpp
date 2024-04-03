@@ -454,7 +454,7 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
-    _context->cancel(true, err, Status::Cancelled(err));
+    _context->cancel(err, Status::Cancelled(err));
     _ended(id);
 }
 
