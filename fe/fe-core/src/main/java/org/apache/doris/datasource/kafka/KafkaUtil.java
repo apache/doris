@@ -45,6 +45,7 @@ public class KafkaUtil {
 
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
             Map<String, String> convertedCustomProperties) throws UserException {
+        LOG.info("TODO XXX brokerList={}", brokerList);
         TNetworkAddress address = null;
         Backend be = null;
         try {
@@ -92,6 +93,7 @@ public class KafkaUtil {
     public static List<Pair<Integer, Long>> getOffsetsForTimes(String brokerList, String topic,
             Map<String, String> convertedCustomProperties, List<Pair<Integer, Long>> timestampOffsets)
             throws LoadException {
+        LOG.info("TODO XXX brokerList={}", brokerList);
         TNetworkAddress address = null;
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
@@ -155,6 +157,7 @@ public class KafkaUtil {
     public static List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
                                                              Map<String, String> convertedCustomProperties,
                                                              List<Integer> partitionIds) throws LoadException {
+        LOG.info("TODO XXX brokerList={}", brokerList);
         TNetworkAddress address = null;
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
@@ -191,6 +194,7 @@ public class KafkaUtil {
                     metaRequestBuilder).build();
 
             // get info
+            LOG.warn("TODO XXX fe get info, be address: {}", address);
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
             InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());

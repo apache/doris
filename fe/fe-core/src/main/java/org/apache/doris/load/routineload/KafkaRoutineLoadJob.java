@@ -455,6 +455,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                     db.getId(),
                     kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo(), true);
+            LOG.info("TODO XXX kafka broker list: {}", kafkaProperties.getBrokerList());
         } else {
             OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
             checkMeta(olapTable, stmt.getRoutineLoadDesc());
@@ -463,6 +464,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                     db.getId(), tableId,
                     kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
+            LOG.info("TODO XXX kafka broker list: {}", kafkaProperties.getBrokerList());
         }
         kafkaRoutineLoadJob.setOptional(stmt);
         kafkaRoutineLoadJob.checkCustomProperties();

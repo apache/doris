@@ -993,8 +993,27 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        boolean needCleanCtx = false;
         table.readLock();
         try {
+            if (Config.isCloudMode()) {
+                String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
+                if (Strings.isNullOrEmpty(clusterName)) {
+                    String err = String.format("cluster name is empty, cluster id is %s", cloudClusterId);
+                    LOG.warn(err);
+                    throw new UserException(err);
+                }
+
+                if (ConnectContext.get() == null) {
+                    ConnectContext ctx = new ConnectContext();
+                    ctx.setThreadLocalInfo();
+                    ctx.setCloudCluster(clusterName);
+                    needCleanCtx = true;
+                } else {
+                    ConnectContext.get().setCloudCluster(clusterName);
+                }
+            }
             TPipelineFragmentParams planParams = planner.planForPipeline(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
@@ -1008,6 +1027,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
             return planParams;
         } finally {
+            if (needCleanCtx) {
+                ConnectContext.remove();
+            }
             table.readUnlock();
         }
     }
@@ -1081,6 +1103,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
+        writeLock();
         try {
             if (txnOperated) {
                 // find task in job
