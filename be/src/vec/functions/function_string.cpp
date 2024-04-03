@@ -1131,6 +1131,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMaskPartial<false>>();
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
+    factory.register_function<FunctionStrInsert>();
 
     /// @TEMPORARY: for be_exec_version=3
     factory.register_alternative_function<FunctionSubstringOld<Substr3ImplOld>>();

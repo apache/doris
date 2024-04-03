@@ -3852,4 +3852,61 @@ private:
 #endif
     }
 };
+
+class FunctionStrInsert : public IFunction {
+public:
+    static constexpr auto name = "str_insert";
+    static FunctionPtr create() { return std::make_shared<FunctionStrInsert>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 4; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        auto col_origin =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_pos =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_len =
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        auto col_insert =
+                block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
+
+        ColumnString::MutablePtr col_res = ColumnString::create();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            StringRef origin_str =
+                    assert_cast<const ColumnString*>(col_origin.get())->get_data_at(i);
+            auto pos = assert_cast<const ColumnVector<Int32>*>(col_pos.get())->get_data().data()[i];
+            auto len = assert_cast<const ColumnVector<Int32>*>(col_len.get())->get_data().data()[i];
+            StringRef insert_str =
+                    assert_cast<const ColumnString*>(col_insert.get())->get_data_at(i);
+
+            std::string result =
+                    insert(origin_str.to_string(), pos, len, insert_str.to_string_view());
+            col_res->insert_data(result.data(), result.length());
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    // The behaviour of this function is similar to the replace function
+    // std::string's replace(pos, size, new_str) function is just applicable to insert(orgin_str, pos, size, insert_str)
+    // so the replace function is called directly here.
+    static std::string insert(std::string str, int pos, int len, std::string_view insert_str) {
+        if (pos > str.size() || pos < 1) {
+            return str;
+        }
+        if (len < 0) {
+            len = str.size() - pos + 1;
+        }
+        str.replace(pos - 1, len, insert_str);
+        return str;
+    }
+};
 } // namespace doris::vectorized

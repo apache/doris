@@ -201,7 +201,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.InttoUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
@@ -378,6 +377,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfrom
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StrInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
@@ -415,7 +415,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
@@ -1882,6 +1881,10 @@ public interface ScalarFunctionVisitor<R, C> {
     default R visitStartsWith(StartsWith startsWith, C context) {
         return visitScalarFunction(startsWith, context);
     }
+    
+    default R visitStrInsert(StrInsert strinsert, C context) {
+        return visitScalarFunction(strinsert, context);
+    }
 
     default R visitStrLeft(StrLeft strLeft, C context) {
         return visitScalarFunction(strLeft, context);
@@ -2001,14 +2004,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUuidNumeric(UuidNumeric uuidNumeric, C context) {
         return visitScalarFunction(uuidNumeric, context);
-    }
-
-    default R visitUuidtoInt(UuidtoInt uuidtoInt, C context) {
-        return visitScalarFunction(uuidtoInt, context);
-    }
-
-    default R visitInttoUuid(InttoUuid inttoUuid, C context) {
-        return visitScalarFunction(inttoUuid, context);
     }
 
     default R visitVersion(Version version, C context) {

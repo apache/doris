@@ -17,7 +17,6 @@
 
 #include <stdint.h>
 
-#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -1158,33 +1157,27 @@ TEST(function_string_test, function_bit_length_test) {
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
-TEST(function_string_test, function_uuid_test) {
-    {
-        std::string func_name = "uuid_to_int";
-        InputTypeSet input_types = {TypeIndex::String};
-        uint64_t high = 9572195551486940809ULL;
-        uint64_t low = 1759290071393952876ULL;
-        __int128 result = (__int128)high * (__int128)10000000000000000000ULL + (__int128)low;
-        DataSet data_set = {{{Null()}, Null()},
-                            {{std::string("6ce4766f-6783-4b30-b357-bba1c7600348")}, result},
-                            {{std::string("6ce4766f67834b30b357bba1c7600348")}, result},
-                            {{std::string("ffffffff-ffff-ffff-ffff-ffffffffffff")}, (__int128)-1},
-                            {{std::string("00000000-0000-0000-0000-000000000000")}, (__int128)0},
-                            {{std::string("123")}, Null()}};
-        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
-    }
-    {
-        std::string func_name = "int_to_uuid";
-        InputTypeSet input_types = {TypeIndex::Int128};
-        uint64_t high = 9572195551486940809ULL;
-        uint64_t low = 1759290071393952876ULL;
-        __int128 value = (__int128)high * (__int128)10000000000000000000ULL + (__int128)low;
-        DataSet data_set = {{{Null()}, Null()},
-                            {{value}, std::string("6ce4766f-6783-4b30-b357-bba1c7600348")},
-                            {{(__int128)-1}, std::string("ffffffff-ffff-ffff-ffff-ffffffffffff")},
-                            {{(__int128)0}, std::string("00000000-0000-0000-0000-000000000000")}};
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
-    }
+TEST(function_string_test, function_str_insert_test) {
+    std::string func_name = "str_insert";
+    InputTypeSet input_types = {
+            TypeIndex::String,
+            TypeIndex::Int32,
+            TypeIndex::Int32,
+            TypeIndex::String,
+    };
+    DataSet data_set = {
+            {{
+                     Null(),
+                     INT(7),
+                     INT(5),
+                     VARCHAR("9090"),
+             },
+             {Null()}},
+            {{VARCHAR("http://www.baidu.com:9090"), INT(22), INT(4), VARCHAR("")},
+             {VARCHAR("http://www.baidu.com:")}},
+            {{VARCHAR("aaaaa"), INT(0), INT(50), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
+            {{VARCHAR("aaaaa"), INT(2), INT(3), VARCHAR("bbbbb")}, {VARCHAR("abbbbba")}},
+            {{VARCHAR("aaaaa"), INT(2), INT(-1), VARCHAR("bbbbb")}, {VARCHAR("abbbbb")}}};
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
-
 } // namespace doris::vectorized
