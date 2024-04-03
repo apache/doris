@@ -1883,7 +1883,7 @@ public interface ScalarFunctionVisitor<R, C> {
     default R visitStartsWith(StartsWith startsWith, C context) {
         return visitScalarFunction(startsWith, context);
     }
-    
+
     default R visitStrInsert(StrInsert strinsert, C context) {
         return visitScalarFunction(strinsert, context);
     }
