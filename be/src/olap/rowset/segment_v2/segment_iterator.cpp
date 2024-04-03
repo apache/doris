@@ -1093,7 +1093,9 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         return true;
     }
     // if there is delete predicate, we always need to read data
-    if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
+    std::set<uint32_t> delete_columns_set;
+    _opts.delete_condition_predicates->get_all_column_ids(delete_columns_set);
+    if (delete_columns_set.count(cid) > 0) {
         return true;
     }
     if (_output_columns.count(-1)) {
