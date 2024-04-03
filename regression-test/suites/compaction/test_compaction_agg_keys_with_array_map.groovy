@@ -129,12 +129,11 @@ suite("test_compaction_agg_keys_with_array_map") {
             } while (running)
         }
 
-        def replicaNum = get_table_replica_num(tableName)
-        logger.info("get table replica num: " + replicaNum)
         int rowCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-
+	    def compactionStatusUrlIndex = 18	
+	
             (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             
@@ -145,7 +144,7 @@ suite("test_compaction_agg_keys_with_array_map") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount < 8 * replicaNum)
+        assert (rowCount < 8)
         qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
