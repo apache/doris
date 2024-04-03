@@ -147,7 +147,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
 
         qt_select_tvf1 """ select * from HDFS(
                         "uri" = "${outfile_url}0.parquet",
-                        "fs.defaultFS" = "${defaultFS_with_postfix}"
+                        "fs.defaultFS" = "${defaultFS_with_postfix}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}");
                         """
@@ -186,7 +186,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
 
         qt_select_tvf2 """ select * from HDFS(
                         "uri" = "${outfile_url}0.parquet",
-                        "fs.defaultFS" = "${defaultFS}"
+                        "fs.defaultFS" = "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}");
                         """
