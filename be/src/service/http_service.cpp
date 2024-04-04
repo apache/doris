@@ -361,6 +361,9 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
+                                      _pool.add(new ClearFileCacheAction()));
 }
 // NOLINTEND(readability-function-size)
 
