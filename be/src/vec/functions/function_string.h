@@ -3866,24 +3866,33 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        auto col_origin =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto col_pos =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto col_len =
-                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        auto col_insert =
-                block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
+        DCHECK_EQ(arguments.size(), 4);
+
+        bool col_const[4];
+        ColumnPtr argument_columns[4];
+        for (int i = 0; i < 4; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+        const auto* col_origin = assert_cast<const ColumnString*>(argument_columns[0].get());
+
+        const auto* col_pos = assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
+                                      ->get_data()
+                                      .data();
+        const auto* col_len = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get())
+                                      ->get_data()
+                                      .data();
+        const auto* col_insert = assert_cast<const ColumnString*>(argument_columns[3].get());
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
         for (int i = 0; i < input_rows_count; ++i) {
             StringRef origin_str =
-                    assert_cast<const ColumnString*>(col_origin.get())->get_data_at(i);
-            auto pos = assert_cast<const ColumnVector<Int32>*>(col_pos.get())->get_data().data()[i];
-            auto len = assert_cast<const ColumnVector<Int32>*>(col_len.get())->get_data().data()[i];
+                    col_const[0] ? col_origin->get_data_at(0) : col_origin->get_data_at(i);
+            auto pos = col_const[1] ? col_pos[0] : col_pos[i];
+            auto len = col_const[2] ? col_len[0] : col_len[i];
             StringRef insert_str =
-                    assert_cast<const ColumnString*>(col_insert.get())->get_data_at(i);
+                    col_const[3] ? col_insert->get_data_at(0) : col_insert->get_data_at(i);
 
             std::string result =
                     insert(origin_str.to_string(), pos, len, insert_str.to_string_view());
