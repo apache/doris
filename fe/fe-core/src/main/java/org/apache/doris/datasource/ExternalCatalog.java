@@ -53,6 +53,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -114,6 +115,7 @@ public abstract class ExternalCatalog
     private boolean objectCreated = false;
     protected boolean invalidCacheInInit = true;
     protected ExternalMetadataOps metadataOps;
+    protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
     private String comment;
