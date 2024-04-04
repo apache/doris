@@ -72,7 +72,9 @@ CloudStorageEngine::CloudStorageEngine(const UniqueId& backend_uid)
           _cumulative_compaction_policy(
                   std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>()) {}
 
-CloudStorageEngine::~CloudStorageEngine() = default;
+CloudStorageEngine::~CloudStorageEngine() {
+    stop();
+}
 
 static Status vault_process_error(std::string_view id,
                                   std::variant<S3Conf, cloud::HdfsVaultInfo>& vault, Status err) {
