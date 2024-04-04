@@ -302,7 +302,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
                                       TransactionState txnState,
                                       TransactionState.TxnStatusChangeReason txnStatusChangeReason) {
-        if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+        if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED
+                    || txnState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             // For committed txn, update the progress.
             return true;
         }
