@@ -453,4 +453,14 @@ public class MetaServiceProxy {
             throw new RpcException("", e.getMessage(), e);
         }
     }
+
+    public Cloud.GetObjStoreInfoResponse
+            getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getObjStoreInfo(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
 }

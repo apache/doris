@@ -92,6 +92,7 @@ import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowStorageVaultStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
@@ -145,6 +146,8 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -201,6 +204,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -232,6 +236,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.protobuf.TextFormat;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -455,6 +460,8 @@ public class ShowExecutor {
             handleShowConvertLSC();
         } else if (stmt instanceof ShowClusterStmt) {
             handleShowCluster();
+        } else if (stmt instanceof ShowStorageVaultStmt) {
+            handleShowStorageVault();
         } else {
             handleEmtpy();
         }
@@ -3053,6 +3060,33 @@ public class ShowExecutor {
             }
         } finally {
             columnIdFlusher.readUnlock();
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowStorageVault() throws AnalysisException {
+        ShowStorageVaultStmt showStmt = (ShowStorageVaultStmt) stmt;
+        List<List<String>> rows;
+        try {
+            Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+            rows = new ArrayList<>();
+            resp.getObjInfoList().forEach(info -> {
+                List<String> row = new ArrayList<>();
+                row.add(info.getVaultName());
+                row.add(info.getId());
+                TextFormat.Printer printer = TextFormat.printer();
+                row.add(printer.printToString(info));
+            });
+            resp.getStorageVaultList().forEach(vault -> {
+                List<String> row = new ArrayList<>();
+                row.add(vault.getName());
+                row.add(vault.getId());
+                TextFormat.Printer printer = TextFormat.printer();
+                row.add(printer.printToString(vault.getHdfsInfo()));
+            });
+        } catch (RpcException e) {
+            throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
