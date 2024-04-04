@@ -269,7 +269,6 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         ColumnArray& arr_to = assert_cast<ColumnArray&>(to);
-
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
 
         auto& to_nested_col = arr_to.get_data();
@@ -278,54 +277,42 @@ public:
 
         bool is_nullable = to_nested_col.is_nullable();
 
-        if (is_nullable) {
-            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
-            auto& nested_col = assert_cast<ColVecType&>(col_null->get_nested_column());
-            auto& null_map_data = col_null->get_null_map_data();
-
+        auto insert_values = [](ColVecType& nested_col, auto& set, bool is_nullable = false,
+                                ColumnNullable* col_null = nullptr) {
             size_t old_size = nested_col.get_data().size();
-
-            const auto& set = this->data(place).value;
-
-            auto res_size = set->size();
+            size_t res_size = set->size();
             size_t i = 0;
 
-            if (set->contain_null()) {
+            if (is_nullable && set->contain_null()) {
                 col_null->insert_data(nullptr, 0);
                 res_size += 1;
                 i = 1;
             }
 
-            offsets_to.push_back(offsets_to.back() + res_size);
-
             nested_col.get_data().resize(old_size + res_size);
 
             HybridSetBase::IteratorBase* it = set->begin();
             while (it->has_next()) {
-                T value = *reinterpret_cast<const T*>(it->get_value());
+                ElementType value = *reinterpret_cast<const ElementType*>(it->get_value());
                 nested_col.get_data()[old_size + i] = value;
-                null_map_data.push_back(0);
+                if (is_nullable) {
+                    col_null->get_null_map_data().push_back(0);
+                }
                 it->next();
                 ++i;
             }
+        };
+
+        const auto& set = this->data(place).value;
+        if (is_nullable) {
+            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+            auto& nested_col = assert_cast<ColVecType&>(col_null->get_nested_column());
+            offsets_to.push_back(offsets_to.back() + set->size() + (set->contain_null() ? 1 : 0));
+            insert_values(nested_col, set, true, col_null);
         } else {
             auto& nested_col = static_cast<ColVecType&>(to_nested_col);
-            size_t old_size = nested_col.get_data().size();
-
-            const auto& set = this->data(place).value;
-
             offsets_to.push_back(offsets_to.back() + set->size());
-
-            nested_col.get_data().resize(old_size + set->size());
-
-            size_t i = 0;
-            HybridSetBase::IteratorBase* it = set->begin();
-            while (it->has_next()) {
-                T value = *reinterpret_cast<const T*>(it->get_value());
-                nested_col.get_data()[old_size + i] = value;
-                it->next();
-                ++i;
-            }
+            insert_values(nested_col, set);
         }
     }
 };
@@ -348,7 +335,7 @@ struct AggregateFunctionGroupArrayIntersectGenericData {
 };
 
 /** Template parameter with true value should be used for columns that store their elements in memory continuously.
- *  For such columns GroupArrayIntersect() can be implemented more efficiently (especially for small numeric arrays).
+ *  For such columns group_array_intersect() can be implemented more efficiently (especially for small numeric arrays).
  */
 template <bool is_plain_column = false>
 class AggregateFunctionGroupArrayIntersectGeneric
@@ -399,38 +386,33 @@ public:
             col_null = static_cast<ColumnNullable*>(const_col_data);
         }
 
+        auto process_element = [&](size_t i) {
+            const bool is_null_element =
+                    is_column_data_nullable && col_null->is_null_at(offset + i);
+
+            StringRef src = StringRef();
+            if constexpr (is_plain_column) {
+                src = nested_column_data->get_data_at(offset + i);
+            } else {
+                const char* begin = nullptr;
+                src = nested_column_data->serialize_value_into_arena(offset + i, *arena, begin);
+            }
+
+            src.data = is_null_element ? nullptr : arena->insert(src.data, src.size);
+            return src;
+        };
+
         ++version;
         if (version == 1) {
             for (size_t i = 0; i < arr_size; ++i) {
-                const bool is_null_element =
-                        is_column_data_nullable && col_null->is_null_at(offset + i);
-
-                StringRef src = StringRef();
-                if constexpr (is_plain_column) {
-                    src = nested_column_data->get_data_at(offset + i);
-                } else {
-                    const char* begin = nullptr;
-                    src = nested_column_data->serialize_value_into_arena(offset + i, *arena, begin);
-                }
-
-                src.data = is_null_element ? nullptr : arena->insert(src.data, src.size);
+                StringRef src = process_element(i);
                 set->insert((void*)src.data, src.size);
             }
         } else if (set->size() != 0 || set->contain_null()) {
             typename State::Set new_set = std::make_shared<NullableStringSet>();
 
             for (size_t i = 0; i < arr_size; ++i) {
-                const bool is_null_element =
-                        is_column_data_nullable && col_null->is_null_at(offset + i);
-                StringRef src = StringRef();
-                if constexpr (is_plain_column) {
-                    src = nested_column_data->get_data_at(offset + i);
-                } else {
-                    const char* begin = nullptr;
-                    src = nested_column_data->serialize_value_into_arena(offset + i, *arena, begin);
-                }
-
-                src.data = is_null_element ? nullptr : arena->insert(src.data, src.size);
+                StringRef src = process_element(i);
                 if (set->find(src.data, src.size) || (set->contain_null() && src.data == nullptr)) {
                     new_set->insert((void*)src.data, src.size);
                 }
