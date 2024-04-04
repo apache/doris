@@ -412,6 +412,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             int num = resultContent.getStringValueCount();
             for (int i = 0; i < num; ++i) {
                 String stringValue = resultContent.getStringValue(i);
+                // maybe need handle NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
                 JsonLiteral jsonLiteral = new JsonLiteral(stringValue);
                 res.add(jsonLiteral);
             }
