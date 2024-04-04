@@ -1446,4 +1446,16 @@ RowsetSharedPtr BaseTablet::get_rowset(const RowsetId& rowset_id) {
     return nullptr;
 }
 
+std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_rowset) const {
+    std::shared_lock rdlock(_meta_lock);
+    std::vector<RowsetSharedPtr> rowsets;
+    std::transform(_rs_version_map.cbegin(), _rs_version_map.cend(), std::back_inserter(rowsets),
+                   [](auto& kv) { return kv.second; });
+    if (include_stale_rowset) {
+        std::transform(_stale_rs_version_map.cbegin(), _stale_rs_version_map.cend(),
+                       std::back_inserter(rowsets), [](auto& kv) { return kv.second; });
+    }
+    return rowsets;
+}
+
 } // namespace doris

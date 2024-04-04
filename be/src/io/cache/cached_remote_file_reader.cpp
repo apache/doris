@@ -31,6 +31,7 @@
 #include "common/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
@@ -39,6 +40,8 @@
 #include "util/runtime_profile.h"
 
 namespace doris::io {
+
+bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -143,6 +146,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
         {
+            s3_read_counter << 1;
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
             RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
                                                          &size, io_ctx));
@@ -227,6 +231,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
                 size_t bytes_read {0};
                 stats.hit_cache = false;
+                s3_read_counter << 1;
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 RETURN_IF_ERROR(_remote_file_reader->read_at(
                         current_offset, Slice(result.data + (current_offset - offset), read_size),
@@ -241,6 +246,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
     if (io_ctx->file_cache_stats) {
         _update_state(stats, io_ctx->file_cache_stats);
+        io::FileCacheProfile::instance().update(io_ctx->file_cache_stats);
     }
     return Status::OK();
 }

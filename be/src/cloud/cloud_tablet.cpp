@@ -26,9 +26,11 @@
 
 #include <atomic>
 #include <memory>
+#include <unordered_map>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -317,11 +319,22 @@ void CloudTablet::update_base_size(const Rowset& rs) {
 }
 
 void CloudTablet::recycle_cached_data() {
-    // TODO(plat1ko)
+    CloudTablet::recycle_cached_data(get_snapshot_rowset(true));
+    _engine.tablet_mgr().erase_tablet(tablet_id());
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
-    // TODO(plat1ko)
+    std::unordered_map<int, int> map;
+    if (config::enable_file_cache) {
+        for (const auto& rs : rowsets) {
+            for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
+                auto seg_path = rs->segment_file_path(seg_id);
+                auto file_key = io::BlockFileCache::hash(io::Path(seg_path).filename().native());
+                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+                file_cache->remove_if_cached(file_key);
+            }
+        }
+    }
 }
 
 void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segments,
