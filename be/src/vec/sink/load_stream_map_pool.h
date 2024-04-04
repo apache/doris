@@ -63,19 +63,20 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 
 class LoadStreamStub;
 
-class LoadStreamStubPool;
+class LoadStreamMapPool;
 
 using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 
 class LoadStreamMap {
 public:
     LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
-                  LoadStreamStubPool* pool);
+                  LoadStreamMapPool* pool);
 
     std::shared_ptr<Streams> get_or_create(int64_t dst_id);
 
@@ -103,17 +104,19 @@ private:
     std::atomic<int> _use_cnt;
     std::mutex _mutex;
     std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
-    LoadStreamStubPool* _pool = nullptr;
+    LoadStreamMapPool* _pool = nullptr;
+    std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
+    std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
 
     std::mutex _tablets_to_commit_mutex;
     std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_to_commit;
 };
 
-class LoadStreamStubPool {
+class LoadStreamMapPool {
 public:
-    LoadStreamStubPool();
+    LoadStreamMapPool();
 
-    ~LoadStreamStubPool();
+    ~LoadStreamMapPool();
 
     std::shared_ptr<LoadStreamMap> get_or_create(UniqueId load_id, int64_t src_id, int num_streams,
                                                  int num_use);
