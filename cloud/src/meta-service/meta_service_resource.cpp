@@ -308,6 +308,61 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
     return std::to_string(prev + 1);
 }
 
+namespace detail {
+
+// Removes any trailing `c` in `str`
+void strip_trailing(std::string& str, char c) {
+    size_t end = str.find_last_not_of(c);
+    if (end == std::string::npos) {
+        str = "";
+    } else {
+        str.resize(end + 1);
+    }
+}
+
+// Removes any leading `c` in `str`
+void strip_leading(std::string& str, char c) {
+    size_t start = str.find_first_not_of(c);
+    if (start == std::string::npos) {
+        str = "";
+    } else if (start > 0) {
+        str = str.substr(start);
+    }
+}
+
+// Validate and normalize hdfs prefix. Return true if prefix is valid.
+bool normalize_hdfs_prefix(std::string& prefix) {
+    if (prefix.empty()) {
+        return true;
+    }
+
+    if (prefix.find("://") != std::string::npos) {
+        // Should not contain scheme
+        return false;
+    }
+
+    strip_trailing(prefix, ' ');
+    strip_leading(prefix, ' ');
+    strip_trailing(prefix, '/');
+    return true;
+}
+
+// Validate and normalize hdfs fs_name. Return true if fs_name is valid.
+bool normalize_hdfs_fs_name(std::string& fs_name) {
+    if (fs_name.empty()) {
+        return false;
+    }
+
+    // Should check scheme existence?
+
+    strip_trailing(fs_name, ' ');
+    strip_leading(fs_name, ' ');
+    strip_trailing(fs_name, '/');
+    return !fs_name.empty();
+}
+
+} // namespace detail
+
 static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
@@ -323,6 +378,23 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
         msg = fmt::format("vault_name={} already created", hdfs_param.name());
         return -1;
     }
+
+    using namespace detail;
+    // Check and normalize hdfs conf
+    auto* prefix = hdfs_param.mutable_hdfs_info()->mutable_prefix();
+    if (!normalize_hdfs_prefix(*prefix)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid prefix: ", *prefix);
+        return -1;
+    }
+
+    auto* fs_name = hdfs_param.mutable_hdfs_info()->mutable_build_conf()->mutable_fs_name();
+    if (!normalize_hdfs_fs_name(*fs_name)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid fs_name: ", *fs_name);
+        return -1;
+    }
+
     std::string key;
     std::string vault_id = next_available_vault_id(instance);
     storage_vault_key({instance.instance_id(), vault_id}, &key);
