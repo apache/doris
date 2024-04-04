@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "common/sync_point.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
@@ -47,6 +48,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
@@ -1109,6 +1111,21 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
     return Status::OK();
+}
+
+void CloudCompactionMixin::garbage_collection() {
+    if (!config::enable_file_cache) {
+        return;
+    }
+    if (_output_rs_writer) {
+        auto* beta_rowset_writer = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get());
+        DCHECK(beta_rowset_writer);
+        for (const auto& [_, file_writer] : beta_rowset_writer->get_file_writers()) {
+            auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached(file_key);
+        }
+    }
 }
 
 } // namespace doris

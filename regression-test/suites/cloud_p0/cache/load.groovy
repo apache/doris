@@ -15,29 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/action/clear_file_cache_action.h"
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
-#include <fmt/core.h>
-
-#include "common/logging.h"
-#include "http/http_channel.h"
-#include "http/http_headers.h"
-#include "http/http_request.h"
-#include "io/cache/block_file_cache_factory.h"
-
-namespace doris {
-
-const std::string SYNC = "sync";
-
-void ClearFileCacheAction::handle(HttpRequest* req) {
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, "application/json");
-    std::string sync = req->param(SYNC);
-    if (to_lower(sync) == "true") {
-        io::FileCacheFactory::instance()->clear_file_caches(true);
-    } else {
-        io::FileCacheFactory::instance()->clear_file_caches(false);
-    }
-    HttpChannel::send_reply(req, HttpStatus::OK, Status::OK().to_json());
+suite("load") {
+    sql """ set global enable_auto_analyze = false; """
 }
-
-} // namespace doris
