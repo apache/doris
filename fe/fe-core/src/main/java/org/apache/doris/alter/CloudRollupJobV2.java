@@ -62,7 +62,9 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         job.write(dos);
         ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
         DataInputStream dis = new DataInputStream(bais);
-        return CloudRollupJobV2.read(dis);
+        CloudRollupJobV2 ret = (CloudRollupJobV2) CloudRollupJobV2.read(dis);
+        ret.partitionIdToRollupIndex = job.partitionIdToRollupIndex;
+        return ret;
     }
 
     private CloudRollupJobV2() {}
