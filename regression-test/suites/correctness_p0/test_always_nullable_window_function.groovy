@@ -172,5 +172,11 @@ suite("test_always_nullable_window_function") {
             lead(state, 2, null) over (partition by myday order by time_col) lead_value
         from ${nullableTableName} order by myday, time_col, state;
     """
-
+    sql "set enable_nereids_planner = true"
+    qt_select_lead_lag """
+        select lag(state, 0, 22) over (partition by myday order by time_col) lag_value,
+               lead(state, 0, 33) over (partition by myday order by time_col) lead_value,
+               state,time_col,myday
+               from ${nullableTableName} order by myday, time_col, state;
+    """
 }
