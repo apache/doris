@@ -34,6 +34,7 @@ import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -200,7 +201,11 @@ public final class HiveUtil {
         table.setTableType("MANAGED_TABLE");
         Map<String, String> props = new HashMap<>(hiveTable.getProperties());
         props.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
+        props.put("comment", hiveTable.getComment());
         table.setParameters(props);
+        if (props.containsKey("owner")) {
+            table.setOwner(props.get("owner"));
+        }
         return table;
     }
 
@@ -266,8 +271,13 @@ public final class HiveUtil {
         if (StringUtils.isNotEmpty(hiveDb.getLocationUri())) {
             database.setLocationUri(hiveDb.getLocationUri());
         }
-        database.setParameters(hiveDb.getProperties());
+        Map<String, String> props = hiveDb.getProperties();
+        database.setParameters(props);
         database.setDescription(hiveDb.getComment());
+        if (props.containsKey("owner")) {
+            database.setOwnerName(props.get("owner"));
+            database.setOwnerType(PrincipalType.USER);
+        }
         return database;
     }
 

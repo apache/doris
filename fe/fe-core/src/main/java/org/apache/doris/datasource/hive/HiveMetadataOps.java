@@ -188,6 +188,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             if (stmt.getPartitionDesc() != null) {
                 partitionColNames.addAll(stmt.getPartitionDesc().getPartitionColNames());
             }
+            String comment = stmt.getComment();
             Optional<String> location = Optional.ofNullable(props.getOrDefault(LOCATION_URI_KEY, null));
             HiveTableMetadata hiveTableMeta;
             DistributionDesc bucketInfo = stmt.getDistributionDesc();
@@ -202,7 +203,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                                 ((HashDistributionDesc) bucketInfo).getDistributionColumnNames(),
                                 bucketInfo.getBuckets(),
                                 ddlProps,
-                                fileFormat);
+                                fileFormat,
+                                comment);
                     } else {
                         throw new UserException("External hive table only supports hash bucketing");
                     }
@@ -217,7 +219,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                         stmt.getColumns(),
                         partitionColNames,
                         ddlProps,
-                        fileFormat);
+                        fileFormat,
+                        comment);
             }
             client.createTable(hiveTableMeta, stmt.isSetIfNotExists());
             db.setUnInitialized(true);

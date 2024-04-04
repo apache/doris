@@ -32,6 +32,7 @@ public class HiveTableMetadata implements TableMetadata {
     private final List<Column> columns;
     private final List<String> partitionKeys;
     private final String fileFormat;
+    private final String comment;
     private final Map<String, String> properties;
     private List<String> bucketCols;
     private int numBuckets;
@@ -43,8 +44,9 @@ public class HiveTableMetadata implements TableMetadata {
                              List<Column> columns,
                              List<String> partitionKeys,
                              Map<String, String> props,
-                             String fileFormat) {
-        this(dbName, tblName, location, columns, partitionKeys, new ArrayList<>(), 0, props, fileFormat);
+                             String fileFormat,
+                             String comment) {
+        this(dbName, tblName, location, columns, partitionKeys, new ArrayList<>(), 0, props, fileFormat, comment);
     }
 
     public HiveTableMetadata(String dbName, String tableName,
@@ -54,7 +56,8 @@ public class HiveTableMetadata implements TableMetadata {
                              List<String> bucketCols,
                              int numBuckets,
                              Map<String, String> props,
-                             String fileFormat) {
+                             String fileFormat,
+                             String comment) {
         this.dbName = dbName;
         this.tableName = tableName;
         this.columns = columns;
@@ -64,6 +67,7 @@ public class HiveTableMetadata implements TableMetadata {
         this.properties = props;
         this.fileFormat = fileFormat;
         this.location = location;
+        this.comment = comment;
     }
 
     @Override
@@ -78,6 +82,10 @@ public class HiveTableMetadata implements TableMetadata {
 
     public Optional<String> getLocation() {
         return location;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override
@@ -111,8 +119,9 @@ public class HiveTableMetadata implements TableMetadata {
                                        List<Column> columns,
                                        List<String> partitionKeys,
                                        Map<String, String> props,
-                                       String fileFormat) {
-        return new HiveTableMetadata(dbName, tblName, location, columns, partitionKeys, props, fileFormat);
+                                       String fileFormat,
+                                       String comment) {
+        return new HiveTableMetadata(dbName, tblName, location, columns, partitionKeys, props, fileFormat, comment);
     }
 
     public static HiveTableMetadata of(String dbName,
@@ -123,8 +132,9 @@ public class HiveTableMetadata implements TableMetadata {
                                        List<String> bucketCols,
                                        int numBuckets,
                                        Map<String, String> props,
-                                       String fileFormat) {
+                                       String fileFormat,
+                                       String comment) {
         return new HiveTableMetadata(dbName, tblName, location, columns, partitionKeys,
-                bucketCols, numBuckets, props, fileFormat);
+                bucketCols, numBuckets, props, fileFormat, comment);
     }
 }

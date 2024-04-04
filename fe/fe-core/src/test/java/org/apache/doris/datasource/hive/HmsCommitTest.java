@@ -111,14 +111,14 @@ public class HmsCommitTest {
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
                 dbName, tbWithPartition, Optional.of(dbLocation + tbWithPartition),
                 columns, partitionKeys,
-                new HashMap<>(), fileFormat);
+                new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata, true);
 
         // create table for tbWithoutPartition
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
                     dbName, tbWithoutPartition, Optional.of(dbLocation + tbWithPartition),
                     columns, new ArrayList<>(),
-                    new HashMap<>(), fileFormat);
+                    new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata2, true);
 
     }
