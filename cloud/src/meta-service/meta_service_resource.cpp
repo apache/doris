@@ -460,8 +460,13 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         std::string plain_ak = obj.has_ak() ? obj.ak() : "";
         std::string plain_sk = obj.has_sk() ? obj.sk() : "";
 
-        if (encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
-                                 msg) != 0) {
+        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
+                                        code, msg);
+        {
+            [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
+            TEST_SYNC_POINT_CALLBACK("alter_obj_store_info_encrypt_ak_sk_helper", &ak_sk_ret);
+        }
+        if (ret != 0) {
             return;
         }
         ak = cipher_ak_sk_pair.first;

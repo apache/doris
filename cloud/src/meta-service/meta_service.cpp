@@ -573,15 +573,15 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         // The S3 vault would be stored inside the instance.obj_info
         auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
                                    [&](const ObjectStoreInfoPB& obj) {
-                                       if (!obj.has_vault_name()) {
+                                       if (!obj.has_name()) {
                                            return false;
                                        }
-                                       return obj.vault_name() == name;
+                                       return obj.name() == name;
                                    });
 
         if (s3_obj != instance.obj_info().end()) {
             response->set_storage_vault_id(s3_obj->id());
-            response->set_storage_vault_name(s3_obj->vault_name());
+            response->set_storage_vault_name(s3_obj->name());
             break;
         }
 
@@ -591,6 +591,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
     }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
+    TEST_SYNC_POINT_RETURN_WITH_VOID("create_tablets");
     for (auto& tablet_meta : request->tablet_metas()) {
         internal_create_tablet(code, msg, tablet_meta, txn_kv_, instance_id, saved_schema);
         if (code != MetaServiceCode::OK) {
