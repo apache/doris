@@ -209,7 +209,8 @@ public:
 
         if (set->size() != 0) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
-                typename State::Set new_set;
+                typename State::Set new_set =
+                        std::make_shared<typename State::NullableNumericOrDateSetType>();
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
                 while (it->has_next()) {
                     const void* value = it->get_value();
@@ -459,7 +460,7 @@ public:
             }
         } else if (set->size() != 0) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
-                typename State::Set new_set;
+                typename State::Set new_set = std::make_shared<NullableStringSet>();
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
                 while (it->has_next()) {
                     const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
