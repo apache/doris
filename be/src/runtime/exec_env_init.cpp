@@ -42,7 +42,6 @@
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "io/cache/block_file_cache_profile.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/s3_file_bufferpool.h"
@@ -252,7 +251,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
-    file_cache_profile = new io::FileCacheProfile();
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
