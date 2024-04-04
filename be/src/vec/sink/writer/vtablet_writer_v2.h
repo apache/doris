@@ -217,7 +217,7 @@ private:
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::shared_ptr<LoadStreamMap> _streams_for_node;
+    std::shared_ptr<LoadStreamMap> _load_stream_map;
 
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
