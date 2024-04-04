@@ -15,28 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+package org.apache.doris.transaction;
 
-public class HivePartitionWithStatistics {
-    private final String name;
-    private final HivePartition partition;
-    private final HivePartitionStatistics statistics;
+import org.apache.doris.common.UserException;
+import org.apache.doris.persist.EditLog;
 
-    public HivePartitionWithStatistics(String name, HivePartition partition, HivePartitionStatistics statistics) {
-        this.name = name;
-        this.partition = partition;
-        this.statistics = statistics;
-    }
+public interface TransactionManager {
 
-    public String getName() {
-        return name;
-    }
+    void setEditLog(EditLog editLog);
 
-    public HivePartition getPartition() {
-        return partition;
-    }
+    long begin();
 
-    public HivePartitionStatistics getStatistics() {
-        return statistics;
-    }
+    void commit(long id) throws UserException;
+
+    void rollback(long id);
+
+    Transaction getTransaction(long id);
 }

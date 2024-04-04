@@ -152,6 +152,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class Coordinator implements CoordInterface {
@@ -235,8 +236,8 @@ public class Coordinator implements CoordInterface {
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
-    // TODO moved to ExternalTransactionManager
-    private final List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
+    // Collect all hivePartitionUpdates obtained from be
+    Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc;
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -501,10 +502,6 @@ public class Coordinator implements CoordInterface {
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return errorTabletInfos;
-    }
-
-    public List<THivePartitionUpdate> getHivePartitionUpdates() {
-        return hivePartitionUpdates;
     }
 
     public Map<String, Integer> getBeToInstancesNum() {
@@ -2456,13 +2453,8 @@ public class Coordinator implements CoordInterface {
         // TODO: more ranges?
     }
 
-    private void updateHivePartitionUpdates(List<THivePartitionUpdate> hivePartitionUpdates) {
-        lock.lock();
-        try {
-            this.hivePartitionUpdates.addAll(hivePartitionUpdates);
-        } finally {
-            lock.unlock();
-        }
+    public void setHivePartitionUpdateFunc(Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc) {
+        this.hivePartitionUpdateFunc = hivePartitionUpdateFunc;
     }
 
     // update job progress from BE
@@ -2512,8 +2504,8 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
-            if (params.isSetHivePartitionUpdates()) {
-                updateHivePartitionUpdates(params.getHivePartitionUpdates());
+            if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
+                hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
             }
 
             Preconditions.checkArgument(params.isSetDetailedReport());
@@ -2577,8 +2569,8 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                if (params.isSetHivePartitionUpdates()) {
-                    updateHivePartitionUpdates(params.getHivePartitionUpdates());
+                if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
+                    hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} instance {} is marked done",
@@ -2649,8 +2641,8 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                if (params.isSetHivePartitionUpdates()) {
-                    updateHivePartitionUpdates(params.getHivePartitionUpdates());
+                if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
+                    hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
                 }
                 instancesDoneLatch.markedCountDown(params.getFragmentInstanceId(), -1L);
             }
