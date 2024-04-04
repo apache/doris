@@ -649,7 +649,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_provider(request->obj().provider());
         last_item.set_sse_enabled(instance.sse_enabled());
         if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
-            last_item.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+            last_item.set_name(BUILT_IN_STORAGE_VAULT_NAME);
             instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
             instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
         }
@@ -982,7 +982,7 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     obj_info.set_mtime(time);
     obj_info.set_sse_enabled(sse_enabled);
     if (obj_info.id() == BUILT_IN_STORAGE_VAULT_ID) {
-        obj_info.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        obj_info.set_name(BUILT_IN_STORAGE_VAULT_NAME);
         instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
         instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
     }
