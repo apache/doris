@@ -15,21 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/load_stream_stub_pool.h"
+#include "vec/sink/load_stream_map_pool.h"
 
 #include "util/debug_points.h"
-#include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 class TExpr;
 
 LoadStreamMap::LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
-                             LoadStreamStubPool* pool)
+                             LoadStreamMapPool* pool)
         : _load_id(load_id),
           _src_id(src_id),
           _num_streams(num_streams),
           _use_cnt(num_use),
-          _pool(pool) {
+          _pool(pool),
+          _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
+          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {
     DCHECK(num_streams > 0) << "stream num should be greater than 0";
     DCHECK(num_use > 0) << "use num should be greater than 0";
 }
@@ -41,10 +42,9 @@ std::shared_ptr<Streams> LoadStreamMap::get_or_create(int64_t dst_id) {
         return streams;
     }
     streams = std::make_shared<Streams>();
-    auto schema_map = std::make_shared<IndexToTabletSchema>();
-    auto mow_map = std::make_shared<IndexToEnableMoW>();
     for (int i = 0; i < _num_streams; i++) {
-        streams->emplace_back(new LoadStreamStub(_load_id, _src_id, schema_map, mow_map));
+        streams->emplace_back(new LoadStreamStub(_load_id, _src_id, _tablet_schema_for_index,
+                                                 _enable_unique_mow_for_index));
     }
     _streams_for_node[dst_id] = streams;
     return streams;
@@ -103,11 +103,11 @@ Status LoadStreamMap::close_load() {
     });
 }
 
-LoadStreamStubPool::LoadStreamStubPool() = default;
+LoadStreamMapPool::LoadStreamMapPool() = default;
 
-LoadStreamStubPool::~LoadStreamStubPool() = default;
-std::shared_ptr<LoadStreamMap> LoadStreamStubPool::get_or_create(UniqueId load_id, int64_t src_id,
-                                                                 int num_streams, int num_use) {
+LoadStreamMapPool::~LoadStreamMapPool() = default;
+std::shared_ptr<LoadStreamMap> LoadStreamMapPool::get_or_create(UniqueId load_id, int64_t src_id,
+                                                                int num_streams, int num_use) {
     std::lock_guard<std::mutex> lock(_mutex);
     std::shared_ptr<LoadStreamMap> streams = _pool[load_id];
     if (streams != nullptr) {
@@ -118,7 +118,7 @@ std::shared_ptr<LoadStreamMap> LoadStreamStubPool::get_or_create(UniqueId load_i
     return streams;
 }
 
-void LoadStreamStubPool::erase(UniqueId load_id) {
+void LoadStreamMapPool::erase(UniqueId load_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     _pool.erase(load_id);
 }

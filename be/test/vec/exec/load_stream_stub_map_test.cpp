@@ -14,22 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/sink/load_stream_stub_pool.h"
-
 #include <gtest/gtest.h>
 
+#include "vec/sink/load_stream_map_pool.h"
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 
-class LoadStreamStubPoolTest : public testing::Test {
+class LoadStreamMapPoolTest : public testing::Test {
 public:
-    LoadStreamStubPoolTest() = default;
-    virtual ~LoadStreamStubPoolTest() = default;
+    LoadStreamMapPoolTest() = default;
+    virtual ~LoadStreamMapPoolTest() = default;
 };
 
-TEST_F(LoadStreamStubPoolTest, test) {
-    LoadStreamStubPool pool;
+TEST_F(LoadStreamMapPoolTest, test) {
+    LoadStreamMapPool pool;
     int64_t src_id = 100;
     PUniqueId load_id;
     load_id.set_lo(1);
