@@ -206,6 +206,14 @@ suite("test_primary_key_partial_update", "p0") {
             sql "INSERT INTO ${tableName}(`name`, `userid`, `corp_name`) VALUES ('test1', 1234567, 'A');"
 
             qt_select_timestamp "select count(*) from ${tableName} where `ctime` > \"1970-01-01\""
+
+            sql "set time_zone = 'America/New_York'"
+
+            Thread.sleep(5000)
+
+            sql "INSERT INTO ${tableName}(`name`, `userid`, `corp_name`) VALUES ('test2', 1234567, 'A');"
+
+            qt_select_timestamp2 "SELECT ABS(TIMESTAMPDIFF(HOUR, MIN(ctime), MAX(ctime))) AS time_difference_hours FROM ${tableName};"
         }
     }
 }
