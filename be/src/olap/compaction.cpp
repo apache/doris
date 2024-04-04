@@ -449,7 +449,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     return Status::OK();
 }
 
-Status CompactionMixin::do_inverted_index_compaction() {
+Status Compaction::do_inverted_index_compaction() {
     const auto& ctx = _output_rs_writer->context();
     if (!config::inverted_index_compaction_enable || _input_row_num <= 0 ||
         !_stats.rowid_conversion || ctx.skip_inverted_index.empty()) {
@@ -458,13 +458,18 @@ Status CompactionMixin::do_inverted_index_compaction() {
 
     OlapStopWatch inverted_watch;
 
-    Version version = tablet()->max_version();
+    int64_t cur_max_version = 0;
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        cur_max_version = _tablet->max_version_unlocked();
+    }
+
     DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
     std::set<RowLocation> missed_rows;
     std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
     // Convert the delete bitmap of the input rowsets to output rowset.
-    tablet()->calc_compaction_output_rowset_delete_bitmap(
-            _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
+    _tablet->calc_compaction_output_rowset_delete_bitmap(
+            _input_rowsets, _rowid_conversion, 0, cur_max_version + 1, &missed_rows, &location_map,
             _tablet->tablet_meta()->delete_bitmap(), &output_rowset_delete_bitmap);
 
     if (!_allow_delete_in_cumu_compaction) {
@@ -481,7 +486,7 @@ Status CompactionMixin::do_inverted_index_compaction() {
         }
     }
 
-    RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, location_map));
+    RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
     // translation vec
     // <<dest_idx_num, dest_docId>>
@@ -721,7 +726,7 @@ Status CompactionMixin::do_inverted_index_compaction() {
     return Status::OK();
 }
 
-void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
+void Compaction::construct_skip_inverted_index(RowsetWriterContext& ctx) {
     for (const auto& index : _cur_tablet_schema->indexes()) {
         if (index.index_type() != IndexType::INVERTED) {
             continue;
@@ -1047,6 +1052,8 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 
     RETURN_IF_ERROR(merge_input_rowsets());
 
+    RETURN_IF_ERROR(do_inverted_index_compaction());
+
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
@@ -1072,6 +1079,13 @@ Status CloudCompactionMixin::modify_rowsets() {
 }
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
+    // only do index compaction for dup_keys and unique_keys with mow enabled
+    if (config::inverted_index_compaction_enable &&
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
+          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+        construct_skip_inverted_index(ctx);
+    }
     // Use the vault id of the previous rowset
     for (const auto& rs : _input_rowsets) {
         if (nullptr != rs->rowset_meta()->fs()) {
