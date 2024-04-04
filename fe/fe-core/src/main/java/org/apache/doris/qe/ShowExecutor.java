@@ -138,6 +138,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -236,7 +237,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.google.protobuf.TextFormat;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -267,6 +267,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -3070,21 +3071,12 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
-            rows = new ArrayList<>();
-            resp.getObjInfoList().forEach(info -> {
-                List<String> row = new ArrayList<>();
-                row.add(info.getVaultName());
-                row.add(info.getId());
-                TextFormat.Printer printer = TextFormat.printer();
-                row.add(printer.printToString(info));
-            });
-            resp.getStorageVaultList().forEach(vault -> {
-                List<String> row = new ArrayList<>();
-                row.add(vault.getName());
-                row.add(vault.getId());
-                TextFormat.Printer printer = TextFormat.printer();
-                row.add(printer.printToString(vault.getHdfsInfo()));
-            });
+            rows = Stream.concat(
+                    resp.getObjInfoList().stream()
+                            .map(StorageVault::convertToShowStorageVaultProperties),
+                    resp.getStorageVaultList().stream()
+                            .map(StorageVault::convertToShowStorageVaultProperties))
+                    .collect(Collectors.toList());
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
         }

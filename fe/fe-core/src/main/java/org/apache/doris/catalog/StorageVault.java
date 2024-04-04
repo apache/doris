@@ -18,14 +18,18 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateStorageVaultStmt;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
+import com.google.protobuf.TextFormat;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -161,4 +165,29 @@ public abstract class StorageVault {
                 .addColumn(new Column("StoragevaultId", ScalarType.createVarchar(20)))
                 .addColumn(new Column("Propeties", ScalarType.createVarchar(65535)))
                 .build();
+
+    public static List<String> convertToShowStorageVaultProperties(Cloud.ObjectStoreInfoPB info) {
+        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
+        builder.mergeFrom(info);
+        List<String> row = new ArrayList<>();
+        row.add(info.getVaultName());
+        row.add(info.getId());
+        TextFormat.Printer printer = TextFormat.printer();
+        builder.clearId();
+        builder.clearVaultName();
+        builder.setSk("xxxxxxx");
+        row.add(printer.shortDebugString(builder));
+        return row;
+    }
+
+    public static List<String> convertToShowStorageVaultProperties(Cloud.StorageVaultPB vault) {
+        List<String> row = new ArrayList<>();
+        row.add(vault.getName());
+        row.add(vault.getId());
+        Cloud.HdfsVaultInfo.Builder builder = Cloud.HdfsVaultInfo.newBuilder();
+        builder.mergeFrom(vault.getHdfsInfo());
+        TextFormat.Printer printer = TextFormat.printer();
+        row.add(printer.shortDebugString(builder));
+        return row;
+    }
 }
