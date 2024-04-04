@@ -5080,6 +5080,35 @@ TEST(MetaServiceTest, LegacyUpdateAkSkTest) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+namespace detail {
+bool normalize_hdfs_prefix(std::string& prefix);
+bool normalize_hdfs_fs_name(std::string& fs_name);
+} // namespace detail
+
+TEST(MetaServiceTest, NormalizeHdfsConfTest) {
+    using namespace detail;
+    std::string prefix = "hdfs://127.0.0.1:8020/test";
+    EXPECT_FALSE(normalize_hdfs_prefix(prefix));
+    prefix = "test";
+    EXPECT_TRUE(normalize_hdfs_prefix(prefix));
+    EXPECT_EQ(prefix, "test");
+    prefix = "   test ";
+    EXPECT_TRUE(normalize_hdfs_prefix(prefix));
+    EXPECT_EQ(prefix, "test");
+    prefix = "  /test// ";
+    EXPECT_TRUE(normalize_hdfs_prefix(prefix));
+    EXPECT_EQ(prefix, "/test");
+    prefix = "/";
+    EXPECT_TRUE(normalize_hdfs_prefix(prefix));
+    EXPECT_EQ(prefix, "");
+
+    std::string fs_name;
+    EXPECT_FALSE(normalize_hdfs_fs_name(prefix));
+    fs_name = " hdfs://127.0.0.1:8020/  ";
+    EXPECT_TRUE(normalize_hdfs_fs_name(fs_name));
+    EXPECT_EQ(fs_name, "hdfs://127.0.0.1:8020");
+}
+
 TEST(MetaServiceTest, AddHdfsInfoTest) {
     auto meta_service = get_meta_service();
 
@@ -5150,7 +5179,14 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         AlterObjStoreInfoResponse res;
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        // Invalid fs name
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        req.mutable_hdfs()->mutable_hdfs_info()->mutable_build_conf()->set_fs_name(
+                "hdfs://ip:port");
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
         InstanceInfoPB instance;
         get_test_instance(instance);
         ASSERT_EQ(*(instance.resource_ids().begin()), "2");
@@ -5165,6 +5201,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         StorageVaultPB hdfs;
         hdfs.set_name("test_alter_add_hdfs_info_1");
         HdfsVaultInfo params;
+        params.mutable_build_conf()->set_fs_name("hdfs://ip:port");
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
