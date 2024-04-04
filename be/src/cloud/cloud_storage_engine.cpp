@@ -295,14 +295,14 @@ void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
 void CloudStorageEngine::_vacuum_stale_rowsets_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::vacuum_stale_rowsets_interval_s))) {
-        _tablet_mgr->vacuum_stale_rowsets();
+        _tablet_mgr->vacuum_stale_rowsets(_stop_background_threads_latch);
     }
 }
 
 void CloudStorageEngine::_sync_tablets_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::schedule_sync_tablets_interval_s))) {
-        _tablet_mgr->sync_tablets();
+        _tablet_mgr->sync_tablets(_stop_background_threads_latch);
     }
 }
 
