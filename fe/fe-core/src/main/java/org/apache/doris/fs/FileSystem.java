@@ -23,6 +23,7 @@ import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -86,4 +87,12 @@ public interface FileSystem {
     }
 
     Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
+
+    default Status listFiles(String remotePath, List<RemoteFile> result) {
+        throw new UnsupportedOperationException("Unsupported operation list files on current file system.");
+    }
+
+    default Status listDirectories(String remotePath, Set<String> result) {
+        throw new UnsupportedOperationException("Unsupported operation list directores on current file system.");
+    }
 }

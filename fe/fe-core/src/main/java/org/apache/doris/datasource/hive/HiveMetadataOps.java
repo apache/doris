@@ -75,6 +75,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         this.fs = new DFSFileSystem(catalog.getProperties());
     }
 
+    // for test
+    public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client, RemoteFileSystem fs) {
+        this.catalog = catalog;
+        this.client = client;
+        this.fs = fs;
+    }
+
+
     public HMSCachedClient getClient() {
         return client;
     }

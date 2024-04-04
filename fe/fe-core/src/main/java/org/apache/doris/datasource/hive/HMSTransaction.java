@@ -47,11 +47,13 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -115,8 +117,8 @@ public class HMSTransaction implements Transaction {
     }
 
     public void finishInsertTable(String dbName, String tbName) {
-        this.tbName = tbName;
         this.dbName = dbName;
+        this.tbName = tbName;
         List<THivePartitionUpdate> mergedPUs = mergePartitions(hivePartitionUpdates);
         Table table = getTable(dbName, tbName);
         List<Pair<THivePartitionUpdate, HivePartitionStatistics>> insertExistsPartitions = new ArrayList<>();
@@ -226,17 +228,10 @@ public class HMSTransaction implements Transaction {
                 }
             }
 
-            hmsCommitter.waitForAsyncFileSystemTasks();
-            hmsCommitter.doAddPartitionsTask();
-            hmsCommitter.doUpdateStatisticsTasks();
+            hmsCommitter.doCommit();
         } catch (Throwable t) {
             LOG.warn("Failed to commit for {}.{}, abort it.", dbName, tbName);
-            hmsCommitter.cancelUnStartedAsyncFileSystemTask();
-            hmsCommitter.undoUpdateStatisticsTasks();
-            hmsCommitter.undoAddPartitionsTask();
-            hmsCommitter.waitForAsyncFileSystemTaskSuppressThrowable();
-            hmsCommitter.runDirectoryClearUpTasksForAbort();
-            hmsCommitter.runRenameDirTasksForAbort();
+            hmsCommitter.rollback();
             throw t;
         } finally {
             hmsCommitter.runClearPathsForFinish();
@@ -354,7 +349,7 @@ public class HMSTransaction implements Transaction {
         }
     }
 
-    private static class UpdateStatisticsTask {
+    public static class UpdateStatisticsTask {
         private final String dbName;
         private final String tableName;
         private final Optional<String> partitionName;
@@ -442,7 +437,6 @@ public class HMSTransaction implements Transaction {
                     throw t;
                 }
             }
-            partitions.clear();
         }
 
         public List<List<String>> rollback(HiveMetadataOps hiveOps) {
@@ -548,7 +542,7 @@ public class HMSTransaction implements Transaction {
 
     private DeleteRecursivelyResult recursiveDeleteFiles(Path directory, boolean deleteEmptyDir) {
         try {
-            if (!fs.exists(directory.getName()).ok()) {
+            if (!fs.exists(directory.toString()).ok()) {
                 return new DeleteRecursivelyResult(true, ImmutableList.of());
             }
         } catch (Exception e) {
@@ -561,57 +555,53 @@ public class HMSTransaction implements Transaction {
     }
 
     private DeleteRecursivelyResult doRecursiveDeleteFiles(Path directory, boolean deleteEmptyDir) {
-        List<RemoteFile> remoteFiles = new ArrayList<>();
-
-        Status status = fs.list(directory.getName(), remoteFiles);
-        if (!status.ok()) {
+        List<RemoteFile> allFiles = new ArrayList<>();
+        Set<String> allDirs = new HashSet<>();
+        Status statusFile = fs.listFiles(directory.toString(), allFiles);
+        Status statusDir = fs.listDirectories(directory.toString(), allDirs);
+        if (!statusFile.ok() || !statusDir.ok()) {
             ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
             notDeletedEligibleItems.add(directory + "/*");
             return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
         }
 
-        boolean isEmptyDir = true;
-        List<String> notDeletedEligibleItems = new ArrayList<>();
-        for (RemoteFile file : remoteFiles) {
-            if (file.isFile()) {
-                Path filePath = file.getPath();
-                isEmptyDir = false;
-                // TODO Check if this file was created by this query
-                if (!deleteIfExists(filePath)) {
-                    notDeletedEligibleItems.add(filePath.toString());
-                }
-            } else if (file.isDirectory()) {
-                DeleteRecursivelyResult subResult = doRecursiveDeleteFiles(file.getPath(), deleteEmptyDir);
-                if (!subResult.dirNotExists()) {
-                    isEmptyDir = false;
-                }
-                if (!subResult.getNotDeletedEligibleItems().isEmpty()) {
-                    notDeletedEligibleItems.addAll(subResult.getNotDeletedEligibleItems());
-                }
-            } else {
-                isEmptyDir = false;
-                notDeletedEligibleItems.add(file.getPath().toString());
+        boolean allDescendentsDeleted = true;
+        ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
+        for (RemoteFile file : allFiles) {
+            String fileName = file.getName();
+            if (!deleteIfExists(new Path(fileName))) {
+                allDescendentsDeleted = false;
+                notDeletedEligibleItems.add(fileName);
             }
         }
 
-        if (isEmptyDir && deleteEmptyDir) {
-            Verify.verify(notDeletedEligibleItems.isEmpty());
+        for (String dir : allDirs) {
+            DeleteRecursivelyResult subResult = doRecursiveDeleteFiles(new Path(dir), deleteEmptyDir);
+            if (!subResult.dirNotExists()) {
+                allDescendentsDeleted = false;
+            }
+            if (!subResult.getNotDeletedEligibleItems().isEmpty()) {
+                notDeletedEligibleItems.addAll(subResult.getNotDeletedEligibleItems());
+            }
+        }
+
+        if (allDescendentsDeleted && deleteEmptyDir) {
+            Verify.verify(notDeletedEligibleItems.build().isEmpty());
             if (!deleteIfExists(directory)) {
                 return new DeleteRecursivelyResult(false, ImmutableList.of(directory + "/"));
             }
             // all items of the location have been deleted.
             return new DeleteRecursivelyResult(true, ImmutableList.of());
         }
-
-        return new DeleteRecursivelyResult(false, notDeletedEligibleItems);
+        return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
     }
 
     public boolean deleteIfExists(Path path) {
-        Status status = fs.delete(path.getName());
+        Status status = fs.delete(path.toString());
         if (status.ok()) {
             return true;
         }
-        return !fs.exists(path.getName()).ok();
+        return !fs.exists(path.toString()).ok();
     }
 
     public static class DatabaseTableName {
@@ -1039,9 +1029,6 @@ public class HMSTransaction implements Transaction {
         }
 
         private void undoAddPartitionsTask() {
-            if (addPartitionsTask.isEmpty()) {
-                return;
-            }
 
             HivePartition firstPartition = addPartitionsTask.getPartitions().get(0).getPartition();
             String dbName = firstPartition.getDbName();
@@ -1304,10 +1291,16 @@ public class HMSTransaction implements Transaction {
             }
         }
 
+        public void doNothing() {
+            // do nothing
+            // only for regression test and unit test to throw exception
+        }
+
         public void doCommit() {
             waitForAsyncFileSystemTasks();
             doAddPartitionsTask();
             doUpdateStatisticsTasks();
+            doNothing();
         }
 
         public void rollback() {

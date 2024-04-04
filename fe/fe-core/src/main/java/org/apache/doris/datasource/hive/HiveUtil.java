@@ -167,7 +167,9 @@ public final class HiveUtil {
         ImmutableMap.Builder<String, Partition> resultBuilder = ImmutableMap.builder();
         for (Map.Entry<String, List<String>> entry : partitionNameToPartitionValues.entrySet()) {
             Partition partition = partitionValuesToPartition.get(entry.getValue());
-            resultBuilder.put(entry.getKey(), partition);
+            if (partition != null) {
+                resultBuilder.put(entry.getKey(), partition);
+            }
         }
         return resultBuilder.build();
     }
