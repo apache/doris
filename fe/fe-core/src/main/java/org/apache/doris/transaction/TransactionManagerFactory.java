@@ -15,28 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+package org.apache.doris.transaction;
 
-public class HivePartitionWithStatistics {
-    private final String name;
-    private final HivePartition partition;
-    private final HivePartitionStatistics statistics;
+import org.apache.doris.datasource.hive.HiveMetadataOps;
 
-    public HivePartitionWithStatistics(String name, HivePartition partition, HivePartitionStatistics statistics) {
-        this.name = name;
-        this.partition = partition;
-        this.statistics = statistics;
-    }
+public class TransactionManagerFactory {
 
-    public String getName() {
-        return name;
-    }
-
-    public HivePartition getPartition() {
-        return partition;
-    }
-
-    public HivePartitionStatistics getStatistics() {
-        return statistics;
+    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops) {
+        return new HiveTransactionManager(ops);
     }
 }
