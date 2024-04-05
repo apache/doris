@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -42,4 +43,8 @@ public abstract class PhysicalTableSink<CHILD_TYPE extends Plan> extends Physica
             Statistics statistics, CHILD_TYPE child) {
         super(type, outputExprs, groupExpression, logicalProperties, physicalProperties, statistics, child);
     }
+
+    public abstract PhysicalProperties getRequirePhysicalProperties();
+
+    public abstract TableIf getTargetTable();
 }

@@ -22,9 +22,10 @@ suite("query20") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def ds = """SELECT UserID FROM hits WHERE UserID = 435090932899640449"""
-    qt_ds_shape_20 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT UserID FROM hits WHERE UserID = 435090932899640449"""
+    qt_ckbench_shape_20 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

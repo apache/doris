@@ -21,9 +21,10 @@ suite("query8") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def ds = """SELECT AdvEngineID, COUNT(*) FROM hits WHERE AdvEngineID <> 0 GROUP BY AdvEngineID ORDER BY COUNT(*) DESC"""
-    qt_ds_shape_8 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT AdvEngineID, COUNT(*) FROM hits WHERE AdvEngineID <> 0 GROUP BY AdvEngineID ORDER BY COUNT(*) DESC"""
+    qt_ckbench_shape_8 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

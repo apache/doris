@@ -41,6 +41,7 @@ import org.apache.doris.analysis.AlterJobStatusStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
+import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -115,6 +116,7 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.RevokeStmt;
+import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
@@ -229,6 +231,8 @@ public class DdlExecutor {
             env.getAuth().revoke(stmt);
         } else if (ddlStmt instanceof CreateRoleStmt) {
             env.getAuth().createRole((CreateRoleStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterRoleStmt) {
+            env.getAuth().alterRole((AlterRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRoleStmt) {
             env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
@@ -403,6 +407,8 @@ public class DdlExecutor {
             env.getBackupHandler().alterRepository((AlterRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateStorageVaultStmt) {
             env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
+        } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
+            env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStorageVaultStmt) ddlStmt);
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");

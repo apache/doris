@@ -17,9 +17,9 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.proto.InternalService;
@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -112,7 +113,7 @@ public class BackendServiceProxy {
     }
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
-        String realIp = NetUtils.getIpByHost(address.getHostname());
+        String realIp = Env.getCurrentEnv().getDnsCache().get(address.hostname);
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
                 && serviceClientExtIp.client.isNormalState()) {
@@ -225,7 +226,7 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(TNetworkAddress address,
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(TNetworkAddress address,
             TUniqueId finstId, Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest =
                 InternalService.PCancelPlanFragmentRequest.newBuilder()
@@ -241,8 +242,8 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(TNetworkAddress address,
-            PlanFragmentId fragmentId, TUniqueId queryId,
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(
+            TNetworkAddress address, PlanFragmentId fragmentId, TUniqueId queryId,
             Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()

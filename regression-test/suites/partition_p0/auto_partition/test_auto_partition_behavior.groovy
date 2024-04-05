@@ -116,7 +116,7 @@ suite("test_auto_partition_behavior") {
         ) ENGINE=OLAP
         AGGREGATE KEY(`k0`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`k0`, 'year')
+        auto partition by range (date_trunc(`k0`, 'year'))
         (
         )
         DISTRIBUTED BY HASH(`k0`) BUCKETS 10
@@ -186,66 +186,58 @@ suite("test_auto_partition_behavior") {
     sql """ insert overwrite table rewrite partition(p1) values ("Xxx") """
     qt_sql_overwrite2 """ select * from rewrite """ // Xxx
 
-    // prohibit NULLABLE auto partition column
-    // legacy
-    sql " set experimental_enable_nereids_planner=false "
-    test {
-        sql "drop table if exists test_null1"
-        sql """
-            create table test_null1(
-                k0 datetime(6) null
-            )
-            auto partition by range date_trunc(k0, 'hour')
-            (
-            )
-            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-            properties("replication_num" = "1");
+    sql " drop table if exists non_order; "
+    sql """
+        CREATE TABLE `non_order` (
+            `k0` int not null,
+            `k1` datetime(6) not null
+        )
+        auto partition by range (date_trunc(`k1`, 'year'))
+        (
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
         """
-        exception "The auto partition column must be NOT NULL"
-    }
-    test {
-        sql "drop table if exists test_null2"
-        sql """
-            create table test_null2(
-                k0 int null
-            )
-            auto partition by list (k0)
-            (
-            )
-            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-            properties("replication_num" = "1");
-        """
-        exception "The auto partition column must be NOT NULL"
-    }
-    // nereids
+    // insert
+    sql """ insert into non_order values (1, '2020-12-12'); """
+    sql """ insert into non_order values (2, '2023-12-12'); """
+    sql """ insert into non_order values (3, '2013-12-12'); """
+    qt_sql_non_order1 """ select * from non_order where k1 = '2020-12-12'; """
+    qt_sql_non_order2 """ select * from non_order where k1 = '2023-12-12'; """
+    qt_sql_non_order3 """ select * from non_order where k1 = '2013-12-12'; """
+
+    // range partition can't auto create null partition
     sql " set experimental_enable_nereids_planner=true "
+    sql "drop table if exists invalid_null_range"
     test {
-        sql "drop table if exists test_null1"
         sql """
-            create table test_null1(
+            create table invalid_null_range(
                 k0 datetime(6) null
             )
-            auto partition by range date_trunc(k0, 'hour')
+            auto partition by range (date_trunc(k0, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
             properties("replication_num" = "1");
         """
-        exception "The auto partition column must be NOT NULL"
+        exception "AUTO RANGE PARTITION doesn't support NULL column"
     }
+    sql " set experimental_enable_nereids_planner=false "
+    sql "drop table if exists invalid_null_range"
     test {
-        sql "drop table if exists test_null2"
         sql """
-            create table test_null2(
-                k0 int null
+            create table invalid_null_range(
+                k0 datetime(6) null
             )
-            auto partition by list (k0)
+            auto partition by range (date_trunc(k0, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
             properties("replication_num" = "1");
         """
-        exception "The auto partition column must be NOT NULL"
+        exception "AUTO RANGE PARTITION doesn't support NULL column"
     }
 
     // PROHIBIT different timeunit of interval when use both auto & dynamic partition
@@ -257,7 +249,7 @@ suite("test_auto_partition_behavior") {
                 k1 DATETIME NOT NULL,
                 col1 int 
             )
-            auto PARTITION BY RANGE date_trunc(`k1`, 'year') ()
+            auto partition by range (date_trunc(`k1`, 'year')) ()
             DISTRIBUTED BY HASH(k1)
             PROPERTIES
             (
@@ -282,7 +274,7 @@ suite("test_auto_partition_behavior") {
                 k1 DATETIME NOT NULL,
                 col1 int 
             )
-            auto PARTITION BY RANGE date_trunc(`k1`, 'year') ()
+            auto partition by range (date_trunc(`k1`, 'year')) ()
             DISTRIBUTED BY HASH(k1)
             PROPERTIES
             (
@@ -327,7 +319,7 @@ suite("test_auto_partition_behavior") {
                 k0 datetime(6) NOT null,
                 k1 datetime(6) NOT null
             )
-            auto partition by range date_trunc(k0, k1, 'hour')
+            auto partition by range (date_trunc(k0, k1, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
@@ -350,7 +342,7 @@ suite("test_auto_partition_behavior") {
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
             properties("replication_num" = "1");
         """
-        exception "partition expr date_trunc is illegal!"
+        exception "auto create partition only support one slotRef in function expr"
     }
     // test displacement of partition function
     test{

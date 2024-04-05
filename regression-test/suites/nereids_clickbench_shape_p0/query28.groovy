@@ -22,9 +22,10 @@ suite("query28") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def ds = """SELECT CounterID, AVG(length(URL)) AS l, COUNT(*) AS c FROM hits WHERE URL <> '' GROUP BY CounterID HAVING COUNT(*) > 100000 ORDER BY l DESC LIMIT 25"""
-    qt_ds_shape_28 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT CounterID, AVG(length(URL)) AS l, COUNT(*) AS c FROM hits WHERE URL <> '' GROUP BY CounterID HAVING COUNT(*) > 100000 ORDER BY l DESC LIMIT 25"""
+    qt_ckbench_shape_28 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

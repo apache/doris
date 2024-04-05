@@ -533,6 +533,11 @@ public class LeadingHint extends Hint {
                 stackTopLevel = currentLevel;
             }
         }
+        if (stack.size() > 1) {
+            this.setStatus(HintStatus.SYNTAX_ERROR);
+            this.setErrorMessage("please check your brace pairs in leading");
+            return null;
+        }
 
         LogicalJoin finalJoin = (LogicalJoin) stack.pop().second.first;
         // we want all filters been remove

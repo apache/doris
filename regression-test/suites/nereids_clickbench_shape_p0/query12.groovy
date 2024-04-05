@@ -22,9 +22,10 @@ suite("query12") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def ds = """SELECT MobilePhone, MobilePhoneModel, COUNT(DISTINCT UserID) AS u FROM hits WHERE MobilePhoneModel <> '' GROUP BY MobilePhone, MobilePhoneModel ORDER BY u DESC LIMIT 10"""
-    qt_ds_shape_12 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT MobilePhone, MobilePhoneModel, COUNT(DISTINCT UserID) AS u FROM hits WHERE MobilePhoneModel <> '' GROUP BY MobilePhone, MobilePhoneModel ORDER BY u DESC LIMIT 10"""
+    qt_ckbench_shape_12 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

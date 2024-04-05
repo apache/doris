@@ -17,16 +17,6 @@
 
 #pragma once
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-#include <CLucene.h> // IWYU pragma: keep
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-#include <CLucene/config/repl_wchar.h>
-#include <CLucene/util/Misc.h>
 #include <butil/macros.h>
 #include <glog/logging.h>
 #include <stddef.h>
@@ -34,18 +24,14 @@
 
 #include <atomic>
 #include <memory>
-#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
-#include <utility>
-#include <variant>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
-#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
@@ -53,23 +39,9 @@
 #include "util/slice.h"
 #include "util/time.h"
 
-namespace lucene {
-namespace search {
-class IndexSearcher;
-} // namespace search
-
-namespace util::bkd {
-class bkd_reader;
-}
-
-} // namespace lucene
-
 namespace doris {
-struct OlapReaderStatistics;
-
 namespace segment_v2 {
 class InvertedIndexCacheHandle;
-class DorisCompoundReader;
 
 class InvertedIndexSearcherCache {
 public:

@@ -66,6 +66,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
@@ -189,7 +190,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Long> tabletIds = unboundRelation.getTabletIds();
         if (!CollectionUtils.isEmpty(partIds)) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds,
+                    (OlapTable) table, tableQualifier, partIds,
                     tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
             Optional<String> indexName = unboundRelation.getIndexName();
@@ -206,11 +207,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         : PreAggStatus.off("For direct index scan.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, indexId,
+                    (OlapTable) table, tableQualifier, tabletIds, indexId,
                     preAggStatus, unboundRelation.getHints(), unboundRelation.getTableSample());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints(),
+                    (OlapTable) table, tableQualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
             }
         }
@@ -238,10 +239,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
                                                List<String> tableQualifier, CascadesContext cascadesContext) {
+        List<String> qualifierWithoutTableName = Lists.newArrayList();
+        qualifierWithoutTableName.addAll(tableQualifier.subList(0, tableQualifier.size() - 1));
         switch (table.getType()) {
             case OLAP:
             case MATERIALIZED_VIEW:
-                return makeOlapScan(table, unboundRelation, tableQualifier);
+                return makeOlapScan(table, unboundRelation, qualifierWithoutTableName);
             case VIEW:
                 View view = (View) table;
                 String inlineViewDef = view.getInlineViewDef();
@@ -249,30 +252,34 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                 return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
             case HMS_EXTERNAL_TABLE:
-                if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {
-                    String hiveCatalog = ((HMSExternalTable) table).getCatalog().getName();
-                    String ddlSql = ((HMSExternalTable) table).getViewText();
+                HMSExternalTable hmsTable = (HMSExternalTable) table;
+                if (Config.enable_query_hive_views && hmsTable.isView()) {
+                    String hiveCatalog = hmsTable.getCatalog().getName();
+                    String ddlSql = hmsTable.getViewText();
                     Plan hiveViewPlan = parseAndAnalyzeHiveView(hiveCatalog, ddlSql, cascadesContext);
                     return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                 }
-                return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier,
-                    unboundRelation.getTableSample());
+                hmsTable.setScanParams(unboundRelation.getScanParams());
+                return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
+                        qualifierWithoutTableName, unboundRelation.getTableSample());
             case ICEBERG_EXTERNAL_TABLE:
             case PAIMON_EXTERNAL_TABLE:
             case MAX_COMPUTE_EXTERNAL_TABLE:
-                return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table, tableQualifier,
-                    unboundRelation.getTableSample());
+            case TRINO_CONNECTOR_EXTERNAL_TABLE:
+                return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
+                        qualifierWithoutTableName, unboundRelation.getTableSample());
             case SCHEMA:
-                return new LogicalSchemaScan(unboundRelation.getRelationId(), table, tableQualifier);
+                return new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
             case JDBC_EXTERNAL_TABLE:
             case JDBC:
-                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
+                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
             case ODBC:
-                return new LogicalOdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
+                return new LogicalOdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
             case ES_EXTERNAL_TABLE:
-                return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
+                return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table,
+                        qualifierWithoutTableName);
             case TEST_EXTERNAL_TABLE:
-                return new LogicalTestScan(unboundRelation.getRelationId(), table, tableQualifier);
+                return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
             default:
                 throw new AnalysisException("Unsupported tableType " + table.getType());
         }

@@ -20,11 +20,12 @@
 suite("query2") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    def ds = """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """
         SELECT COUNT(*) FROM hits WHERE AdvEngineID <> 0
     """
-    qt_ds_shape_2 """
+    qt_ckbench_shape_2 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

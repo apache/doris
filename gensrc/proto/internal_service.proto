@@ -308,6 +308,8 @@ message PTabletKeyLookupRequest {
     // For cloud
     // version to read
     optional int64 version = 7;
+    // serilized from TQueryOptions 
+    optional bytes query_options = 8;
 }
 
 message PTabletKeyLookupResponse {

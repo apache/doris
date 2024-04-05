@@ -131,6 +131,8 @@ struct RuntimeFilterParams {
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
+
+    bool bloom_filter_size_calculated_by_ndv = false;
     bool null_aware = false;
 };
 
@@ -432,7 +434,7 @@ protected:
     bool _opt_remote_rf;
     // `_need_local_merge` indicates whether this runtime filter is global on this BE.
     // All runtime filters should be merged on each BE before push_to_remote or publish.
-    const bool _need_local_merge = false;
+    bool _need_local_merge = false;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 };

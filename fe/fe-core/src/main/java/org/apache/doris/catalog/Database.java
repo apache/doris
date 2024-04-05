@@ -501,7 +501,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
             if (table == null) {
-                throw new MetaNotFoundException("unknown table, tableId=" + tableId);
+                throw new MetaNotFoundException("table not found, tableId=" + tableId);
             }
             tableList.add(table);
         }

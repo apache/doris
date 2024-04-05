@@ -74,6 +74,36 @@ if [[ "${fdb_conf}" != "" ]]; then
     echo "${fdb_conf}" >fdb.cluster
 fi
 
+# prepare java jars
+HDFS_LIB_DIR="lib/hadoop_hdfs"
+if [[ -d "${HDFS_LIB_DIR}" ]]; then
+    # add hadoop libs
+    for f in "${HDFS_LIB_DIR}/common"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${HDFS_LIB_DIR}/common/lib"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${HDFS_LIB_DIR}/hdfs"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${HDFS_LIB_DIR}/hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+fi
+
+export CLASSPATH="${DORIS_CLASSPATH}"
+
+echo "CLASSPATH=${CLASSPATH}"
+
+if [[ -z "${DORIS_JAVA_HOME}" ]]; then
+    DORIS_JAVA_HOME=${JAVA_HOME:+${JAVA_HOME}}
+fi
+
+echo "DORIS_JAVA_HOME=${DORIS_JAVA_HOME}"
+
+export LD_LIBRARY_PATH="${DORIS_JAVA_HOME}/lib/server:${LD_LIBRARY_PATH}"
+
 # report converage for unittest
 # input param is unittest binary file list
 function report_coverage() {

@@ -122,11 +122,19 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             context.setLeadingJoin(false);
             return;
         }
+        statementContext.addHint(hint);
+        context.getHintMap().put("Leading", hint);
+        if (hint.getTablelist().size() < 2) {
+            hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            context.getHintMap().get("Leading").setStatus(Hint.HintStatus.UNUSED);
+            hint.setErrorMessage("less than two tables is not allowed in leading clause");
+            statementContext.addHint(hint);
+            context.setLeadingJoin(false);
+            return;
+        }
         if (!hint.isSyntaxError()) {
             hint.setStatus(Hint.HintStatus.SUCCESS);
         }
-        statementContext.addHint(hint);
-        context.getHintMap().put("Leading", hint);
         if (hints.get("ordered") != null || ConnectContext.get().getSessionVariable().isDisableJoinReorder()
                 || context.isLeadingDisableJoinReorder()) {
             context.setLeadingJoin(false);

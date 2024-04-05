@@ -252,6 +252,9 @@ void Checker::do_inspect(const InstanceInfoPB& instance) {
                                  << instance.instance_id();
         return;
     }
+
+    // TODO(plat1ko): No bucket lifecycle for hdfs vaults, should skip them or find similar
+    // semantics for them.
     int64_t bucket_lifecycle_days = 0;
     if (checker.get_bucket_lifecycle(&bucket_lifecycle_days) != 0) {
         LOG_CHECK_INTERVAL_ALARM << "failed to get bucket lifecycle, instance_id="
@@ -360,7 +363,7 @@ int InstanceChecker::init(const InstanceInfoPB& instance) {
         s3_conf.bucket = obj_info.bucket();
         s3_conf.prefix = obj_info.prefix();
 #ifdef UNIT_TEST
-        auto accessor = std::make_shared<MockAccessor>(s3_conf);
+        auto accessor = std::make_shared<MockS3Accessor>(s3_conf);
 #else
         auto accessor = std::make_shared<S3Accessor>(std::move(s3_conf));
 #endif

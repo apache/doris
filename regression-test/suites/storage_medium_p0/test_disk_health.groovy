@@ -16,6 +16,10 @@
 // under the License.
 
 suite('test_disk_health', 'p0,p1,p2') {
+    if (isCloudMode()) {
+        return
+    }
+
     def backends = sql_return_maparray "SHOW PROC '/backends'"
     backends.each { be ->
         def disks = sql_return_maparray "SHOW PROC '/backends/${be.BackendId}'"

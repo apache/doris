@@ -798,12 +798,6 @@ public class TypeCoercionUtils {
             commonType = DoubleType.INSTANCE;
         }
 
-        // we treat decimalv2 vs dicimalv3, largeint or bigint as decimalv3 way.
-        if ((t1.isDecimalV3Type() || t1.isBigIntType() || t1.isLargeIntType()) && t2.isDecimalV2Type()
-                || t1.isDecimalV2Type() && (t2.isDecimalV3Type() || t2.isBigIntType() || t2.isLargeIntType())) {
-            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
-        }
-
         if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             // to be consistent with old planner
             // see findCommonType() method in ArithmeticExpr.java
@@ -830,6 +824,12 @@ public class TypeCoercionUtils {
         // mod retain float % float
         if (binaryArithmetic instanceof Mod && t1.isFloatType() && t2.isFloatType()) {
             return binaryArithmetic;
+        }
+
+        // we treat decimalv2 vs dicimalv3, largeint or bigint as decimalv3 way.
+        if ((t1.isDecimalV3Type() || t1.isBigIntType() || t1.isLargeIntType()) && t2.isDecimalV2Type()
+                || t1.isDecimalV2Type() && (t2.isDecimalV3Type() || t2.isBigIntType() || t2.isLargeIntType())) {
+            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
         }
 
         // if double as common type, all arithmetic should cast both side to double
@@ -1047,11 +1047,20 @@ public class TypeCoercionUtils {
     public static Expression processCompoundPredicate(CompoundPredicate compoundPredicate) {
         // check
         compoundPredicate.checkLegalityBeforeTypeCoercion();
-        List<Expression> children = compoundPredicate.children().stream()
-                .map(e -> e.getDataType().isNullType() ? new NullLiteral(BooleanType.INSTANCE)
-                        : castIfNotSameType(e, BooleanType.INSTANCE))
-                .collect(Collectors.toList());
-        return compoundPredicate.withChildren(children);
+        ImmutableList.Builder<Expression> newChildren
+                = ImmutableList.builderWithExpectedSize(compoundPredicate.arity());
+        boolean changed = false;
+        for (Expression child : compoundPredicate.children()) {
+            Expression newChild;
+            if (child.getDataType().isNullType()) {
+                newChild = new NullLiteral(BooleanType.INSTANCE);
+            } else {
+                newChild = castIfNotSameType(child, BooleanType.INSTANCE);
+            }
+            changed |= child != newChild;
+            newChildren.add(newChild);
+        }
+        return changed ? compoundPredicate.withChildren(newChildren.build()) : compoundPredicate;
     }
 
     private static boolean canCompareDate(DataType t1, DataType t2) {
@@ -1294,9 +1303,17 @@ public class TypeCoercionUtils {
 
         // variant type
         if ((leftType.isVariantType() && (rightType.isStringLikeType() || rightType.isNumericType()))) {
+            if (rightType.isDecimalLikeType()) {
+                // TODO support decimal
+                return Optional.of(DoubleType.INSTANCE);
+            }
             return Optional.of(rightType);
         }
         if ((rightType.isVariantType() && (leftType.isStringLikeType() || leftType.isNumericType()))) {
+            if (leftType.isDecimalLikeType()) {
+                // TODO support decimal
+                return Optional.of(DoubleType.INSTANCE);
+            }
             return Optional.of(leftType);
         }
         return Optional.of(DoubleType.INSTANCE);
@@ -1627,6 +1644,9 @@ public class TypeCoercionUtils {
     }
 
     private static boolean supportCompare(DataType dataType) {
+        if (dataType.isArrayType()) {
+            return true;
+        }
         if (!(dataType instanceof PrimitiveType)) {
             return false;
         }

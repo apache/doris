@@ -72,7 +72,7 @@ public:
     }
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                size_t block_size = 1);
+                const TQueryOptions& query_options, size_t block_size = 1);
 
     std::unique_ptr<vectorized::Block> get_block();
 
@@ -275,6 +275,8 @@ struct Metrics {
 // An util to do tablet lookup
 class PointQueryExecutor {
 public:
+    ~PointQueryExecutor();
+
     Status init(const PTabletKeyLookupRequest* request, PTabletKeyLookupResponse* response);
 
     Status lookup_up();
@@ -314,6 +316,7 @@ private:
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
     // snapshot read version

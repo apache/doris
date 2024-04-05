@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,9 +36,12 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /** abstract physical hive sink */
 public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTableSink<CHILD_TYPE> implements Sink {
@@ -44,7 +49,6 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     private final HMSExternalDatabase database;
     private final HMSExternalTable targetTable;
     private final List<Column> cols;
-    private final List<Long> partitionIds;
 
     /**
      * constructor
@@ -52,12 +56,11 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     public PhysicalHiveTableSink(HMSExternalDatabase database,
                                  HMSExternalTable targetTable,
                                  List<Column> cols,
-                                 List<Long> partitionIds,
                                  List<NamedExpression> outputExprs,
                                  Optional<GroupExpression> groupExpression,
                                  LogicalProperties logicalProperties,
                                  CHILD_TYPE child) {
-        this(database, targetTable, cols, partitionIds, outputExprs, groupExpression, logicalProperties,
+        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, child);
     }
 
@@ -67,7 +70,6 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     public PhysicalHiveTableSink(HMSExternalDatabase database,
                                  HMSExternalTable targetTable,
                                  List<Column> cols,
-                                 List<Long> partitionIds,
                                  List<NamedExpression> outputExprs,
                                  Optional<GroupExpression> groupExpression,
                                  LogicalProperties logicalProperties,
@@ -79,12 +81,23 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
         this.database = Objects.requireNonNull(database, "database != null in PhysicalHiveTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalHiveTableSink");
         this.cols = Utils.copyRequiredList(cols);
-        this.partitionIds = Utils.copyRequiredList(partitionIds);
+    }
+
+    public HMSExternalDatabase getDatabase() {
+        return database;
+    }
+
+    public HMSExternalTable getTargetTable() {
+        return targetTable;
+    }
+
+    public List<Column> getCols() {
+        return cols;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs, groupExpression,
+        return new PhysicalHiveTableSink<>(database, targetTable, cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -100,20 +113,46 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+        return new PhysicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+        return new PhysicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+        return new PhysicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+    }
+
+    /**
+     * get output physical properties
+     */
+    @Override
+    public PhysicalProperties getRequirePhysicalProperties() {
+        Set<String> hivePartitionKeys = targetTable.getPartitionColumnNames();
+        if (!hivePartitionKeys.isEmpty()) {
+            List<Integer> columnIdx = new ArrayList<>();
+            List<Column> fullSchema = targetTable.getFullSchema();
+            for (int i = 0; i < fullSchema.size(); i++) {
+                Column column = fullSchema.get(i);
+                if (hivePartitionKeys.contains(column.getName())) {
+                    columnIdx.add(i);
+                }
+            }
+            // mapping partition id
+            List<ExprId> exprIds = columnIdx.stream()
+                    .map(idx -> child().getOutput().get(idx).getExprId())
+                    .collect(Collectors.toList());
+            DistributionSpecTableSinkHashPartitioned shuffleInfo = new DistributionSpecTableSinkHashPartitioned();
+            shuffleInfo.setOutputColExprIds(exprIds);
+            return new PhysicalProperties(shuffleInfo);
+        }
+        return PhysicalProperties.SINK_RANDOM_PARTITIONED;
     }
 }

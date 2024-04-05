@@ -218,7 +218,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 // We couldn't find the equivalent expression in output expressions and group-by expressions,
                 // so we should check whether the expression is valid.
                 if (expression instanceof SlotReference) {
-                    throw new AnalysisException(expression.toSql() + " in having clause should be grouped by.");
+                    throw new AnalysisException(expression.toSql() + " should be grouped by.");
                 } else if (expression instanceof AggregateFunction) {
                     if (checkWhetherNestedAggregateFunctionsExist((AggregateFunction) expression)) {
                         throw new AnalysisException("Aggregate functions in having clause can't be nested: "
@@ -316,13 +316,18 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     }
 
     private boolean checkSort(LogicalSort<? extends Plan> logicalSort) {
-        return logicalSort.getOrderKeys().stream()
-                .map(OrderKey::getExpr)
-                .map(Expression::getInputSlots)
-                .flatMap(Set::stream)
-                .anyMatch(s -> !logicalSort.child().getOutputSet().contains(s))
-                || logicalSort.getOrderKeys().stream()
-                .map(OrderKey::getExpr)
-                .anyMatch(e -> e.containsType(AggregateFunction.class));
+        Plan child = logicalSort.child();
+        for (OrderKey orderKey : logicalSort.getOrderKeys()) {
+            Expression expr = orderKey.getExpr();
+            if (expr.anyMatch(AggregateFunction.class::isInstance)) {
+                return true;
+            }
+            for (Slot inputSlot : expr.getInputSlots()) {
+                if (!child.getOutputSet().contains(inputSlot)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

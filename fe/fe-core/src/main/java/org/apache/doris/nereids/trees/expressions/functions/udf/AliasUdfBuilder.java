@@ -51,6 +51,11 @@ public class AliasUdfBuilder extends UdfBuilder {
     }
 
     @Override
+    public Class<? extends BoundFunction> functionClass() {
+        return AliasUdf.class;
+    }
+
+    @Override
     public boolean canApply(List<?> arguments) {
         if (arguments.size() != aliasUdf.arity()) {
             return false;

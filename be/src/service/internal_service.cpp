@@ -532,6 +532,9 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
 
         const auto& fragment_list = t_request.params_list;
+        if (fragment_list.empty()) {
+            return Status::InternalError("Invalid TPipelineFragmentParamsList!");
+        }
         MonotonicStopWatch timer;
         timer.start();
         for (const TPipelineFragmentParams& fragment : fragment_list) {
@@ -640,6 +643,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
 
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                fmt::format("{}#{}", params.format_type, params.file_type));
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
+
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
@@ -682,13 +690,17 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            static_cast<void>(
-                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
+            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -1589,6 +1601,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                       << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
                       << ", txn_id=" << rowset_meta->txn_id();
 
+        auto tablet_scheme = rowset_meta->tablet_schema();
         for (auto& segment : segments_size) {
             uint64_t file_size = segment.second;
             uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
@@ -1626,15 +1639,27 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                     auto index_id = index_size.indexid();
                     auto size = index_size.size();
                     auto suffix_path = index_size.suffix_path();
-                    std::string remote_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id,
-                                                                         suffix_path);
-                    std::string remote_inverted_index_file_url = construct_url(
-                            get_host_port(host, http_port), token, remote_inverted_index_file);
+                    std::string remote_inverted_index_file;
+                    std::string local_inverted_index_file;
+                    std::string remote_inverted_index_file_url;
+                    if (tablet_scheme->get_inverted_index_storage_format() !=
+                        InvertedIndexStorageFormatPB::V1) {
+                        remote_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_name(remote_file_path);
+                        remote_inverted_index_file_url = construct_url(
+                                get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                    std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id,
-                                                                         suffix_path);
+                        local_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_name(local_file_path);
+                    } else {
+                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                                remote_file_path, index_id, suffix_path);
+                        remote_inverted_index_file_url = construct_url(
+                                get_host_port(host, http_port), token, remote_inverted_index_file);
+
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                                local_file_path, index_id, suffix_path);
+                    }
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);
                     if (!st.ok()) {
@@ -1648,6 +1673,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                                     rowset_meta->tablet_id(), node_id, false);
                         return;
                     }
+
                     VLOG_CRITICAL
                             << "succeed to download inverted index file for slave replica. url="
                             << remote_inverted_index_file_url

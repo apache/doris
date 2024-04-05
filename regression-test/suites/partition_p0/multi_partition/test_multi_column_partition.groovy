@@ -77,21 +77,21 @@ suite("test_multi_partition_key", "p0") {
     )
 
     // partition columns are int & datetime
-    test {
-        sql """
-        CREATE TABLE err_1 ( 
-          k1 TINYINT NOT NULL,  
-          k5 DATETIME NOT NULL, 
-          v1 DATE REPLACE NOT NULL) 
-        PARTITION BY RANGE(k1,k5) ( 
-          PARTITION partition_a VALUES LESS THAN ("-127","2010-01-01"), 
-          PARTITION partition_e VALUES LESS THAN ("4","2010-01-01"), 
-          PARTITION partition_f VALUES LESS THAN MAXVALUE ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 53
-        PROPERTIES("replication_allocation" = "tag.location.default: 1")
-        """
-        exception "Invalid datetime value: 2010-01-01"
-    }
+
+    sql " drop table if exists err_1 "
+    sql """
+    CREATE TABLE err_1 ( 
+      k1 TINYINT NOT NULL,  
+      k5 DATETIME NOT NULL, 
+      v1 DATE REPLACE NOT NULL) 
+    PARTITION BY RANGE(k1,k5) ( 
+      PARTITION partition_a VALUES LESS THAN ("-127","2010-01-01"), 
+      PARTITION partition_e VALUES LESS THAN ("4","2010-01-01"), 
+      PARTITION partition_f VALUES LESS THAN MAXVALUE ) 
+    DISTRIBUTED BY HASH(k1) BUCKETS 53
+    PROPERTIES("replication_allocation" = "tag.location.default: 1")
+    """
+
     testPartitionTbl(
             "test_multi_partition_key_2",
             """

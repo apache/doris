@@ -22,9 +22,10 @@ suite("query13") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def ds = """SELECT SearchPhrase, COUNT(*) AS c FROM hits WHERE SearchPhrase <> '' GROUP BY SearchPhrase ORDER BY c DESC LIMIT 10"""
-    qt_ds_shape_13 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT SearchPhrase, COUNT(*) AS c FROM hits WHERE SearchPhrase <> '' GROUP BY SearchPhrase ORDER BY c DESC LIMIT 10"""
+    qt_ckbench_shape_13 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

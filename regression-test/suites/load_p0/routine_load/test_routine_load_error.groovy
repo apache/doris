@@ -97,7 +97,7 @@ suite("test_routine_load_error","p0") {
                     continue;
                 }
                 log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                assertEquals(res[0][17].toString(), "ErrorReason{code=errCode = 100, msg='failed to get stream load plan, errCode = 7, detailMessage = table not found, table name is routine_load_invalid_table'}")
+                assertTrue(res[0][17].toString().contains("table not found"))
                 break;
             }
         } finally {

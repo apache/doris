@@ -20,9 +20,10 @@
 suite("query5") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    def ds = """SELECT COUNT(DISTINCT UserID) FROM hits"""
-    qt_ds_shape_5 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT COUNT(DISTINCT UserID) FROM hits"""
+    qt_ckbench_shape_5 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

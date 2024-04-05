@@ -58,7 +58,6 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -69,8 +68,15 @@ import java.util.stream.Collectors;
  * The abstract class for all materialized view rules
  */
 public abstract class AbstractMaterializedViewRule implements ExplorationRuleFactory {
-    public static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET = Sets.newHashSet(JoinType.INNER_JOIN,
-            JoinType.LEFT_OUTER_JOIN);
+    public static final Set<JoinType> SUPPORTED_JOIN_TYPE_SET = ImmutableSet.of(
+            JoinType.INNER_JOIN,
+            JoinType.LEFT_OUTER_JOIN,
+            JoinType.RIGHT_OUTER_JOIN,
+            JoinType.FULL_OUTER_JOIN,
+            JoinType.LEFT_SEMI_JOIN,
+            JoinType.RIGHT_SEMI_JOIN,
+            JoinType.LEFT_ANTI_JOIN,
+            JoinType.RIGHT_ANTI_JOIN);
 
     /**
      * The abstract template method for query rewrite, it contains the main logic, try to rewrite query by
@@ -116,10 +122,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // TODO Just Check query queryPlan firstly, support multi later.
         StructInfo queryStructInfo = queryStructInfos.get(0);
         if (!checkPattern(queryStructInfo)) {
-            cascadesContext.getMaterializationContexts().forEach(ctx ->
-                    ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
-                            () -> String.format("queryPlan is %s", queryPlan.treeString())
-                    ));
+            for (MaterializationContext ctx : cascadesContext.getMaterializationContexts()) {
+                ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
+                        () -> String.format("queryPlan is %s", queryPlan.treeString())
+                );
+            }
             return validQueryStructInfos;
         }
         validQueryStructInfos.add(queryStructInfo);
@@ -222,7 +229,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                     viewToQuerySlotMapping));
                     continue;
                 }
-                rewrittenPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
+                rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
             }
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
@@ -287,7 +294,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         if (originOutputs.size() != rewrittenPlan.getOutput().size()) {
             return null;
         }
-        Map<Slot, ExprId> originSlotToRewrittenExprId = Maps.newHashMap();
+        Map<Slot, ExprId> originSlotToRewrittenExprId = Maps.newLinkedHashMap();
         for (int i = 0; i < originOutputs.size(); i++) {
             originSlotToRewrittenExprId.put(originOutputs.get(i), rewrittenPlan.getOutput().get(i).getExprId());
         }
@@ -299,7 +306,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         rewrittenPlan = rewrittenPlanContext.getRewritePlan();
 
         // for get right nullable after rewritten, we need this map
-        Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newHashMap();
+        Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
         for (Slot slot : rewrittenPlan.getOutput()) {
             exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
         }

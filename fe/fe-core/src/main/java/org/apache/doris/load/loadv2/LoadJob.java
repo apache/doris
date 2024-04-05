@@ -250,9 +250,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      */
     abstract Set<String> getTableNames() throws MetaNotFoundException;
 
-    // return true if the corresponding transaction is done(COMMITTED, FINISHED, CANCELLED)
+    // return true if the corresponding transaction is done(COMMITTED, FINISHED, CANCELLED, RETRY)
     public boolean isTxnDone() {
-        return state == JobState.COMMITTED || state == JobState.FINISHED || state == JobState.CANCELLED;
+        return state == JobState.COMMITTED || state == JobState.FINISHED
+                || state == JobState.CANCELLED || state == JobState.RETRY;
     }
 
     // return true if job is done(FINISHED/CANCELLED/UNKNOWN)

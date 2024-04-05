@@ -215,6 +215,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
     _read_options.use_page_cache = _read_context->use_page_cache;
     _read_options.tablet_schema = _read_context->tablet_schema;
+    _read_options.enable_unique_key_merge_on_write =
+            _read_context->enable_unique_key_merge_on_write;
     _read_options.record_rowids = _read_context->record_rowids;
     _read_options.use_topn_opt = _read_context->use_topn_opt;
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
@@ -225,7 +227,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.runtime_state = _read_context->runtime_state;
     _read_options.output_columns = _read_context->output_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
-    _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
     _read_options.io_ctx.is_disposable = _read_context->reader_type != ReaderType::READER_QUERY;
     _read_options.target_cast_type_for_variants = _read_context->target_cast_type_for_variants;
     if (_read_context->runtime_state != nullptr) {
@@ -234,6 +235,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_context->runtime_state->query_options().enable_file_cache;
         _read_options.io_ctx.is_disposable =
                 _read_context->runtime_state->query_options().disable_file_cache;
+    }
+
+    _read_options.io_ctx.expiration_time =
+            read_context->ttl_seconds > 0 && _rowset->rowset_meta()->newest_write_timestamp() > 0
+                    ? _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds
+                    : 0;
+    if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
+        _read_options.io_ctx.expiration_time = 0;
     }
 
     // load segments

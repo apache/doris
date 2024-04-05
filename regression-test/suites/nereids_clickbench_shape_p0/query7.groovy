@@ -21,9 +21,10 @@ suite("query7") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    def ds = """SELECT MIN(EventDate), MAX(EventDate) FROM hits"""
-    qt_ds_shape_7 """
+    sql 'set topn_opt_limit_threshold = 1024'
+    def ckBench = """SELECT MIN(EventDate), MAX(EventDate) FROM hits"""
+    qt_ckbench_shape_7 """
     explain shape plan
-    ${ds}
+    ${ckBench}
     """
 }

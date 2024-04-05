@@ -2,11 +2,21 @@
 -- !sql --
 internal
 
+-- !show_db --
+DORIS
+Doris
+doris
+doris_test
+information_schema
+init_db
+mysql
+show_test_do_not_modify
+
 -- !sql --
 internal
 
 -- !sql --
-mysql_jdbc_catalog
+mysql_jdbc5_catalog
 
 -- !ex_tb0 --
 111	abc
@@ -207,6 +217,7 @@ key_column_usage
 metadata_name_ids
 parameters
 partitions
+processlist
 profiling
 referential_constraints
 routines
@@ -273,10 +284,12 @@ doris3	20
 -- !specified_database_1 --
 doris_test
 information_schema
+mysql
 
 -- !specified_database_2 --
 doris_test
 information_schema
+mysql
 
 -- !specified_database_3 --
 DORIS
@@ -285,12 +298,11 @@ doris
 information_schema
 init_db
 mysql
-performance_schema
 show_test_do_not_modify
-sys
 
 -- !specified_database_4 --
 information_schema
+mysql
 
 -- !ex_tb1 --
 {"k1":"v1", "k2":"v2"}
@@ -429,9 +441,7 @@ doris_test
 information_schema
 init_db
 mysql
-performance_schema
 show_test_do_not_modify
-sys
 
 -- !sql --
 doris_1

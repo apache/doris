@@ -35,10 +35,14 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_colu
         {"MAX_CONCURRENCY", TYPE_BIGINT, sizeof(int64_t), true},
         {"MAX_QUEUE_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
         {"QUEUE_TIMEOUT", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CPU_HARD_LIMIT", TYPE_STRING, sizeof(StringRef), true},
+        {"CPU_HARD_LIMIT", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"MAX_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"MIN_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true}};
+        {"MIN_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
+        {"SPILL_THRESHOLD_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SPILL_THRESHOLD_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true},
+};
 
 SchemaWorkloadGroupsScanner::SchemaWorkloadGroupsScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_WORKLOAD_GROUPS) {}

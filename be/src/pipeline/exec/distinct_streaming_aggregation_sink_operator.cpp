@@ -52,16 +52,18 @@ Status DistinctStreamingAggSinkOperator::sink(RuntimeState* state, vectorized::B
         }
         RETURN_IF_ERROR(
                 _node->_distinct_pre_agg_with_serialized_key(in_block, _output_block.get()));
-
+        bool stop_emplace_flag = _node->is_stop_emplace_flag();
         // get enough data or reached limit rows, need push block to queue
-        if (_node->limit() != -1 &&
+        if (!stop_emplace_flag && _node->limit() != -1 &&
             (_output_block->rows() + _output_distinct_rows) >= _node->limit()) {
             auto limit_rows = _node->limit() - _output_distinct_rows;
             _output_block->set_num_rows(limit_rows);
             _output_distinct_rows += limit_rows;
             _data_queue->push_block(std::move(_output_block));
-        } else if (_output_block->rows() >= state->batch_size()) {
-            _output_distinct_rows += _output_block->rows();
+        } else if (stop_emplace_flag || _output_block->rows() >= state->batch_size()) {
+            if (!stop_emplace_flag) { // if stop_emplace_flag = true, will be return rows directly, not get distinct
+                _output_distinct_rows += _output_block->rows();
+            }
             _data_queue->push_block(std::move(_output_block));
         }
     }

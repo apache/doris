@@ -107,7 +107,14 @@ public:
     void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
-    bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
+
+    void cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
+                                     const std::string& msg);
+    Status cancel_pipeline_context(const int fragment_id, const PPlanFragmentCancelReason& reason,
+                                   const std::string& msg);
+    void set_pipeline_context(const int fragment_id,
+                              std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
+    void cancel(std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {
@@ -124,6 +131,8 @@ public:
         std::lock_guard<std::mutex> l(_exec_status_lock);
         return _exec_status;
     }
+
+    void set_execution_dependency_ready();
 
     void set_ready_to_execute_only();
 
@@ -238,6 +247,29 @@ public:
 
     bool is_nereids() const { return _is_nereids; }
 
+    WorkloadGroupPtr workload_group() const { return _workload_group; }
+
+    void inc_running_big_mem_op_num() {
+        _running_big_mem_op_num.fetch_add(1, std::memory_order_relaxed);
+    }
+    void dec_running_big_mem_op_num() {
+        _running_big_mem_op_num.fetch_sub(1, std::memory_order_relaxed);
+    }
+    int32_t get_running_big_mem_op_num() {
+        return _running_big_mem_op_num.load(std::memory_order_relaxed);
+    }
+
+    void set_weighted_mem(int64_t weighted_limit, int64_t weighted_consumption) {
+        std::lock_guard<std::mutex> l(_weighted_mem_lock);
+        _weighted_consumption = weighted_consumption;
+        _weighted_limit = weighted_limit;
+    }
+    void get_weighted_mem_info(int64_t& weighted_limit, int64_t& weighted_consumption) {
+        std::lock_guard<std::mutex> l(_weighted_mem_lock);
+        weighted_limit = _weighted_limit;
+        weighted_consumption = _weighted_consumption;
+    }
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -259,8 +291,6 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
-    std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
-    std::mutex pipeline_lock;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -273,6 +303,7 @@ private:
     int64_t _bytes_limit = 0;
     bool _is_pipeline = false;
     bool _is_nereids = false;
+    std::atomic<int> _running_big_mem_op_num = 0;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -287,6 +318,8 @@ private:
     // And all fragments of this query will start execution when this is set to true.
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};
+
+    void _init_query_mem_tracker();
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
@@ -311,6 +344,13 @@ private:
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+
+    std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
+    std::mutex _pipeline_map_write_lock;
+
+    std::mutex _weighted_mem_lock;
+    int64_t _weighted_consumption = 0;
+    int64_t _weighted_limit = 0;
 };
 
 } // namespace doris

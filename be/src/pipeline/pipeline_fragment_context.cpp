@@ -60,6 +60,7 @@
 #include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/hive_table_sink_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/mysql_scan_operator.h" // IWYU pragma: keep
@@ -134,18 +135,25 @@ PipelineFragmentContext::PipelineFragmentContext(
           _create_time(MonotonicNanos()) {
     _fragment_watcher.start();
     _start_time = VecDateTimeValue::local_time();
+    _query_thread_context = {query_id, _query_ctx->query_mem_tracker};
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
+    // The memory released by the query end is recorded in the query mem tracker.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     auto st = _query_ctx->exec_status();
+    _query_ctx.reset();
+    _tasks.clear();
     if (_runtime_state != nullptr) {
-        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         _call_back(_runtime_state.get(), &st);
         _runtime_state.reset();
     } else {
         _call_back(_runtime_state.get(), &st);
     }
+    _root_pipeline.reset();
+    _pipelines.clear();
+    _sink.reset();
+    _multi_cast_stream_sink_senders.clear();
 }
 
 bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
@@ -158,6 +166,10 @@ bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
     return false;
 }
 
+// Must not add lock in this method. Because it will call query ctx cancel. And
+// QueryCtx cancel will call fragment ctx cancel. And Also Fragment ctx's running
+// Method like exchange sink buffer will call query ctx cancel. If we add lock here
+// There maybe dead lock.
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
     LOG_INFO("PipelineFragmentContext::cancel")
@@ -171,30 +183,29 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // can not be cancelled if other fragments set the query_ctx cancelled, this will
     // make result receiver on fe be stocked on rpc forever until timeout...
     // We need a more detail discussion.
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
-        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
-            _is_report_on_cancel = false;
-        } else {
-            LOG(WARNING) << "PipelineFragmentContext "
-                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << " is canceled, cancel message: " << msg;
-        }
-
-        _runtime_state->set_process_status(_query_ctx->exec_status());
-        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
-        // For stream load the fragment's query_id == load id, it is set in FE.
-        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
-        if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(msg);
-        }
-
-        // must close stream_mgr to avoid dead lock in Exchange Node
-        // TODO bug llj  fix this other instance will not cancel
-        _exec_env->vstream_mgr()->cancel(_fragment_instance_id, Status::Cancelled(msg));
-        // Cancel the result queue manager used by spark doris connector
-        // TODO pipeline incomp
-        // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
+    _query_ctx->cancel(msg, Status::Cancelled(msg));
+    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+        _is_report_on_cancel = false;
+    } else {
+        LOG(WARNING) << "PipelineFragmentContext "
+                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                     << " is canceled, cancel message: " << msg;
     }
+
+    _runtime_state->set_process_status(_query_ctx->exec_status());
+    // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+    // For stream load the fragment's query_id == load id, it is set in FE.
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+    if (stream_load_ctx != nullptr) {
+        stream_load_ctx->pipe->cancel(msg);
+    }
+
+    // must close stream_mgr to avoid dead lock in Exchange Node
+    // TODO bug llj  fix this other instance will not cancel
+    _exec_env->vstream_mgr()->cancel(_fragment_instance_id, Status::Cancelled(msg));
+    // Cancel the result queue manager used by spark doris connector
+    // TODO pipeline incomp
+    // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
 }
 
 PipelinePtr PipelineFragmentContext::add_pipeline() {
@@ -247,10 +258,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
 
     _runtime_state->set_task_execution_context(shared_from_this());
-    _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
-    SCOPED_ATTACH_TASK(_runtime_state.get());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
     _runtime_state->set_be_number(local_params.backend_num);
 
     if (request.__isset.backend_id) {
@@ -457,7 +467,11 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
                 // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
                 _runtime_state->load_channel_profile()->pretty_print(&ss);
             }
-            VLOG_FILE << ss.str();
+
+            VLOG_FILE << "Query " << print_id(this->get_query_id()) << " fragment "
+                      << this->get_fragment_id() << " instance "
+                      << print_id(this->get_fragment_instance_id()) << " profile:\n"
+                      << ss.str();
         }
         auto st = send_report(false);
         if (!st.ok()) {
@@ -546,7 +560,12 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         auto* agg_node = dynamic_cast<vectorized::AggregationNode*>(node);
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
-        if (agg_node->is_aggregate_evaluators_empty()) {
+        if (agg_node->is_probe_expr_ctxs_empty() && node->row_desc().num_slots() == 0) {
+            return Status::InternalError("Illegal aggregate node " +
+                                         std::to_string(agg_node->id()) +
+                                         ": group by and output is empty");
+        }
+        if (agg_node->is_aggregate_evaluators_empty() && !agg_node->is_probe_expr_ctxs_empty()) {
             auto data_queue = std::make_shared<DataQueue>(1);
             OperatorBuilderPtr pre_agg_sink =
                     std::make_shared<DistinctStreamingAggSinkOperatorBuilder>(node->id(), agg_node,
@@ -557,7 +576,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
                     std::make_shared<DistinctStreamingAggSourceOperatorBuilder>(
                             node->id(), agg_node, data_queue);
             RETURN_IF_ERROR(cur_pipe->add_operator(pre_agg_source));
-        } else if (agg_node->is_streaming_preagg()) {
+        } else if (agg_node->is_streaming_preagg() && !agg_node->is_probe_expr_ctxs_empty()) {
             auto data_queue = std::make_shared<DataQueue>(1);
             OperatorBuilderPtr pre_agg_sink = std::make_shared<StreamingAggSinkOperatorBuilder>(
                     node->id(), agg_node, data_queue);
@@ -771,7 +790,7 @@ void PipelineFragmentContext::close_sink() {
     }
 }
 
-void PipelineFragmentContext::close_if_prepare_failed() {
+void PipelineFragmentContext::close_if_prepare_failed(Status /*st*/) {
     if (_tasks.empty()) {
         if (_root_plan) {
             static_cast<void>(_root_plan->close(_runtime_state.get()));
@@ -823,12 +842,14 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                                                                       _sink.get());
         break;
     }
-    case TDataSinkType::MYSQL_TABLE_SINK:
-    case TDataSinkType::JDBC_TABLE_SINK:
-    case TDataSinkType::ODBC_TABLE_SINK: {
-        sink_ = std::make_shared<TableSinkOperatorBuilder>(next_operator_builder_id(), _sink.get());
+    case TDataSinkType::HIVE_TABLE_SINK: {
+        sink_ = std::make_shared<HiveTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                               _sink.get());
         break;
     }
+    case TDataSinkType::MYSQL_TABLE_SINK:
+    case TDataSinkType::JDBC_TABLE_SINK:
+    case TDataSinkType::ODBC_TABLE_SINK:
     case TDataSinkType::RESULT_FILE_SINK: {
         sink_ = std::make_shared<ResultFileSinkOperatorBuilder>(
                 thrift_sink.result_file_sink.dest_node_id, _sink.get());
@@ -913,7 +934,9 @@ void PipelineFragmentContext::_close_fragment_instance() {
         if (_runtime_state->load_channel_profile()) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
-        LOG(INFO) << ss.str();
+
+        LOG_INFO("Query {} fragment {} instance {} profile:\n {}", print_id(this->_query_id),
+                 this->_fragment_id, print_id(this->get_fragment_instance_id()), ss.str());
     }
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(

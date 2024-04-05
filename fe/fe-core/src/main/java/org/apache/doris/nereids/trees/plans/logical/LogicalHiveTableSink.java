@@ -46,42 +46,42 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     // bound data sink
     private final HMSExternalDatabase database;
     private final HMSExternalTable targetTable;
-    private final List<Column> cols;
-    private final List<Long> partitionIds;
     private final DMLCommandType dmlCommandType;
 
     /**
      * constructor
      */
-    public LogicalHiveTableSink(HMSExternalDatabase database, HMSExternalTable targetTable, List<Column> cols,
-                                List<Long> partitionIds, List<NamedExpression> outputExprs,
-                                DMLCommandType dmlCommandType, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, child);
+    public LogicalHiveTableSink(HMSExternalDatabase database,
+                                HMSExternalTable targetTable,
+                                List<Column> cols,
+                                List<NamedExpression> outputExprs,
+                                DMLCommandType dmlCommandType,
+                                Optional<GroupExpression> groupExpression,
+                                Optional<LogicalProperties> logicalProperties,
+                                CHILD_TYPE child) {
+        super(PlanType.LOGICAL_HIVE_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalHiveTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalHiveTableSink");
-        this.cols = Utils.copyRequiredList(cols);
         this.dmlCommandType = dmlCommandType;
-        this.partitionIds = Utils.copyRequiredList(partitionIds);
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalHiveTableSink<>(database, targetTable, cols, partitionIds, output,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, output,
                 dmlCommandType, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalHiveTableSink only accepts one child");
-        return new LogicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalHiveTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), child());
     }
 
@@ -91,14 +91,6 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
 
     public HMSExternalTable getTargetTable() {
         return targetTable;
-    }
-
-    public List<Column> getCols() {
-        return cols;
-    }
-
-    public List<Long> getPartitionIds() {
-        return partitionIds;
     }
 
     public DMLCommandType getDmlCommandType() {
@@ -119,13 +111,12 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
         LogicalHiveTableSink<?> that = (LogicalHiveTableSink<?>) o;
         return dmlCommandType == that.dmlCommandType
                 && Objects.equals(database, that.database)
-                && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols)
-                && Objects.equals(partitionIds, that.partitionIds);
+                && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, partitionIds, dmlCommandType);
+        return Objects.hash(super.hashCode(), database, targetTable, cols, dmlCommandType);
     }
 
     @Override
@@ -135,7 +126,6 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
                 "cols", cols,
-                "partitionIds", partitionIds,
                 "dmlCommandType", dmlCommandType
         );
     }
@@ -147,14 +137,14 @@ public class LogicalHiveTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalHiveTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+        return new LogicalHiveTableSink<>(database, targetTable, cols, outputExprs,
                 dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 }

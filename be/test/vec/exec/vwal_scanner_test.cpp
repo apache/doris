@@ -40,7 +40,6 @@ public:
     VWalScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _profile = _runtime_state.runtime_profile();
-        _runtime_state.init_mem_trackers();
         WARN_IF_ERROR(_runtime_state.init(_unique_id, _query_options, _query_globals, _env),
                       "fail to init _runtime_state");
     }
@@ -64,10 +63,13 @@ private:
     std::string _wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
     int64_t _db_id = 1;
     int64_t _tb_id = 2;
-    int64_t _txn_id = 789;
-    int64_t _version = 0;
+    int64_t _txn_id_1 = 123;
+    int64_t _txn_id_2 = 456;
+    uint32_t _version_0 = 0;
+    uint32_t _version_1 = 1;
     int64_t _backend_id = 1001;
-    std::string _label = "test";
+    std::string _label_1 = "test1";
+    std::string _label_2 = "test2";
 
     TupleId _dst_tuple_id = 0;
     RuntimeState _runtime_state;
@@ -238,8 +240,6 @@ void VWalScannerTest::init() {
     _scan_range.params.format_type = TFileFormatType::FORMAT_WAL;
     _kv_cache.reset(new ShardedKVCache(48));
 
-    _runtime_state._wal_id = _txn_id;
-
     _master_info.reset(new TMasterInfo());
     _env = ExecEnv::GetInstance();
     _env->_master_info = _master_info.get();
@@ -249,11 +249,19 @@ void VWalScannerTest::init() {
     _env->_wal_manager = WalManager::create_shared(_env, _wal_dir);
     std::string base_path;
     auto st = _env->_wal_manager->_init_wal_dirs_info();
-    st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id, _label, base_path);
-    std::string src = "./be/test/exec/test_data/wal_scanner/wal";
+    st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id_1, _label_1, base_path,
+                                             _version_0);
+    std::string src = "./be/test/exec/test_data/wal_scanner/wal_version0";
     std::string dst = _wal_dir + "/" + std::to_string(_db_id) + "/" + std::to_string(_tb_id) + "/" +
-                      std::to_string(_version) + "_" + std::to_string(_backend_id) + "_" +
-                      std::to_string(_txn_id) + "_" + _label;
+                      std::to_string(_version_0) + "_" + std::to_string(_backend_id) + "_" +
+                      std::to_string(_txn_id_1) + "_" + _label_1;
+    std::filesystem::copy(src, dst);
+    st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id_2, _label_2, base_path,
+                                             _version_1);
+    src = "./be/test/exec/test_data/wal_scanner/wal_version1";
+    dst = _wal_dir + "/" + std::to_string(_db_id) + "/" + std::to_string(_tb_id) + "/" +
+          std::to_string(_version_1) + "_" + std::to_string(_backend_id) + "_" +
+          std::to_string(_txn_id_2) + "_" + _label_2;
     std::filesystem::copy(src, dst);
 }
 
@@ -269,11 +277,26 @@ void VWalScannerTest::generate_scanner(std::shared_ptr<VFileScanner>& scanner) {
 }
 
 TEST_F(VWalScannerTest, normal) {
+    // read wal file with wal_version=0
+    _runtime_state._wal_id = _txn_id_1;
     std::shared_ptr<VFileScanner> scanner = nullptr;
     generate_scanner(scanner);
     std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;
     auto st = scanner->get_block(&_runtime_state, block.get(), &eof);
+    ASSERT_TRUE(st.ok());
+    EXPECT_EQ(3, block->rows());
+    block->clear();
+    st = scanner->get_block(&_runtime_state, block.get(), &eof);
+    ASSERT_TRUE(st.ok());
+    EXPECT_EQ(0, block->rows());
+    ASSERT_TRUE(eof);
+    WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+    // read wal file with wal_version=1
+    eof = false;
+    _runtime_state._wal_id = _txn_id_2;
+    generate_scanner(scanner);
+    st = scanner->get_block(&_runtime_state, block.get(), &eof);
     ASSERT_TRUE(st.ok());
     EXPECT_EQ(3, block->rows());
     block->clear();
@@ -296,6 +319,7 @@ TEST_F(VWalScannerTest, fail_with_not_equal) {
                       [](auto&& args) { *try_any_cast<size_t*>(args[0]) = 2; });
     sp->enable_processing();
 
+    _runtime_state._wal_id = _txn_id_1;
     std::shared_ptr<VFileScanner> scanner = nullptr;
     generate_scanner(scanner);
     std::unique_ptr<vectorized::Block> block(new vectorized::Block());

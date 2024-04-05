@@ -136,7 +136,7 @@ public class TrinoConnectorExternalTable extends ExternalTable {
                     null,
                     true,
                     columnMetadata.getComment(),
-                    columnMetadata.isHidden(),
+                    !columnMetadata.isHidden(),
                     Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             columns.add(column);
         }

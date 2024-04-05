@@ -153,6 +153,7 @@ public class RoutineLoadManager implements Writable {
 
     }
 
+    // cloud override
     public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
             throws UserException {
         // check load auth
@@ -184,7 +185,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
-                    throws DdlException {
+                    throws UserException {
         writeLock();
         try {
             // check if db.routineLoadName has been used
@@ -484,7 +485,7 @@ public class RoutineLoadManager implements Writable {
         try {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
 
-            // 1. Find if the given BE id has available slots
+            // 1. Find if the given BE id has more than half of available slots
             if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
                 // get the previousBackend info
                 Backend previousBackend = Env.getCurrentSystemInfo().getBackend(previousBeId);
@@ -499,7 +500,7 @@ public class RoutineLoadManager implements Writable {
                     } else {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
                     }
-                    if (idleTaskNum > 0) {
+                    if (idleTaskNum > (Config.max_routine_load_task_num_per_be >> 1)) {
                         return previousBeId;
                     }
                 }
@@ -542,7 +543,7 @@ public class RoutineLoadManager implements Writable {
      * @return
      * @throws LoadException
      */
-    private List<Long> getAvailableBackendIds(long jobId) throws LoadException {
+    protected List<Long> getAvailableBackendIds(long jobId) throws LoadException {
         RoutineLoadJob job = getJob(jobId);
         if (job == null) {
             throw new LoadException("job " + jobId + " does not exist");

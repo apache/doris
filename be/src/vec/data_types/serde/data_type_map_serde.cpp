@@ -325,8 +325,8 @@ void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
 }
 
 void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                             arrow::ArrayBuilder* array_builder, int start,
-                                             int end) const {
+                                             arrow::ArrayBuilder* array_builder, int start, int end,
+                                             const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
     auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
@@ -360,15 +360,15 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
             checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
 
             key_serde->write_column_to_arrow(*key_mutable_data, nullptr, key_builder, 0,
-                                             key_mutable_data->size());
+                                             key_mutable_data->size(), ctz);
             value_serde->write_column_to_arrow(*value_mutable_data, nullptr, value_builder, 0,
-                                               value_mutable_data->size());
+                                               value_mutable_data->size(), ctz);
         } else {
             checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
             key_serde->write_column_to_arrow(nested_keys_column, nullptr, key_builder,
-                                             offsets[r - 1], offsets[r]);
+                                             offsets[r - 1], offsets[r], ctz);
             value_serde->write_column_to_arrow(nested_values_column, nullptr, value_builder,
-                                               offsets[r - 1], offsets[r]);
+                                               offsets[r - 1], offsets[r], ctz);
         }
     }
 }

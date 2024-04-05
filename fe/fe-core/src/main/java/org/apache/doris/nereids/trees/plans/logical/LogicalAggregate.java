@@ -200,9 +200,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     @Override
     public List<Slot> computeOutput() {
-        return outputExpressions.stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Slot> outputSlots = ImmutableList.builderWithExpectedSize(outputExpressions.size());
+        for (NamedExpression outputExpression : outputExpressions) {
+            outputSlots.add(outputExpression.toSlot());
+        }
+        return outputSlots.build();
     }
 
     @Override

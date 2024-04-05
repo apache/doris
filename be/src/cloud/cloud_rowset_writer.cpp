@@ -17,7 +17,7 @@
 
 #include "cloud/cloud_rowset_writer.h"
 
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/rowset/rowset_factory.h"
 
 namespace doris {
