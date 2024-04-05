@@ -148,7 +148,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     return Status::OK();
 }
 
-Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
+Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
+                                                            std::string* json_result) {
     uint64_t tablet_id = 0;
     uint64_t table_id = 0;
 
