@@ -152,7 +152,7 @@ void Decoder::init(FieldSchema* field_schema, cctz::time_zone* ctz) {
     const auto& schema = field_schema->parquet_schema;
     if (schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP) {
         const auto& timestamp_info = schema.logicalType.TIMESTAMP;
-        if (!timestamp_info.isAdjustedToUTC) {
+        if (timestamp_info.isAdjustedToUTC) {
             // should set timezone to utc+0
             _decode_params->ctz = const_cast<cctz::time_zone*>(&_decode_params->utc0);
         }
