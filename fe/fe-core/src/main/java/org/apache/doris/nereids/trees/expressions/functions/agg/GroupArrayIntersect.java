@@ -54,7 +54,7 @@ public class GroupArrayIntersect extends AggregateFunction
      * constructor with 1 argument.
      */
     public GroupArrayIntersect(boolean distinct, Expression arg) {
-        super("group_array_intersect", distinct, arg);
+        super("group_array_intersect", false, arg);
     }
 
     /**
