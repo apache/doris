@@ -383,6 +383,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
@@ -628,6 +629,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
             scalar(InttoUuid.class, "int_to_uuid"),
+            scalar(Strcmp.class, "strcmp"),
             scalar(Ipv4NumToString.class, "ipv4_num_to_string", "inet_ntoa"),
             scalar(Ipv4StringToNum.class, "ipv4_string_to_num"),
             scalar(Ipv4StringToNumOrDefault.class, "ipv4_string_to_num_or_default"),

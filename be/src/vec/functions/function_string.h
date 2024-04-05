@@ -294,6 +294,62 @@ private:
     }
 };
 
+class FunctionStrcmp : public IFunction {
+public:
+    static constexpr auto name = "strcmp";
+
+    static FunctionPtr create() { return std::make_shared<FunctionStrcmp>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt16>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& arg0_column =
+                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        const auto& arg1_column =
+                assert_cast<const ColumnString&>(*block.get_by_position(arguments[1]).column);
+
+        auto result_column = ColumnInt16::create(input_rows_count);
+        auto& result_data = result_column->get_data();
+        auto null_column = ColumnUInt8::create(input_rows_count);
+        auto& null_map = null_column->get_data();
+
+        for (int row = 0; row < input_rows_count; row++) {
+            null_map[row] = false;
+            if (arg0_column.is_nullable() || arg1_column.is_nullable()) {
+                null_map[row] = true;
+                continue;
+            }
+
+            auto arg0 = arg0_column.get_data_at(row).to_string();
+            auto arg1 = arg1_column.get_data_at(row).to_string();
+
+            Int16* result_cell = &result_data[row];
+            *result_cell = strcmp(arg0.c_str(), arg1.c_str());
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(result_column), std::move(null_column)));
+        return Status::OK();
+    }
+
+    static int strcmp(const char* arg0, const char* arg1) {
+        int ret = std::strcmp(arg0, arg1);
+        if (ret < 0) {
+            return -1;
+        } else if (ret > 0) {
+            return 1;
+        }
+        return 0;
+    }
+};
+
 struct SubstringUtilOld {
     static constexpr auto name = "substring";
 
