@@ -333,6 +333,16 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
+    public int getMinPipelineExecutorSize() {
+        if (ConnectContext.get() != null
+                && Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster(false))) {
+            return 1;
+        }
+
+        return super.getMinPipelineExecutorSize();
+    }
+
+    @Override
     public List<Backend> getBackendsByCurrentCluster() throws UserException {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
