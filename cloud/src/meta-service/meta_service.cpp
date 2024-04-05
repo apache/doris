@@ -543,7 +543,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         std::string key;
         std::string val;
         instance_key(key_info, &key);
-        
+
         err = txn0->get(key, &val);
         LOG(INFO) << "get instance_key=" << hex(key);
 

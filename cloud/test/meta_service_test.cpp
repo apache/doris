@@ -5945,9 +5945,10 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 
         brpc::Controller cntl;
         CreateTabletsResponse response;
-        meta_service->create_tablets(
-                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &request, &response, nullptr);
-        ASSERT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT) << response.status().msg();
+        meta_service->create_tablets(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &request, &response, nullptr);
+        ASSERT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+                << response.status().msg();
     }
 
     // try to use default
@@ -5959,8 +5960,8 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 
         brpc::Controller cntl;
         CreateTabletsResponse res;
-        meta_service->create_tablets(
-                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        meta_service->create_tablets(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
         // failed because no default
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
     }
@@ -5999,13 +6000,13 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 
         auto sp = SyncPoint::get_instance();
         sp->set_call_back("create_tablets::pred",
-                      [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
+                          [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
         sp->enable_processing();
 
         brpc::Controller cntl;
         CreateTabletsResponse res;
-        meta_service->create_tablets(
-                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        meta_service->create_tablets(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         ASSERT_EQ(res.storage_vault_id(), "1");
         ASSERT_EQ(res.storage_vault_name(), "built_in_storage_vault");
@@ -6022,13 +6023,13 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 
         auto sp = SyncPoint::get_instance();
         sp->set_call_back("create_tablets::pred",
-                      [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
+                          [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
         sp->enable_processing();
 
         brpc::Controller cntl;
         CreateTabletsResponse res;
-        meta_service->create_tablets(
-                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        meta_service->create_tablets(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
 
         sp->clear_call_back("create_tablets::pred");
