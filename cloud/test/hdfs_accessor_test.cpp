@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    if (!cloud::init_glog("s3_accessor_test")) {
+    if (!cloud::init_glog("hdfs_accessor_test")) {
         std::cerr << "failed to init glog" << std::endl;
         return -1;
     }
@@ -101,7 +101,7 @@ TEST(HdfsAccessorTest, normal) {
     ret = accessor.list("dir_1", &files);
     ASSERT_EQ(ret, 0);
     ASSERT_EQ(files.size(), 1);
-    EXPECT_EQ(files[0].path, "file_4");
+    EXPECT_EQ(files[0].path, "dir_1/file_4");
 
     ret = accessor.delete_object("file_2");
     ASSERT_EQ(ret, 0);
