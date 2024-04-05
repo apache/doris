@@ -125,19 +125,13 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler
     return ostr;
 }
 
-LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use)
-        : _use_cnt(num_use),
-          _load_id(load_id),
+LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
+                               std::shared_ptr<IndexToTabletSchema> schema_map,
+                               std::shared_ptr<IndexToEnableMoW> mow_map)
+        : _load_id(load_id),
           _src_id(src_id),
-          _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
-          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {};
-
-LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
-        : _use_cnt(stub._use_cnt.load()),
-          _load_id(stub._load_id),
-          _src_id(stub._src_id),
-          _tablet_schema_for_index(stub._tablet_schema_for_index),
-          _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
+          _tablet_schema_for_index(schema_map),
+          _enable_unique_mow_for_index(mow_map) {};
 
 LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_is_closed.load()) {
@@ -241,23 +235,12 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 
 // CLOSE_LOAD
 Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
-    {
-        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
-        _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
-                                  tablets_to_commit.end());
-    }
-    if (--_use_cnt > 0) {
-        return Status::OK();
-    }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
-    {
-        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
-        for (const auto& tablet : _tablets_to_commit) {
-            *header.add_tablets() = tablet;
-        }
+    for (const auto& tablet : tablets_to_commit) {
+        *header.add_tablets() = tablet;
     }
     return _encode_and_send(header);
 }
@@ -267,7 +250,7 @@ Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
-    header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
+    header.set_opcode(doris::PStreamHeader::GET_SCHEMA);
     std::ostringstream oss;
     oss << "fetching tablet schema from stream " << _stream_id
         << ", load id: " << print_id(_load_id) << ", tablet id:";

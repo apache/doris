@@ -367,7 +367,9 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}/{name}",
                                       injection_point_action);
 #endif
-
+    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
+                                      clear_file_cache_action);
 }
 // NOLINTEND(readability-function-size)
 

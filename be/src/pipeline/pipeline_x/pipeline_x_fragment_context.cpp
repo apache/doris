@@ -131,7 +131,6 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
-    std::lock_guard<std::mutex> l(_cancel_lock);
     LOG_INFO("PipelineXFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
@@ -140,25 +139,24 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     if (reason == PPlanFragmentCancelReason::TIMEOUT) {
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
-        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
-            _is_report_on_cancel = false;
-        } else {
-            for (auto& id : _fragment_instance_ids) {
-                LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
-            }
+    _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
+    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+        _is_report_on_cancel = false;
+    } else {
+        for (auto& id : _fragment_instance_ids) {
+            LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
         }
-        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
-        // For stream load the fragment's query_id == load id, it is set in FE.
-        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
-        if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(msg);
-        }
-
-        // Cancel the result queue manager used by spark doris connector
-        // TODO pipeline incomp
-        // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     }
+    // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+    // For stream load the fragment's query_id == load id, it is set in FE.
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+    if (stream_load_ctx != nullptr) {
+        stream_load_ctx->pipe->cancel(msg);
+    }
+
+    // Cancel the result queue manager used by spark doris connector
+    // TODO pipeline incomp
+    // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
             task->clear_blocking_state();
@@ -1334,11 +1332,11 @@ void PipelineXFragmentContext::close_if_prepare_failed(Status st) {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             DCHECK(!t->is_pending_finish());
-            WARN_IF_ERROR(t->close(Status::OK()), "close_if_prepare_failed failed: ");
+            WARN_IF_ERROR(t->close(st), "close_if_prepare_failed failed: ");
             close_a_pipeline();
         }
     }
-    _query_ctx->cancel(true, st.to_string(), st, _fragment_id);
+    _query_ctx->cancel(st.to_string(), st, _fragment_id);
 }
 
 void PipelineXFragmentContext::_close_fragment_instance() {

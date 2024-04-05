@@ -104,7 +104,7 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_stub_pool.h"
+#include "vec/sink/load_stream_map_pool.h"
 #include "vec/spill/spill_stream_manager.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
@@ -245,7 +245,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
-    _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
+    _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
@@ -595,7 +595,7 @@ void ExecEnv::destroy() {
     _stream_load_executor.reset();
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
-    _load_stream_stub_pool.reset();
+    _load_stream_map_pool.reset();
     _file_cache_open_fd_cache.reset();
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory

@@ -68,18 +68,22 @@ public class StorageVaultMgr {
         builder.setHdfs(vaultBuilder.build());
         builder.setOp(Operation.SET_DEFAULT_VAULT);
         String vaultId;
+        LOG.info("try to set vault {} as default vault", stmt.getStorageVaultName());
         try {
             Cloud.AlterObjStoreInfoResponse resp =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(builder.build());
             if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("failed to alter storage vault response: {} ", resp);
+                LOG.warn("failed to set default storage vault response: {}, vault name {}",
+                        resp, stmt.getStorageVaultName());
                 throw new DdlException(resp.getStatus().getMsg());
             }
             vaultId = resp.getStorageVaultId();
         } catch (RpcException e) {
-            LOG.warn("failed to alter storage vault due to RpcException: {}", e);
+            LOG.warn("failed to set default storage vault due to RpcException: {}, vault name {}",
+                    e, stmt.getStorageVaultName());
             throw new DdlException(e.getMessage());
         }
+        LOG.info("succeed to set {} as default vault, vault id {}", stmt.getStorageVaultName(), vaultId);
         setDefaultStorageVault(Pair.of(stmt.getStorageVaultName(), vaultId));
     }
 

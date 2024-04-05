@@ -811,10 +811,10 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
     io::FileWriterOptions opts {
             .write_file_cache = _context.write_file_cache,
             .is_cold_data = _context.is_hot_data,
-            .file_cache_expiration = static_cast<int64_t>(
+            .file_cache_expiration =
                     _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
                             ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
-                            : 0)};
+                            : 0};
     Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;

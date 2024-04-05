@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.ConfigBase.ConfField;
+
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -2536,6 +2538,7 @@ public class Config extends ConfigBase {
             "Whether to enable proxy protocol"
     })
     public static boolean enable_proxy_protocol = false;
+    public static int profile_async_collect_expire_time_secs = 5;
 
     // Used to check compatibility when upgrading.
     @ConfField
@@ -2641,6 +2644,7 @@ public class Config extends ConfigBase {
     public static int drop_user_notify_ms_max_times = 86400;
 
     @ConfField(mutable = true)
+
     public static long cloud_tablet_rebalancer_interval_second = 20;
 
     @ConfField(mutable = true)
@@ -2669,6 +2673,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean cloud_preheating_enabled = true;
+
+    @ConfField(mutable = true, masterOnly = false)
+    public static String security_checker_class_name = "";
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

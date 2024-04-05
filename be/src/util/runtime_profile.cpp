@@ -617,7 +617,7 @@ int64_t RuntimeProfile::units_per_second(const RuntimeProfile::Counter* total_co
     }
 
     double secs = static_cast<double>(timer->value()) / 1000.0 / 1000.0 / 1000.0;
-    return total_counter->value() / secs;
+    return int64_t(total_counter->value() / secs);
 }
 
 int64_t RuntimeProfile::counter_sum(const std::vector<Counter*>* counters) {

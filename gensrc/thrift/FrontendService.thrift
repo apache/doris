@@ -494,7 +494,6 @@ struct TFeResult {
     1000: optional string cloud_cluster
     1001: optional bool noAuth
 }
-
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -525,6 +524,7 @@ struct TMasterOpRequest {
     25: optional string defaultCatalog
     26: optional string defaultDatabase
     27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
+    28: optional map<string, Exprs.TExprNode> user_variables
 
     // selectdb cloud
     1000: optional string cloud_cluster
