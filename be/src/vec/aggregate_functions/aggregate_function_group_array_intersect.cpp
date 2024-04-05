@@ -25,11 +25,11 @@ namespace doris::vectorized {
 IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
                                             const DataTypes& argument_types) {
     WhichDataType which(nested_type);
-    if (which.idx == TypeIndex::Date || which.idx == TypeIndex::DateV2)
+    if (which.idx == TypeIndex::Date || which.idx == TypeIndex::DateV2) {
         return new AggregateFunctionGroupArrayIntersect<DateV2>(argument_types);
-    else if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::DateTimeV2)
+    } else if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::DateTimeV2) {
         return new AggregateFunctionGroupArrayIntersect<DateTimeV2>(argument_types);
-    else {
+    } else {
         /// Check that we can use plain version of AggregateFunctionGroupArrayIntersectGeneric
         if (nested_type->is_value_unambiguously_represented_in_contiguous_memory_region())
             return new AggregateFunctionGroupArrayIntersectGeneric<true>(argument_types);
@@ -56,10 +56,11 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
         res = AggregateFunctionPtr(create_with_extra_types(nested_type, argument_types));
     }
 
-    if (!res)
+    if (!res) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Illegal type {} of argument for aggregate function {}",
                         argument_types[0]->get_name(), name);
+    }
 
     return res;
 }

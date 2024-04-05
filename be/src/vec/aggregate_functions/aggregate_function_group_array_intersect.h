@@ -36,13 +36,11 @@
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 
@@ -436,7 +434,7 @@ public:
             set->change_contains_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
-                const StringRef* value = reinterpret_cast<const StringRef*>(it->get_value());
+                const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
                 set->insert((void*)(value->data), value->size);
                 it->next();
             }
