@@ -153,6 +153,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
     [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
                                    bool* eos) override;

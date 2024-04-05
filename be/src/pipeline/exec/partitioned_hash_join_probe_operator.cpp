@@ -494,27 +494,36 @@ Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeSt
     return _probe_operator->init(tnode_, state);
 }
 Status PartitionedHashJoinProbeOperatorX::prepare(RuntimeState* state) {
-    // here do NOT call `OperatorXBase::prepare(state)`
-    // RETURN_IF_ERROR(OperatorXBase::prepare(state));
-    for (auto& conjunct : _conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
-    }
-
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
-    RETURN_IF_ERROR(_probe_operator->set_child(_child_x));
+    // to avoid prepare _child_x twice
+    auto child_x = std::move(_child_x);
+    RETURN_IF_ERROR(JoinProbeOperatorX::prepare(state));
+    RETURN_IF_ERROR(_probe_operator->set_child(child_x));
     DCHECK(_build_side_child != nullptr);
     _probe_operator->set_build_side_child(_build_side_child);
     RETURN_IF_ERROR(_sink_operator->set_child(_build_side_child));
     RETURN_IF_ERROR(_probe_operator->prepare(state));
     RETURN_IF_ERROR(_sink_operator->prepare(state));
+    _child_x = std::move(child_x);
     return Status::OK();
 }
 
 Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
+    // to avoid open _child_x twice
+    auto child_x = std::move(_child_x);
     RETURN_IF_ERROR(JoinProbeOperatorX::open(state));
     RETURN_IF_ERROR(_probe_operator->open(state));
     RETURN_IF_ERROR(_sink_operator->open(state));
+    _child_x = std::move(child_x);
+    return Status::OK();
+}
+
+Status PartitionedHashJoinProbeOperatorX::close(RuntimeState* state) {
+    // to avoid close _child_x twice
+    auto child_x = std::move(_child_x);
+    RETURN_IF_ERROR(JoinProbeOperatorX::close(state));
+    RETURN_IF_ERROR(_probe_operator->close(state));
+    RETURN_IF_ERROR(_sink_operator->close(state));
+    _child_x = std::move(child_x);
     return Status::OK();
 }
 
