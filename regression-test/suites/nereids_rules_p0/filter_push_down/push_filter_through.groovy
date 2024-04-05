@@ -24,6 +24,7 @@ suite("push_filter_through") {
     sql 'set be_number_for_test=3'
     sql "SET ignore_shape_nodes='PhysicalDistribute[DistributionSpecGather], PhysicalDistribute[DistributionSpecHash],PhysicalProject'"
     sql "set enable_fold_nondeterministic_fn=false"
+    sql "set enable_fold_constant_by_be=false"//plan shape will be different
 
     // push filter through alias
     qt_filter_project_alias""" 

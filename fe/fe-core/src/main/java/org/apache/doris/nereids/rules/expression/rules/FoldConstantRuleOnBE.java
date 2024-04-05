@@ -37,11 +37,13 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
@@ -193,6 +195,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             }
             if (skipSleepFunction(expr) || (expr instanceof TableGeneratingFunction)) {
                 return;
+            }
+            // Tokenize function want check the second child literal must be string type
+            // and properties format, it's a little special,
+            // maybe check in checkLegalityBeforeTypeCoercion function?
+            if (expr instanceof Tokenize) {
+                expr.checkLegalityAfterRewrite();
             }
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
@@ -364,6 +372,16 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 Literal literal = new DoubleLiteral(resultContent.getDoubleValue(i));
                 res.add(literal);
             }
+        } else if (type.isDecimalV2Type()) {
+            int num = resultContent.getBytesValueCount();
+            for (int i = 0; i < num; ++i) {
+                ByteString bytesValue = resultContent.getBytesValue(i);
+                byte[] bytes = convertByteOrder(bytesValue.toByteArray());
+                BigInteger value = new BigInteger(bytes);
+                BigDecimal bigDecimal = new BigDecimal(value, 9); // decimalv2 scale always 9
+                Literal literal = new DecimalLiteral(bigDecimal);
+                res.add(literal);
+            }
         } else if (type.isDecimalV3Type()) {
             int num = resultContent.getBytesValueCount();
             DecimalV3Type decimalV3Type = (DecimalV3Type) type;
@@ -425,22 +443,55 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isArrayType()) {
             ArrayType arrayType = (ArrayType) type;
             int childCount = resultContent.getChildElementCount();
+            List<Literal> allLiterals = new ArrayList<>();
             for (int i = 0; i < childCount; ++i) {
-                List<Literal> childLiteral = getResultExpression(arrayType.getItemType(),
-                        resultContent.getChildElement(i));
-                ArrayLiteral arrayLiteral = new ArrayLiteral(childLiteral, arrayType);
+                allLiterals.addAll(getResultExpression(arrayType.getItemType(),
+                        resultContent.getChildElement(i)));
+            }
+            int offsetCount = resultContent.getChildOffsetCount();
+            if (offsetCount == 1) {
+                ArrayLiteral arrayLiteral = new ArrayLiteral(allLiterals, arrayType);
                 res.add(arrayLiteral);
+            } else {
+                for (int i = 0; i < offsetCount; ++i) {
+                    List<Literal> childLiteral = new ArrayList<>();
+                    int startOffset = (int) ((i == 0) ? 0 : resultContent.getChildOffset(i - 1));
+                    int endOffset = (int) resultContent.getChildOffset(i);
+                    for (int off = startOffset; off < endOffset; ++off) {
+                        childLiteral.add(allLiterals.get(off));
+                    }
+                    ArrayLiteral arrayLiteral = new ArrayLiteral(childLiteral, arrayType);
+                    res.add(arrayLiteral);
+                }
             }
         } else if (type.isMapType()) {
             MapType mapType = (MapType) type;
             int childCount = resultContent.getChildElementCount();
+            List<Literal> allKeys = new ArrayList<>();
+            List<Literal> allValues = new ArrayList<>();
             for (int i = 0; i < childCount; i = i + 2) {
-                List<Literal> keyLiteral = getResultExpression(mapType.getKeyType(),
-                        resultContent.getChildElement(i));
-                List<Literal> valueLiteral = getResultExpression(mapType.getValueType(),
-                        resultContent.getChildElement(i + 1));
-                MapLiteral mapLiteral = new MapLiteral(keyLiteral, valueLiteral, mapType);
+                allKeys.addAll(getResultExpression(mapType.getKeyType(),
+                        resultContent.getChildElement(i)));
+                allValues.addAll(getResultExpression(mapType.getValueType(),
+                        resultContent.getChildElement(i + 1)));
+            }
+            int offsetCount = resultContent.getChildOffsetCount();
+            if (offsetCount == 1) {
+                MapLiteral mapLiteral = new MapLiteral(allKeys, allValues, mapType);
                 res.add(mapLiteral);
+            } else {
+                for (int i = 0; i < offsetCount; ++i) {
+                    List<Literal> keyLiteral = new ArrayList<>();
+                    List<Literal> valueLiteral = new ArrayList<>();
+                    int startOffset = (int) ((i == 0) ? 0 : resultContent.getChildOffset(i - 1));
+                    int endOffset = (int) resultContent.getChildOffset(i);
+                    for (int off = startOffset; off < endOffset; ++off) {
+                        keyLiteral.add(allKeys.get(off));
+                        valueLiteral.add(allValues.get(off));
+                    }
+                    MapLiteral mapLiteral = new MapLiteral(keyLiteral, valueLiteral, mapType);
+                    res.add(mapLiteral);
+                }
             }
         } else if (type.isStructType()) {
             StructType structType = (StructType) type;
@@ -498,6 +549,10 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
+        } else if (tPrimitiveType == TPrimitiveType.DECIMALV2) {
+            type = DataType.fromCatalogType(ScalarType.createDecimalType(PrimitiveType.fromThrift(tPrimitiveType),
+                    pScalarType.getPrecision(), pScalarType.getScale()));
+            parsedNodes = 1;
         } else {
             type = DataType.fromCatalogType(ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
                     pScalarType.getLen(), pScalarType.getPrecision(), pScalarType.getScale()));
