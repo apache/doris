@@ -505,8 +505,7 @@ std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compact
     {
         std::shared_lock rlock(_meta_lock);
         for (const auto& [version, rs] : _rs_version_map) {
-            // Do compaction on local rowsets only.
-            if (version.first < _cumulative_point && rs->is_local()) {
+            if (version.first != 0 && version.first < _cumulative_point) {
                 candidate_rowsets.push_back(rs);
             }
         }
