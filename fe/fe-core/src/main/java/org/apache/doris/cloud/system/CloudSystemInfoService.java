@@ -284,6 +284,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    @Override
     public void replayAddBackend(Backend newBackend) {
         super.replayAddBackend(newBackend);
         List<Backend> toAdd = new ArrayList<>();
@@ -291,11 +292,29 @@ public class CloudSystemInfoService extends SystemInfoService {
         updateCloudClusterMap(toAdd, new ArrayList<>());
     }
 
+    @Override
     public void replayDropBackend(Backend backend) {
         super.replayDropBackend(backend);
         List<Backend> toDel = new ArrayList<>();
         toDel.add(backend);
         updateCloudClusterMap(new ArrayList<>(), toDel);
+    }
+
+    @Override
+    public void replayModifyBackend(Backend backend) {
+        Backend memBe = getBackend(backend.getId());
+        // for rename cluster
+        String originalClusterName = memBe.getCloudClusterName();
+        String originalClusterId = memBe.getCloudClusterId();
+        String newClusterName = backend.getTagMap().getOrDefault(Tag.CLOUD_CLUSTER_NAME, "");
+        if (!originalClusterName.equals(newClusterName)) {
+            // rename
+            updateClusterNameToId(newClusterName, originalClusterName, originalClusterId);
+            LOG.info("cloud mode replay rename cluster, "
+                    + "originalClusterName: {}, originalClusterId: {}, newClusterName: {}",
+                    originalClusterName, originalClusterId, newClusterName);
+        }
+        super.replayModifyBackend(backend);
     }
 
     public boolean availableBackendsExists() {
