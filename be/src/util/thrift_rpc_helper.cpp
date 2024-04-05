@@ -59,10 +59,10 @@ void ThriftRpcHelper::setup(ExecEnv* exec_env) {
     _s_exec_env = exec_env;
 }
 
-__attribute__((no_sanitize_address))
 template <typename T>
-Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
-                            std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
+Status __attribute__((no_sanitize_address))
+ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
+                     std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
     TNetworkAddress address = make_network_address(ip, port);
     Status status;
     ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
