@@ -95,6 +95,21 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
+    bool has_base_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_base_compactions.count(tablet_id);
+    }
+
+    bool has_cumu_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_cumu_compactions.count(tablet_id);
+    }
+
+    bool has_full_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_full_compactions.count(tablet_id);
+    }
+
 private:
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
