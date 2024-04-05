@@ -3887,12 +3887,10 @@ public:
         ColumnString::MutablePtr col_res = ColumnString::create();
 
         for (int i = 0; i < input_rows_count; ++i) {
-            StringRef origin_str =
-                    col_const[0] ? col_origin->get_data_at(0) : col_origin->get_data_at(i);
-            auto pos = col_const[1] ? col_pos[0] : col_pos[i];
-            auto len = col_const[2] ? col_len[0] : col_len[i];
-            StringRef insert_str =
-                    col_const[3] ? col_insert->get_data_at(0) : col_insert->get_data_at(i);
+            StringRef origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
+            auto pos = col_pos[index_check_const(i, col_const[1])];
+            auto len = col_len[index_check_const(i, col_const[2])];
+            StringRef insert_str = col_insert->get_data_at(index_check_const(i, col_const[3]));
 
             std::string result =
                     insert(origin_str.to_string(), pos, len, insert_str.to_string_view());
