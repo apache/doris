@@ -28,8 +28,7 @@
 
 namespace doris {
 
-__attribute__((no_sanitize_address))
-Status ThriftClientImpl::open() {
+__attribute__((no_sanitize_address)) Status ThriftClientImpl::open() {
     try {
         if (!_transport->isOpen()) {
             _transport->open();
@@ -79,8 +78,7 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
     return status;
 }
 
-__attribute__((no_sanitize_address))
-void ThriftClientImpl::close() {
+__attribute__((no_sanitize_address)) void ThriftClientImpl::close() {
     try {
         if (_transport != nullptr && _transport->isOpen()) {
             _transport->close();
