@@ -59,6 +59,7 @@ void ThriftRpcHelper::setup(ExecEnv* exec_env) {
     _s_exec_env = exec_env;
 }
 
+__attribute__((no_sanitize_address))
 template <typename T>
 Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
                             std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
