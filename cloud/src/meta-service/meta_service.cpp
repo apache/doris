@@ -539,11 +539,24 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             return;
         }
 
-        std::shared_ptr<Transaction> txn(txn0.release());
-        auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
-        if (c0 != TxnErrorCode::TXN_OK) {
+        InstanceKeyInfo key_info {instance_id};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        
+        err = txn0->get(key, &val);
+        LOG(INFO) << "get instance_key=" << hex(key);
+
+        if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get instance, info={}", m0);
+            ss << "failed to get instance, instance_id=" << instance_id << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+
+        if (!instance.ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse InstanceInfoPB";
             return;
         }
 
@@ -1943,7 +1956,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     std::shared_ptr<Transaction> txn(txn0.release());
     auto [c0, m0] = resource_mgr_->get_instance(txn, cloned_instance_id, instance);
     if (c0 != TxnErrorCode::TXN_OK) {
-        return {cast_as<ErrCategory::READ>(err), "failed to get instance, info=" + m0};
+        return {cast_as<ErrCategory::READ>(c0), "failed to get instance, info=" + m0};
     }
 
     // maybe do not decrypt ak/sk?

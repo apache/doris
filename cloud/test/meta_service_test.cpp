@@ -336,7 +336,7 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         req.set_name("test_name");
         HdfsVaultInfo hdfs;
         HdfsBuildConf conf;
-        conf.set_fs_name("test_name_node");
+        conf.set_fs_name("hdfs://127.0.0.1:8020");
         conf.set_user("test_user");
         hdfs.mutable_build_conf()->CopyFrom(conf);
         req.mutable_hdfs_info()->CopyFrom(hdfs);
@@ -5170,15 +5170,16 @@ TEST(MetaServiceTest, AddObjInfoTest) {
                           [](void* p) { *((bool*)p) = true; });
         sp->enable_processing();
 
-        auto* obj_info = req.mutable_obj()->New();
-        obj_info->set_ak("ak");
-        obj_info->set_sk("sk");
-        obj_info->set_bucket("bucket");
-        obj_info->set_prefix("prefix");
-        obj_info->set_endpoint("endpoint");
-        obj_info->set_region("region");
-        obj_info->set_provider(ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_COS);
-        obj_info->set_external_endpoint("external");
+        ObjectStoreInfoPB obj_info;
+        obj_info.set_ak("ak");
+        obj_info.set_sk("sk");
+        obj_info.set_bucket("bucket");
+        obj_info.set_prefix("prefix");
+        obj_info.set_endpoint("endpoint");
+        obj_info.set_region("region");
+        obj_info.set_provider(ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_COS);
+        obj_info.set_external_endpoint("external");
+        req.mutable_obj()->MergeFrom(obj_info);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5188,8 +5189,9 @@ TEST(MetaServiceTest, AddObjInfoTest) {
 
         InstanceInfoPB instance;
         get_test_instance(instance);
-        ASSERT_EQ(*(instance.resource_ids().begin()), "1");
-        ASSERT_EQ(*(instance.storage_vault_names().begin()), "built_in_storage_vault");
+        const auto& obj = instance.obj_info().at(0);
+        ASSERT_EQ(obj.id(), "1");
+        ASSERT_EQ(obj.name(), "built_in_storage_vault");
 
         sp->clear_all_call_backs();
         sp->clear_trace();
@@ -5450,6 +5452,9 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         StorageVaultPB hdfs;
         hdfs.set_name("test_alter_add_hdfs_info");
         HdfsVaultInfo params;
+        HdfsBuildConf conf;
+        conf.set_fs_name("hdfs://127.0.0.1:8020");
+        params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
@@ -5474,6 +5479,9 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         StorageVaultPB hdfs;
         hdfs.set_name("test_alter_add_hdfs_info_1");
         HdfsVaultInfo params;
+        HdfsBuildConf conf;
+        conf.set_fs_name("hdfs://127.0.0.1:8020");
+        params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
@@ -5497,6 +5505,9 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         StorageVaultPB hdfs;
         hdfs.set_name("test_alter_add_hdfs_info_2");
         HdfsVaultInfo params;
+        HdfsBuildConf conf;
+        conf.set_fs_name("hdfs://127.0.0.1:8020");
+        params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
@@ -5555,6 +5566,9 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         StorageVaultPB hdfs;
         hdfs.set_name("test_alter_add_hdfs_info_3");
         HdfsVaultInfo params;
+        HdfsBuildConf conf;
+        conf.set_fs_name("hdfs://127.0.0.1:8020");
+        params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
@@ -5598,7 +5612,7 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         req.set_name("test_name");
         HdfsVaultInfo hdfs;
         HdfsBuildConf conf;
-        conf.set_fs_name("test_name_node");
+        conf.set_fs_name("hdfs://127.0.0.1:8020");
         conf.set_user("test_user");
         hdfs.mutable_build_conf()->CopyFrom(conf);
         req.mutable_hdfs_info()->CopyFrom(hdfs);
@@ -5698,7 +5712,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
     req.set_name("test_name");
     HdfsVaultInfo hdfs;
     HdfsBuildConf conf;
-    conf.set_fs_name("test_name_node");
+    conf.set_fs_name("hdfs://127.0.0.1:8020");
     conf.set_user("test_user");
     hdfs.mutable_build_conf()->CopyFrom(conf);
     req.mutable_hdfs_info()->CopyFrom(hdfs);
@@ -5728,6 +5742,9 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         auto name = fmt::format("test_alter_add_hdfs_info_{}", i);
         hdfs.set_name(name);
         HdfsVaultInfo params;
+        HdfsBuildConf conf;
+        conf.set_fs_name("hdfs://127.0.0.1:8020");
+        params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
@@ -5836,6 +5853,9 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
         auto name = fmt::format("test_alter_add_hdfs_info_{}", i);
         hdfs.set_name(name);
         HdfsVaultInfo params;
+        HdfsBuildConf conf;
+        conf.set_fs_name("hdfs://127.0.0.1:8020");
+        params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
         req.mutable_hdfs()->CopyFrom(hdfs);
@@ -5935,6 +5955,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         CreateTabletsRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_storage_vault_name("");
+        req.add_tablet_metas();
 
         brpc::Controller cntl;
         CreateTabletsResponse res;
@@ -5974,6 +5995,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         CreateTabletsRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_storage_vault_name("");
+        req.add_tablet_metas();
 
         auto sp = SyncPoint::get_instance();
         sp->set_call_back("create_tablets::pred",
@@ -5996,6 +6018,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         CreateTabletsRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_storage_vault_name("non-existent");
+        req.add_tablet_metas();
 
         auto sp = SyncPoint::get_instance();
         sp->set_call_back("create_tablets::pred",
