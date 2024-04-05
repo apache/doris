@@ -282,3 +282,19 @@ trigger_or_skip_build() {
     fi
 }
 # trigger_or_skip_build "$1" "$2" "$3" "$4" "$5"
+
+reporting_build_problem() {
+    set +e
+    desc="$1"
+    if [[ -z "${desc}" ]]; then return 1; fi
+    # https://www.jetbrains.com/help/teamcity/service-messages.html#Reporting+Build+Problems
+    echo "##teamcity[buildProblem description='${desc}']"
+}
+
+reporting_messages_error() {
+    set +e
+    msg="$1"
+    if [[ -z "${msg}" ]]; then return 1; fi
+    # https://www.jetbrains.com/help/teamcity/service-messages.html#Reporting+Messages+to+Build+Log
+    echo "##teamcity[message text='Error Message:' errorDetails='${msg}' status='ERROR']"
+}

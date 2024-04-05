@@ -801,8 +801,7 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_storage_vault_info(
-        std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>>* vault_infos) {
+Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -826,18 +825,9 @@ Status CloudMetaMgr::get_storage_vault_info(
                                   });
     }
     for (const auto& vault : resp.storage_vault()) {
-        THdfsParams params;
-        params.fs_name = vault.hdfs_info().build_conf().fs_name();
-        params.user = vault.hdfs_info().build_conf().user();
-        params.hdfs_kerberos_keytab = vault.hdfs_info().build_conf().hdfs_kerberos_keytab();
-        params.hdfs_kerberos_principal = vault.hdfs_info().build_conf().hdfs_kerberos_principal();
-        for (const auto& confs : vault.hdfs_info().build_conf().hdfs_confs()) {
-            THdfsConf conf;
-            conf.key = confs.key();
-            conf.value = confs.value();
-            params.hdfs_conf.emplace_back(std::move(conf));
+        if (vault.has_hdfs_info()) {
+            vault_infos->emplace_back(vault.id(), vault.hdfs_info());
         }
-        vault_infos->emplace_back(vault.id(), std::move(params));
     }
     return Status::OK();
 }

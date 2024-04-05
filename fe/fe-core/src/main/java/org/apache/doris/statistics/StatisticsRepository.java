@@ -29,6 +29,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
@@ -320,7 +321,7 @@ public class StatisticsRepository {
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
                     .setTblUpdateTime(System.currentTimeMillis())
                     .setColName("")
-                    .setColToPartitions(Maps.newHashMap())
+                    .setJobColumns(Lists.newArrayList())
                     .setUserInject(true)
                     .setJobType(AnalysisInfo.JobType.MANUAL)
                     .build();

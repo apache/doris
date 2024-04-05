@@ -21,7 +21,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 
 /**
- * Could roll up trait, if a function could roll up in aggregate, it will implement the interface
+ * Could roll up trait, it could be rolled up if a function appear in query which can be represented
+ * by aggregate function in view.
+ * Acquire the rolled up function by constructRollUp method.
  */
 public interface CouldRollUp {
 

@@ -33,6 +33,7 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -142,7 +143,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     std::set<int64_t> id_deduper;
     for (const auto* part : _partitions) {
         if (part == nullptr) [[unlikely]] {
-            return Status::EndOfFile(
+            return Status::InternalError(
                     "Cannot found origin partitions in auto detect overwriting, stop processing");
         }
         if (_new_partition_ids.contains(part->id)) {
@@ -441,7 +442,10 @@ Status VRowDistribution::generate_rows_distribution(
             int result_idx = -1;
             // we just calc left range here. leave right to FE to avoid dup calc.
             RETURN_IF_ERROR(part_funcs[i]->execute(part_ctxs[i].get(), block.get(), &result_idx));
-            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
+
+            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data(0, 1);
+            DCHECK(result_idx != -1);
+
             partition_cols_idx.push_back(result_idx);
         }
 

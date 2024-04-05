@@ -51,7 +51,7 @@ static const RE2 STARTS_WITH_RE(R"(\^([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*
 // A regex to match any regex pattern which is equivalent to a constant string match.
 static const RE2 EQUALS_RE(R"(\^([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)\$)");
 // A regex to match .*
-static const RE2 ALLPASS_RE(R"((\\.\*)+)");
+static const RE2 ALLPASS_RE(R"((\.\*)+)");
 
 // Like patterns
 static const re2::RE2 LIKE_SUBSTRING_RE(R"((?:%+)(((\\_)|([^%_\\]))+)(?:%+))");

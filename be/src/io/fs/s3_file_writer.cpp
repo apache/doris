@@ -508,11 +508,12 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
 }
 
 std::string S3FileWriter::_dump_completed_part() const {
-    std::string view;
+    std::stringstream ss;
+    ss << "part_numbers:";
     for (const auto& part : _completed_parts) {
-        view.append(fmt::format("part {}, ", view, part->GetPartNumber()));
+        ss << " " << part->GetPartNumber();
     }
-    return view;
+    return ss.str();
 }
 
 } // namespace doris::io

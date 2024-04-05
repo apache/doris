@@ -289,7 +289,7 @@ public class PlanTranslatorContext {
             slotRef = new SlotRef(slotDescriptor);
             if (slotReference.hasSubColPath()) {
                 slotDescriptor.setSubColLables(slotReference.getSubColPath());
-                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName()
+                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
                             + "." + String.join(".", slotReference.getSubColPath()));
             }
         }

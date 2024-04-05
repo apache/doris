@@ -45,6 +45,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -533,6 +534,7 @@ terminal String
     KW_PRECEDING,
     KW_PERCENT,
     KW_RECYCLE,
+    KW_PRIVILEGES,
     KW_PROC,
     KW_PROCEDURE,
     KW_PROCESSLIST,
@@ -599,6 +601,7 @@ terminal String
     KW_SPLIT,
     KW_SQL,
     KW_SQL_BLOCK_RULE,
+    KW_STAGE,
     KW_START,
     KW_STARTS,    
     KW_STATS,
@@ -659,6 +662,7 @@ terminal String
     KW_VERBOSE,
     KW_VERSION,
     KW_VIEW,
+    KW_VIEWS,
     KW_WARNINGS,
     KW_WEEK,
     KW_WHEN,
@@ -772,6 +776,7 @@ nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
 nonterminal TableSnapshot opt_table_snapshot, table_snapshot;
 nonterminal TableName table_name, opt_table_name;
+nonterminal DbName db_name;
 nonterminal FunctionName function_name;
 nonterminal EncryptKeyName encryptkey_name;
 nonterminal Expr pre_filter_clause;
@@ -1768,11 +1773,11 @@ opt_intermediate_type ::=
 // Create Statement
 create_stmt ::=
     /* Database */
-    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db opt_properties:properties
+    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists db_name:db opt_properties:properties
     {:
         RESULT = new CreateDbStmt(ifNotExists, db, properties);
     :}
-    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
+    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists db_name:db
     {:
         RESULT = new CreateDbStmt(ifNotExists, db, null);
     :}
@@ -2907,6 +2912,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
     | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO user_identity:userId
     {:
         RESULT = new GrantStmt(userId, null, workloadGroupPattern, privs);
@@ -2995,6 +3008,14 @@ revoke_stmt ::=
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
     | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM user_identity:userId
     {:
         RESULT = new RevokeStmt(userId, null, workloadGroupPattern, privs);
@@ -3012,11 +3033,11 @@ revoke_stmt ::=
 // Drop statement
 drop_stmt ::=
     /* Database */
-    KW_DROP KW_DATABASE opt_if_exists:ifExists ident:db opt_force:force
+    KW_DROP KW_DATABASE opt_if_exists:ifExists db_name:db opt_force:force
     {:
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
-    | KW_DROP KW_SCHEMA opt_if_exists:ifExists ident:db opt_force:force
+    | KW_DROP KW_SCHEMA opt_if_exists:ifExists db_name:db opt_force:force
     {:
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
@@ -3189,15 +3210,15 @@ opt_partition ::=
          RESULT = new ListPartitionDesc(columns, list);
     :}
     /* expr range partition */
-    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_call_expr:fnExpr
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE LPAREN function_call_expr:fnExpr RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN
     {:
         ArrayList<Expr> exprs = new ArrayList<Expr>();
         exprs.add(fnExpr);
         RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
     :}
-    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_name:functionName LPAREN expr_list:l COMMA
-        KW_INTERVAL expr:v ident:u RPAREN LPAREN opt_all_partition_desc_list:list RPAREN
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE LPAREN function_name:functionName LPAREN expr_list:l COMMA
+        KW_INTERVAL expr:v ident:u RPAREN RPAREN LPAREN opt_all_partition_desc_list:list RPAREN
     {:
         Expr fnExpr = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
         ArrayList<Expr> exprs = new ArrayList<Expr>();
@@ -3955,6 +3976,10 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
+    | KW_SHOW KW_STORAGE KW_VAULT
+    {:
+        RESULT = new ShowStorageVaultStmt();
+    :}
     ;
 
 show_param ::=
@@ -3991,6 +4016,16 @@ show_param ::=
     | opt_full KW_TABLES from_or_in ident:ctl DOT ident:db opt_wild_where
     {:
         RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, parser.wild, parser.where);
+    :}
+    /* show views */
+    | opt_full KW_VIEWS opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, null, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
+    :}
+    /* show views */
+    | opt_full KW_VIEWS from_or_in ident:ctl DOT ident:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
     :}
     /* show table id */
     | KW_TABLE INTEGER_LITERAL:tableId
@@ -4302,6 +4337,10 @@ show_param ::=
     | KW_ROLES
     {:
         RESULT = new ShowRolesStmt();
+    :}
+    | KW_PRIVILEGES
+    {:
+        RESULT = new ShowPrivilegesStmt();
     :}
     | opt_full opt_builtin:isBuiltin KW_FUNCTIONS opt_db:dbName opt_wild_where
     {:
@@ -5219,6 +5258,10 @@ set_stmt ::=
     {:
         RESULT = new SetUserPropertyStmt(user, property_list);
     :}
+    | KW_SET ident:vaultName KW_AS KW_DEFAULT KW_STORAGE KW_VAULT
+    {:
+        RESULT = new SetDefaultStorageVaultStmt(vaultName);
+    :}
     ;
 
 // Unset variable statement
@@ -5825,6 +5868,13 @@ table_name ::=
     {: RESULT = new TableName(null, db, tbl); :}
     | ident:ctl DOT ident:db DOT ident:tbl
     {: RESULT = new TableName(ctl, db, tbl); :}
+    ;
+
+db_name ::=
+    ident:db
+    {: RESULT = new DbName(null, db); :}
+    | ident:ctl DOT ident:db
+    {: RESULT = new DbName(ctl, db); :}
     ;
 
 colocate_group_name ::=
@@ -8079,6 +8129,8 @@ keyword ::=
     | KW_VERSION:id
     {: RESULT = id; :}
     | KW_VIEW:id
+    {: RESULT = id; :}
+    | KW_VIEWS:id
     {: RESULT = id; :}
     | KW_WARNINGS:id
     {: RESULT = id; :}

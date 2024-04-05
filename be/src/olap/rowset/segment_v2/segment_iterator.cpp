@@ -1093,7 +1093,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         return true;
     }
     // if there is delete predicate, we always need to read data
-    if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
+    if (_has_delete_predicate(cid)) {
         return true;
     }
     if (_output_columns.count(-1)) {
@@ -1777,13 +1777,13 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
     return Status::OK();
 }
 
-void SegmentIterator::_init_current_block(
+Status SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
     block->clear_column_data(_schema->num_column_ids());
 
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
-        auto column_desc = _schema->column(cid);
+        const auto* column_desc = _schema->column(cid);
         if (!_is_pred_column[cid] &&
             !_segment->same_with_storage_type(
                     cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
@@ -1803,6 +1803,11 @@ void SegmentIterator::_init_current_block(
             // the column in block must clear() here to insert new data
             if (_is_pred_column[cid] ||
                 i >= block->columns()) { //todo(wb) maybe we can release it after output block
+                if (current_columns[cid].get() == nullptr) {
+                    return Status::InternalError(
+                            "SegmentIterator meet invalid column, id={}, name={}", cid,
+                            _schema->column(cid)->name());
+                }
                 current_columns[cid]->clear();
             } else { // non-predicate column
                 current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
@@ -1816,6 +1821,7 @@ void SegmentIterator::_init_current_block(
             }
         }
     }
+    return Status::OK();
 }
 
 void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
@@ -1861,7 +1867,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 
     for (auto cid : _first_read_column_ids) {
         auto& column = _current_return_columns[cid];
-        if (_need_read_key_data(cid, column, nrows_read)) {
+        if (_no_need_read_key_data(cid, column, nrows_read)) {
             continue;
         }
         if (_prune_column(cid, column, true, nrows_read)) {
@@ -2207,7 +2213,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
     }
-    _init_current_block(block, _current_return_columns);
+    RETURN_IF_ERROR(_init_current_block(block, _current_return_columns));
     _converted_column_ids.assign(_schema->columns().size(), 0);
 
     _current_batch_rows_read = 0;
@@ -2623,8 +2629,8 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
     }
 }
 
-bool SegmentIterator::_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
-                                          size_t nrows_read) {
+bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
+                                             size_t nrows_read) {
     if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
         return false;
     }
@@ -2634,6 +2640,10 @@ bool SegmentIterator::_need_read_key_data(ColumnId cid, vectorized::MutableColum
     }
 
     if (!_opts.tablet_schema->column(cid).is_key()) {
+        return false;
+    }
+
+    if (_has_delete_predicate(cid)) {
         return false;
     }
 
@@ -2659,6 +2669,12 @@ bool SegmentIterator::_need_read_key_data(ColumnId cid, vectorized::MutableColum
     }
 
     return true;
+}
+
+bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
+    std::set<uint32_t> delete_columns_set;
+    _opts.delete_condition_predicates->get_all_column_ids(delete_columns_set);
+    return delete_columns_set.contains(cid);
 }
 
 } // namespace segment_v2

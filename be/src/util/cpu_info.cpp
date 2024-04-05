@@ -214,7 +214,7 @@ void CpuInfo::init() {
 
     int num_cores = cgroup_bandwidth_quota(physical_num_cores);
     if (max_mhz != 0) {
-        cycles_per_ms_ = max_mhz * 1000;
+        cycles_per_ms_ = int64_t(max_mhz) * 1000;
     } else {
         cycles_per_ms_ = 1000000;
     }

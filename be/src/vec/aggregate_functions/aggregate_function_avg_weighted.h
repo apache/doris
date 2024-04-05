@@ -85,7 +85,7 @@ struct AggregateFunctionAvgWeightedData {
         weight_sum = 0.0;
     }
 
-    double get() const { return weight_sum ? data_sum / weight_sum : std::nan(""); }
+    double get() const { return data_sum / weight_sum; }
 
     double data_sum = 0.0;
     double weight_sum = 0.0;

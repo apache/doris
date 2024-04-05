@@ -32,6 +32,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.load.LoadJobRowResult;
+import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -444,16 +445,21 @@ public class MysqlLoadManager {
     }
 
     private String selectBackendForMySqlLoad(String database, String table) throws LoadException {
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
-        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-        if (backendIds.isEmpty()) {
-            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        Backend backend = null;
+        if (Config.isCloudMode()) {
+            backend = StreamLoadHandler.selectBackend(ConnectContext.get().getCloudCluster(), false);
+        } else {
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
+            List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            if (backendIds.isEmpty()) {
+                throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+            }
+            backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            if (backend == null) {
+                throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+            }
         }
 
-        Backend backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-        if (backend == null) {
-            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
-        }
         StringBuilder sb = new StringBuilder();
         sb.append("http://");
         sb.append(backend.getHost());

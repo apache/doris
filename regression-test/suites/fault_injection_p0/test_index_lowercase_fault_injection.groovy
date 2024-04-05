@@ -35,7 +35,11 @@ suite("test_index_lowercase_fault_injection") {
           COMMENT "OLAP"
           DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
           PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
+          "replication_allocation" = "tag.location.default: 1",
+          "compaction_policy" = "time_series",
+          "time_series_compaction_goal_size_mbytes" = "1024",
+          "time_series_compaction_file_count_threshold" = "20",
+          "time_series_compaction_time_threshold_seconds" = "3600"
         );
       """
     }
@@ -55,13 +59,13 @@ suite("test_index_lowercase_fault_injection") {
         sql """ INSERT INTO ${testTable} VALUES (893964653, '232.0.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 3781); """
 
         sql 'sync'
+
+        qt_sql """ select count() from ${testTable} where (request match 'HTTP');  """
+        qt_sql """ select count() from ${testTable} where (request match 'http');  """
       } finally {
         GetDebugPoint().disableDebugPointForAllBEs("inverted_index_parser.get_parser_lowercase_from_properties")
         GetDebugPoint().disableDebugPointForAllBEs("tablet_schema.to_schema_pb")
       }
-
-      qt_sql """ select count() from ${testTable} where (request match 'HTTP');  """
-      qt_sql """ select count() from ${testTable} where (request match 'http');  """
 
       sql """ INSERT INTO ${testTable} VALUES (893964672, '26.1.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 304, 0); """
       sql """ INSERT INTO ${testTable} VALUES (893964672, '26.1.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 304, 0); """
