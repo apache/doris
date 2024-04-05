@@ -17,6 +17,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -280,6 +281,9 @@ void StorageEngine::_cache_clean_callback() {
                          << "], force set to 3600 ";
             interval = 3600;
         }
+        if (config::disable_memory_gc) {
+            continue;
+        }
 
         CacheManager::instance()->for_each_cache_prune_stale();
 
@@ -331,7 +335,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        uint32_t curr_interval = max_interval * ratio;
+        auto curr_interval = uint32_t(max_interval * ratio);
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
@@ -682,7 +686,8 @@ void StorageEngine::_update_replica_infos_callback() {
 
         int start = 0;
         int tablet_size = all_tablets.size();
-        while (start < tablet_size) {
+        // The while loop may take a long time, we should skip it when stop
+        while (start < tablet_size && _stop_background_threads_latch.count() > 0) {
             int batch_size = std::min(100, tablet_size - start);
             int end = start + batch_size;
             TGetTabletReplicaInfosRequest request;
@@ -1403,22 +1408,25 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(
-                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.insert(t->tablet_id());
-                        }
-                        auto st = t->cooldown();
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
-                        }
-                        if (!st.ok()) {
-                            LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                         << " err=" << st;
-                        }
-                    }));
+            static_cast<void>(_cold_data_compaction_thread_pool->submit_func([&,
+                                                                              t = std::move(
+                                                                                      tablet)]() {
+                {
+                    std::lock_guard lock(tablet_submitted_mtx);
+                    tablet_submitted.insert(t->tablet_id());
+                }
+                auto st = t->cooldown();
+                {
+                    std::lock_guard lock(tablet_submitted_mtx);
+                    tablet_submitted.erase(t->tablet_id());
+                }
+                if (!st.ok()) {
+                    // The cooldown of the replica may be relatively slow
+                    // resulting in a short period of time where following cannot be successful
+                    LOG_EVERY_N(WARNING, 5)
+                            << "failed to cooldown. tablet_id=" << t->tablet_id() << " err=" << st;
+                }
+            }));
         }
     }
 }

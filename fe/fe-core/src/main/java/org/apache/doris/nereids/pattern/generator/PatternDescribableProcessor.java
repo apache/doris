@@ -60,12 +60,12 @@ import javax.tools.StandardLocation;
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 @SupportedAnnotationTypes("org.apache.doris.nereids.pattern.generator.PatternDescribable")
 public class PatternDescribableProcessor extends AbstractProcessor {
-    private List<File> planPaths;
+    private List<File> paths;
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
-        this.planPaths = Arrays.stream(processingEnv.getOptions().get("planPath").split(","))
+        this.paths = Arrays.stream(processingEnv.getOptions().get("path").split(","))
                 .map(path -> path.trim())
                 .filter(path -> !path.isEmpty())
                 .collect(Collectors.toSet())
@@ -80,15 +80,25 @@ public class PatternDescribableProcessor extends AbstractProcessor {
             return false;
         }
         try {
-            List<File> planFiles = findJavaFiles(planPaths);
-            PatternGeneratorAnalyzer patternGeneratorAnalyzer = new PatternGeneratorAnalyzer();
-            for (File file : planFiles) {
+            List<File> javaFiles = findJavaFiles(paths);
+            JavaAstAnalyzer javaAstAnalyzer = new JavaAstAnalyzer();
+            for (File file : javaFiles) {
                 List<TypeDeclaration> asts = parseJavaFile(file);
-                patternGeneratorAnalyzer.addAsts(asts);
+                javaAstAnalyzer.addAsts(asts);
             }
 
-            doGenerate("GeneratedMemoPatterns", "MemoPatterns", true, patternGeneratorAnalyzer);
-            doGenerate("GeneratedPlanPatterns", "PlanPatterns", false, patternGeneratorAnalyzer);
+            javaAstAnalyzer.analyze();
+
+            ExpressionTypeMappingGenerator expressionTypeMappingGenerator
+                    = new ExpressionTypeMappingGenerator(javaAstAnalyzer);
+            expressionTypeMappingGenerator.generate(processingEnv);
+
+            PlanTypeMappingGenerator planTypeMappingGenerator = new PlanTypeMappingGenerator(javaAstAnalyzer);
+            planTypeMappingGenerator.generate(processingEnv);
+
+            PlanPatternGeneratorAnalyzer patternGeneratorAnalyzer = new PlanPatternGeneratorAnalyzer(javaAstAnalyzer);
+            generatePlanPatterns("GeneratedMemoPatterns", "MemoPatterns", true, patternGeneratorAnalyzer);
+            generatePlanPatterns("GeneratedPlanPatterns", "PlanPatterns", false, patternGeneratorAnalyzer);
         } catch (Throwable t) {
             String exceptionMsg = Throwables.getStackTraceAsString(t);
             processingEnv.getMessager().printMessage(Kind.ERROR,
@@ -97,8 +107,12 @@ public class PatternDescribableProcessor extends AbstractProcessor {
         return false;
     }
 
-    private void doGenerate(String className, String parentClassName, boolean isMemoPattern,
-            PatternGeneratorAnalyzer patternGeneratorAnalyzer) throws IOException {
+    private void generateExpressionTypeMapping() {
+
+    }
+
+    private void generatePlanPatterns(String className, String parentClassName, boolean isMemoPattern,
+            PlanPatternGeneratorAnalyzer patternGeneratorAnalyzer) throws IOException {
         String generatePatternCode = patternGeneratorAnalyzer.generatePatterns(
                 className, parentClassName, isMemoPattern);
         File generatePatternFile = new File(processingEnv.getFiler()

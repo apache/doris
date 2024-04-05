@@ -17,6 +17,7 @@
 
 #include "phrase_edge_query.h"
 
+#include <climits>
 #include <fstream>
 #include <functional>
 #include <string>
@@ -36,53 +37,78 @@ void PhraseEdgeQuery::add(const std::wstring& field_name, const std::vector<std:
     if (terms.empty()) {
         _CLTHROWA(CL_ERR_IllegalArgument, "PhraseEdgeQuery::add: terms empty");
     }
-
-    if (terms.size() == 1) {
-        std::vector<CL_NS(index)::Term*> checked_terms;
-        std::wstring sub_term = StringUtil::string_to_wstring(terms[0]);
-
-        find_words([&checked_terms, &sub_term](Term* term) {
-            std::wstring_view ws_term(term->text(), term->textLength());
-
-            if (ws_term.find(sub_term) != std::wstring::npos) {
-                checked_terms.push_back(_CL_POINTER(term));
-            }
-        });
-
-        handle_terms(field_name, sub_term, checked_terms);
-    } else {
-        std::wstring suffix_term = StringUtil::string_to_wstring(terms[0]);
-        std::wstring prefix_term = StringUtil::string_to_wstring(terms.back());
-
-        std::vector<CL_NS(index)::Term*> suffix_terms;
-        std::vector<CL_NS(index)::Term*> prefix_terms;
-
-        find_words([&suffix_term, &suffix_terms, &prefix_term, &prefix_terms](Term* term) {
-            std::wstring_view ws_term(term->text(), term->textLength());
-
-            if (ws_term.ends_with(suffix_term)) {
-                suffix_terms.push_back(_CL_POINTER(term));
-            }
-
-            if (ws_term.starts_with(prefix_term)) {
-                prefix_terms.push_back(_CL_POINTER(term));
-            }
-        });
-
-        for (size_t i = 0; i < terms.size(); i++) {
-            if (i == 0) {
-                handle_terms(field_name, suffix_term, suffix_terms);
-            } else if (i == terms.size() - 1) {
-                handle_terms(field_name, prefix_term, prefix_terms);
-            } else {
-                std::wstring ws_term = StringUtil::string_to_wstring(terms[i]);
-                add_default_term(field_name, ws_term);
-            }
-        }
-    }
+    _field_name = field_name;
+    _terms = terms;
 }
 
 void PhraseEdgeQuery::search(roaring::Roaring& roaring) {
+    if (_terms.size() == 1) {
+        search_one_term(roaring);
+    } else {
+        search_multi_term(roaring);
+    }
+}
+
+void PhraseEdgeQuery::search_one_term(roaring::Roaring& roaring) {
+    size_t count = 0;
+    std::wstring sub_term = StringUtil::string_to_wstring(_terms[0]);
+    find_words([this, &count, &sub_term, &roaring](Term* term) {
+        std::wstring_view ws_term(term->text(), term->textLength());
+        if (ws_term.find(sub_term) == std::wstring::npos) {
+            return;
+        }
+
+        DocRange doc_range;
+        TermDocs* term_doc = _searcher->getReader()->termDocs(term);
+        roaring::Roaring result;
+        while (term_doc->readRange(&doc_range)) {
+            if (doc_range.type_ == DocRangeType::kMany) {
+                result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
+            } else {
+                result.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
+            }
+        }
+        _CLDELETE(term_doc);
+
+        if (count) {
+            roaring.swap(result);
+        } else {
+            roaring |= result;
+        }
+        count++;
+    });
+}
+
+void PhraseEdgeQuery::search_multi_term(roaring::Roaring& roaring) {
+    std::wstring suffix_term = StringUtil::string_to_wstring(_terms[0]);
+    std::wstring prefix_term = StringUtil::string_to_wstring(_terms.back());
+
+    std::vector<CL_NS(index)::Term*> suffix_terms;
+    std::vector<CL_NS(index)::Term*> prefix_terms;
+
+    find_words([&suffix_term, &suffix_terms, &prefix_term, &prefix_terms](Term* term) {
+        std::wstring_view ws_term(term->text(), term->textLength());
+
+        if (ws_term.ends_with(suffix_term)) {
+            suffix_terms.push_back(_CL_POINTER(term));
+        }
+
+        if (ws_term.starts_with(prefix_term)) {
+            prefix_terms.push_back(_CL_POINTER(term));
+        }
+    });
+
+    for (size_t i = 0; i < _terms.size(); i++) {
+        if (i == 0) {
+            handle_terms(_field_name, suffix_term, suffix_terms);
+        } else if (i == _terms.size() - 1) {
+            handle_terms(_field_name, prefix_term, prefix_terms);
+        } else {
+            std::wstring ws_term = StringUtil::string_to_wstring(_terms[i]);
+            add_default_term(_field_name, ws_term);
+        }
+    }
+
     _searcher->_search(_query.get(), [&roaring](const int32_t docid, const float_t /*score*/) {
         roaring.add(docid);
     });

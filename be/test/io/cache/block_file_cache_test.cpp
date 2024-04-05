@@ -1143,7 +1143,7 @@ int get_disk_info(const char* const (&argv)[N], int* percent) {
         std::cerr << "Error creating pipe" << std::endl;
         return -1;
     }
-    pid_t pid = ::vfork();
+    pid_t pid = ::fork();
     if (pid == -1) {
         std::cerr << "Error forking process" << std::endl;
         return -1;

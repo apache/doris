@@ -20,6 +20,8 @@
 
 #include "io/cache/block_file_cache.h"
 
+#include "common/status.h"
+
 #if defined(__APPLE__)
 #include <sys/mount.h>
 #else
@@ -406,6 +408,7 @@ void BlockFileCache::recycle_deleted_blocks() {
                         break;
                     }
                     auto* cell = get_cell(entry_key, entry_offset, cache_lock);
+                    if (!cell) continue;
                     if (!cell->is_deleted) {
                         end = true;
                         break;
@@ -450,7 +453,7 @@ void BlockFileCache::recycle_deleted_blocks() {
         _async_clear_file_cache = false;
         auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - start_time);
         LOG_INFO("End clear file cache async")
-                .tag("path", _async_clear_file_cache)
+                .tag("path", _cache_base_path)
                 .tag("use_time", static_cast<int64_t>(use_time.count()));
     }
 }
@@ -858,16 +861,22 @@ bool BlockFileCache::remove_if_ttl_file_unlock(const UInt128Wrapper& file_key, b
         if (!remove_directly) {
             for (auto& [_, cell] : _files[file_key]) {
                 if (cell.file_block->cache_type() == FileCacheType::TTL) {
+                    Status st = cell.file_block->update_expiration_time(0);
+                    if (!st.ok()) {
+                        LOG_WARNING("Failed to update expiration time to 0").error(st);
+                    }
+                }
+            }
+            for (auto& [_, cell] : _files[file_key]) {
+                if (cell.file_block->cache_type() == FileCacheType::TTL) {
                     auto st = cell.file_block->change_cache_type_by_mgr(FileCacheType::NORMAL);
                     if (st.ok()) {
                         auto& queue = get_queue(FileCacheType::NORMAL);
                         cell.queue_iterator = queue.add(
                                 cell.file_block->get_hash_value(), cell.file_block->offset(),
                                 cell.file_block->range().size(), cache_lock);
-                        st = cell.file_block->update_expiration_time(0);
-                    }
-                    if (!st.ok()) {
-                        LOG_WARNING("Failed to change key meta").error(st);
+                    } else {
+                        LOG_WARNING("Failed to change cache type to normal").error(st);
                     }
                 }
             }
@@ -1269,7 +1278,7 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
 
     unsigned long long inode_free = stat.f_ffree;
     unsigned long long inode_total = stat.f_files;
-    int inode_percentage = (inode_free * 1.0 / inode_total) * 100;
+    int inode_percentage = int(inode_free * 1.0 / inode_total * 100);
     percent->first = capacity_percentage;
     percent->second = 100 - inode_percentage;
     return 0;
@@ -1391,13 +1400,18 @@ void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash,
     // 3. change to ttl if the blocks aren't ttl
     if (auto iter = _files.find(hash); iter != _files.end()) {
         for (auto& [_, cell] : iter->second) {
+            Status st = cell.file_block->update_expiration_time(new_expiration_time);
+            if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+                LOG_WARNING("").error(st);
+            }
+        }
+        for (auto& [_, cell] : iter->second) {
             FileCacheType origin_type = cell.file_block->cache_type();
             auto st = cell.file_block->change_cache_type_by_mgr(FileCacheType::TTL);
             if (st.ok()) {
                 auto& queue = get_queue(origin_type);
                 queue.remove(cell.queue_iterator.value(), cache_lock);
                 cell.queue_iterator.reset();
-                st = cell.file_block->update_expiration_time(new_expiration_time);
             }
             if (!st.ok()) {
                 LOG_WARNING("").error(st);

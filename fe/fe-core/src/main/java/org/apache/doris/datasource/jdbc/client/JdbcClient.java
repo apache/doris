@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.JdbcIdentifierMapping;
@@ -127,7 +128,7 @@ public abstract class JdbcClient {
             dataSource = new DruidDataSource();
             dataSource.setDriverClassLoader(classLoader);
             dataSource.setDriverClassName(config.getDriverClass());
-            dataSource.setUrl(config.getJdbcUrl());
+            dataSource.setUrl(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()));
             dataSource.setUsername(config.getUser());
             dataSource.setPassword(config.getPassword());
             dataSource.setMinIdle(config.getConnectionPoolMinSize()); // default 1
@@ -149,6 +150,8 @@ public abstract class JdbcClient {
                     + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime());
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + config.getDriverUrl(), e);
+        } catch (Exception e) {
+            throw new JdbcClientException(e.getMessage());
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -409,6 +412,8 @@ public abstract class JdbcClient {
     protected Set<String> getFilterInternalDatabases() {
         return ImmutableSet.<String>builder()
                 .add("information_schema")
+                .add("performance_schema")
+                .add("mysql")
                 .build();
     }
 

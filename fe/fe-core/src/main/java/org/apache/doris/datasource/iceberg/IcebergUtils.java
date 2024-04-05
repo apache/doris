@@ -50,6 +50,8 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Unbound;
+import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,51 +89,46 @@ public class IcebergUtils {
             return null;
         }
 
+        Expression expression = null;
         // BoolLiteral
         if (expr instanceof BoolLiteral) {
             BoolLiteral boolLiteral = (BoolLiteral) expr;
             boolean value = boolLiteral.getValue();
             if (value) {
-                return Expressions.alwaysTrue();
+                expression = Expressions.alwaysTrue();
             } else {
-                return Expressions.alwaysFalse();
+                expression = Expressions.alwaysFalse();
             }
-        }
-
-        // CompoundPredicate
-        if (expr instanceof CompoundPredicate) {
+        } else if (expr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             switch (compoundPredicate.getOp()) {
                 case AND: {
                     Expression left = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
                     Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
                     if (left != null && right != null) {
-                        return Expressions.and(left, right);
+                        expression = Expressions.and(left, right);
                     }
-                    return null;
+                    break;
                 }
                 case OR: {
                     Expression left = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
                     Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
                     if (left != null && right != null) {
-                        return Expressions.or(left, right);
+                        expression = Expressions.or(left, right);
                     }
-                    return null;
+                    break;
                 }
                 case NOT: {
                     Expression child = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
                     if (child != null) {
-                        return Expressions.not(child);
+                        expression = Expressions.not(child);
                     }
-                    return null;
+                    break;
                 }
                 default:
                     return null;
             }
-        }
-
-        // BinaryPredicate
-        if (expr instanceof BinaryPredicate) {
+        } else if (expr instanceof BinaryPredicate) {
             TExprOpcode opCode = expr.getOpcode();
             switch (opCode) {
                 case EQ:
@@ -156,38 +153,44 @@ public class IcebergUtils {
                     String colName = slotRef.getColumnName();
                     Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
                     colName = nestedField.name();
-                    Object value = extractDorisLiteral(literalExpr);
+                    Object value = extractDorisLiteral(nestedField.type(), literalExpr);
                     if (value == null) {
                         if (opCode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                            return Expressions.isNull(colName);
+                            expression = Expressions.isNull(colName);
                         } else {
                             return null;
                         }
+                    } else {
+                        switch (opCode) {
+                            case EQ:
+                            case EQ_FOR_NULL:
+                                expression = Expressions.equal(colName, value);
+                                break;
+                            case NE:
+                                expression = Expressions.not(Expressions.equal(colName, value));
+                                break;
+                            case GE:
+                                expression = Expressions.greaterThanOrEqual(colName, value);
+                                break;
+                            case GT:
+                                expression = Expressions.greaterThan(colName, value);
+                                break;
+                            case LE:
+                                expression = Expressions.lessThanOrEqual(colName, value);
+                                break;
+                            case LT:
+                                expression = Expressions.lessThan(colName, value);
+                                break;
+                            default:
+                                return null;
+                        }
                     }
-                    switch (opCode) {
-                        case EQ:
-                        case EQ_FOR_NULL:
-                            return Expressions.equal(colName, value);
-                        case NE:
-                            return Expressions.not(Expressions.equal(colName, value));
-                        case GE:
-                            return Expressions.greaterThanOrEqual(colName, value);
-                        case GT:
-                            return Expressions.greaterThan(colName, value);
-                        case LE:
-                            return Expressions.lessThanOrEqual(colName, value);
-                        case LT:
-                            return Expressions.lessThan(colName, value);
-                        default:
-                            return null;
-                    }
+                    break;
                 default:
                     return null;
             }
-        }
-
-        // InPredicate, only support a in (1,2,3)
-        if (expr instanceof InPredicate) {
+        } else if (expr instanceof InPredicate) {
+            // InPredicate, only support a in (1,2,3)
             InPredicate inExpr = (InPredicate) expr;
             if (inExpr.contains(Subquery.class)) {
                 return null;
@@ -196,56 +199,149 @@ public class IcebergUtils {
             if (slotRef == null) {
                 return null;
             }
+            String colName = slotRef.getColumnName();
+            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+            colName = nestedField.name();
             List<Object> valueList = new ArrayList<>();
             for (int i = 1; i < inExpr.getChildren().size(); ++i) {
                 if (!(inExpr.getChild(i) instanceof LiteralExpr)) {
                     return null;
                 }
                 LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
-                Object value = extractDorisLiteral(literalExpr);
+                Object value = extractDorisLiteral(nestedField.type(), literalExpr);
                 valueList.add(value);
             }
-            String colName = slotRef.getColumnName();
-            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
-            colName = nestedField.name();
             if (inExpr.isNotIn()) {
                 // not in
-                return Expressions.notIn(colName, valueList);
+                expression = Expressions.notIn(colName, valueList);
             } else {
                 // in
-                return Expressions.in(colName, valueList);
+                expression = Expressions.in(colName, valueList);
             }
         }
 
+        if (expression != null && expression instanceof Unbound) {
+            try {
+                ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
+                return expression;
+            } catch (Exception e) {
+                LOG.warn("Failed to check expression: " + e.getMessage());
+                return null;
+            }
+        }
         return null;
     }
 
-    private static Object extractDorisLiteral(Expr expr) {
-        if (!expr.isLiteral()) {
-            return null;
-        }
+    public static Object extractDorisLiteral(org.apache.iceberg.types.Type icebergType, Expr expr) {
+        TypeID icebergTypeID = icebergType.typeId();
         if (expr instanceof BoolLiteral) {
             BoolLiteral boolLiteral = (BoolLiteral) expr;
-            return boolLiteral.getValue();
+            switch (icebergTypeID) {
+                case BOOLEAN:
+                    return boolLiteral.getValue();
+                case STRING:
+                    return boolLiteral.getStringValue();
+                default:
+                    return null;
+            }
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            if (dateLiteral.isDateType() || dateLiteral.isDateTimeType()) {
-                return dateLiteral.getStringValue();
-            } else {
-                return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+            switch (icebergTypeID) {
+                case STRING:
+                    return dateLiteral.getStringValue();
+                case TIMESTAMP:
+                    return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+                default:
+                    return null;
             }
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
-            return decimalLiteral.getValue();
+            switch (icebergTypeID) {
+                case DECIMAL:
+                    return decimalLiteral.getValue();
+                case STRING:
+                    return decimalLiteral.getStringValue();
+                case DOUBLE:
+                    return decimalLiteral.getDoubleValue();
+                default:
+                    return null;
+            }
         } else if (expr instanceof FloatLiteral) {
             FloatLiteral floatLiteral = (FloatLiteral) expr;
-            return floatLiteral.getValue();
+            if (floatLiteral.getType() == Type.FLOAT) {
+                switch (icebergTypeID) {
+                    case FLOAT:
+                    case DOUBLE:
+                    case DECIMAL:
+                        return floatLiteral.getValue();
+                    default:
+                        return null;
+                }
+            } else {
+                switch (icebergTypeID) {
+                    case DOUBLE:
+                    case DECIMAL:
+                        return floatLiteral.getValue();
+                    default:
+                        return null;
+                }
+            }
         } else if (expr instanceof IntLiteral) {
             IntLiteral intLiteral = (IntLiteral) expr;
-            return intLiteral.getValue();
+            Type type = intLiteral.getType();
+            if (type.isInteger32Type()) {
+                switch (icebergTypeID) {
+                    case INTEGER:
+                    case LONG:
+                    case FLOAT:
+                    case DOUBLE:
+                    case DATE:
+                    case DECIMAL:
+                        return (int) intLiteral.getValue();
+                    default:
+                        return null;
+                }
+            } else {
+                // only PrimitiveType.BIGINT
+                switch (icebergTypeID) {
+                    case INTEGER:
+                    case LONG:
+                    case FLOAT:
+                    case DOUBLE:
+                    case TIME:
+                    case TIMESTAMP:
+                    case DATE:
+                    case DECIMAL:
+                        return intLiteral.getValue();
+                    default:
+                        return null;
+                }
+            }
         } else if (expr instanceof StringLiteral) {
-            StringLiteral stringLiteral = (StringLiteral) expr;
-            return stringLiteral.getStringValue();
+            String value = expr.getStringValue();
+            switch (icebergTypeID) {
+                case DATE:
+                case TIME:
+                case TIMESTAMP:
+                case STRING:
+                case UUID:
+                case DECIMAL:
+                    return value;
+                case INTEGER:
+                    try {
+                        return Integer.parseInt(value);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                case LONG:
+                    try {
+                        return Long.parseLong(value);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                default:
+                    return null;
+            }
         }
         return null;
     }

@@ -49,6 +49,12 @@ public interface FileSystem {
 
     Status rename(String origFilePath, String destFilePath);
 
+    default Status renameDir(String origFilePath,
+                          String destFilePath,
+                          Runnable runWhenPathNotExist) {
+        throw new UnsupportedOperationException("Unsupported operation rename dir on current file system.");
+    }
+
     default void asyncRename(Executor executor,
                              List<CompletableFuture<?>> renameFileFutures,
                              AtomicBoolean cancelled,

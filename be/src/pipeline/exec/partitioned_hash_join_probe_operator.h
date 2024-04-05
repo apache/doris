@@ -38,15 +38,12 @@ using PartitionerType = vectorized::XXHashPartitioner<LocalExchangeChannelIds>;
 class PartitionedHashJoinProbeOperatorX;
 
 class PartitionedHashJoinProbeLocalState final
-        : public JoinProbeLocalState<PartitionedHashJoinSharedState,
-                                     PartitionedHashJoinProbeLocalState> {
+        : public PipelineXSpillLocalState<PartitionedHashJoinSharedState> {
 public:
     using Parent = PartitionedHashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinProbeLocalState);
     PartitionedHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
     ~PartitionedHashJoinProbeLocalState() override = default;
-
-    void add_tuple_is_null_column(vectorized::Block* block) override {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -68,8 +65,14 @@ public:
     friend class PartitionedHashJoinProbeOperatorX;
 
 private:
+    template <typename LocalStateType>
+    friend class StatefulOperatorX;
+
     std::shared_ptr<BasicSharedState> _in_mem_shared_state_sptr;
     uint32_t _partition_cursor {0};
+
+    std::unique_ptr<vectorized::Block> _child_block;
+    bool _child_eos {false};
 
     std::mutex _spill_lock;
     Status _spill_status;
@@ -79,6 +82,11 @@ private:
 
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _partitioned_blocks;
     std::map<uint32_t, std::vector<vectorized::Block>> _probe_blocks;
+
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::shared_ptr<PartitionedHashJoinSharedState> _shared_state_holder;
 
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
@@ -93,16 +101,17 @@ private:
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_rows = nullptr;
     RuntimeProfile::Counter* _spill_build_blocks = nullptr;
+    RuntimeProfile::Counter* _spill_build_timer = nullptr;
     RuntimeProfile::Counter* _recovery_build_rows = nullptr;
     RuntimeProfile::Counter* _recovery_build_blocks = nullptr;
+    RuntimeProfile::Counter* _recovery_build_timer = nullptr;
     RuntimeProfile::Counter* _spill_probe_rows = nullptr;
     RuntimeProfile::Counter* _spill_probe_blocks = nullptr;
+    RuntimeProfile::Counter* _spill_probe_timer = nullptr;
     RuntimeProfile::Counter* _recovery_probe_rows = nullptr;
     RuntimeProfile::Counter* _recovery_probe_blocks = nullptr;
+    RuntimeProfile::Counter* _recovery_probe_timer = nullptr;
 
-    RuntimeProfile::Counter* _spill_read_data_time = nullptr;
-    RuntimeProfile::Counter* _spill_deserialize_time = nullptr;
-    RuntimeProfile::Counter* _spill_read_bytes = nullptr;
     RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
     RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
     RuntimeProfile::Counter* _spill_data_size = nullptr;
@@ -130,6 +139,10 @@ private:
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
+    RuntimeProfile::Counter* _probe_timer = nullptr;
+    RuntimeProfile::Counter* _probe_rows_counter = nullptr;
+    RuntimeProfile::Counter* _join_filter_timer = nullptr;
+    RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 };
 
 class PartitionedHashJoinProbeOperatorX final

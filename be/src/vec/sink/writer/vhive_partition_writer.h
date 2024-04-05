@@ -49,6 +49,8 @@ public:
 
     VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
                          TUpdateMode::type update_mode, const VExprContextSPtrs& output_expr_ctxs,
+                         const VExprContextSPtrs& write_output_expr_ctxs,
+                         const std::set<size_t>& non_write_columns_indices,
                          const std::vector<THiveColumn>& columns, WriteInfo write_info,
                          std::string file_name, TFileFormatType::type file_format_type,
                          TFileCompressType::type hive_compress_type,
@@ -62,11 +64,9 @@ public:
 
     Status close(const Status& status);
 
-    inline size_t written_len() { return _vfile_writer->written_len(); }
+    inline size_t written_len() { return _file_format_transformer->written_len(); }
 
 private:
-    std::unique_ptr<orc::Type> _build_orc_type(const TypeDescriptor& type_descriptor);
-
     Status _projection_and_filter_block(doris::vectorized::Block& input_block,
                                         const vectorized::IColumn::Filter* filter,
                                         doris::vectorized::Block* output_block);
@@ -83,6 +83,8 @@ private:
     size_t _input_size_in_bytes = 0;
 
     const VExprContextSPtrs& _vec_output_expr_ctxs;
+    const VExprContextSPtrs& _write_output_expr_ctxs;
+    const std::set<size_t>& _non_write_columns_indices;
 
     const std::vector<THiveColumn>& _columns;
     WriteInfo _write_info;
@@ -91,13 +93,13 @@ private:
     TFileCompressType::type _hive_compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;
 
-    std::shared_ptr<io::FileSystem> _fs;
+    std::shared_ptr<io::FileSystem> _fs = nullptr;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    std::unique_ptr<io::FileWriter> _file_writer_impl = nullptr;
+    std::unique_ptr<doris::io::FileWriter> _file_writer = nullptr;
     // convert block to parquet/orc/csv format
-    std::unique_ptr<VFileFormatTransformer> _vfile_writer = nullptr;
+    std::unique_ptr<VFileFormatTransformer> _file_format_transformer = nullptr;
 
     RuntimeState* _state;
 };

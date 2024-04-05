@@ -19,6 +19,8 @@ package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
@@ -67,7 +69,8 @@ public class BaseController {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             UserIdentity currentUser = checkPassword(authInfo);
 
-            if (checkAuth) {
+            if (Config.isCloudMode() && checkAuth) {
+                checkInstanceOverdue(currentUser);
                 checkGlobalAuth(currentUser, PrivPredicate.ADMIN_OR_NODE);
             }
 
@@ -134,6 +137,13 @@ public class BaseController {
             return null;
         }
 
+        if (Config.isCloudMode() && checkAuth && !sessionValue.currentUser.isRootUser()
+                && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            return null;
+        }
+
+
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
         ConnectContext ctx = new ConnectContext();
@@ -196,6 +206,15 @@ public class BaseController {
             sb.append("user: ").append(fullUserName).append(", remote ip: ").append(remoteIp);
             sb.append(", password: ").append("********").append(", cluster: ").append(cluster);
             return sb.toString();
+        }
+    }
+
+    protected void checkInstanceOverdue(UserIdentity currentUsr) {
+        Cloud.InstanceInfoPB.Status s = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus();
+        if (!currentUsr.isRootUser()
+                && s == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            LOG.warn("this warehouse is overdue root:{}, status:{}", currentUsr.isRootUser(), s);
+            throw new UnauthorizedException("The warehouse is overdue!");
         }
     }
 

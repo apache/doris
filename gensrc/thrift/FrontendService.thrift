@@ -494,7 +494,6 @@ struct TFeResult {
     1000: optional string cloud_cluster
     1001: optional bool noAuth
 }
-
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -524,6 +523,8 @@ struct TMasterOpRequest {
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
     26: optional string defaultDatabase
+    27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
+    28: optional map<string, Exprs.TExprNode> user_variables
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -924,6 +925,7 @@ enum TSchemaTableName {
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
   WORKLOAD_GROUPS = 3, // db information_schema's table
+  ROUTINES_INFO = 4, // db information_schema's table
 }
 
 struct TMetadataTableRequestParams {
@@ -1271,7 +1273,7 @@ struct TCreatePartitionRequest {
     2: optional i64 db_id
     3: optional i64 table_id
     // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
-    4: optional list<list<Exprs.TStringLiteral>> partitionValues
+    4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
 }
@@ -1432,6 +1434,13 @@ struct TShowProcessListResult {
     1: optional list<list<string>> process_list
 }
 
+struct TShowUserRequest {
+}
+
+struct TShowUserResult {
+    1: optional list<list<string>> userinfo_list
+}
+
 struct TReportCommitTxnResultRequest {
     1: optional i64 dbId
     2: optional i64 txnId
@@ -1528,4 +1537,5 @@ service FrontendService {
 
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
+    TShowUserResult showUser(1: TShowUserRequest request)
 }

@@ -547,8 +547,9 @@ archive_doris_coredump() {
     for p in "${!pids[@]}"; do
         pid="${pids[${p}]}"
         if [[ -z "${pid}" ]]; then continue; fi
-        if coredump_file=$(find /var/lib/apport/coredump/ -type f -name "core.*${pid}.*") &&
-            wait_coredump_file_ready "${coredump_file}"; then
+        if coredump_file=$(find /var/lib/apport/coredump/ -maxdepth 1 -type f -name "core.*${pid}.*") &&
+            [[ -n "${coredump_file}" ]]; then
+            wait_coredump_file_ready "${coredump_file}"
             file_size=$(stat -c %s "${coredump_file}")
             if ((file_size <= COREDUMP_SIZE_THRESHOLD)); then
                 mkdir -p "${DORIS_HOME}/${archive_dir}/${p}"

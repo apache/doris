@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "common/sync_point.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
@@ -47,6 +48,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
@@ -110,7 +112,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
 
 Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
         : _mem_tracker(
-                  std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label)),
+                  MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
           _is_vertical(config::enable_vertical_compaction),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
@@ -319,6 +321,12 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         _tablet->enable_unique_key_merge_on_write()) {
         return false;
     }
+
+    if (_tablet->tablet_meta()->tablet_schema()->skip_write_index_on_load()) {
+        // Expected to create index through normal compaction
+        return false;
+    }
+
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
@@ -346,6 +354,11 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     // most rowset of current compaction is nonoverlapping
     // just handle nonoverlappint rowsets
     auto st = do_compact_ordered_rowsets();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to compact ordered rowsets: " << st;
+        _pending_rs_guard.drop();
+    }
+
     return st.ok();
 }
 
@@ -438,7 +451,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     return Status::OK();
 }
 
-Status CompactionMixin::do_inverted_index_compaction() {
+Status Compaction::do_inverted_index_compaction() {
     const auto& ctx = _output_rs_writer->context();
     if (!config::inverted_index_compaction_enable || _input_row_num <= 0 ||
         !_stats.rowid_conversion || ctx.skip_inverted_index.empty()) {
@@ -447,13 +460,18 @@ Status CompactionMixin::do_inverted_index_compaction() {
 
     OlapStopWatch inverted_watch;
 
-    Version version = tablet()->max_version();
+    int64_t cur_max_version = 0;
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        cur_max_version = _tablet->max_version_unlocked();
+    }
+
     DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
     std::set<RowLocation> missed_rows;
     std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
     // Convert the delete bitmap of the input rowsets to output rowset.
-    tablet()->calc_compaction_output_rowset_delete_bitmap(
-            _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
+    _tablet->calc_compaction_output_rowset_delete_bitmap(
+            _input_rowsets, _rowid_conversion, 0, cur_max_version + 1, &missed_rows, &location_map,
             _tablet->tablet_meta()->delete_bitmap(), &output_rowset_delete_bitmap);
 
     if (!_allow_delete_in_cumu_compaction) {
@@ -466,10 +484,11 @@ Status CompactionMixin::do_inverted_index_compaction() {
                     _tablet->table_id());
             DCHECK(false) << err_msg;
             LOG(WARNING) << err_msg;
+            return Status::InternalError(err_msg);
         }
     }
 
-    RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, location_map));
+    RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
     // translation vec
     // <<dest_idx_num, dest_docId>>
@@ -523,7 +542,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
         auto write_json_to_file = [&](const nlohmann::json& json_obj,
                                       const std::string& file_name) {
             io::FileWriterPtr file_writer;
-            std::string file_path = fmt::format("{}/{}.json", config::sys_log_dir, file_name);
+            std::string file_path =
+                    fmt::format("{}/{}.json", std::string(getenv("LOG_DIR")), file_name);
             RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
             RETURN_IF_ERROR(file_writer->append(json_obj.dump()));
             RETURN_IF_ERROR(file_writer->append("\n"));
@@ -617,7 +637,8 @@ Status CompactionMixin::do_inverted_index_compaction() {
 
     // we choose the first destination segment name as the temporary index writer path
     // Used to distinguish between different index compaction
-    auto index_tmp_path = tablet_path + "/" + dest_rowset_id.to_string() + "_" + "tmp";
+    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
+    auto index_tmp_path = tmp_file_dir / dest_rowset_id.to_string();
     LOG(INFO) << "start index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", source index size=" << src_segment_num
               << ", destination index size=" << dest_segment_num << ".";
@@ -707,7 +728,7 @@ Status CompactionMixin::do_inverted_index_compaction() {
     return Status::OK();
 }
 
-void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
+void Compaction::construct_skip_inverted_index(RowsetWriterContext& ctx) {
     for (const auto& index : _cur_tablet_schema->indexes()) {
         if (index.index_type() != IndexType::INVERTED) {
             continue;
@@ -1033,6 +1054,8 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 
     RETURN_IF_ERROR(merge_input_rowsets());
 
+    RETURN_IF_ERROR(do_inverted_index_compaction());
+
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
@@ -1058,7 +1081,23 @@ Status CloudCompactionMixin::modify_rowsets() {
 }
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
-    ctx.fs = _engine.latest_fs();
+    // only do index compaction for dup_keys and unique_keys with mow enabled
+    if (config::inverted_index_compaction_enable &&
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
+          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+        construct_skip_inverted_index(ctx);
+    }
+    // Use the vault id of the previous rowset
+    for (const auto& rs : _input_rowsets) {
+        if (nullptr != rs->rowset_meta()->fs()) {
+            ctx.fs = rs->rowset_meta()->fs();
+            break;
+        }
+    }
+    if (nullptr == ctx.fs) [[unlikely]] {
+        return Status::InternalError("Failed to find fs");
+    }
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
     ctx.txn_expiration = _expiration;
@@ -1072,6 +1111,21 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
     return Status::OK();
+}
+
+void CloudCompactionMixin::garbage_collection() {
+    if (!config::enable_file_cache) {
+        return;
+    }
+    if (_output_rs_writer) {
+        auto* beta_rowset_writer = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get());
+        DCHECK(beta_rowset_writer);
+        for (const auto& [_, file_writer] : beta_rowset_writer->get_file_writers()) {
+            auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached(file_key);
+        }
+    }
 }
 
 } // namespace doris

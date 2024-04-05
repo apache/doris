@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
@@ -89,7 +90,9 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (! (firstKey instanceof SlotReference)) {
             return Optional.empty();
         }
-        OlapScan olapScan = findScanNodeBySlotReference(topN, (SlotReference) firstKey);
+
+        boolean nullsFirst = topN.getOrderKeys().get(0).isNullFirst();
+        OlapScan olapScan = findScanNodeBySlotReference(topN, (SlotReference) firstKey, nullsFirst);
         if (olapScan != null
                 && olapScan.getTable().isDupKeysOrMergeOnWrite()
                 && olapScan instanceof PhysicalCatalogRelation) {
@@ -99,20 +102,45 @@ public class TopNScanOpt extends PlanPostProcessor {
         return Optional.empty();
     }
 
-    private OlapScan findScanNodeBySlotReference(Plan root, SlotReference slot) {
+    private OlapScan findScanNodeBySlotReference(Plan root, SlotReference slot, boolean nullsFirst) {
+        if (root instanceof PhysicalWindow) {
+            return null;
+        }
+
+        if (root instanceof OlapScan) {
+            if (root.getOutputSet().contains(slot)) {
+                return (OlapScan) root;
+            } else {
+                return null;
+            }
+        }
+
         OlapScan target = null;
-        if (root instanceof OlapScan && root.getOutputSet().contains(slot)) {
-            return (OlapScan) root;
-        } else {
-            if (! root.children().isEmpty()) {
-                // for join and intersect, push topn-filter to their left child.
-                // TODO for union, topn-filter can be pushed down to all of its children.
-                Plan child = root.child(0);
-                if (!(child instanceof PhysicalWindow) && child.getOutputSet().contains(slot)) {
-                    target = findScanNodeBySlotReference(child, slot);
-                    if (target != null) {
-                        return target;
-                    }
+        if (root instanceof Join) {
+            Join join = (Join) root;
+            if (nullsFirst && join.getJoinType().isOuterJoin()) {
+                // in fact, topn-filter can be pushed down to the left child of leftOuterJoin
+                // and to the right child of rightOuterJoin.
+                // but we have rule to push topn down to the left/right side. and topn-filter
+                // will be generated according to the inferred topn node.
+                return null;
+            }
+            // try to push to both left and right child
+            if (root.child(0).getOutputSet().contains(slot)) {
+                target = findScanNodeBySlotReference(root.child(0), slot, nullsFirst);
+            } else {
+                target = findScanNodeBySlotReference(root.child(1), slot, nullsFirst);
+            }
+            return target;
+        }
+
+        if (!root.children().isEmpty()) {
+            // TODO for set operator, topn-filter can be pushed down to all of its children.
+            Plan child = root.child(0);
+            if (child.getOutputSet().contains(slot)) {
+                target = findScanNodeBySlotReference(child, slot, nullsFirst);
+                if (target != null) {
+                    return target;
                 }
             }
         }

@@ -20,10 +20,12 @@ package org.apache.doris.cloud.transaction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -111,6 +113,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -230,7 +233,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("beginTxn KV_TXN_CONFLICT, retryTime:{}", retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(beginTxnResponse);
@@ -371,6 +373,28 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
+    private Set<Long> getBaseTabletsFromTables(List<Table> tableList, List<TabletCommitInfo> tabletCommitInfos)
+            throws MetaNotFoundException {
+        Set<Long> baseTabletIds = Sets.newHashSet();
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
+            return baseTabletIds;
+        }
+        for (Table table : tableList) {
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.getPartitions().stream()
+                    .map(Partition::getBaseIndex)
+                    .map(MaterializedIndex::getTablets)
+                    .flatMap(Collection::stream)
+                    .map(Tablet::getId)
+                    .forEach(baseTabletIds::add);
+        }
+        Set<Long> tabletIds = tabletCommitInfos.stream().map(TabletCommitInfo::getTabletId).collect(Collectors.toSet());
+        baseTabletIds.retainAll(tabletIds);
+        LOG.debug("baseTabletIds: {}", baseTabletIds);
+
+        return baseTabletIds;
+    }
+
     private void commitTransaction(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC)
             throws UserException {
@@ -390,7 +414,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         builder.setDbId(dbId)
                 .setTxnId(transactionId)
                 .setIs2Pc(is2PC)
-                .setCloudUniqueId(Config.cloud_unique_id);
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .addAllBaseTabletIds(getBaseTabletsFromTables(tableList, tabletCommitInfos));
 
         // if tablet commit info is empty, no need to pass mowTableList to meta service.
         if (tabletCommitInfos != null && !tabletCommitInfos.isEmpty()) {
@@ -433,7 +458,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commitTxn KV_TXN_CONFLICT, transactionId:{}, retryTime:{}", transactionId, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(commitTxnResponse);
@@ -764,7 +788,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("abortTxn KV_TXN_CONFLICT, transactionId:{}, retryTime:{}", transactionId, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
             Preconditions.checkNotNull(abortTxnResponse);
             Preconditions.checkNotNull(abortTxnResponse.getStatus());
@@ -817,7 +840,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("abortTxn KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
             Preconditions.checkNotNull(abortTxnResponse);
             Preconditions.checkNotNull(abortTxnResponse.getStatus());
@@ -969,7 +991,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("cleanTxnLabel KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(cleanTxnLabelResponse);

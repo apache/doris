@@ -17,13 +17,17 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TUpdateMode;
 
 import com.google.common.collect.Lists;
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.After;
@@ -41,6 +45,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Ignore
 public class HmsCommitTest {
@@ -61,6 +68,7 @@ public class HmsCommitTest {
         dbLocation = "file://" + warehousePath.toAbsolutePath() + "/";
         createTestHiveCatalog();
         createTestHiveDatabase();
+        mockFs();
     }
 
     @AfterClass
@@ -90,22 +98,55 @@ public class HmsCommitTest {
         hmsClient.createDatabase(dbMetadata);
     }
 
+    public static void mockFs() {
+
+        new MockUp<DFSFileSystem>(DFSFileSystem.class) {
+            @Mock
+            public void asyncRenameDir(Executor executor,
+                                       List<CompletableFuture<?>> renameFileFutures,
+                                       AtomicBoolean cancelled,
+                                       String origFilePath,
+                                       String destFilePath,
+                                       Runnable runWhenPathNotExist) {
+            }
+
+            @Mock
+            public void asyncRename(Executor executor,
+                                    List<CompletableFuture<?>> renameFileFutures,
+                                    AtomicBoolean cancelled,
+                                    String origFilePath,
+                                    String destFilePath,
+                                    List<String> fileNames) {
+            }
+
+            @Mock
+            public Status renameDir(String origFilePath,
+                                    String destFilePath,
+                                    Runnable runWhenPathNotExist) {
+                return Status.OK;
+            }
+        };
+    }
+
     @Before
     public void before() {
         // create table
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("c1", PrimitiveType.INT, true));
         columns.add(new Column("c2", PrimitiveType.STRING, true));
+        columns.add(new Column("c3", PrimitiveType.STRING, false));
         List<String> partitionKeys = new ArrayList<>();
         partitionKeys.add("c3");
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
                 dbName, tbWithPartition, columns, partitionKeys,
                 new HashMap<>(), fileFormat);
         hmsClient.createTable(tableMetadata, true);
+
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
                 dbName, tbWithoutPartition, columns, new ArrayList<>(),
                 new HashMap<>(), fileFormat);
         hmsClient.createTable(tableMetadata2, true);
+
     }
 
     @After
@@ -118,11 +159,7 @@ public class HmsCommitTest {
     public void testNewPartitionForUnPartitionedTable() {
         List<THivePartitionUpdate> pus = new ArrayList<>();
         pus.add(createRandomNew("a"));
-        try {
-            hmsOps.commit(dbName, tbWithoutPartition, pus);
-        } catch (Exception e) {
-            Assert.assertEquals("Not support mode:[NEW] in unPartitioned table", e.getMessage());
-        }
+        Assert.assertThrows(Exception.class, () -> commit(dbName, tbWithoutPartition, pus));
     }
 
     @Test
@@ -131,22 +168,29 @@ public class HmsCommitTest {
         pus.add(createRandomAppend(""));
         pus.add(createRandomAppend(""));
         pus.add(createRandomAppend(""));
-        hmsOps.commit(dbName, tbWithoutPartition, pus);
+        commit(dbName, tbWithoutPartition, pus);
         Table table = hmsClient.getTable(dbName, tbWithoutPartition);
-        Assert.assertEquals(3, Long.parseLong(table.getParameters().get("numRows")));
+        assertNumRows(3, table);
 
         List<THivePartitionUpdate> pus2 = new ArrayList<>();
         pus2.add(createRandomAppend(""));
         pus2.add(createRandomAppend(""));
         pus2.add(createRandomAppend(""));
-        hmsOps.commit(dbName, tbWithoutPartition, pus2);
+        commit(dbName, tbWithoutPartition, pus2);
         table = hmsClient.getTable(dbName, tbWithoutPartition);
-        Assert.assertEquals(6, Long.parseLong(table.getParameters().get("numRows")));
+        assertNumRows(6, table);
     }
 
     @Test
     public void testOverwritePartitionForUnPartitionedTable() {
-        // TODO
+        testAppendPartitionForUnPartitionedTable();
+        List<THivePartitionUpdate> pus = new ArrayList<>();
+        pus.add(createRandomOverwrite(""));
+        pus.add(createRandomOverwrite(""));
+        pus.add(createRandomOverwrite(""));
+        commit(dbName, tbWithoutPartition, pus);
+        Table table = hmsClient.getTable(dbName, tbWithoutPartition);
+        assertNumRows(3, table);
     }
 
     @Test
@@ -158,14 +202,14 @@ public class HmsCommitTest {
         pus.add(createRandomNew("b"));
         pus.add(createRandomNew("b"));
         pus.add(createRandomNew("c"));
-        hmsOps.commit(dbName, tbWithPartition, pus);
+        commit(dbName, tbWithPartition, pus);
 
         Partition pa = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("a"));
-        Assert.assertEquals(3, Long.parseLong(pa.getParameters().get("numRows")));
+        assertNumRows(3, pa);
         Partition pb = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("b"));
-        Assert.assertEquals(2, Long.parseLong(pb.getParameters().get("numRows")));
+        assertNumRows(2, pb);
         Partition pc = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("c"));
-        Assert.assertEquals(1, Long.parseLong(pc.getParameters().get("numRows")));
+        assertNumRows(1, pc);
     }
 
     @Test
@@ -179,14 +223,31 @@ public class HmsCommitTest {
         pus.add(createRandomAppend("b"));
         pus.add(createRandomAppend("b"));
         pus.add(createRandomAppend("c"));
-        hmsOps.commit(dbName, tbWithPartition, pus);
+        commit(dbName, tbWithPartition, pus);
 
         Partition pa = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("a"));
-        Assert.assertEquals(6, Long.parseLong(pa.getParameters().get("numRows")));
+        assertNumRows(6, pa);
         Partition pb = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("b"));
-        Assert.assertEquals(4, Long.parseLong(pb.getParameters().get("numRows")));
+        assertNumRows(4, pb);
         Partition pc = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("c"));
-        Assert.assertEquals(2, Long.parseLong(pc.getParameters().get("numRows")));
+        assertNumRows(2, pc);
+    }
+
+    @Test
+    public void testOverwritePartitionForPartitionedTable() {
+        testAppendPartitionForPartitionedTable();
+        List<THivePartitionUpdate> pus = new ArrayList<>();
+        pus.add(createRandomOverwrite("a"));
+        pus.add(createRandomOverwrite("b"));
+        pus.add(createRandomOverwrite("c"));
+        commit(dbName, tbWithPartition, pus);
+
+        Partition pa = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("a"));
+        assertNumRows(1, pa);
+        Partition pb = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("b"));
+        assertNumRows(1, pb);
+        Partition pc = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("c"));
+        assertNumRows(1, pc);
     }
 
     @Test
@@ -197,17 +258,25 @@ public class HmsCommitTest {
             pus.add(createRandomNew("" + i));
         }
 
-        hmsOps.commit(dbName, tbWithPartition, pus);
+        commit(dbName, tbWithPartition, pus);
         for (int i = 0; i < nums; i++) {
             Partition p = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("" + i));
-            Assert.assertEquals(1, Long.parseLong(p.getParameters().get("numRows")));
+            assertNumRows(1, p);
         }
 
         try {
-            hmsOps.commit(dbName, tbWithPartition, pus);
+            commit(dbName, tbWithPartition, pus);
         } catch (Exception e) {
             Assert.assertTrue(e.getMessage().contains("failed to add partitions"));
         }
+    }
+
+    public void assertNumRows(long expected, Partition p) {
+        Assert.assertEquals(expected, Long.parseLong(p.getParameters().get("numRows")));
+    }
+
+    public void assertNumRows(long expected, Table t) {
+        Assert.assertEquals(expected, Long.parseLong(t.getParameters().get("numRows")));
     }
 
     public THivePartitionUpdate genOnePartitionUpdate(String partitionValue, TUpdateMode mode) {
@@ -240,5 +309,18 @@ public class HmsCommitTest {
 
     public THivePartitionUpdate createRandomAppend(String partition) {
         return genOnePartitionUpdate("c3=" + partition, TUpdateMode.APPEND);
+    }
+
+    public THivePartitionUpdate createRandomOverwrite(String partition) {
+        return genOnePartitionUpdate("c3=" + partition, TUpdateMode.OVERWRITE);
+    }
+
+    public void commit(String dbName,
+                       String tableName,
+                       List<THivePartitionUpdate> hivePUs) {
+        HMSTransaction hmsTransaction = new HMSTransaction(hmsOps);
+        hmsTransaction.setHivePartitionUpdates(hivePUs);
+        hmsTransaction.finishInsertTable(dbName, tableName);
+        hmsTransaction.commit();
     }
 }

@@ -100,43 +100,12 @@
 8	8.099999904632568
 9	12.5
 
--- !decimal_sum_add_const_precision_1$ --
-2670.55
+-- !sum_null_and_not_null --
+122	130	114	80	90	70
 
--- !decimal_sum_add_const_precision_2$ --
-2672.55
+-- !sum_distinct --
+122	122	130	130
 
--- !decimal_sum_add_const_precision_3$ --
-10	694.19
-6	434.03
-7	474.07
-8	514.11
-9	554.15
-
--- !decimal_sum_add_const_precision_4$ --
-10	694.636
-6	434.476
-7	474.516
-8	514.556
-9	554.596
-
--- !decimal_sum_sub_const_precision_1$ --
-2630.55
-
--- !decimal_sum_sub_const_precision_2$ --
-2628.55
-
--- !decimal_sum_sub_const_precision_3$ --
-10	686.19
-6	426.03
-7	466.07
-8	506.11
-9	546.15
-
--- !decimal_sum_sub_const_precision_4$ --
-10	685.744
-6	425.584
-7	465.624
-8	505.664
-9	545.704
+-- !sum_not_null_distinct --
+80	40	90	45
 

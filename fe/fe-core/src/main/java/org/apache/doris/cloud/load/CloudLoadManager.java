@@ -19,6 +19,7 @@ package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -33,14 +34,14 @@ public class CloudLoadManager extends LoadManager {
 
     @Override
     public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException, UserException {
-        CloudSystemInfoService.waitForAutoStartCurrentCluster();
+        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStartCurrentCluster();
 
         return super.createLoadJobFromStmt(stmt);
     }
 
     @Override
     public long createLoadJobFromStmt(InsertStmt stmt) throws DdlException {
-        CloudSystemInfoService.waitForAutoStartCurrentCluster();
+        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStartCurrentCluster();
 
         return super.createLoadJobFromStmt(stmt);
     }

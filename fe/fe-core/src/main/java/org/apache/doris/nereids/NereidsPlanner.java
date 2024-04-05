@@ -391,7 +391,7 @@ public class NereidsPlanner extends Planner {
             if (hint instanceof DistributeHint) {
                 distributeHintIndex++;
                 if (!hint.getExplainString().equals("")) {
-                    distributeIndex = "_" + String.valueOf(distributeHintIndex);
+                    distributeIndex = "_" + distributeHintIndex;
                 }
             }
             switch (hint.getStatus()) {

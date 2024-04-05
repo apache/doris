@@ -456,11 +456,6 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    MutableColumns scatter(ColumnIndex, const Selector&) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return {};
-    }
-
     void replace_column_data(const IColumn&, size_t row, size_t self_row) override {
         LOG(FATAL) << "should not call the method in column object";
     }

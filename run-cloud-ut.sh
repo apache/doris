@@ -181,6 +181,14 @@ find . -name "*.gcda" -exec rm {} \;
 
 mkdir -p "${CMAKE_BUILD_DIR}/test/log"
 
+# prepare java jars
+LIB_DIR="${CMAKE_BUILD_DIR}/test/lib"
+rm -rf "${LIB_DIR}"
+mkdir "${LIB_DIR}"
+if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
+    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+fi
+
 if [[ "${RUN}" -ne 1 ]]; then
     echo "Finished"
     exit 0

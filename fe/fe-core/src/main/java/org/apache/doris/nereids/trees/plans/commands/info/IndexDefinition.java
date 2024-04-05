@@ -105,8 +105,8 @@ public class IndexDefinition {
             }
             if (!(colType.isDateLikeType() || colType.isDecimalLikeType()
                     || colType.isIntegralType() || colType.isStringLikeType()
-                    || colType.isBooleanType())) {
-                // TODO add colType.isVariantType() and colType.isAggState()
+                    || colType.isBooleanType() || colType.isVariantType())) {
+                // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
             }
