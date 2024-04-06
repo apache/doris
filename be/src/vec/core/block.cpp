@@ -782,6 +782,10 @@ void Block::build_output_block_after_projects(Block& input_block, Block& origin_
         if (column_cnt[col_id] > 1) {
             return {intput_column_ptr, false};
         }
+        // For complex types like "variant," direct swapping can easily lead to issues.
+        if (intput_column_ptr->is_variant()) {
+            return {intput_column_ptr, false};
+        }
         // When this column ID appears for the last time,
         // it needs to be checked whether this column comes from the origin block or is in the input block.
         for (int i = 0; i < origin_block.columns(); i++) {
