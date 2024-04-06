@@ -393,7 +393,7 @@ std::string BlockFileCache::clear_file_cache_async() {
     ss << "finish clear_file_cache_async, path=" << _cache_base_path
        << " num_files_all=" << num_files_all << " num_cells_all=" << num_cells_all
        << " num_cells_to_delete=" << num_cells_to_delete;
-    string msg = ss.str();
+    auto msg = ss.str();
     LOG(INFO) << msg;
     return msg;
 }
