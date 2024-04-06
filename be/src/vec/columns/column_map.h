@@ -91,6 +91,11 @@ public:
         offsets_column->clear();
     }
 
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && keys_column->is_exclusive() &&
+               values_column->is_exclusive() && offsets_column;
+    }
+
     ColumnPtr convert_to_full_column_if_const() const override;
 
     MutableColumnPtr clone_resized(size_t size) const override;

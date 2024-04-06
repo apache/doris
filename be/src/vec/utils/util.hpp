@@ -42,6 +42,12 @@ public:
         }
         return MutableBlock::build_mutable_block(block);
     }
+    static void build_output_block_mem_reuse(Block* block, const RowDescriptor& row_desc) {
+        if (!block->mem_reuse()) {
+            MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
+            block->swap(tmp.to_block());
+        }
+    }
     static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
         if (!block->mem_reuse()) {
             MutableBlock tmp(other.clone_empty());

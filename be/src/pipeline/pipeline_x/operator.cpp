@@ -209,42 +209,16 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     }
 
     DCHECK_EQ(rows, input_block.rows());
-    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
-            if (_keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
-                null_column.get_nested_column().insert_range_from(*from, 0, rows);
-                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-            } else {
-                to = make_nullable(from, false)->assume_mutable();
-            }
-        } else {
-            if (_keep_origin || !from->is_exclusive()) {
-                to->insert_range_from(*from, 0, rows);
-            } else {
-                to = from->assume_mutable();
-            }
-        }
-    };
+    vectorized::VectorizedUtils::build_output_block_mem_reuse(output_block,
+                                                              *_output_row_descriptor);
 
-    using namespace vectorized;
-    vectorized::MutableBlock mutable_block =
-            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                       *_output_row_descriptor);
-    if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
-        DCHECK(mutable_columns.size() == local_state->_projections.size());
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            auto result_column_id = -1;
-            RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, &result_column_id));
-            auto column_ptr = input_block.get_by_position(result_column_id)
-                                      .column->convert_to_full_column_if_const();
-            insert_column_datas(mutable_columns[i], column_ptr, rows);
-        }
-        DCHECK(mutable_block.rows() == rows);
-        output_block->set_columns(std::move(mutable_columns));
+    DCHECK(output_block->columns() == local_state->_projections.size());
+    result_column_ids.resize(local_state->_projections.size());
+    for (int i = 0; i < local_state->_projections.size(); ++i) {
+        RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, &result_column_ids[i]));
     }
-
+    output_block->build_output_block_after_projects(input_block, *origin_block, result_column_ids);
+    DCHECK(output_block->rows() == rows);
     return Status::OK();
 }
 

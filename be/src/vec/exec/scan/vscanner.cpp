@@ -207,35 +207,18 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
     }
 
     DCHECK_EQ(rows, input_block.rows());
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
-
-    auto& mutable_columns = mutable_block.mutable_columns();
-
-    if (mutable_columns.size() != _projections.size()) {
+    if (output_block->columns() != _projections.size()) {
         return Status::InternalError(
                 "Logical error in scanner, output of projections {} mismatches with "
                 "scanner output {}",
-                _projections.size(), mutable_columns.size());
+                _projections.size(), output_block->columns());
     }
-
-    for (int i = 0; i < mutable_columns.size(); ++i) {
-        auto result_column_id = -1;
-        RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
-        auto column_ptr = input_block.get_by_position(result_column_id)
-                                  .column->convert_to_full_column_if_const();
-        //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
-        if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
-            DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
-            reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
-                    ->insert_range_from_not_nullable(*column_ptr, 0, rows);
-        } else {
-            mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
-        }
+    result_column_ids.resize(_projections.size());
+    for (int i = 0; i < _projections.size(); ++i) {
+        RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_ids[i]));
     }
-    DCHECK(mutable_block.rows() == rows);
-    output_block->set_columns(std::move(mutable_columns));
-
+    output_block->build_output_block_after_projects(input_block, *origin_block, result_column_ids);
+    DCHECK(output_block->rows() == rows);
     return Status::OK();
 }
 

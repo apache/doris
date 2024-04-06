@@ -28,10 +28,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
 #include <iomanip>
 #include <iterator>
 #include <limits>
 #include <ranges>
+#include <tuple>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -686,7 +688,7 @@ void Block::clear() {
 std::string Block::print_use_count() {
     std::stringstream ss;
     for (auto& d : data) {
-        ss << ", [" << d.name << ", " << d.column->use_count() << "]";
+        ss << ", [" << d.name << ", " << d.column->use_count() << ", " << d.column.get() << "]";
     }
     return ss.str();
 }
@@ -726,6 +728,83 @@ void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
         tmp_data.push_back(data[result_column_id]);
     }
     swap(Block {tmp_data});
+}
+
+void Block::build_output_block_after_projects(Block& input_block, Block& origin_block,
+                                              const std::vector<int>& result_column_ids) {
+    auto insert_column_datas = [](vectorized::ColumnPtr& to, vectorized::ColumnPtr& origin_column,
+                                  size_t rows, bool use_swap) {
+        auto insert_column = [](vectorized::ColumnPtr& to, vectorized::ColumnPtr& from, size_t rows,
+                                bool use_swap) {
+            if (!to->is_nullable() && from->is_nullable()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "cannot convert a nullable column to a non-nullable");
+            }
+            // Due to historical reasons, there are some cases where non-nullable columns are converted to nullable ones.
+            // We plan to remove such code in the future.
+            if (to->is_nullable() && !from->is_nullable()) {
+                if (use_swap) {
+                    make_nullable(from, false).swap(to);
+                } else {
+                    MutableColumnPtr mut_to = (*std::move(to)).mutate();
+                    reinterpret_cast<vectorized::ColumnNullable&>(*mut_to)
+                            .insert_range_from_not_nullable(*from, 0, rows);
+                    to = std::move(mut_to);
+                }
+            } else {
+                if (use_swap) {
+                    to.swap(from);
+                } else {
+                    MutableColumnPtr mut_to = (*std::move(to)).mutate();
+                    mut_to->insert_range_from(*from, 0, rows);
+                    to = std::move(mut_to);
+                }
+            }
+        };
+        if (is_column_const(*origin_column)) {
+            auto column_ptr = origin_column->convert_to_full_column_if_const();
+            insert_column(to, column_ptr, rows, false);
+        } else {
+            insert_column(to, origin_column, rows, use_swap);
+        }
+    };
+    // count the occurrences of the column id.
+    std::vector<int> column_cnt(input_block.columns(), 0);
+    for (const int col_id : result_column_ids) {
+        column_cnt[col_id]++;
+    }
+    const auto rows = input_block.rows();
+    auto get_input_or_origin_column_ptr =
+            [&](int col_id) -> std::tuple<std::reference_wrapper<ColumnPtr>, bool> {
+        ColumnPtr& intput_column_ptr = input_block.get_by_position(col_id).column;
+        DCHECK(column_cnt[col_id] > 0);
+        // Duplicate column IDs, directly copy the first few times, and only use swap on the last occasion.
+        if (column_cnt[col_id] > 1) {
+            return {intput_column_ptr, false};
+        }
+        // When this column ID appears for the last time,
+        // it needs to be checked whether this column comes from the origin block or is in the input block.
+        for (int i = 0; i < origin_block.columns(); i++) {
+            auto& origin_column_ptr = origin_block.get_by_position(i).column;
+            if (origin_column_ptr.get() == intput_column_ptr.get()) {
+                // column from origin block
+                return {origin_column_ptr, true};
+            }
+        }
+        // column from input block
+        return {intput_column_ptr, intput_column_ptr->is_exclusive()};
+    };
+
+    for (int i = 0; i < this->columns(); i++) {
+        const int intput_col_id = result_column_ids[i];
+        const int output_col_id = i;
+        DCHECK(column_cnt[intput_col_id] > 0);
+        auto [intput_column_ptr, use_swap] = get_input_or_origin_column_ptr(intput_col_id);
+        ColumnPtr& output_column_ptr = this->data[output_col_id].column;
+        DCHECK(output_column_ptr->is_exclusive());
+        insert_column_datas(output_column_ptr, intput_column_ptr, rows, use_swap);
+        column_cnt[intput_col_id]--;
+    }
 }
 
 void Block::update_hash(SipHash& hash) const {

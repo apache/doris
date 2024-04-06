@@ -175,6 +175,10 @@ public:
 
     ColumnPtr convert_to_full_column_if_const() const override;
 
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && data->is_exclusive() && offsets->is_exclusive();
+    }
+
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
     const IColumn& get_data() const { return *data; }

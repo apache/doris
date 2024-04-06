@@ -237,6 +237,13 @@ public:
     // Shuffle columns in place based on the result_column_ids
     void shuffle_columns(const std::vector<int>& result_column_ids);
 
+    // This function is used to construct the projected output block.
+    // The origin block is the original input, and the input block contains intermediate results computed during projection.
+    // The function will use swap as much as possible, rather than direct copying.
+    // If a result column id is unique, swap directly.
+    // If there are multiple identical result column id, swap one and copy the rest.
+    void build_output_block_after_projects(Block& input_block, Block& origin_block,
+                                           const std::vector<int>& result_column_ids);
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
     void clear_column_data(int column_size = -1) noexcept;
