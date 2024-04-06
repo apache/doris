@@ -48,8 +48,11 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Not;
+import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
@@ -209,6 +212,9 @@ public class IcebergUtils {
                 }
                 LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
                 Object value = extractDorisLiteral(nestedField.type(), literalExpr);
+                if (value == null) {
+                    return null;
+                }
                 valueList.add(value);
             }
             if (inExpr.isNotIn()) {
@@ -220,16 +226,59 @@ public class IcebergUtils {
             }
         }
 
-        if (expression != null && expression instanceof Unbound) {
-            try {
-                ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
-                return expression;
-            } catch (Exception e) {
-                LOG.warn("Failed to check expression: " + e.getMessage());
-                return null;
-            }
+        return checkConversion(expression, schema);
+    }
+
+    private static Expression checkConversion(Expression expression, Schema schema) {
+        if (expression == null) {
+            return null;
         }
-        return null;
+        switch (expression.op()) {
+            case AND: {
+                And andExpr = (And) expression;
+                Expression left = checkConversion(andExpr.left(), schema);
+                Expression right = checkConversion(andExpr.right(), schema);
+                if (left != null && right != null) {
+                    return andExpr;
+                } else if (left != null) {
+                    return left;
+                } else if (right != null) {
+                    return right;
+                } else {
+                    return null;
+                }
+            }
+            case OR: {
+                Or orExpr = (Or) expression;
+                Expression left = checkConversion(orExpr.left(), schema);
+                Expression right = checkConversion(orExpr.right(), schema);
+                if (left == null || right == null) {
+                    return null;
+                } else {
+                    return orExpr;
+                }
+            }
+            case NOT: {
+                Not notExpr = (Not) expression;
+                Expression child = checkConversion(notExpr.child(), schema);
+                if (child == null) {
+                    return null;
+                } else {
+                    return notExpr;
+                }
+            }
+            default:
+                if (!(expression instanceof Unbound)) {
+                    return null;
+                }
+                try {
+                    ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
+                    return expression;
+                } catch (Exception e) {
+                    LOG.warn("Failed to check expression: " + e.getMessage());
+                    return null;
+                }
+        }
     }
 
     public static Object extractDorisLiteral(org.apache.iceberg.types.Type icebergType, Expr expr) {

@@ -93,33 +93,33 @@ public class IcebergPredicateTest {
 
         // true indicates support for pushdown
         Boolean[][] expects = new Boolean[][] {
-            { // int
-                false, false, false, false, false, false, true, true, true, true, false, false, false
-            },
-            { // long
-                false, false, false, false, false, false, true, true, true, true, false, false, false
-            },
-            { // boolean
-                true, false, false, false, false, false, false, false, false, false, false, false, false
-            },
-            { // float
-                false, false, false, false, true, false, true, true, true, true, false, false, false
-            },
-            { // double
-                false, false, false, true, true, true, true, true, true, true, false, false, false
-            },
-            { // decimal
-                false, false, false, true, true, true, true, true, true, true, false, false, false
-            },
+                { // int
+                        false, false, false, false, false, false, true, true, true, true, false, false, false
+                },
+                { // long
+                        false, false, false, false, false, false, true, true, true, true, false, false, false
+                },
+                { // boolean
+                        true, false, false, false, false, false, false, false, false, false, false, false, false
+                },
+                { // float
+                        false, false, false, false, true, false, true, true, true, true, false, false, false
+                },
+                { // double
+                        false, false, false, true, true, true, true, true, true, true, false, false, false
+                },
+                { // decimal
+                        false, false, false, true, true, true, true, true, true, true, false, false, false
+                },
                 { // date
                         false, true, false, false, false, false, true, true, true, true, false, true, false
                 },
-            { // timestamp
-                false, true, true, false, false, false, false, false, false, true, false, false, false
-            },
-            { // string
-                true, true, true, true, false, false, false, false, false, false, true, true, true
-            }
+                { // timestamp
+                        false, true, true, false, false, false, false, false, false, true, false, false, false
+                },
+                { // string
+                        true, true, true, true, false, false, false, false, false, false, true, true, true
+                }
         };
 
         for (int i = 0; i < slotRefs.size(); i++) {
