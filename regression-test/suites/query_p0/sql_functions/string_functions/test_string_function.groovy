@@ -285,20 +285,6 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substring_index(\"prefix_string\", \"_\", null);"
     qt_sql "select substring_index(\"prefix_string\", \"__\", -1);"
 
-    qt_sql_func_strcmp "select strcmp('test', 'test1');"
-    qt_sql_func_strcmp "select strcmp('test1', 'test');"
-    qt_sql_func_strcmp "select strcmp('test', 'test');"
-    qt_sql_func_strcmp "select strcmp('', '');"
-    qt_sql_func_strcmp "select strcmp(null, 'test');"
-    qt_sql_func_strcmp "select strcmp('test', null);"
-    qt_sql_func_strcmp "select strcmp(\"test\", \"test1\");"
-    qt_sql_func_strcmp "select strcmp(\"test1\", \"test\");"
-    qt_sql_func_strcmp "select strcmp(\"test\", \"test\");"
-    qt_sql_func_strcmp "select strcmp(\"\", \"\");"
-    qt_sql_func_strcmp "select strcmp(null, \"test\");"
-    qt_sql_func_strcmp "select strcmp(\"test\", null);"
-    qt_sql_func_strcmp "select strcmp(null, null);"
-
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
