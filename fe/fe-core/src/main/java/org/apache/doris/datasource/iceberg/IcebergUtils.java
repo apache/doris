@@ -110,6 +110,10 @@ public class IcebergUtils {
                     Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
                     if (left != null && right != null) {
                         expression = Expressions.and(left, right);
+                    } else if (left != null) {
+                        return left;
+                    } else if (right != null) {
+                        return right;
                     }
                     break;
                 }
@@ -267,6 +271,9 @@ public class IcebergUtils {
                     return notExpr;
                 }
             }
+            case TRUE:
+            case FALSE:
+                return expression;
             default:
                 if (!(expression instanceof Unbound)) {
                     return null;

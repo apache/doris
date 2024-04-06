@@ -19,9 +19,13 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
@@ -30,8 +34,11 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Lists;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.types.Types;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -122,14 +129,128 @@ public class IcebergPredicateTest {
                 }
         };
 
+        ArrayListMultimap<Boolean, Expr> validPredicateMap = ArrayListMultimap.create();
+
+        // binary predicate
         for (int i = 0; i < slotRefs.size(); i++) {
             final int loc = i;
             List<Boolean> ret = literalList.stream().map(literal -> {
                 BinaryPredicate expr = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRefs.get(loc), literal);
                 Expression expression = IcebergUtils.convertToIcebergExpr(expr, schema);
+                validPredicateMap.put(expression != null, expr);
                 return expression != null;
             }).collect(Collectors.toList());
             Assert.assertArrayEquals(expects[i], ret.toArray());
+        }
+
+        // in predicate
+        for (int i = 0; i < slotRefs.size(); i++) {
+            final int loc = i;
+            List<Boolean> ret = literalList.stream().map(literal -> {
+                InPredicate expr = new InPredicate(slotRefs.get(loc), Lists.newArrayList(literal), false);
+                Expression expression = IcebergUtils.convertToIcebergExpr(expr, schema);
+                validPredicateMap.put(expression != null, expr);
+                return expression != null;
+            }).collect(Collectors.toList());
+            Assert.assertArrayEquals(expects[i], ret.toArray());
+        }
+
+        // not in predicate
+        for (int i = 0; i < slotRefs.size(); i++) {
+            final int loc = i;
+            List<Boolean> ret = literalList.stream().map(literal -> {
+                InPredicate expr = new InPredicate(slotRefs.get(loc), Lists.newArrayList(literal), true);
+                Expression expression = IcebergUtils.convertToIcebergExpr(expr, schema);
+                validPredicateMap.put(expression != null, expr);
+                return expression != null;
+            }).collect(Collectors.toList());
+            Assert.assertArrayEquals(expects[i], ret.toArray());
+        }
+
+        // bool literal
+        Expression trueExpr = IcebergUtils.convertToIcebergExpr(new BoolLiteral(true), schema);
+        Expression falseExpr = IcebergUtils.convertToIcebergExpr(new BoolLiteral(false), schema);
+        Assert.assertEquals(Expressions.alwaysTrue(), trueExpr);
+        Assert.assertEquals(Expressions.alwaysFalse(), falseExpr);
+        validPredicateMap.put(true, new BoolLiteral(true));
+        validPredicateMap.put(true, new BoolLiteral(false));
+
+        List<Expr> validExprs = validPredicateMap.get(true);
+        List<Expr> invalidExprs = validPredicateMap.get(false);
+        // OR predicate
+        // both valid
+        for (int i = 0; i < validExprs.size(); i++) {
+            for (int j = 0; j < validExprs.size(); j++) {
+                CompoundPredicate orPredicate = new CompoundPredicate(Operator.OR,
+                        validExprs.get(i), validExprs.get(j));
+                Expression expression = IcebergUtils.convertToIcebergExpr(orPredicate, schema);
+                Assert.assertNotNull("pred: " + orPredicate.toSql(), expression);
+            }
+        }
+        // both invalid
+        for (int i = 0; i < invalidExprs.size(); i++) {
+            for (int j = 0; j < invalidExprs.size(); j++) {
+                CompoundPredicate orPredicate = new CompoundPredicate(Operator.OR,
+                        invalidExprs.get(i), invalidExprs.get(j));
+                Expression expression = IcebergUtils.convertToIcebergExpr(orPredicate, schema);
+                Assert.assertNull("pred: " + orPredicate.toSql(), expression);
+            }
+        }
+        // valid or invalid
+        for (int i = 0; i < validExprs.size(); i++) {
+            for (int j = 0; j < invalidExprs.size(); j++) {
+                CompoundPredicate orPredicate = new CompoundPredicate(Operator.OR,
+                        validExprs.get(i), invalidExprs.get(j));
+                Expression expression = IcebergUtils.convertToIcebergExpr(orPredicate, schema);
+                Assert.assertNull("pred: " + orPredicate.toSql(), expression);
+            }
+        }
+
+        // AND predicate
+        // both valid
+        for (int i = 0; i < validExprs.size(); i++) {
+            for (int j = 0; j < validExprs.size(); j++) {
+                CompoundPredicate andPredicate = new CompoundPredicate(Operator.AND,
+                        validExprs.get(i), validExprs.get(j));
+                Expression expression = IcebergUtils.convertToIcebergExpr(andPredicate, schema);
+                Assert.assertNotNull("pred: " + andPredicate.toSql(), expression);
+            }
+        }
+        // both invalid
+        for (int i = 0; i < invalidExprs.size(); i++) {
+            for (int j = 0; j < invalidExprs.size(); j++) {
+                CompoundPredicate andPredicate = new CompoundPredicate(Operator.AND,
+                        invalidExprs.get(i), invalidExprs.get(j));
+                Expression expression = IcebergUtils.convertToIcebergExpr(andPredicate, schema);
+                Assert.assertNull("pred: " + andPredicate.toSql(), expression);
+            }
+        }
+        // valid and invalid
+        for (int i = 0; i < validExprs.size(); i++) {
+            for (int j = 0; j < invalidExprs.size(); j++) {
+                CompoundPredicate andPredicate = new CompoundPredicate(Operator.AND,
+                        validExprs.get(i), invalidExprs.get(j));
+                Expression expression = IcebergUtils.convertToIcebergExpr(andPredicate, schema);
+                Assert.assertNotNull("pred: " + andPredicate.toSql(), expression);
+                Assert.assertEquals(IcebergUtils.convertToIcebergExpr(validExprs.get(i), schema).toString(),
+                        expression.toString());
+            }
+        }
+
+        // NOT predicate
+        // valid
+        for (int i = 0; i < validExprs.size(); i++) {
+            CompoundPredicate notPredicate = new CompoundPredicate(Operator.NOT,
+                    validExprs.get(i), null);
+            Expression expression = IcebergUtils.convertToIcebergExpr(notPredicate, schema);
+            Assert.assertNotNull("pred: " + notPredicate.toSql(), expression);
+        }
+        // invalid
+        for (int i = 0; i < invalidExprs.size(); i++) {
+            CompoundPredicate notPredicate = new CompoundPredicate(Operator.NOT,
+                    invalidExprs.get(i), null);
+            Expression expression = IcebergUtils.convertToIcebergExpr(notPredicate, schema);
+            Assert.assertNull("pred: " + notPredicate.toSql(), expression);
         }
     }
 }
