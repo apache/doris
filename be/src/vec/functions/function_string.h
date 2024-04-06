@@ -313,8 +313,10 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        const auto& [arg0_column, arg0_const] = unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [arg1_column, arg1_const] = unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto& [arg0_column, arg0_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [arg1_column, arg1_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
         auto result_column = ColumnInt16::create(input_rows_count);
         auto& result_data = result_column->get_data();
