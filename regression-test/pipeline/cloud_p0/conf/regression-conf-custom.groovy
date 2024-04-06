@@ -58,4 +58,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
 
 max_failure_num = 100
 
+// test_routine_load
+enableKafkaTest=true
+
 // vim: tw=10086 et ts=4 sw=4:
