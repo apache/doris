@@ -118,17 +118,12 @@ FileCacheFactory::get_query_context_holders(const TUniqueId& query_id) {
     return holders;
 }
 
-void FileCacheFactory::clear_file_caches(bool sync) {
+std::string FileCacheFactory::clear_file_caches(bool sync) {
+    std::stringstream ss;
     for (const auto& cache : _caches) {
-        if (sync) {
-            Status st = cache->clear_file_cache_directly();
-            if (st.ok()) {
-                LOG_WARNING("").error(st);
-            }
-        } else {
-            cache->clear_file_cache_async();
-        }
+        ss << (sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async()) << "\n";
     }
+    return ss.str();
 }
 
 } // namespace io

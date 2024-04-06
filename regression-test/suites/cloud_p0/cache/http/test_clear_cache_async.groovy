@@ -37,13 +37,14 @@ suite("test_clear_cache_async") {
 
     backendId = backendIdToBackendIP.keySet()[0]
     def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
-    logger.info(url)
+    url = url + "?sync=false"
+    logger.info("clear file cache URL:" + url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
             op "post"
-            body "{\"sync\"=\"false\"}"
+            body ""
             check check_func
         }
     }
