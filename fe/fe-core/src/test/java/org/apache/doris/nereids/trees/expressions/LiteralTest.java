@@ -79,6 +79,7 @@ class LiteralTest {
         PValues childValues = childBuilder.build();
         resultContentBuilder.setType(typeBuilder.build());
         resultContentBuilder.addChildElement(childValues);
+        resultContentBuilder.addChildOffset(10);
         PValues resultContent = resultContentBuilder.build();
         List<Literal> resultExpression
                 = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(arrayType,
@@ -112,9 +113,11 @@ class LiteralTest {
         PValues childValues = childBuilder.build();
         nestedContentBuilder.setType(typeBuilder.build());
         nestedContentBuilder.addChildElement(childValues);
+        nestedContentBuilder.addChildOffset(10);
         PValues nestedResultContent = nestedContentBuilder.build();
         outContentBuilder.setType(outTypeBuilder.build());
         outContentBuilder.addChildElement(nestedResultContent);
+        outContentBuilder.addChildOffset(1);
         PValues resultContent = outContentBuilder.build();
         List<Literal> resultExpression
                 = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(outArrayType,
@@ -155,9 +158,12 @@ class LiteralTest {
         nestedContentBuilder.setType(typeBuilder.build());
         nestedContentBuilder.addChildElement(childValues1);
         nestedContentBuilder.addChildElement(childValues2);
+        nestedContentBuilder.addChildOffset(5);
+        nestedContentBuilder.addChildOffset(10);
         PValues nestedResultContent = nestedContentBuilder.build();
         outContentBuilder.setType(outTypeBuilder.build());
         outContentBuilder.addChildElement(nestedResultContent);
+        outContentBuilder.addChildOffset(2);
         PValues resultContent = outContentBuilder.build();
         List<Literal> resultExpression
                 = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(outArrayType,
@@ -193,6 +199,7 @@ class LiteralTest {
         PValues childValues = childBuilder.build();
         resultContentBuilder.setType(typeBuilder.build());
         resultContentBuilder.addChildElement(childValues);
+        resultContentBuilder.addChildOffset(10);
         PValues resultContent = resultContentBuilder.build();
         List<Literal> resultExpression
                 = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE.getResultExpression(arrayType,
@@ -283,7 +290,9 @@ class LiteralTest {
         PValues childValues1 = childBuilder1.build();
         PValues childValues2 = childBuilder2.build();
         arrayChildBuilder1.addChildElement(childValues1);
+        arrayChildBuilder1.addChildOffset(5);
         arrayChildBuilder2.addChildElement(childValues2);
+        arrayChildBuilder2.addChildOffset(5);
         PValues arrayChildValues1 = arrayChildBuilder1.build();
         PValues arrayChildValues2 = arrayChildBuilder2.build();
 
