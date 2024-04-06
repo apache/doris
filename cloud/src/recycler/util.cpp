@@ -97,11 +97,23 @@ int prepare_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
             return true;
         }
         DCHECK(job_info.instance_id() == instance_id);
-        bool lease_expired =
-                job_info.status() == JobRecyclePB::BUSY && job_info.expiration_time_ms() < now;
-        bool finish_expired = job_info.status() == JobRecyclePB::IDLE &&
-                              now - job_info.last_ctime_ms() > interval_ms;
-        return lease_expired || finish_expired;
+        if (job_info.status() == JobRecyclePB::BUSY) {
+            if (now < job_info.expiration_time_ms()) {
+                LOG(INFO) << "job is busy. host=" << job_info.ip_port()
+                          << " expiration=" << job_info.expiration_time_ms()
+                          << " instance=" << instance_id;
+                return false;
+            }
+        }
+
+        bool finish_expired = now - job_info.last_ctime_ms() > interval_ms;
+        if (!finish_expired) {
+            LOG(INFO) << "the time since last finished job is too short. host="
+                      << job_info.ip_port() << " ctime=" << job_info.last_ctime_ms()
+                      << " instance=" << instance_id;
+        }
+
+        return finish_expired;
     };
 
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND || is_expired()) {

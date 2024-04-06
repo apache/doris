@@ -34,6 +34,7 @@
 
 #include "common/logging.h"
 #include "common/sync_point.h"
+#include "recycler/obj_store_accessor.h"
 
 namespace doris::cloud {
 #ifndef UNIT_TEST
@@ -66,7 +67,7 @@ private:
     Aws::SDKOptions aws_options_;
 };
 
-S3Accessor::S3Accessor(S3Conf conf) : conf_(std::move(conf)) {
+S3Accessor::S3Accessor(S3Conf conf) : ObjStoreAccessor(AccessorType::S3), conf_(std::move(conf)) {
     path_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
 }
 
