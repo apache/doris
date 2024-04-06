@@ -41,6 +41,7 @@ import org.apache.doris.planner.external.TableFormatType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -51,7 +52,8 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
-import avro.shaded.com.google.common.base.Preconditions;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CombinedScanTask;
@@ -92,6 +94,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private IcebergSource source;
     private Table icebergTable;
+    private List<String> pushdownIcebergPredicates = Lists.newArrayList();
 
     /**
      * External file scan node for Query iceberg table
@@ -201,6 +204,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);
+            this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
         // get splits
@@ -445,5 +449,18 @@ public class IcebergScanNode extends FileQueryScanNode {
                 planNode.setPushDownCount(countFromSnapshot);
             }
         }
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (pushdownIcebergPredicates.isEmpty()) {
+            return super.getNodeExplainString(prefix, detailLevel);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String predicate : pushdownIcebergPredicates) {
+            sb.append(prefix).append(prefix).append(predicate).append("\n");
+        }
+        return super.getNodeExplainString(prefix, detailLevel)
+                + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
     }
 }

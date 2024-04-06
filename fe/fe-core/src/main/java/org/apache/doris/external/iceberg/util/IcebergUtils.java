@@ -56,8 +56,11 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Not;
+import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.transforms.PartitionSpecVisitor;
 import org.apache.iceberg.types.Type.TypeID;
@@ -254,6 +257,10 @@ public class IcebergUtils {
                     Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
                     if (left != null && right != null) {
                         expression = Expressions.and(left, right);
+                    } else if (left != null) {
+                        return left;
+                    } else if (right != null) {
+                        return right;
                     }
                     break;
                 }
@@ -356,6 +363,9 @@ public class IcebergUtils {
                 }
                 LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
                 Object value = extractDorisLiteral(nestedField.type(), literalExpr);
+                if (value == null) {
+                    return null;
+                }
                 valueList.add(value);
             }
             if (inExpr.isNotIn()) {
@@ -366,16 +376,63 @@ public class IcebergUtils {
                 expression = Expressions.in(colName, valueList);
             }
         }
-        if (expression != null && expression instanceof Unbound) {
-            try {
-                ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
-                return expression;
-            } catch (Exception e) {
-                LOG.warn("Failed to check expression: " + e.getMessage());
-                return null;
-            }
+
+        return checkConversion(expression, schema);
+    }
+
+    private static Expression checkConversion(Expression expression, Schema schema) {
+        if (expression == null) {
+            return null;
         }
-        return null;
+        switch (expression.op()) {
+            case AND: {
+                And andExpr = (And) expression;
+                Expression left = checkConversion(andExpr.left(), schema);
+                Expression right = checkConversion(andExpr.right(), schema);
+                if (left != null && right != null) {
+                    return andExpr;
+                } else if (left != null) {
+                    return left;
+                } else if (right != null) {
+                    return right;
+                } else {
+                    return null;
+                }
+            }
+            case OR: {
+                Or orExpr = (Or) expression;
+                Expression left = checkConversion(orExpr.left(), schema);
+                Expression right = checkConversion(orExpr.right(), schema);
+                if (left == null || right == null) {
+                    return null;
+                } else {
+                    return orExpr;
+                }
+            }
+            case NOT: {
+                Not notExpr = (Not) expression;
+                Expression child = checkConversion(notExpr.child(), schema);
+                if (child == null) {
+                    return null;
+                } else {
+                    return notExpr;
+                }
+            }
+            case TRUE:
+            case FALSE:
+                return expression;
+            default:
+                if (!(expression instanceof Unbound)) {
+                    return null;
+                }
+                try {
+                    ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
+                    return expression;
+                } catch (Exception e) {
+                    LOG.debug("Failed to check expression: {}", e.getMessage());
+                    return null;
+                }
+        }
     }
 
     private static Object extractDorisLiteral(org.apache.iceberg.types.Type icebergType, Expr expr) {
@@ -394,6 +451,7 @@ public class IcebergUtils {
             DateLiteral dateLiteral = (DateLiteral) expr;
             switch (icebergTypeID) {
                 case STRING:
+                case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
                     return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
