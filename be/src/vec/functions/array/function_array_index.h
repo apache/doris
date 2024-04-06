@@ -107,8 +107,8 @@ public:
         std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
         Field field;
         context->get_constant_col(1)->column_ptr->get(0, field);
-        if (field == nullptr) {
-            return Status::InternalError("field is nullptr");
+        if (field.is_null()) {
+            return Status::InternalError("field is null");
         } else {
             state->query_value = field;
         }
@@ -128,8 +128,11 @@ public:
         auto* param_value = reinterpret_cast<ParamValue*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
+        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
+                param_value->type, &param_value->query_value, query_param));
         RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, &param_value->query_value, param_value->type,
+                data_type_with_name.first, query_param->get_value(),
                 segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, num_rows, roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL

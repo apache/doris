@@ -70,6 +70,66 @@
 
 namespace doris::segment_v2 {
 
+template <PrimitiveType PT>
+Status InvertedIndexQueryParamFactory::create_query_value(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
+    using CPP_TYPE = typename PrimitiveTypeTraits<PT>::CppType;
+    std::unique_ptr<InvertedIndexQueryParam<PT>> param =
+            InvertedIndexQueryParam<PT>::create_unique();
+    auto&& storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(
+            *reinterpret_cast<const CPP_TYPE*>(value));
+    param->set_value(&storage_val);
+    result_param = std::move(param);
+    return Status::OK();
+};
+
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_BOOLEAN>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_TINYINT>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_SMALLINT>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_INT>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_BIGINT>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_LARGEINT>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_FLOAT>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DOUBLE>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_VARCHAR>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DATE>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DATEV2>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DATETIME>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DATETIMEV2>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_CHAR>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMALV2>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMAL32>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMAL64>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMAL128I>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMAL256>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_HLL>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_STRING>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_IPV4>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_IPV6>(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+
 std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexReader::create_analyzer(
         InvertedIndexCtx* inverted_index_ctx) {
     std::unique_ptr<lucene::analysis::Analyzer> analyzer;
@@ -252,12 +312,11 @@ Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeSta
 
 Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                   const std::string& column_name, const void* query_value,
-                                  PrimitiveType primitiveType, InvertedIndexQueryType query_type,
+                                  InvertedIndexQueryType query_type,
                                   std::shared_ptr<roaring::Roaring>& bit_map) {
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
-    auto&& storage_value =
-            PrimitiveTypeConvertorHelper::convert_to_primitive_type(primitiveType, query_value);
-    std::string search_str = reinterpret_cast<const StringRef*>(storage_value)->to_string();
+
+    std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     LOG(INFO) << column_name << " begin to search the fulltext index from clucene, query_str ["
               << search_str << "]";
 
@@ -383,13 +442,11 @@ Status StringTypeInvertedIndexReader::new_iterator(
 Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
                                             RuntimeState* runtime_state,
                                             const std::string& column_name, const void* query_value,
-                                            PrimitiveType primitiveType,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map) {
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
-    auto&& storage_value =
-            PrimitiveTypeConvertorHelper::convert_to_primitive_type(primitiveType, query_value);
-    const auto* search_query = reinterpret_cast<const StringRef*>(storage_value);
+
+    const auto* search_query = reinterpret_cast<const StringRef*>(query_value);
     auto act_len = strnlen(search_query->data, search_query->size);
     std::string search_str(search_query->data, act_len);
     // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
@@ -677,7 +734,7 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
 
 Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                              const std::string& column_name, const void* query_value,
-                             PrimitiveType primitiveType, InvertedIndexQueryType query_type,
+                             InvertedIndexQueryType query_type,
                              std::shared_ptr<roaring::Roaring>& bit_map) {
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
@@ -691,10 +748,7 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
             return st;
         }
         std::string query_str;
-
-        auto&& storage_value =
-                PrimitiveTypeConvertorHelper::convert_to_primitive_type(primitiveType, query_value);
-        _value_key_coder->full_encode_ascending(storage_value, &query_str);
+        _value_key_coder->full_encode_ascending(query_value, &query_str);
 
         auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -1131,9 +1185,8 @@ lucene::util::bkd::relation InvertedIndexVisitor<QT>::compare(std::vector<uint8_
 }
 
 Status InvertedIndexIterator::read_from_inverted_index(
-        const std::string& column_name, const void* query_value, PrimitiveType primitiveType,
-        InvertedIndexQueryType query_type, uint32_t segment_num_rows,
-        std::shared_ptr<roaring::Roaring>& bit_map, bool skip_try) {
+        const std::string& column_name, const void* query_value, InvertedIndexQueryType query_type,
+        uint32_t segment_num_rows, std::shared_ptr<roaring::Roaring>& bit_map, bool skip_try) {
     if (UNLIKELY(_reader == nullptr)) {
         throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
     }
@@ -1154,8 +1207,8 @@ Status InvertedIndexIterator::read_from_inverted_index(
         }
     }
 
-    RETURN_IF_ERROR(_reader->query(_stats, _runtime_state, column_name, query_value, primitiveType,
-                                   query_type, bit_map));
+    RETURN_IF_ERROR(
+            _reader->query(_stats, _runtime_state, column_name, query_value, query_type, bit_map));
     return Status::OK();
 }
 
