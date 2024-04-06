@@ -249,6 +249,16 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
         std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
         DCHECK_EQ(_input_rowsets.front()->start_version(), proper_version->first);
         DCHECK_EQ(_input_rowsets.back()->end_version(), proper_version->second);
+        if (_input_rowsets.front()->start_version() != proper_version->first ||
+            _input_rowsets.back()->end_version() != proper_version->second) {
+            LOG(WARNING) << fmt::format(
+                    "single compaction input rowsets error, tablet_id={}, input rowset = {}-{}, "
+                    "remote rowset = {}-{}",
+                    tablet()->tablet_id(), _input_rowsets.front()->start_version(),
+                    _input_rowsets.back()->end_version(), proper_version->first,
+                    proper_version->second);
+            return false;
+        }
         for (auto& rowset : _input_rowsets) {
             _input_rowsets_size += rowset->data_disk_size();
             _input_row_num += rowset->num_rows();
