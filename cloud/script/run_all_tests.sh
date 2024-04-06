@@ -110,7 +110,7 @@ export LD_LIBRARY_PATH="${DORIS_JAVA_HOME}/lib/server:${LD_LIBRARY_PATH}"
 # input param is unittest binary file list
 function report_coverage() {
     local binary_objects=$1
-    local profdata="./report/doirs_cloud.profdata"
+    local profdata="./report/doris_cloud.profdata"
     local profraw=$(ls ./report/*.profraw)
     local binary_objects_options=()
     for object in ${binary_objects[@]}; do
