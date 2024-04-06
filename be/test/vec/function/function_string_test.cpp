@@ -1191,7 +1191,7 @@ TEST(function_string_test, function_strcmp_test) {
     std::string func_name = "strcmp";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
-    DataSet data_set = {{{Null()}, Null()},
+    DataSet data_set = {{{Null(), Null()}, Null()},
                         {{std::string(""), std::string("")}, 0},
                         {{std::string("test"), std::string("test")}, 0},
                         {{std::string("test1"), std::string("test")}, 1},
