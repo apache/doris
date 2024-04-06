@@ -396,7 +396,6 @@ std::string BlockFileCache::clear_file_cache_async() {
     string msg = ss.str();
     LOG(INFO) << msg;
     return msg;
-    return ss.str();
 }
 
 void BlockFileCache::recycle_deleted_blocks() {
