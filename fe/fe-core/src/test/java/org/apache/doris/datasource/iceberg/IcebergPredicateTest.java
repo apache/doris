@@ -42,22 +42,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class TestIcebergPredict {
+public class IcebergPredicateTest {
 
     public static Schema schema;
 
     @BeforeClass
     public static void before() throws AnalysisException {
         schema = new Schema(
-            Types.NestedField.required(1, "c_int", Types.IntegerType.get()),
-            Types.NestedField.required(2, "c_long", Types.LongType.get()),
-            Types.NestedField.required(3, "c_bool", Types.BooleanType.get()),
-            Types.NestedField.required(4, "c_float", Types.FloatType.get()),
-            Types.NestedField.required(5, "c_double", Types.DoubleType.get()),
-            Types.NestedField.required(6, "c_dec", Types.DecimalType.of(20, 10)),
-            Types.NestedField.required(7, "c_date", Types.DateType.get()),
-            Types.NestedField.required(8, "c_ts", Types.TimestampType.withoutZone()),
-            Types.NestedField.required(10, "c_str", Types.StringType.get())
+                Types.NestedField.required(1, "c_int", Types.IntegerType.get()),
+                Types.NestedField.required(2, "c_long", Types.LongType.get()),
+                Types.NestedField.required(3, "c_bool", Types.BooleanType.get()),
+                Types.NestedField.required(4, "c_float", Types.FloatType.get()),
+                Types.NestedField.required(5, "c_double", Types.DoubleType.get()),
+                Types.NestedField.required(6, "c_dec", Types.DecimalType.of(20, 10)),
+                Types.NestedField.required(7, "c_date", Types.DateType.get()),
+                Types.NestedField.required(8, "c_ts", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(10, "c_str", Types.StringType.get())
         );
     }
 
@@ -111,9 +111,9 @@ public class TestIcebergPredict {
             { // decimal
                 false, false, false, true, true, true, true, true, true, true, false, false, false
             },
-            { // date
-                false, false, false, false, false, false, true, true, true, true, false, true, false
-            },
+                { // date
+                        false, true, false, false, false, false, true, true, true, true, false, true, false
+                },
             { // timestamp
                 false, true, true, false, false, false, false, false, false, true, false, false, false
             },

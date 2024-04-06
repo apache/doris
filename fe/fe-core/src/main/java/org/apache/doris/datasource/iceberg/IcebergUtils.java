@@ -248,6 +248,7 @@ public class IcebergUtils {
             DateLiteral dateLiteral = (DateLiteral) expr;
             switch (icebergTypeID) {
                 case STRING:
+                case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
                     return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
