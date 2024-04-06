@@ -282,7 +282,7 @@ public class IcebergUtils {
                     ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
                     return expression;
                 } catch (Exception e) {
-                    LOG.warn("Failed to check expression: " + e.getMessage());
+                    LOG.debug("Failed to check expression: {}", e.getMessage());
                     return null;
                 }
         }

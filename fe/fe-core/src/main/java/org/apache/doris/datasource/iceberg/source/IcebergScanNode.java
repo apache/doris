@@ -445,6 +445,9 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (pushdownIcebergPredicates.isEmpty()) {
+            return super.getNodeExplainString(prefix, detailLevel);
+        }
         StringBuilder sb = new StringBuilder();
         for (String predicate : pushdownIcebergPredicates) {
             sb.append(prefix).append(prefix).append(predicate).append("\n");
