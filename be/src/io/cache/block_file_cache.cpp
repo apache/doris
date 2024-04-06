@@ -1555,8 +1555,9 @@ std::string BlockFileCache::clear_file_cache_directly() {
        << " num_files=" << num_files << " cache_size=" << cache_size
        << " index_queue_size=" << index_queue_size << " normal_queue_size=" << normal_queue_size
        << " disposible_queue_size=" << disposible_queue_size;
-    LOG(INFO) << ss.str();
-    return ss.str();
+    auto msg = ss.str();
+    LOG(INFO) << msg;
+    return msg;
 }
 
 template void BlockFileCache::remove(FileBlockSPtr file_block,
