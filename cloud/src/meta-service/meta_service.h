@@ -583,7 +583,8 @@ public:
                                    const GetRLTaskCommitAttachRequest* request,
                                    GetRLTaskCommitAttachResponse* response,
                                    ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::get_rl_task_commit_attach, controller, request, response, done);
+        call_impl(&cloud::MetaService::get_rl_task_commit_attach, controller, request, response,
+                  done);
     }
 
 private:
