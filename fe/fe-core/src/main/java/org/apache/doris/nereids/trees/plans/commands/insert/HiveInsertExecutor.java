@@ -99,7 +99,6 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         } else {
             HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
             loadedRows = transaction.getUpdateCnt();
-            transaction.finishInsertTable(((HMSExternalTable) table).getDbName(), table.getName());
             String dbName = ((HMSExternalTable) table).getDbName();
             String tbName = table.getName();
             transaction.finishInsertTable(dbName, tbName);
