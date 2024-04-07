@@ -1236,7 +1236,7 @@ Status SegmentIterator::_apply_inverted_index() {
                                               _inverted_index_iterators[col_id].get());
         }
     }
-    for (auto exprCtx : _common_expr_ctxs_push_down) {
+    for (auto expr_ctx : _common_expr_ctxs_push_down) {
         // _inverted_index_iterators has all column ids which has inverted index
         // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
         // if current bitmap is already empty just return
@@ -1244,11 +1244,12 @@ Status SegmentIterator::_apply_inverted_index() {
             break;
         }
         roaring::Roaring bitmap = _row_bitmap;
-        const Status st = exprCtx->eval_inverted_indexs(iter_map, num_rows(), &bitmap);
+        const Status st = expr_ctx->eval_inverted_indexs(iter_map, num_rows(), &bitmap);
         if (!st.ok()) {
-            LOG(WARNING) << "failed to evaluate index in expr" << exprCtx->root()->debug_string()
+            LOG(WARNING) << "failed to evaluate index in expr" << expr_ctx->root()->debug_string()
                          << ", error msg: " << st;
         } else {
+            // every single result of expr_ctx must be `and` collection relationship
             _row_bitmap &= bitmap;
         }
     }

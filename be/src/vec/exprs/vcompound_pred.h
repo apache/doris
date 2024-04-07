@@ -71,34 +71,53 @@ public:
             VExprContext* context,
             const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
                                                          segment_v2::InvertedIndexIterator*>>&
-                    colId_invertedIndexIter_mapping,
+                    colId_to_inverted_index_iter,
             uint32_t num_rows, roaring::Roaring* bitmap) const override {
         if (_op == TExprOpcode::COMPOUND_OR) {
             for (auto child : _children) {
-                Status st = child->eval_inverted_index(context, colId_invertedIndexIter_mapping,
-                                                       num_rows, bitmap);
+                std::shared_ptr<roaring::Roaring> child_roaring =
+                        std::make_shared<roaring::Roaring>();
+                Status st = child->eval_inverted_index(context, colId_to_inverted_index_iter,
+                                                       num_rows, child_roaring.get());
                 if (!st.ok()) {
-                    return st;
+                    continue;
                 }
-                if (!bitmap->contains(
-                            0)) { // the left expr no need to be extracted by inverted index
+                *bitmap |= *child_roaring;
+                if (!child_roaring->isEmpty()) {
+                    // means inverted index filter do not reduce any rows
+                    // the left expr no need to be extracted by inverted index,
+                    // and cur roaring is all rows which means this inverted index is not useful,
+                    // do not need to calculate with res bitmap
                     return Status::OK();
                 }
             }
         } else if (_op == TExprOpcode::COMPOUND_AND) {
             for (auto child : _children) {
-                Status st = child->eval_inverted_index(context, colId_invertedIndexIter_mapping,
-                                                       num_rows, bitmap);
+                std::shared_ptr<roaring::Roaring> child_roaring =
+                        std::make_shared<roaring::Roaring>();
+                Status st = child->eval_inverted_index(context, colId_to_inverted_index_iter,
+                                                       num_rows, child_roaring.get());
                 if (!st.ok()) {
-                    return st;
+                    continue;
                 }
-                if (bitmap->isEmpty()) { // the left expr no need to be extracted by inverted index
+                *bitmap &= *child_roaring;
+                if (child_roaring->isEmpty()) {
+                    // the left expr no need to be extracted by inverted index, just return 0 rows
+                    // res bitmap will be zero
                     return Status::OK();
                 }
             }
+        } else if (_op == TExprOpcode::COMPOUND_NOT) {
+            std::shared_ptr<roaring::Roaring> child_roaring = std::make_shared<roaring::Roaring>();
+            Status st = _children[0]->eval_inverted_index(context, colId_to_inverted_index_iter,
+                                                          num_rows, child_roaring.get());
+            if (!st.ok()) {
+                return st;
+            }
+            *bitmap -= *child_roaring;
         } else {
             return Status::InternalError(
-                    "Compound operator must be AND or OR can execute with inverted index.");
+                    "Compound operator must be AND or OR or Not can execute with inverted index.");
         }
         return Status::OK();
     }

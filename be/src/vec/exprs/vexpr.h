@@ -120,7 +120,7 @@ public:
             VExprContext* context,
             const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
                                                          segment_v2::InvertedIndexIterator*>>&
-                    colId_invertedIndexIter_mapping,
+                    colId_to_inverted_index_iter,
             uint32_t num_rows, roaring::Roaring* bitmap) const {
         return Status::NotSupported("Not supported execute_with_inverted_index");
     }
