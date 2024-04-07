@@ -25,11 +25,13 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <memory>
 #include <ostream>
 #include <typeinfo>
 #include <utility>
@@ -642,6 +644,21 @@ void PlanFragmentExecutor::close() {
     }
 
     _closed = true;
+}
+
+std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_query_profile() const {
+    std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
+    _runtime_state->runtime_profile()->compute_time_in_profile();
+    _runtime_state->runtime_profile()->to_thrift(res.get());
+    return res;
+}
+
+std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_load_channel_profile()
+        const {
+    std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
+    _runtime_state->load_channel_profile()->compute_time_in_profile();
+    _runtime_state->load_channel_profile()->to_thrift(res.get());
+    return res;
 }
 
 } // namespace doris

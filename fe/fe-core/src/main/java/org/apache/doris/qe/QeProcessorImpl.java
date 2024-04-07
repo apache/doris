@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
@@ -27,6 +28,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryProfile;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -69,6 +71,19 @@ public final class QeProcessorImpl implements QeProcessor {
         // write profile to ProfileManager when query is running.
         writeProfileExecutor = ThreadPoolManager.newDaemonProfileThreadPool(3, 100,
                 "profile-write-pool", true);
+    }
+
+    private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address) {
+        LOG.info("New profile processing API, query {}", DebugUtil.printId(profile.query_id));
+
+        ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
+        if (executionProfile == null) {
+            LOG.warn("Could not find execution profile with query id {}", DebugUtil.printId(profile.query_id));
+            return new Status(TStatusCode.NOT_FOUND, "Could not find execution profile with query id "
+                    + DebugUtil.printId(profile.query_id));
+        }
+
+        return executionProfile.updateProfile(profile, address);
     }
 
     @Override
@@ -138,6 +153,66 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     @Override
+    public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
+        if (params.isSetQueryProfile()) {
+            processQueryProfile(params.getQueryProfile(), beAddr);
+        }
+
+        if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
+            LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
+                    DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
+                    params.backend_num, beAddr);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("params: {}", params);
+            }
+            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(params.query_id);
+            if (executionProfile != null) {
+                // Update profile may cost a lot of time, use a seperate pool to deal with it.
+                writeProfileExecutor.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        executionProfile.updateProfile(params, beAddr);
+                    }
+                });
+            } else {
+                LOG.info("Could not find execution profile with query id {}", DebugUtil.printId(params.query_id));
+            }
+        }
+        final TReportExecStatusResult result = new TReportExecStatusResult();
+
+        if (params.isSetReportWorkloadRuntimeStatus()) {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().updateBeQueryStats(params.report_workload_runtime_status);
+            if (!params.isSetQueryId()) {
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
+        }
+
+        final QueryInfo info = coordinatorMap.get(params.query_id);
+
+        if (info == null) {
+            // There is no QueryInfo for StreamLoad, so we return OK
+            if (params.query_type == TQueryType.LOAD) {
+                result.setStatus(new TStatus(TStatusCode.OK));
+            } else {
+                result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+            }
+            LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
+                    DebugUtil.printId(params.query_id), params.query_type);
+            return result;
+        }
+        try {
+            info.getCoord().updateFragmentExecStatus(params);
+        } catch (Exception e) {
+            LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
+                    DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
+            return result;
+        }
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    @Override
     public void unregisterQuery(TUniqueId queryId) {
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
         if (queryInfo != null) {
@@ -202,62 +277,6 @@ public final class QeProcessorImpl implements QeProcessor {
             querySet.put(queryIdStr, item);
         }
         return querySet;
-    }
-
-    @Override
-    public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
-        if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
-            LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
-                    DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
-                    params.backend_num, beAddr);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("params: {}", params);
-            }
-            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(params.query_id);
-            if (executionProfile != null) {
-                // Update profile may cost a lot of time, use a seperate pool to deal with it.
-                writeProfileExecutor.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        executionProfile.updateProfile(params, beAddr);
-                    }
-                });
-            } else {
-                LOG.info("Could not find execution profile with query id {}", DebugUtil.printId(params.query_id));
-            }
-        }
-        final TReportExecStatusResult result = new TReportExecStatusResult();
-
-        if (params.isSetReportWorkloadRuntimeStatus()) {
-            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().updateBeQueryStats(params.report_workload_runtime_status);
-            if (!params.isSetQueryId()) {
-                result.setStatus(new TStatus(TStatusCode.OK));
-                return result;
-            }
-        }
-
-        final QueryInfo info = coordinatorMap.get(params.query_id);
-
-        if (info == null) {
-            // There is no QueryInfo for StreamLoad, so we return OK
-            if (params.query_type == TQueryType.LOAD) {
-                result.setStatus(new TStatus(TStatusCode.OK));
-            } else {
-                result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
-            }
-            LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
-                    DebugUtil.printId(params.query_id), params.query_type);
-            return result;
-        }
-        try {
-            info.getCoord().updateFragmentExecStatus(params);
-        } catch (Exception e) {
-            LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
-                    DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
-            return result;
-        }
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
     }
 
     @Override

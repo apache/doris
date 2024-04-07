@@ -18,10 +18,18 @@
 #pragma once
 
 #include <gen_cpp/Data_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
+#include <gen_cpp/Types_types.h>
 
+#include <cstdint>
+#include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <thread>
+#include <unordered_map>
 
+#include "gutil/integral_types.h"
 #include "runtime/query_statistics.h"
 #include "runtime/workload_management/workload_condition.h"
 #include "util/time.h"
@@ -57,6 +65,18 @@ public:
     RuntimeQueryStatiticsMgr() = default;
     ~RuntimeQueryStatiticsMgr() = default;
 
+    static TReportExecStatusParams create_report_exec_status_params_x(
+            const TUniqueId& q_id,
+            const std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>&
+                    fragment_id_to_profile,
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile);
+
+    static TReportExecStatusParams create_report_exec_status_params_non_pipeline(
+            const TUniqueId& q_id,
+            const std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>>&
+                    instance_id_to_profile,
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile);
+
     void register_query_statistics(std::string query_id, std::shared_ptr<QueryStatistics> qs_ptr,
                                    TNetworkAddress fe_addr);
 
@@ -75,9 +95,61 @@ public:
     // used for backend_active_tasks
     void get_active_be_tasks_block(vectorized::Block* block);
 
+    void start_report_thread();
+    void report_query_profiles_thread();
+    void trigger_report_profile();
+    void stop_report_thread();
+
+    void submit_report_status_task(const TUniqueId& q_id, const TNetworkAddress& coor_addr,
+                                   int32 f_id, const TUniqueId& i_id, int be_num, bool done,
+                                   Status exec_status);
+
+    void register_instance_profile(const TUniqueId& query_id, const TNetworkAddress& coor_addr,
+                                   const TUniqueId& instance_id,
+                                   std::shared_ptr<TRuntimeProfileTree> instance_profile,
+                                   std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
+
+    void register_fragment_profile_x(const TUniqueId& query_id, const TNetworkAddress& const_addr,
+                                     int32_t fragment_id,
+                                     std::vector<std::shared_ptr<TRuntimeProfileTree>> p_profiles,
+                                     std::shared_ptr<TRuntimeProfileTree> load_channel_profile_x);
+
 private:
     std::shared_mutex _qs_ctx_map_lock;
     std::map<std::string, std::unique_ptr<QueryStatisticsCtx>> _query_statistics_ctx_map;
+
+    std::mutex _report_profile_mutex;
+    std::atomic_bool started = false;
+    std::vector<std::unique_ptr<std::thread>> _report_profile_threads;
+    std::condition_variable _report_profile_cv;
+    bool _report_profile_thread_stop = false;
+
+    void _report_query_profiles_function() {
+        _report_query_profiles_x();
+        _report_query_profiles_non_pipeline();
+    }
+
+    void _report_query_profiles_x();
+    void _report_query_profiles_non_pipeline();
+
+    std::shared_mutex _query_profile_map_lock;
+
+    // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
+    std::unordered_map<
+            TUniqueId,
+            std::tuple<TNetworkAddress,
+                       std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>>>
+            _profile_map_x;
+    std::unordered_map<std::pair<TUniqueId, int32_t>, std::shared_ptr<TRuntimeProfileTree>>
+            _load_channel_profile_map_x;
+
+    // query_id -> {coordinator_addr, {instance_id -> instance_profile}}
+    std::unordered_map<
+            TUniqueId,
+            std::tuple<TNetworkAddress,
+                       std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>>>>
+            _query_profile_map;
+    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 };
 
 } // namespace doris

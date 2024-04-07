@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <stdint.h>
@@ -33,6 +34,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
+#include "runtime/plan_fragment_executor.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
@@ -148,6 +150,9 @@ public:
     std::string dump_pipeline_tasks(int64_t duration = 0);
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
+
+    Status get_realtime_exec_status(const TUniqueId& query_id,
+                                    std::shared_ptr<TReportExecStatusParams> exec_status);
 
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
