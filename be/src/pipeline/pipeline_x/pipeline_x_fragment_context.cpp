@@ -1433,9 +1433,9 @@ PipelineXFragmentContext::collect_realtime_profile_x() const {
     // so we need to make sure this funciton is invoked after fragment context
     // has already been prepared.
     if (!this->_prepared) {
-        std::string msg = "Query " + print_id(this->_query_id) +
-                          " collecting profile, but its not prepared";
-        DCHECK(false) << msg;                          
+        std::string msg =
+                "Query " + print_id(this->_query_id) + " collecting profile, but its not prepared";
+        DCHECK(false) << msg;
         LOG_ERROR(msg);
         return res;
     }
@@ -1456,9 +1456,9 @@ PipelineXFragmentContext::collect_realtime_load_channel_profile_x() const {
     // so we need to make sure this funciton is invoked after fragment context
     // has already been prepared.
     if (!this->_prepared) {
-        std::string msg = "Query " + print_id(this->_query_id) +
-                          " collecting profile, but its not prepared";
-        DCHECK(false) << msg;                          
+        std::string msg =
+                "Query " + print_id(this->_query_id) + " collecting profile, but its not prepared";
+        DCHECK(false) << msg;
         LOG_ERROR(msg);
         return nullptr;
     }
