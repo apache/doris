@@ -165,6 +165,7 @@ suite("alter_ttl_4") {
     load_customer_once("customer")
 
     sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="3600") """
+    // wait for fetching new tablet meta in BE
     sleep(60000)
     // some datas in s3 and will download them
     sql """ select C_CUSTKEY from customer_ttl order by C_CUSTKEY limit 1"""
@@ -175,6 +176,7 @@ suite("alter_ttl_4") {
     sql """ select C_ACCTBAL from customer_ttl order by C_ACCTBAL limit 1"""
     sql """ select C_MKTSEGMENT from customer_ttl order by C_MKTSEGMENT limit 1"""
     sql """ select C_COMMENT from customer_ttl order by C_COMMENT limit 1"""
+    // wait for updating file cache metrics
     sleep(30000)
     getMetricsMethod.call() {
         respCode, body ->
