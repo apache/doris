@@ -168,12 +168,16 @@ public:
     void store_string_ref() {
         if constexpr (std::is_same_v<T, StringRef>) {
             if constexpr (NeedMin) {
-                _stored_min = _min.to_string();
-                _min = StringRef(_stored_min);
+                if (_min.data != _stored_min.data()) {
+                    _stored_min = _min.to_string();
+                    _min = StringRef(_stored_min);
+                }
             }
             if constexpr (NeedMax) {
-                _stored_max = _max.to_string();
-                _max = StringRef(_stored_max);
+                if (_max.data != _stored_max.data()) {
+                    _stored_max = _max.to_string();
+                    _max = StringRef(_stored_max);
+                }
             }
         }
     }
