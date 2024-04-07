@@ -728,7 +728,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             sleepSeveralMs();
         }
 
-        LOG.info("eraseDroppedIndexBackendReplicas finished, tableId:{}, indexIdList:{}",
+        LOG.info("eraseDroppedIndex finished, tableId:{}, indexIdList:{}",
                 tableId, indexIdList);
     }
 
