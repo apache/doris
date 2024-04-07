@@ -515,7 +515,10 @@ class CLOUD(Node):
         return [MS_PORT]
 
     def conf_file_name(self):
-        return "doris_cloud.conf"
+        for file in os.listdir(os.path.join(self.get_path(), "conf")):
+            if file == "doris_cloud.conf" or file == "selectdb_cloud.conf":
+                return file
+        return "Not found conf file for ms or recycler"
 
 
 class MS(CLOUD):
