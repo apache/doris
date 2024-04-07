@@ -32,8 +32,8 @@ VHivePartitionWriter::VHivePartitionWriter(
         const TDataSink& t_sink, std::string partition_name, TUpdateMode::type update_mode,
         const VExprContextSPtrs& output_expr_ctxs, const VExprContextSPtrs& write_output_expr_ctxs,
         const std::set<size_t>& non_write_columns_indices, const std::vector<THiveColumn>& columns,
-        WriteInfo write_info, std::string file_name, TFileFormatType::type file_format_type,
-        TFileCompressType::type hive_compress_type,
+        WriteInfo write_info, std::string file_name, int file_name_index,
+        TFileFormatType::type file_format_type, TFileCompressType::type hive_compress_type,
         const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
@@ -43,6 +43,7 @@ VHivePartitionWriter::VHivePartitionWriter(
           _columns(columns),
           _write_info(std::move(write_info)),
           _file_name(std::move(file_name)),
+          _file_name_index(file_name_index),
           _file_format_type(file_format_type),
           _hive_compress_type(hive_compress_type),
           _hadoop_conf(hadoop_conf)
@@ -55,12 +56,14 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     std::vector<TNetworkAddress> broker_addresses;
     RETURN_IF_ERROR(FileFactory::create_file_writer(
             _write_info.file_type, state->exec_env(), broker_addresses, _hadoop_conf,
-            fmt::format("{}/{}", _write_info.write_path, _file_name), 0, _file_writer));
+            fmt::format("{}/{}", _write_info.write_path, _file_name, _file_name_index,
+                        _get_file_extension(_file_format_type, _hive_compress_type)),
+            0, _file_writer));
 
     std::vector<std::string> column_names;
     column_names.reserve(_columns.size());
     for (int i = 0; i < _columns.size(); i++) {
-        column_names.push_back(_columns[i].name);
+        column_names.emplace_back(_columns[i].name);
     }
 
     switch (_file_format_type) {
@@ -192,10 +195,52 @@ THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
     location.__set_write_path(_write_info.write_path);
     location.__set_target_path(_write_info.target_path);
     hive_partition_update.__set_location(location);
-    hive_partition_update.__set_file_names({_file_name});
+    hive_partition_update.__set_file_names(
+            {fmt::format("{}-{}{}", _file_name, _file_name_index,
+                         _get_file_extension(_file_format_type, _hive_compress_type))});
     hive_partition_update.__set_row_count(_row_count);
     hive_partition_update.__set_file_size(_input_size_in_bytes);
     return hive_partition_update;
+}
+
+std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file_format_type,
+                                                      TFileCompressType::type write_compress_type) {
+    std::string compress_name;
+    switch (write_compress_type) {
+    case TFileCompressType::SNAPPYBLOCK: {
+        compress_name = ".snappy";
+        break;
+    }
+    case TFileCompressType::ZLIB: {
+        compress_name = ".zlib";
+        break;
+    }
+    case TFileCompressType::ZSTD: {
+        compress_name = ".zstd";
+        break;
+    }
+    default: {
+        compress_name = "";
+        break;
+    }
+    }
+
+    std::string file_format_name;
+    switch (file_format_type) {
+    case TFileFormatType::FORMAT_PARQUET: {
+        file_format_name = ".parquet";
+        break;
+    }
+    case TFileFormatType::FORMAT_ORC: {
+        file_format_name = ".orc";
+        break;
+    }
+    default: {
+        file_format_name = "";
+        break;
+    }
+    }
+    return fmt::format("{}{}", compress_name, file_format_name);
 }
 
 } // namespace vectorized

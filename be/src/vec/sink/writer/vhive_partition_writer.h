@@ -48,7 +48,8 @@ public:
                          const VExprContextSPtrs& write_output_expr_ctxs,
                          const std::set<size_t>& non_write_columns_indices,
                          const std::vector<THiveColumn>& columns, WriteInfo write_info,
-                         const std::string file_name, TFileFormatType::type file_format_type,
+                         std::string file_name, int file_name_index,
+                         TFileFormatType::type file_format_type,
                          TFileCompressType::type hive_compress_type,
                          const std::map<std::string, std::string>& hadoop_conf);
 
@@ -60,6 +61,10 @@ public:
 
     Status close(const Status& status);
 
+    inline const std::string& file_name() const { return _file_name; }
+
+    inline int file_name_index() const { return _file_name_index; }
+
     inline size_t written_len() { return _file_format_transformer->written_len(); }
 
 private:
@@ -68,6 +73,9 @@ private:
                                         doris::vectorized::Block* output_block);
 
     THivePartitionUpdate _build_partition_update();
+
+    std::string _get_file_extension(TFileFormatType::type file_format_type,
+                                    TFileCompressType::type write_compress_type);
 
     std::string _path;
 
@@ -85,6 +93,7 @@ private:
     const std::vector<THiveColumn>& _columns;
     WriteInfo _write_info;
     std::string _file_name;
+    int _file_name_index;
     TFileFormatType::type _file_format_type;
     TFileCompressType::type _hive_compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;
