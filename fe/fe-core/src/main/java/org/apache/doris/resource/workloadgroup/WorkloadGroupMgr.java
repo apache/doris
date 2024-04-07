@@ -68,6 +68,9 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public static final Long DEFAULT_GROUP_ID = 1L;
 
+    public static final String DEFAULT_BG_WG_NAME = "bg_wg";
+    public static final Long DEFAULT_BG_WG_ID = 2L;
+
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
             .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
@@ -152,14 +155,28 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void appendInternalWorkloadGroup() {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(WorkloadGroup.CPU_SHARE, "1024");
-        properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
-        properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-        WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(DEFAULT_GROUP_ID.longValue(), DEFAULT_GROUP_NAME,
-                properties);
-        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
+            {
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.CPU_SHARE, "1024");
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+                WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(DEFAULT_GROUP_ID.longValue(), DEFAULT_GROUP_NAME,
+                        properties);
+                nameToWorkloadGroup.put(defaultWorkloadGroup.getName(), defaultWorkloadGroup);
+                idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
+            }
+
+            {
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.CPU_SHARE, "1024");
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "1%");
+                properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+                properties.put(WorkloadGroup.SCAN_THREAD_NUM, "16"); // set 16 here because it can pass pr pipeline
+                WorkloadGroup defaultBgWg = new WorkloadGroup(DEFAULT_BG_WG_ID.longValue(), DEFAULT_BG_WG_NAME,
+                        properties);
+                nameToWorkloadGroup.put(defaultBgWg.getName(), defaultBgWg);
+                idToWorkloadGroup.put(defaultBgWg.getId(), defaultBgWg);
+            }
     }
 
     private void readLock() {
