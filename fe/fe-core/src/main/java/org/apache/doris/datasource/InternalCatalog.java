@@ -1044,6 +1044,42 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
+    public void eraseTableDropBackendReplicas(OlapTable olapTable, boolean isReplay) {
+        if (isReplay || Env.isCheckpointThread()) {
+            return;
+        }
+
+        // drop all replicas
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Partition partition : olapTable.getAllPartitions()) {
+            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+            for (MaterializedIndex materializedIndex : allIndices) {
+                long indexId = materializedIndex.getId();
+                int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                for (Tablet tablet : materializedIndex.getTablets()) {
+                    long tabletId = tablet.getId();
+                    List<Replica> replicas = tablet.getReplicas();
+                    for (Replica replica : replicas) {
+                        long backendId = replica.getBackendId();
+                        long replicaId = replica.getId();
+                        DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
+                                replicaId, schemaHash, true);
+                        batchTask.addTask(dropTask);
+                    } // end for replicas
+                } // end for tablets
+            } // end for indices
+        } // end for partitions
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    public void erasePartitionDropBackendReplicas(List<Partition> partitions) {
+        // no need send be delete task, when be report its tablets, fe will send delete task then.
+    }
+
+    public void eraseDroppedIndexBackendReplicas(long tableId, List<Long> indexIdList) {
+        // nothing to do in non cloud mode
+    }
+
     private void unprotectAddReplica(OlapTable olapTable, ReplicaPersistInfo info) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("replay add a replica {}", info);
