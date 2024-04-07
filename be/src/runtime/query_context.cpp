@@ -171,13 +171,13 @@ void QueryContext::set_execution_dependency_ready() {
 }
 
 void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
+    set_exec_status(new_status);
     // Just for CAS need a left value
     bool false_cancel = false;
     if (!_is_cancelled.compare_exchange_strong(false_cancel, true)) {
         return;
     }
     DCHECK(!false_cancel && _is_cancelled);
-    set_exec_status(new_status);
 
     set_ready_to_execute(true);
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
@@ -197,7 +197,6 @@ void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
             pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
         }
     }
-    return;
 }
 
 void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
