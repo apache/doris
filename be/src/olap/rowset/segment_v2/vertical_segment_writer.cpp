@@ -857,6 +857,9 @@ Status VerticalSegmentWriter::write_batch() {
         _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
     }
+    for (auto& full_block : full_blocks) {
+        full_block.reset();
+    }
     _batched_blocks.clear();
     return Status::OK();
 }
