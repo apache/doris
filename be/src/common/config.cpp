@@ -1197,6 +1197,11 @@ DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
+DEFINE_Bool(enable_index_compaction, "false");
+
+// enable injection point in regression-test
+DEFINE_mBool(enable_injection_point, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

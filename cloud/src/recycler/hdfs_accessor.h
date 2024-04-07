@@ -54,6 +54,7 @@ public:
     int put_object(const std::string& relative_path, const std::string& content) override;
 
     // returns 0 for success otherwise error
+    // Notice: list directory in hdfs has no recursive semantics
     int list(const std::string& relative_path, std::vector<ObjectMeta>* ObjectMeta) override;
 
     // return 0 if object exists, 1 if object is not found, negative for error
@@ -68,7 +69,7 @@ private:
 
     hdfsFS fs_ = nullptr;
 
-    std::string prefix_; // Start with '/'
+    std::string prefix_; // Either be empty or start with '/' if length > 1
     std::string uri_;
 };
 
