@@ -171,6 +171,7 @@ void QueryContext::set_execution_dependency_ready() {
 }
 
 void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
+    // we must get this wrong status once query ctx's `_is_cancelled` = true.
     set_exec_status(new_status);
     // Just for CAS need a left value
     bool false_cancel = false;
