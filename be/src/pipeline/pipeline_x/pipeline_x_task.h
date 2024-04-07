@@ -157,6 +157,7 @@ public:
     static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
 
 private:
+    friend class RuntimeFilterDependency;
     Dependency* _write_blocked_dependency() {
         for (auto* op_dep : _write_dependencies) {
             _blocked_dep = op_dep->is_blocked_by(this);
@@ -180,6 +181,13 @@ private:
     }
 
     Dependency* _read_blocked_dependency() {
+        for (auto* op_dep : _filter_dependencies) {
+            _blocked_dep = op_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return _blocked_dep;
+            }
+        }
         for (auto* op_dep : _read_dependencies) {
             _blocked_dep = op_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
@@ -204,7 +212,7 @@ private:
     std::vector<Dependency*> _read_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
-    RuntimeFilterDependency* _filter_dependency;
+    std::vector<Dependency*> _filter_dependencies;
 
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;

@@ -1095,7 +1095,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
         _set_push_down(!is_late_arrival);
         RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
-    _profile->add_info_string("Info", _format_status());
+    _profile->add_info_string("Info", formatted_state());
     // The runtime filter is pushed down, adding filtering information.
     auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
     auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
@@ -1236,7 +1236,7 @@ void IRuntimeFilter::set_ignored(const std::string& msg) {
     _wrapper->_ignored_msg = msg;
 }
 
-std::string IRuntimeFilter::_format_status() const {
+std::string IRuntimeFilter::formatted_state() const {
     return fmt::format(
             "[IsPushDown = {}, RuntimeFilterState = {}, IgnoredMsg = {}, HasRemoteTarget = {}, "
             "HasLocalTarget = {}]",
@@ -1411,7 +1411,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     } else {
         _profile_init = true;
         parent_profile->add_child(_profile.get(), true, nullptr);
-        _profile->add_info_string("Info", _format_status());
+        _profile->add_info_string("Info", formatted_state());
     }
 }
 

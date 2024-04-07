@@ -599,6 +599,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                         i);
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
+                task_runtime_state->set_pipeline_x_task(_tasks[i].back().get());
             }
         }
 
