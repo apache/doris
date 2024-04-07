@@ -54,8 +54,12 @@ public:
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+                              int end) const override {
+        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
+    }
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
+        return Status::NotSupported("read_column_from_pb with type " + column.get_name());
+    }
 
 private:
     template <bool is_binary_format>

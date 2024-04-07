@@ -87,33 +87,5 @@ Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     column_data.insert_value(val);
     return Status::OK();
 }
-Status DataTypeIPv4SerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                             int end) const {
-    const auto& column_data = assert_cast<const ColumnIPv4&>(column);
-    result.mutable_string_value()->Reserve(end - start);
-    auto* ptype = result.mutable_type();
-    ptype->set_id(PGenericType::IPV4);
-    for (int i = start; i < end; ++i) {
-        IPv4Value ipv4_value(column_data.get_data()[i]);
-        result.add_string_value(ipv4_value.to_string());
-    }
-    return Status::OK();
-}
-
-Status DataTypeIPv4SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col_data = static_cast<ColumnIPv4&>(column).get_data();
-    col_data.reserve(arg.string_value_size());
-    for (int i = 0; i < arg.string_value_size(); ++i) {
-        IPv4 ipv4_val;
-        if (!IPv4Value::from_string(ipv4_val, arg.string_value(i).c_str(),
-                                    arg.string_value(i).size())) {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT, "parse number fail in ipv4, string: '{}'",
-                    std::string(arg.string_value(i).c_str(), arg.string_value(i).size()).c_str());
-        }
-        col_data.emplace_back(ipv4_val);
-    }
-    return Status::OK();
-}
 } // namespace vectorized
 } // namespace doris

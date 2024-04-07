@@ -248,9 +248,8 @@ Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& re
     for (size_t row_num = start; row_num < end; ++row_num) {
         const auto& string_ref = string_column.get_data_at(row_num);
         if (string_ref.size > 0) {
-            std::string json_string =
-                    JsonbToJson::jsonb_to_json_string(string_ref.data, string_ref.size);
-            result.add_string_value(json_string);
+            result.add_string_value(
+                    JsonbToJson::jsonb_to_json_string(string_ref.data, string_ref.size));
         } else {
             result.add_string_value(NULL_IN_CSV_FOR_ORDINARY_TYPE);
         }
@@ -261,8 +260,8 @@ Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& re
 Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& column_string = assert_cast<ColumnString&>(column);
     column_string.reserve(arg.string_value_size());
+    JsonBinaryValue value;
     for (int i = 0; i < arg.string_value_size(); ++i) {
-        JsonBinaryValue value;
         RETURN_IF_ERROR(
                 value.from_json_string(arg.string_value(i).c_str(), arg.string_value(i).size()));
         column_string.insert_data(value.value(), value.size());
