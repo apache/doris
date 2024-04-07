@@ -36,13 +36,14 @@ suite("test_clear_cache") {
 
     backendId = backendIdToBackendIP.keySet()[0]
     def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
-    logger.info(url)
+    url = url + "?sync=true"
+    logger.info("clear file cache URL:" + url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
             op "post"
-            body "{\"sync\"=\"true\"}"
+            body ""
             check check_func
         }
     }

@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sum") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    qt_select """
-                  select k1, sum(k5) over 
-                      (partition by k1 order by k3 range between current row and unbounded following) as w 
-                  from nereids_test_query_db.test order by k1, w
-              """
-}
+suite("test_double_nan", "datatype_p0") {
+    def tableName = "tbl_test_double_nan"
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "CREATE  TABLE if NOT EXISTS ${tableName} (k int, value double) DUPLICATE KEY(k) DISTRIBUTED BY HASH (k) BUCKETS 1 PROPERTIES ('replication_num' = '1');"
+    sql """insert into ${tableName} select 1, sqrt(-1);"""
 
+    qt_select "select * from ${tableName} order by 1;"
+    qt_select "select sqrt(-1);"
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+}
