@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/sync_point.h"
 #include "common/util.h"
@@ -276,8 +277,15 @@ std::pair<MetaServiceCode, std::string> write_schema_dict(
             msg = ss.str();
             return {code, msg};
         }
-        // Save serialized dictionary and update size accumulator.
-        cloud::put(txn, dict_key, dict_val, config::columnpb_dict_value_version);
+        // Limit the size of dict value
+        if (dict_val.size() > config::schema_dict_kv_size_limit) {
+            code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+            ss << "Failed to write dictionary for saving, txn_id=" << rowset_meta->txn_id()
+                << ", reached the limited size threshold of SchemaDictKeyList " << config::schema_dict_kv_size_limit;
+            msg = ss.str();
+        }
+        // splitting large values (>90*1000) into multiple KVs
+        cloud::put(txn, dict_key, dict_val, 0);
         LOG(INFO) << "Dictionary saved, key=" << hex(dict_key) << " txn_id=" << rowset_meta->txn_id()
                   << " Dict size=" << dict.column_dict_size()
                   << ", Current column ID=" << dict.current_column_dict_id()
