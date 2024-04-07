@@ -1618,6 +1618,7 @@ visible_functions = {
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
+        [['strcmp'], 'INT', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
 
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
@@ -1668,7 +1669,8 @@ visible_functions = {
         [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['url_decode'], 'STRING', ['STRING'], ''],
-        [['random_bytes'], 'STRING', ['INT'], '']
+        [['random_bytes'], 'STRING', ['INT'], ''],
+        [['strcmp'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
 
@@ -2243,6 +2245,7 @@ null_result_with_one_null_param_functions = [
     'fmod',
     'substr',
     'substring',
+    'strcmp'
     'append_trailing_char_if_absent',
     'ST_X',
     'ST_Y',

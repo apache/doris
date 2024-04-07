@@ -319,18 +319,46 @@ public:
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
         auto result_column = ColumnInt16::create(input_rows_count);
-        auto& result_data = result_column->get_data();
 
-        for (int row = 0; row < input_rows_count; row++) {
-            auto arg0 = arg0_column->get_data_at(row);
-            auto arg1 = arg1_column->get_data_at(row);
-
-            Int16* result_cell = &result_data[row];
-            *result_cell = arg0.compare(arg1);
+        if (auto arg0 = check_and_get_column<ColumnString>(arg0_column.get())) {
+            if (auto arg1 = check_and_get_column<ColumnString>(arg1_column.get())) {
+                if (arg0_const) {
+                    scalar_vector(arg0->get_data_at(0), *arg1, *result_column);
+                } else if (arg1_const) {
+                    vector_scalar(*arg0, arg1->get_data_at(0), *result_column);
+                } else {
+                    vector_vector(*arg0, *arg1, *result_column);
+                }
+            }
         }
 
         block.replace_by_position(result, std::move(result_column));
         return Status::OK();
+    }
+
+private:
+    static void scalar_vector(const StringRef str, const ColumnString& vec1, ColumnInt16& res) {
+        size_t size = vec1.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = str.compare(vec1.get_data_at(i));
+        }
+    }
+
+    static void vector_scalar(const ColumnString& vec0, const StringRef str, ColumnInt16& res) {
+        size_t size = vec0.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = vec0.get_data_at(i).compare(str);
+        }
+    }
+
+    static void vector_vector(
+            const ColumnString& vec0,
+            const ColumnString& vec1,
+            ColumnInt16& res) {
+        size_t size = vec0.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
+        }
     }
 };
 
