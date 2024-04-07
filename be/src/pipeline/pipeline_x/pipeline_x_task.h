@@ -181,13 +181,6 @@ private:
     }
 
     Dependency* _read_blocked_dependency() {
-        for (auto* op_dep : _filter_dependencies) {
-            _blocked_dep = op_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
         for (auto* op_dep : _read_dependencies) {
             _blocked_dep = op_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
