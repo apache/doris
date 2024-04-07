@@ -155,9 +155,10 @@ public class ShowDataStmt extends ShowStmt {
                 });
 
                 for (Table table : tables) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                            table.getName(),
-                            PrivPredicate.SHOW)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), tableName.getCtl(), dbName,
+                                    table.getName(),
+                                    PrivPredicate.SHOW)) {
                         continue;
                     }
                     sortedTables.add(table);

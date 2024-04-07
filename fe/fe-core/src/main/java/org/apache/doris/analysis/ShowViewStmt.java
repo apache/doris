@@ -93,7 +93,7 @@ public class ShowViewStmt extends ShowStmt {
 
         String dbName = tbl.getDb();
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
-                ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
+                ConnectContext.get(), tbl.getCtl(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
