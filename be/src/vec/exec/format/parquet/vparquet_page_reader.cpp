@@ -94,6 +94,7 @@ Status PageReader::_parse_page_header() {
         header_size <<= 2;
     }
 
+    _statistics.parse_page_header_num++;
     _offset += real_header_size;
     _next_header_offset = _offset + _cur_page_header.compressed_page_size;
     _state = HEADER_PARSED;

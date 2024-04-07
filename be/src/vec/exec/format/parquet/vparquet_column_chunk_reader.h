@@ -84,6 +84,7 @@ public:
         int64_t decode_value_time = 0;
         int64_t decode_dict_time = 0;
         int64_t decode_level_time = 0;
+        int64_t parse_page_header_num = 0;
     };
 
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
@@ -171,6 +172,7 @@ public:
 
     Statistics& statistics() {
         _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
+        _statistics.parse_page_header_num = _page_reader->statistics().parse_page_header_num;
         return _statistics;
     }
 

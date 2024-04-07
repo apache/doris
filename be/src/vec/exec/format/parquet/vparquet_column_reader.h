@@ -65,7 +65,8 @@ public:
                   decode_value_time(0),
                   decode_dict_time(0),
                   decode_level_time(0),
-                  decode_null_map_time(0) {}
+                  decode_null_map_time(0),
+                  parse_page_header_num(0) {}
 
         Statistics(io::BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs,
                    int64_t null_map_time)
@@ -79,7 +80,8 @@ public:
                   decode_value_time(cs.decode_value_time),
                   decode_dict_time(cs.decode_dict_time),
                   decode_level_time(cs.decode_level_time),
-                  decode_null_map_time(null_map_time) {}
+                  decode_null_map_time(null_map_time),
+                  parse_page_header_num(cs.parse_page_header_num) {}
 
         int64_t read_time;
         int64_t read_calls;
@@ -92,6 +94,7 @@ public:
         int64_t decode_dict_time;
         int64_t decode_level_time;
         int64_t decode_null_map_time;
+        int64_t parse_page_header_num;
 
         void merge(Statistics& statistics) {
             read_time += statistics.read_time;
@@ -105,6 +108,7 @@ public:
             decode_dict_time += statistics.decode_dict_time;
             decode_level_time += statistics.decode_level_time;
             decode_null_map_time += statistics.decode_null_map_time;
+            parse_page_header_num += statistics.parse_page_header_num;
         }
     };
 

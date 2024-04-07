@@ -41,6 +41,7 @@ class PageReader {
 public:
     struct Statistics {
         int64_t decode_header_time = 0;
+        int64_t parse_page_header_num = 0;
     };
 
     PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
