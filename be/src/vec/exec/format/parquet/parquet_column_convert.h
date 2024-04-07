@@ -117,9 +117,9 @@ struct PhysicalTypeTraits<tparquet::Type::INT96> {
     M(TypeIndex::Decimal128V3, Decimal128V3, Decimal128V3)
 
 struct ConvertParams {
-    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
+    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true
     static const cctz::time_zone utc0;
-    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set the time zone
+    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false, we should set local time zone
     cctz::time_zone* ctz = nullptr;
     size_t offset_days = 0;
     int64_t second_mask = 1;
@@ -159,7 +159,7 @@ struct ConvertParams {
         const auto& schema = field_schema->parquet_schema;
         if (schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP) {
             const auto& timestamp_info = schema.logicalType.TIMESTAMP;
-            if (!timestamp_info.isAdjustedToUTC) {
+            if (timestamp_info.isAdjustedToUTC) {
                 // should set timezone to utc+0
                 ctz = const_cast<cctz::time_zone*>(&utc0);
             }
