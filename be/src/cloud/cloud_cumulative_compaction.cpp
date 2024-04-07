@@ -297,7 +297,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
 }
 
 void CloudCumulativeCompaction::garbage_collection() {
-    //file_cache_garbage_collection();
+    CloudCompactionMixin::garbage_collection();
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());
