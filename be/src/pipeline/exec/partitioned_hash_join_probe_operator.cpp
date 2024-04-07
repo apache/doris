@@ -517,16 +517,6 @@ Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionedHashJoinProbeOperatorX::close(RuntimeState* state) {
-    // to avoid close _child_x twice
-    auto child_x = std::move(_child_x);
-    RETURN_IF_ERROR(JoinProbeOperatorX::close(state));
-    RETURN_IF_ERROR(_probe_operator->close(state));
-    RETURN_IF_ERROR(_sink_operator->close(state));
-    _child_x = std::move(child_x);
-    return Status::OK();
-}
-
 Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
                                                bool eos) const {
     auto& local_state = get_local_state(state);
