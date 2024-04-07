@@ -110,9 +110,10 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
         {
             PBlock pblock;
             SCOPED_TIMER(serialize_timer_);
-            status = block.serialize(BeExecVersionManager::get_newest_version(), &pblock,
-                                     &uncompressed_bytes, &compressed_bytes,
-                                     segment_v2::CompressionTypePB::LZ4);
+            status = block.serialize(
+                    BeExecVersionManager::get_newest_version(), &pblock, &uncompressed_bytes,
+                    &compressed_bytes,
+                    segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
             RETURN_IF_ERROR(status);
             if (!pblock.SerializeToString(&buff)) {
                 return Status::Error<ErrorCode::SERIALIZE_PROTOBUF_ERROR>(

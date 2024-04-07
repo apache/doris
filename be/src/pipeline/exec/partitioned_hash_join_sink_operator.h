@@ -48,6 +48,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     Status revoke_memory(RuntimeState* state);
+    size_t revocable_mem_size(RuntimeState* state) const;
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -55,6 +56,9 @@ protected:
 
     void _spill_to_disk(uint32_t partition_index,
                         const vectorized::SpillStreamSPtr& spilling_stream);
+
+    Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
+                            size_t end);
 
     friend class PartitionedHashJoinSinkOperatorX;
 
@@ -73,6 +77,8 @@ protected:
     std::shared_ptr<PartitionedHashJoinSharedState> _shared_state_holder;
 
     std::unique_ptr<PartitionerType> _partitioner;
+
+    std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
@@ -121,12 +127,23 @@ public:
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
 
+    void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
+                             const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {
+        _inner_sink_operator = sink_operator;
+        _inner_probe_operator = probe_operator;
+    }
+
 private:
     friend class PartitionedHashJoinSinkLocalState;
+
+    Status _setup_internal_operator(RuntimeState* state);
 
     const TJoinDistributionType::type _join_distribution;
 
     std::vector<TExpr> _build_exprs;
+
+    std::shared_ptr<HashJoinBuildSinkOperatorX> _inner_sink_operator;
+    std::shared_ptr<HashJoinProbeOperatorX> _inner_probe_operator;
 
     const std::vector<TExpr> _distribution_partition_exprs;
     const TPlanNode _tnode;

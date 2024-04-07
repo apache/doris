@@ -555,6 +555,8 @@ struct PartitionedHashJoinSharedState
           public std::enable_shared_from_this<PartitionedHashJoinSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinSharedState)
 
+    std::unique_ptr<RuntimeState> inner_runtime_state;
+    std::shared_ptr<HashJoinSharedState> inner_shared_state;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
     bool need_to_spill = false;
