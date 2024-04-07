@@ -648,7 +648,9 @@ public class SessionVariable implements Serializable, Writable {
     public String resourceGroup = "";
 
     // this is used to make mysql client happy
-    @VariableMgr.VarAttr(name = AUTO_COMMIT)
+    // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
+    // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
+    @VariableMgr.VarAttr(name = AUTO_COMMIT, convertBoolToLongMethod = "convertBoolToLong")
     public boolean autoCommit = true;
 
     // this is used to make c3p0 library happy
@@ -1979,10 +1981,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableJoinReorderBasedCost;
     }
 
-    public boolean isAutoCommit() {
-        return autoCommit;
-    }
-
     public boolean isTxReadonly() {
         return txReadonly;
     }
@@ -2854,6 +2852,10 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Check max_execution_time failed", exception);
             throw exception;
         }
+    }
+
+    public long convertBoolToLong(Boolean val) {
+        return val ? 1 : 0;
     }
 
     public boolean isEnableFileCache() {
