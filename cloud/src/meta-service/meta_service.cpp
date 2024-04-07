@@ -573,6 +573,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             name = instance.default_storage_vault_name();
         }
 
+        // The S3 vault would be stored inside the instance.storage_vault_names and instance.resource_ids
         auto vault_name = std::find_if(
                 instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                 [&](const auto& candidate_name) { return candidate_name == name; });
@@ -583,18 +584,12 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             break;
         }
 
-        // The S3 vault would be stored inside the instance.obj_info
-        auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
-                                   [&](const ObjectStoreInfoPB& obj) {
-                                       if (!obj.has_name()) {
-                                           return false;
-                                       }
-                                       return obj.name() == name;
-                                   });
-
-        if (s3_obj != instance.obj_info().end()) {
-            response->set_storage_vault_id(s3_obj->id());
-            response->set_storage_vault_name(s3_obj->name());
+        // The obj info stores the legacy obj info for Cloud and stage.
+        // All the obj info stored in obj_info is sorted in descending order by id
+        // In legacy compatible cloud instances we use the latest obj info's id as default vault id
+        if(size_t idx = instance.obj_info().size() - 1; idx > 0) {
+            response->set_storage_vault_id(instance.obj_info().at(idx - 1).id());
+            response->set_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
             break;
         }
 

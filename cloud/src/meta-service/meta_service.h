@@ -41,6 +41,9 @@ namespace doris::cloud {
 
 class Transaction;
 
+constexpr char BUILT_IN_STORAGE_VAULT_NAME[] = "built_in_storage_vault";
+constexpr char BUILT_IN_STORAGE_VAULT_ID[] = "1";
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,

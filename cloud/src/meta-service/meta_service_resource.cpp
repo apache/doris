@@ -40,9 +40,6 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
-const static char* BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
-const static char* BUILT_IN_STORAGE_VAULT_ID = "1";
-
 static void* run_bthread_work(void* arg) {
     auto f = reinterpret_cast<std::function<void()>*>(arg);
     (*f)();
@@ -401,8 +398,6 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     hdfs_param.set_id(vault_id);
     if (vault_id == BUILT_IN_STORAGE_VAULT_ID) {
         hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME);
-        instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
-        instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
     }
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
@@ -655,9 +650,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_sse_enabled(instance.sse_enabled());
         if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
             last_item.set_name(BUILT_IN_STORAGE_VAULT_NAME);
-            instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
-            instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
         }
+         // TODO(ByteYue): Add S3 vault
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
@@ -986,10 +980,9 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     obj_info.set_ctime(time);
     obj_info.set_mtime(time);
     obj_info.set_sse_enabled(sse_enabled);
+    // TODO(ByteYue): Add S3 vault
     if (obj_info.id() == BUILT_IN_STORAGE_VAULT_ID) {
         obj_info.set_name(BUILT_IN_STORAGE_VAULT_NAME);
-        instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
-        instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
     }
     instance.mutable_obj_info()->Add(std::move(obj_info));
     return 0;
