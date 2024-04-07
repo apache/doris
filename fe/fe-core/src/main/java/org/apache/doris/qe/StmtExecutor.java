@@ -1944,13 +1944,11 @@ public class StmtExecutor {
             int schemaSize = tbl.getBaseSchema(false).size();
             if (parsedStmt instanceof NativeInsertStmt
                     && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
-
-                if (((NativeInsertStmt) parsedStmt).getTargetColumnNames()
-                        .contains(Column.SEQUENCE_COL)) {
+                NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+                if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)) {
                     schemaSize++;
                 }
-                if (((NativeInsertStmt) parsedStmt).getTargetColumnNames()
-                        .contains(Column.DELETE_SIGN)) {
+                if (nativeInsertStmt.containTargetColumnName(Column.DELETE_SIGN)) {
                     schemaSize++;
                 }
             }
@@ -2028,19 +2026,13 @@ public class StmtExecutor {
                 .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism).setTrimDoubleQuotes(true);
         if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
-            List<String> targetColumnNames = ((NativeInsertStmt) parsedStmt).getTargetColumnNames();
-            if (targetColumnNames.contains(Column.SEQUENCE_COL) || targetColumnNames.contains(Column.DELETE_SIGN)) {
-                if (targetColumnNames.contains(Column.SEQUENCE_COL)) {
+            NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+            if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)
+                    || nativeInsertStmt.containTargetColumnName(Column.DELETE_SIGN)) {
+                if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)) {
                     request.setSequenceCol(Column.SEQUENCE_COL);
                 }
-                StringBuilder allCols = new StringBuilder();
-                for (String col : ((NativeInsertStmt) parsedStmt).getTargetColumnNames()) {
-                    allCols.append(col);
-                    allCols.append(",");
-                }
-                allCols.deleteCharAt(allCols.length() - 1);
-                request.setColumns(String.valueOf(allCols));
-                request.setColumnSeparator(",");
+                request.setColumns("`" + String.join("`,`", nativeInsertStmt.getTargetColumnNames()) + "`");
             }
         }
 
