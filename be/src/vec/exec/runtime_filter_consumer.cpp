@@ -107,6 +107,9 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter(bool pipeline_x) {
                     _state->pipeline_x_task());
 
             bool ready = rf_dep == nullptr;
+            if (!ready) {
+                runtime_filter->await();
+            }
             if (ready && !_runtime_filter_ctxs[i].apply_mark) {
                 RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
                 _runtime_filter_ctxs[i].apply_mark = true;
