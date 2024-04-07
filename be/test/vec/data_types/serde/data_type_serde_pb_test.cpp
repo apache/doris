@@ -43,6 +43,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -58,6 +59,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
@@ -652,4 +654,51 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct2) {
     check_pb_col(outer_struct, *outer_struct_column.get());
 }
 
+TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestDateTime) {
+    std::cout << "==== datetime === " << std::endl;
+    // datetime
+    {
+        auto vec = vectorized::ColumnDateTimeV2::create();
+        auto& data = vec->get_data();
+        for (int i = 0; i < 10; ++i) {
+            uint16_t year = 2022;
+            uint8_t month = 5;
+            uint8_t day = 24;
+            uint8_t hour = 12;
+            uint8_t minute = i;
+            uint8_t second = 0;
+            uint32_t microsecond = 123000;
+            auto value = ((uint64_t)(((uint64_t)year << 46) | ((uint64_t)month << 42) |
+                                     ((uint64_t)day << 37) | ((uint64_t)hour << 32) |
+                                     ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
+                                     (uint64_t)microsecond));
+            DateV2Value<DateTimeV2ValueType> datetime_v2;
+            datetime_v2.from_datetime(value);
+            auto datetime_val = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(datetime_v2);
+            data.push_back(datetime_val);
+        }
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeDateTimeV2>(6));
+        vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "");
+        Block block;
+        block.insert(type_and_name);
+        check_pb_col(data_type, *vec.get());
+    }
+}
+
+TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestLargeInt) {
+    std::cout << "==== LargeInt === " << std::endl;
+    // LargeInt
+    {
+        auto vec = vectorized::ColumnVector<Int128>::create();
+        auto& data = vec->get_data();
+        for (int i = 0; i < 10; ++i) {
+            data.push_back(500000000000 + i);
+        }
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt128>());
+        vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "");
+        Block block;
+        block.insert(type_and_name);
+        check_pb_col(data_type, *vec.get());
+    }
+}
 } // namespace doris::vectorized

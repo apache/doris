@@ -99,7 +99,7 @@ Status DataTypeIPv6SerDe::write_column_to_pb(const IColumn& column, PValues& res
         result.add_string_value(ipv6_value.to_string());
     }
     return Status::OK();
-};
+}
 
 Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& col_data = static_cast<ColumnIPv6&>(column).get_data();
@@ -109,13 +109,13 @@ Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& ar
         if (!IPv6Value::from_string(ipv6_val, arg.string_value(i).c_str(),
                                     arg.string_value(i).size())) {
             throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT, "parse number fail, string: '{}'",
+                    ErrorCode::INVALID_ARGUMENT, "parse number fail in ipv6, string: '{}'",
                     std::string(arg.string_value(i).c_str(), arg.string_value(i).size()).c_str());
         }
         col_data.emplace_back(ipv6_val);
     }
     return Status::OK();
-};
+}
 
 } // namespace vectorized
 } // namespace doris

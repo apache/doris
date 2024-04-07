@@ -531,6 +531,7 @@ Status DataTypeMapSerDe::write_column_to_pb(const IColumn& column, PValues& resu
     }
     return Status::OK();
 }
+
 Status DataTypeMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& map_column = assert_cast<ColumnMap&>(column);
     auto& offsets = map_column.get_offsets();
