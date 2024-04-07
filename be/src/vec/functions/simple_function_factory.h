@@ -24,8 +24,6 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
-#include "udf/udf.h"
-#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -81,6 +79,7 @@ void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
+void register_function_uuid_transforms(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
@@ -151,7 +150,7 @@ public:
     /// @TEMPORARY: for be_exec_version=3
     template <class Function>
     void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_3_0"};
+        static std::string suffix {"_old_for_version_before_4_0"};
         function_to_replace[Function::name] = Function::name + suffix;
         register_function(Function::name + suffix, &createDefaultFunction<Function>);
     }
@@ -265,6 +264,7 @@ public:
             register_function_random(instance);
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
+            register_function_uuid_transforms(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);

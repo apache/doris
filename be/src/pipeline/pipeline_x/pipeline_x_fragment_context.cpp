@@ -111,10 +111,11 @@ PipelineXFragmentContext::PipelineXFragmentContext(
                                   call_back, report_status_cb) {}
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
+    // The memory released by the query end is recorded in the query mem tracker.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     auto st = _query_ctx->exec_status();
+    _tasks.clear();
     if (!_task_runtime_states.empty()) {
-        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         for (auto& runtime_state : _task_runtime_states) {
             _call_back(runtime_state.get(), &st);
             runtime_state.reset();
@@ -123,11 +124,13 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
         _call_back(nullptr, &st);
     }
     _runtime_state.reset();
+    _runtime_filter_states.clear();
+    _runtime_filter_mgr_map.clear();
+    _op_id_to_le_state.clear();
 }
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
-    std::lock_guard<std::mutex> l(_cancel_lock);
     LOG_INFO("PipelineXFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
@@ -136,25 +139,24 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     if (reason == PPlanFragmentCancelReason::TIMEOUT) {
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
-        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
-            _is_report_on_cancel = false;
-        } else {
-            for (auto& id : _fragment_instance_ids) {
-                LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
-            }
+    _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
+    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+        _is_report_on_cancel = false;
+    } else {
+        for (auto& id : _fragment_instance_ids) {
+            LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
         }
-        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
-        // For stream load the fragment's query_id == load id, it is set in FE.
-        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
-        if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(msg);
-        }
-
-        // Cancel the result queue manager used by spark doris connector
-        // TODO pipeline incomp
-        // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     }
+    // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+    // For stream load the fragment's query_id == load id, it is set in FE.
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+    if (stream_load_ctx != nullptr) {
+        stream_load_ctx->pipe->cancel(msg);
+    }
+
+    // Cancel the result queue manager used by spark doris connector
+    // TODO pipeline incomp
+    // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
             task->clear_blocking_state();
@@ -187,9 +189,8 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state = RuntimeState::create_unique(request.query_id, request.fragment_id,
                                                  request.query_options, _query_ctx->query_globals,
                                                  _exec_env, _query_ctx.get());
-    _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
-    SCOPED_ATTACH_TASK(_runtime_state.get());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
     }
@@ -551,8 +552,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         }
 
         // build local_runtime_filter_mgr for each instance
-        runtime_filter_mgr =
-                std::make_unique<RuntimeFilterMgr>(request.query_id, filterparams.get());
+        runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+                request.query_id, filterparams.get(), _query_ctx->query_mem_tracker);
 
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
@@ -990,13 +991,20 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        if (tnode.agg_node.aggregate_functions.empty() &&
+        if (tnode.agg_node.grouping_exprs.empty() &&
+            descs.get_tuple_descriptor(tnode.agg_node.output_tuple_id)->slots().empty()) {
+            return Status::InternalError("Illegal aggregate node " + std::to_string(tnode.node_id) +
+                                         ": group by and output is empty");
+        }
+        if (tnode.agg_node.aggregate_functions.empty() && !_runtime_state->enable_agg_spill() &&
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
-            request.query_options.enable_distinct_streaming_aggregation) {
+            request.query_options.enable_distinct_streaming_aggregation &&
+            !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
-                   tnode.agg_node.use_streaming_preaggregation) {
+                   tnode.agg_node.use_streaming_preaggregation &&
+                   !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new StreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else {
@@ -1089,8 +1097,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(
-                new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        sink.reset(new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                        _need_local_merge));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1324,11 +1332,11 @@ void PipelineXFragmentContext::close_if_prepare_failed(Status st) {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             DCHECK(!t->is_pending_finish());
-            WARN_IF_ERROR(t->close(Status::OK()), "close_if_prepare_failed failed: ");
+            WARN_IF_ERROR(t->close(st), "close_if_prepare_failed failed: ");
             close_a_pipeline();
         }
     }
-    _query_ctx->cancel(true, st.to_string(), st, _fragment_id);
+    _query_ctx->cancel(st.to_string(), st, _fragment_id);
 }
 
 void PipelineXFragmentContext::_close_fragment_instance() {
@@ -1351,7 +1359,9 @@ void PipelineXFragmentContext::_close_fragment_instance() {
         if (_runtime_state->load_channel_profile()) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
-        LOG(INFO) << ss.str();
+
+        LOG_INFO("Query {} fragment {} profile:\n {}", print_id(this->_query_id),
+                 this->_fragment_id, ss.str());
     }
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(

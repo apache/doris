@@ -42,12 +42,12 @@ public:
     Status merge(BloomFilterAdaptor* other) { return _bloom_filter->merge(*other->_bloom_filter); }
 
     Status init(int len) {
-        int log_space = log2(len);
+        int log_space = (int)log2(len);
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }
 
     Status init(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
-        int log_space = log2(data_size);
+        int log_space = (int)log2(data_size);
         return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
     }
 

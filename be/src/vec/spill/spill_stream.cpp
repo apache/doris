@@ -68,8 +68,14 @@ void SpillStream::close() {
         read_promise_.reset();
     }
 
-    (void)writer_->close();
-    (void)reader_->close();
+    if (writer_) {
+        (void)writer_->close();
+        writer_.reset();
+    }
+    if (reader_) {
+        (void)reader_->close();
+        reader_.reset();
+    }
 }
 
 const std::string& SpillStream::get_spill_root_dir() const {
@@ -89,6 +95,7 @@ void SpillStream::end_spill(const Status& status) {
 
 Status SpillStream::wait_spill() {
     if (spill_promise_) {
+        SCOPED_TIMER(write_wait_io_timer_);
         auto status = spill_future_.get();
         spill_promise_.reset();
         return status;
@@ -100,13 +107,16 @@ Status SpillStream::spill_block(const Block& block, bool eof) {
     size_t written_bytes = 0;
     RETURN_IF_ERROR(writer_->write(block, written_bytes));
     if (eof) {
-        return writer_->close();
+        RETURN_IF_ERROR(writer_->close());
+        writer_.reset();
     }
     return Status::OK();
 }
 
 Status SpillStream::spill_eof() {
-    return writer_->close();
+    RETURN_IF_ERROR(writer_->close());
+    writer_.reset();
+    return Status::OK();
 }
 
 Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
@@ -132,7 +142,10 @@ Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
         return status;
     }
 
-    status = read_future_.get();
+    {
+        SCOPED_TIMER(read_wait_io_timer_);
+        status = read_future_.get();
+    }
     read_promise_.reset();
     return status;
 }

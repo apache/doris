@@ -77,6 +77,9 @@ CONF_String(test_s3_sk, "sk");
 CONF_String(test_s3_endpoint, "endpoint");
 CONF_String(test_s3_region, "region");
 CONF_String(test_s3_bucket, "bucket");
+
+CONF_String(test_hdfs_prefix, "prefix");
+CONF_String(test_hdfs_fs_name, "fs_name");
 // CONF_Int64(a, "1073741824");
 // CONF_Bool(b, "true");
 
@@ -120,7 +123,7 @@ CONF_mBool(split_tablet_stats, "true");
 CONF_mBool(snapshot_get_tablet_stats, "true");
 
 // Value codec version
-CONF_mInt16(meta_schema_value_version, 0);
+CONF_mInt16(meta_schema_value_version, "1");
 
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
@@ -152,5 +155,10 @@ CONF_Bool(enable_retry_txn_conflict, "true");
 
 // The secondary package name of the MetaService.
 CONF_String(secondary_package_name, "");
+
+// Allow to specify kerberos credentials cache path.
+CONF_String(kerberos_ccache_path, "");
+// set krb5.conf path, use "/etc/krb5.conf" by default
+CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 } // namespace doris::cloud::config

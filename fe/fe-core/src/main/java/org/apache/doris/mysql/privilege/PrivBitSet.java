@@ -104,7 +104,7 @@ public class PrivBitSet implements Writable {
     }
 
     public boolean containsResourcePriv() {
-        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV);
+        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV, Privilege.STAGE_USAGE_PRIV);
     }
 
     public boolean containsDbTablePriv() {
@@ -190,6 +190,8 @@ public class PrivBitSet implements Writable {
 
             if (resourcePattern.isClusterResource()) {
                 privs.or(PrivBitSet.of(Privilege.CLUSTER_USAGE_PRIV));
+            } else if (resourcePattern.isStageResource()) {
+                privs.or(PrivBitSet.of(Privilege.STAGE_USAGE_PRIV));
             }
         }
         return new HashSet<>(privs.toPrivilegeList());

@@ -58,6 +58,8 @@ public class AlterReplicaTask extends AgentTask {
 
     private long expiration;
 
+    private String vaultId;
+
     /**
      * AlterReplicaTask constructor.
      *
@@ -66,7 +68,7 @@ public class AlterReplicaTask extends AgentTask {
             long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
             DescriptorTable descTable, List<Column> baseSchemaColumns, Map<Object, Object> objectPool,
-            Expr whereClause, long expiration) {
+            Expr whereClause, long expiration, String vaultId) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -85,6 +87,7 @@ public class AlterReplicaTask extends AgentTask {
         this.baseSchemaColumns = baseSchemaColumns;
         this.objectPool = objectPool;
         this.expiration = expiration;
+        this.vaultId = vaultId;
     }
 
     public long getBaseTabletId() {
@@ -170,6 +173,7 @@ public class AlterReplicaTask extends AgentTask {
                 req.setColumns(columns);
             }
         }
+        req.setStorageVaultId(this.vaultId);
         return req;
     }
 }

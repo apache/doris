@@ -39,6 +39,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -70,20 +71,43 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     protected Expression(Expression... children) {
         super(children);
-        int maxChildDepth = 0;
-        int sumChildWidth = 0;
+
         boolean hasUnbound = false;
-        boolean compareWidthAndDepth = true;
-        for (int i = 0; i < children.length; ++i) {
-            Expression child = children[i];
-            maxChildDepth = Math.max(child.depth, maxChildDepth);
-            sumChildWidth += child.width;
-            hasUnbound |= child.hasUnbound;
-            compareWidthAndDepth &= (child.compareWidthAndDepth & child.supportCompareWidthAndDepth());
+        switch (children.length) {
+            case 0:
+                this.depth = 1;
+                this.width = 1;
+                this.compareWidthAndDepth = supportCompareWidthAndDepth();
+                break;
+            case 1:
+                Expression child = children[0];
+                this.depth = child.depth + 1;
+                this.width = child.width;
+                this.compareWidthAndDepth = child.compareWidthAndDepth && supportCompareWidthAndDepth();
+                break;
+            case 2:
+                Expression left = children[0];
+                Expression right = children[1];
+                this.depth = Math.max(left.depth, right.depth) + 1;
+                this.width = left.width + right.width;
+                this.compareWidthAndDepth =
+                        left.compareWidthAndDepth && right.compareWidthAndDepth && supportCompareWidthAndDepth();
+                break;
+            default:
+                int maxChildDepth = 0;
+                int sumChildWidth = 0;
+                boolean compareWidthAndDepth = true;
+                for (Expression expression : children) {
+                    child = expression;
+                    maxChildDepth = Math.max(child.depth, maxChildDepth);
+                    sumChildWidth += child.width;
+                    hasUnbound |= child.hasUnbound;
+                    compareWidthAndDepth &= child.compareWidthAndDepth;
+                }
+                this.depth = maxChildDepth + 1;
+                this.width = sumChildWidth;
+                this.compareWidthAndDepth = compareWidthAndDepth;
         }
-        this.depth = maxChildDepth + 1;
-        this.width = sumChildWidth + ((children.length == 0) ? 1 : 0);
-        this.compareWidthAndDepth = compareWidthAndDepth;
 
         checkLimit();
         this.inferred = false;
@@ -96,20 +120,43 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     protected Expression(List<Expression> children, boolean inferred) {
         super(children);
-        int maxChildDepth = 0;
-        int sumChildWidth = 0;
+
         boolean hasUnbound = false;
-        boolean compareWidthAndDepth = true;
-        for (int i = 0; i < children.size(); ++i) {
-            Expression child = children.get(i);
-            maxChildDepth = Math.max(child.depth, maxChildDepth);
-            sumChildWidth += child.width;
-            hasUnbound |= child.hasUnbound;
-            compareWidthAndDepth &= (child.compareWidthAndDepth & child.supportCompareWidthAndDepth());
+        switch (children.size()) {
+            case 0:
+                this.depth = 1;
+                this.width = 1;
+                this.compareWidthAndDepth = supportCompareWidthAndDepth();
+                break;
+            case 1:
+                Expression child = children.get(0);
+                this.depth = child.depth + 1;
+                this.width = child.width;
+                this.compareWidthAndDepth = child.compareWidthAndDepth && supportCompareWidthAndDepth();
+                break;
+            case 2:
+                Expression left = children.get(0);
+                Expression right = children.get(1);
+                this.depth = Math.max(left.depth, right.depth) + 1;
+                this.width = left.width + right.width;
+                this.compareWidthAndDepth =
+                        left.compareWidthAndDepth && right.compareWidthAndDepth && supportCompareWidthAndDepth();
+                break;
+            default:
+                int maxChildDepth = 0;
+                int sumChildWidth = 0;
+                boolean compareWidthAndDepth = true;
+                for (Expression expression : children) {
+                    child = expression;
+                    maxChildDepth = Math.max(child.depth, maxChildDepth);
+                    sumChildWidth += child.width;
+                    hasUnbound |= child.hasUnbound;
+                    compareWidthAndDepth &= child.compareWidthAndDepth;
+                }
+                this.depth = maxChildDepth + 1;
+                this.width = sumChildWidth;
+                this.compareWidthAndDepth = compareWidthAndDepth && supportCompareWidthAndDepth();
         }
-        this.depth = maxChildDepth + 1;
-        this.width = sumChildWidth + ((children.isEmpty()) ? 1 : 0);
-        this.compareWidthAndDepth = compareWidthAndDepth;
 
         checkLimit();
         this.inferred = inferred;
@@ -284,7 +331,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         if (this instanceof LeafExpression) {
             return this instanceof Literal;
         } else {
-            return !(this instanceof Nondeterministic) && children().stream().allMatch(Expression::isConstant);
+            return !(this instanceof Nondeterministic) && ExpressionUtils.allMatch(children(), Expression::isConstant);
         }
     }
 
@@ -376,7 +423,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     @Override
     public int hashCode() {
-        return 0;
+        return getClass().hashCode();
     }
 
     /**

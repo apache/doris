@@ -209,8 +209,7 @@ static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc:
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
             {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
-            {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO}
-    };
+            {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO}};
 
     auto& path = ctrl->http_request().unresolved_path();
     auto it = operations.find(remove_version_prefix(path));

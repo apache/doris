@@ -238,16 +238,16 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         connectContext.getResultFlightServerAddr().port);
                 List<FlightEndpoint> endpoints = Collections.singletonList(new FlightEndpoint(ticket, location));
                 // TODO Set in BE callback after query end, Client will not callback.
-                connectContext.setCommand(MysqlCommand.COM_SLEEP);
                 return new FlightInfo(schema, descriptor, endpoints, -1, -1);
             }
         } catch (Exception e) {
-            connectContext.setCommand(MysqlCommand.COM_SLEEP);
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
             LOG.warn(errMsg, e);
             throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
+        } finally {
+            connectContext.setCommand(MysqlCommand.COM_SLEEP);
         }
     }
 
@@ -306,6 +306,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         executorService.submit(() -> {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             try {
+                connectContext.setCommand(MysqlCommand.COM_QUERY);
                 final String query = request.getQuery();
                 String preparedStatementId = UUID.randomUUID().toString();
                 final ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
@@ -323,7 +324,6 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData))
                                 .toByteArray()));
             } catch (Exception e) {
-                connectContext.setCommand(MysqlCommand.COM_SLEEP);
                 String errMsg = "create prepared statement failed, " + e.getMessage() + ", "
                         + Util.getRootCauseMessage(e) + ", error code: " + connectContext.getState().getErrorCode()
                         + ", error msg: " + connectContext.getState().getErrorMessage();
@@ -333,6 +333,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             } catch (final Throwable t) {
                 listener.onError(CallStatus.INTERNAL.withDescription("Unknown error: " + t).toRuntimeException());
                 return;
+            } finally {
+                connectContext.setCommand(MysqlCommand.COM_SLEEP);
             }
             listener.onCompleted();
         });

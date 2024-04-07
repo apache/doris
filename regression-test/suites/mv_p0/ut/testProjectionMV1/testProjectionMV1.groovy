@@ -56,7 +56,6 @@ suite ("testProjectionMV1") {
     }
     qt_select_mv "select empid, deptno from emps order by empid;"
 
-    sql """set enable_nereids_planner=false""" // need fix it on nereids
     explain {
         sql("select empid, sum(deptno) from emps group by empid order by empid;")
         contains "(emps_mv)"

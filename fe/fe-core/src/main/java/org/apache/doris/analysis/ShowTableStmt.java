@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -40,8 +41,9 @@ public class ShowTableStmt extends ShowStmt {
     private static final String INVERTED_INDEX_STORAGE_FORMAT_COL = "Inverted_index_storage_format";
     private String db;
     private String catalog;
-    private boolean isVerbose;
-    private String pattern;
+    private final boolean isVerbose;
+    private TableType type;
+    private final String pattern;
     private Expr where;
     private SelectStmt selectStmt;
 
@@ -61,6 +63,12 @@ public class ShowTableStmt extends ShowStmt {
         this.catalog = catalog;
     }
 
+    public ShowTableStmt(String db, String catalog, boolean isVerbose, TableType type, String pattern,
+                         Expr where) {
+        this(db, catalog, isVerbose, pattern, where);
+        this.type = type;
+    }
+
     public String getDb() {
         return db;
     }
@@ -71,6 +79,10 @@ public class ShowTableStmt extends ShowStmt {
 
     public boolean isVerbose() {
         return isVerbose;
+    }
+
+    public TableType getType() {
+        return type;
     }
 
     public String getPattern() {
@@ -120,6 +132,11 @@ public class ShowTableStmt extends ShowStmt {
             selectList.addItem(item);
             aliasMap.put(new SlotRef(null, TYPE_COL), item.getExpr().clone(null));
         }
+        if (type != null) {
+            BinaryPredicate viewFilter = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                    new SlotRef(tablesTableName, "ENGINE"), new StringLiteral(type.toEngineName()));
+            where = CompoundPredicate.createConjunction(viewFilter, where);
+        }
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(tablesTableName, null))),
@@ -137,7 +154,18 @@ public class ShowTableStmt extends ShowStmt {
         if (isVerbose) {
             sb.append(" FULL");
         }
-        sb.append(" TABLES");
+        if (type != null) {
+            switch (type) {
+                // todo(only show views from now)
+                case VIEW:
+                    sb.append(" VIEWS");
+                    break;
+                default:
+                    sb.append(" TABLES");
+            }
+        } else {
+            sb.append(" TABLES");
+        }
         if (!Strings.isNullOrEmpty(db)) {
             if (!Strings.isNullOrEmpty(catalog)) {
                 sb.append(" FROM ").append(catalog);

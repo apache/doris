@@ -391,6 +391,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.readLock();
         Map<Object, Object> objectPool  = Maps.newHashMap();
+        String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
@@ -471,7 +472,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
-                                objectPool, whereClause, expiration);
+                                objectPool, whereClause, expiration, vaultId);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }

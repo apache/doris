@@ -77,7 +77,7 @@ Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(const THdfsParams
 
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_name, std::string id,
                                RuntimeProfile* profile, std::string root_path)
-        : RemoteFileSystem(root_path, std::move(id), FileSystemType::HDFS),
+        : RemoteFileSystem(std::move(root_path), std::move(id), FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
           _fs_name(std::move(fs_name)),
           _profile(profile) {
@@ -222,11 +222,12 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<F
         if (only_file && file.mKind == kObjectKindDirectory) {
             continue;
         }
-        FileInfo file_info;
-        file_info.file_name = file.mName;
+        auto& file_info = files->emplace_back();
+        std::string_view fname(file.mName);
+        fname.remove_prefix(fname.rfind('/') + 1);
+        file_info.file_name = fname;
         file_info.file_size = file.mSize;
         file_info.is_file = (file.mKind != kObjectKindDirectory);
-        files->emplace_back(std::move(file_info));
     }
     hdfsFreeFileInfo(hdfs_file_info, numEntries);
     return Status::OK();

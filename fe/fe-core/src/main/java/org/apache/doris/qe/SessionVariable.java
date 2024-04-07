@@ -58,6 +58,7 @@ import java.security.SecureRandom;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -83,6 +84,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
+    public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
@@ -208,6 +210,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
+    public static final String ENABLE_SINGLE_PHASE_EXECUTION_COMMIT_OPT = "enable_single_phase_execution_commit_opt";
+
     public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
 
@@ -300,6 +304,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
     public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
+    public static final String ENABLE_EXPR_TRACE = "enable_expr_trace";
 
     public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
 
@@ -471,6 +476,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
+    public static final String FORCE_SAMPLE_ANALYZE = "force_sample_analyze";
+
     public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
 
     public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
@@ -532,6 +539,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
+
+    public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -630,6 +639,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
+    // if true, need report to coordinator when plan fragment execute successfully.
+    @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
+    public int autoProfileThresholdMs = -1;
+
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
     public boolean runtimeFilterPruneForExternal = true;
 
@@ -649,11 +662,18 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
     public String workloadGroup = "";
 
+    @VariableMgr.VarAttr(name = BYPASS_WORKLOAD_GROUP, needForward = true, description = {
+            "查询是否绕开WorkloadGroup的限制，目前仅支持绕开查询排队的逻辑",
+            "whether bypass workload group's limitation, currently only support bypass query queue"})
+    public boolean bypassWorkloadGroup = false;
+
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
 
     // this is used to make mysql client happy
-    @VariableMgr.VarAttr(name = AUTO_COMMIT)
+    // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
+    // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
+    @VariableMgr.VarAttr(name = AUTO_COMMIT, convertBoolToLongMethod = "convertBoolToLong")
     public boolean autoCommit = true;
 
     // this is used to make c3p0 library happy
@@ -899,7 +919,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private long parallelScanMinRowsPerScanner = 2097152; // 2MB
+    private long parallelScanMinRowsPerScanner = 16384; // 16K
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1141,6 +1161,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_EXPR_TRACE)
+    private boolean enableExprTrace = false;
+
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_TRACE, needForward = true)
     public boolean enableDpHypTrace = false;
 
@@ -1185,6 +1208,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_SINGLE_PHASE_EXECUTION_COMMIT_OPT, fuzzy = true,
+            varType = VariableAnnotation.DEPRECATED)
+    private boolean enableSinglePhaseExecutionCommitOpt = true;
 
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
@@ -1505,6 +1532,11 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public boolean enableAutoAnalyze = true;
 
+    @VariableMgr.VarAttr(name = FORCE_SAMPLE_ANALYZE,
+            description = {"是否将 full analyze 自动转换成 sample analyze", "Set true to force sample analyze"},
+            flag = VariableMgr.GLOBAL)
+    public boolean forceSampleAnalyze = Config.force_sample_analyze;
+
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
             description = {"参与自动收集的最大表宽度，列数多于这个参数的表不参与自动收集",
                 "Maximum table width to enable auto analyze, "
@@ -1740,6 +1772,7 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
+        this.enableSinglePhaseExecutionCommitOpt = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
@@ -1802,12 +1835,6 @@ public class SessionVariable implements Serializable, Writable {
                 default:
                     break;
             }
-            randomInt = random.nextInt(2);
-            if (randomInt % 2 == 0) {
-                this.enableFoldConstantByBe = false;
-            } else {
-                this.enableFoldConstantByBe = true;
-            }
 
             switch (Config.pull_request_id % 3) {
                 case 0:
@@ -1845,8 +1872,10 @@ public class SessionVariable implements Serializable, Writable {
             if (Config.pull_request_id > 0) {
                 if (Config.pull_request_id % 2 == 1) {
                     this.batchSize = 4064;
+                    this.enableFoldConstantByBe = true;
                 } else {
                     this.batchSize = 50;
+                    this.enableFoldConstantByBe = false;
                 }
             }
         }
@@ -1975,6 +2004,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableProfile;
     }
 
+    public int getAutoProfileThresholdMs() {
+        return this.autoProfileThresholdMs;
+    }
+
     public boolean enableSingleDistinctColumnOpt() {
         return enableSingleDistinctColumnOpt;
     }
@@ -1993,10 +2026,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableJoinReorderBasedCost() {
         return enableJoinReorderBasedCost;
-    }
-
-    public boolean isAutoCommit() {
-        return autoCommit;
     }
 
     public boolean enableMultiClusterSyncLoad() {
@@ -2211,6 +2240,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setWorkloadGroup(String workloadGroup) {
         this.workloadGroup = workloadGroup;
+    }
+
+    public boolean getBypassWorkloadGroup() {
+        return this.bypassWorkloadGroup;
     }
 
     public String getResourceGroup() {
@@ -2764,15 +2797,20 @@ public class SessionVariable implements Serializable, Writable {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
-    public Set<Integer> getDisableNereidsRules() {
-        return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
-                .filter(rule -> !rule.isEmpty())
-                .map(rule -> rule.toUpperCase(Locale.ROOT))
-                .map(rule -> RuleType.valueOf(rule))
-                .filter(ruleType -> ruleType != RuleType.CHECK_PRIVILEGES
-                        && ruleType != RuleType.CHECK_ROW_POLICY)
-                .map(RuleType::type)
-                .collect(ImmutableSet.toImmutableSet());
+    public BitSet getDisableNereidsRules() {
+        BitSet bitSet = new BitSet();
+        for (String ruleName : disableNereidsRules.split(",[\\s]*")) {
+            if (ruleName.isEmpty()) {
+                continue;
+            }
+            ruleName = ruleName.toUpperCase(Locale.ROOT);
+            RuleType ruleType = RuleType.valueOf(ruleName);
+            if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
+                continue;
+            }
+            bitSet.set(ruleType.type());
+        }
+        return bitSet;
     }
 
     public Set<Integer> getEnableNereidsRules() {
@@ -2806,6 +2844,16 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isEnableNereidsTrace() {
         return isEnableNereidsPlanner() && enableNereidsTrace;
     }
+
+    public void setEnableExprTrace(boolean enableExprTrace) {
+        this.enableExprTrace = enableExprTrace;
+    }
+
+    public boolean isEnableExprTrace() {
+        return enableExprTrace;
+    }
+
+
 
     public boolean isEnableSingleReplicaInsert() {
         return enableSingleReplicaInsert;
@@ -2886,6 +2934,10 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Check max_execution_time failed", exception);
             throw exception;
         }
+    }
+
+    public long convertBoolToLong(Boolean val) {
+        return val ? 1 : 0;
     }
 
     public boolean isEnableFileCache() {
@@ -3606,4 +3658,7 @@ public class SessionVariable implements Serializable, Writable {
         return this.maxMsgSizeOfResultReceiver;
     }
 
+    public boolean isEnableSinglePhaseExecutionCommitOpt() {
+        return enableSinglePhaseExecutionCommitOpt;
+    }
 }

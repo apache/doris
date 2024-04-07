@@ -70,6 +70,7 @@ if (GLIBC_COMPATIBILITY)
             -Wno-unused-command-line-argument
             -Wno-unused-but-set-variable
             -Wno-unused-macros
+            -Wno-conversion
             )
     elseif (COMPILER_GCC)
         target_compile_options(

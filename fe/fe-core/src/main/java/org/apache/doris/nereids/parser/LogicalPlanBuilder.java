@@ -838,7 +838,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.fromClause() != null) {
             query = withRelations(query, ctx.fromClause().relations().relation());
         }
-        query = withFilter(query, Optional.of(ctx.whereClause()));
+        query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
@@ -1733,7 +1733,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression end = (Expression) visit(ctx.end);
         Expression step = (Expression) visit(ctx.unitsAmount);
 
-        String unit = ctx.unit.getText();
+        String unit = ctx.unit == null ? null : ctx.unit.getText();
         if (unit != null && !unit.isEmpty()) {
             if ("Year".equalsIgnoreCase(unit)) {
                 return new ArrayRangeYearUnit(start, end, step);
@@ -2625,7 +2625,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
         String comment = ctx.comment != null ? ctx.comment.getText() : "";
         // change BITMAP index to INVERTED index
-        if (indexType.equalsIgnoreCase("BITMAP")) {
+        if ("BITMAP".equalsIgnoreCase(indexType)) {
             indexType = "INVERTED";
         }
         return new IndexDefinition(indexName, indexCols, indexType, properties, comment);

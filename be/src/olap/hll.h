@@ -109,7 +109,7 @@ public:
         }
     }
 
-    HyperLogLog(HyperLogLog&& other) {
+    HyperLogLog(HyperLogLog&& other) noexcept {
         this->_type = other._type;
         switch (other._type) {
         case HLL_DATA_EMPTY:
@@ -131,7 +131,7 @@ public:
         }
     }
 
-    HyperLogLog& operator=(HyperLogLog&& other) {
+    HyperLogLog& operator=(HyperLogLog&& other) noexcept {
         if (this != &other) {
             if (_registers != nullptr) {
                 delete[] _registers;
