@@ -19,53 +19,52 @@
 version: "3.8"
 
 services:
-  doris--namenode:
+  ${CONTAINER_UID}namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
     environment:
       - CLUSTER_NAME=test
     env_file:
       - ./hadoop-hive.env
-    container_name: doris--namenode
+    container_name: ${CONTAINER_UID}namenode
     expose:
-      - "50070"
-      - "8020"
-      - "9000"
+      - "${NAMENODE_HTTP_PORT}"
+      - "${FS_PORT}"
     healthcheck:
-      test: [ "CMD", "curl", "http://localhost:50070/" ]
+      test: [ "CMD", "curl", "http://localhost:${NAMENODE_HTTP_PORT}/" ]
       interval: 5s
       timeout: 120s
       retries: 120
     network_mode: "host"
 
-  doris--datanode:
+  ${CONTAINER_UID}datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     env_file:
       - ./hadoop-hive.env
     environment:
-      SERVICE_PRECONDITION: "externalEnvIp:50070"
-    container_name: doris--datanode
+      SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT}"
+    container_name: ${CONTAINER_UID}datanode
     expose:
-      - "50075"
+      - "${DATANODE_HTTP_PORT}"
     healthcheck:
-      test: [ "CMD", "curl", "http://localhost:50075" ]
+      test: [ "CMD", "curl", "http://localhost:${DATANODE_HTTP_PORT}" ]
       interval: 5s
       timeout: 60s
       retries: 120
     network_mode: "host"
 
-  doris--hive-server:
+  ${CONTAINER_UID}hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     environment:
-      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://externalEnvIp:5432/metastore"
-      SERVICE_PRECONDITION: "externalEnvIp:9083"
-    container_name: doris--hive-server
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${externalEnvIp}:5432/metastore"
+      SERVICE_PRECONDITION: "${externalEnvIp}:${HMS_PORT}"
+    container_name: ${CONTAINER_UID}hive-server
     expose:
       - "10000"
     depends_on:
-      - doris--datanode
-      - doris--namenode
+      - ${CONTAINER_UID}datanode
+      - ${CONTAINER_UID}namenode
     healthcheck:
       test: beeline -u "jdbc:hive2://127.0.0.1:10000/default" -n health_check -e "show databases;"
       interval: 10s
@@ -74,27 +73,27 @@ services:
     network_mode: "host"
 
 
-  doris--hive-metastore:
+  ${CONTAINER_UID}hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     # command: /opt/hive/bin/hive --service metastore
     environment:
-      SERVICE_PRECONDITION: "externalEnvIp:50070 externalEnvIp:50075 externalEnvIp:5432"
-    container_name: doris--hive-metastore
+      SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT} ${externalEnvIp}:${DATANODE_HTTP_PORT} ${externalEnvIp}:5432"
+    container_name: ${CONTAINER_UID}hive-metastore
     expose:
-      - "9083"
+      - "${HMS_PORT}"
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
-      - doris--hive-metastore-postgresql
+      - ${CONTAINER_UID}hive-metastore-postgresql
     network_mode: "host"
 
-  doris--hive-metastore-postgresql:
+  ${CONTAINER_UID}hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:2.3.0
     restart: always
-    container_name: doris--hive-metastore-postgresql
+    container_name: ${CONTAINER_UID}hive-metastore-postgresql
     expose:
       - "5432"
     healthcheck:
