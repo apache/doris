@@ -82,6 +82,7 @@ public:
     }
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
 
     const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }

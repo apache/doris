@@ -127,9 +127,13 @@ public:
 
     // shrink the end zeros for CHAR type or ARRAY<CHAR> type
     virtual MutablePtr get_shrinked_column() {
-        LOG(FATAL) << "Cannot clone_resized() column " << get_name();
+        LOG(FATAL) << "Cannot get_shrinked_column() column " << get_name();
         return nullptr;
     }
+
+    // check the column whether could shrinked
+    // now support only in char type, or the nested type in complex type: array{char}, struct{char}, map{char}
+    virtual bool could_shrinked_column() { return false; }
 
     /// Some columns may require finalization before using of other operations.
     virtual void finalize() {}
