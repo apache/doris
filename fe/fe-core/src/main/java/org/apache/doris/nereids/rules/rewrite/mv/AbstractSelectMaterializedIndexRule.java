@@ -460,9 +460,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
         for (Slot mvSlot : mvPlan.getOutputByIndex(mvPlan.getSelectedIndexId())) {
             boolean isPushed = false;
             for (Slot baseSlot : mvPlan.getOutput()) {
-                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlot.getName())) {
-                    continue;
-                }
                 if (baseSlot.toSql().equalsIgnoreCase(
                         org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(
                             normalizeName(mvSlot.getName())))) {
@@ -472,11 +469,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 }
             }
             if (!isPushed) {
-                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlot.getName())) {
-                    mvNameToMvSlot.put(normalizeName(
-                            org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(mvSlot.getName())),
-                            mvSlot);
-                }
                 mvNameToMvSlot.put(normalizeName(mvSlot.getName()), mvSlot);
             }
         }

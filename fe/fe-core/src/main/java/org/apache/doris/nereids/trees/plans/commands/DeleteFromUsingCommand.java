@@ -77,6 +77,7 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
                     + " Please check the following session variables: "
                     + String.join(", ", SessionVariable.DEBUG_VARIABLES));
         }
+        // NOTE: delete from using command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
                 executor);
     }

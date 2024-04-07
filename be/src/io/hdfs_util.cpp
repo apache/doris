@@ -130,12 +130,20 @@ Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const st
 }
 
 Path convert_path(const Path& path, const std::string& namenode) {
-    Path real_path(path);
-    if (path.string().find(namenode) != std::string::npos) {
-        std::string real_path_str = path.string().substr(namenode.size());
-        real_path = real_path_str;
+    std::string fs_path;
+    if (path.native().find(namenode) != std::string::npos) {
+        // `path` is uri format, remove the namenode part in `path`
+        // FIXME(plat1ko): Not robust if `namenode` doesn't appear at the beginning of `path`
+        fs_path = path.native().substr(namenode.size());
+    } else {
+        fs_path = path;
     }
-    return real_path;
+
+    // Always use absolute path (start with '/') in hdfs
+    if (fs_path.empty() || fs_path[0] != '/') {
+        fs_path.insert(fs_path.begin(), '/');
+    }
+    return fs_path;
 }
 
 bool is_hdfs(const std::string& path_or_fs) {

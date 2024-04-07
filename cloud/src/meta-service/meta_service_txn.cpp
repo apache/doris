@@ -938,6 +938,13 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         err = txn->get(lock_key, &lock_val);
         LOG(INFO) << "get delete bitmap update lock info, table_id=" << table_id
                   << " key=" << hex(lock_key) << " err=" << err;
+        // When the key does not exist, it means the lock has been acquired
+        // by another transaction and successfully committed.
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            msg = "lock is expired";
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return;
+        }
         if (err != TxnErrorCode::TXN_OK) {
             ss << "failed to get delete bitmap update lock key info, instance_id=" << instance_id
                << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;

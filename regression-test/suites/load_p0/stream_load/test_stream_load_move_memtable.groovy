@@ -878,7 +878,7 @@ suite("test_stream_load_move_memtable", "p0") {
     """
 
     sql """create USER ddd IDENTIFIED BY '123456test!'"""
-    sql """GRANT LOAD_PRIV ON *.* TO 'ddd';"""
+    sql """GRANT LOAD_PRIV ON *.* TO 'ddd'@'%';"""
 
     streamLoad {
         table "${tableName13}"

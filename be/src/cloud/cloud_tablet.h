@@ -91,7 +91,7 @@ public:
     // 2. The memory in tablet cache
     void recycle_cached_data();
 
-    void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
+    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     // Return number of deleted stale rowsets
     int delete_expired_stale_rowsets();

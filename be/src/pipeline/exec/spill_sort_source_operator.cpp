@@ -43,6 +43,8 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                                     TUnit::BYTES, "Spill", 1);
     _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
                                                       TUnit::UNIT, "Spill", 1);
+    _spill_wait_in_queue_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillWaitInQueueTime", "Spill", 1);
     return Status::OK();
 }
 
@@ -82,13 +84,18 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
-    auto spill_func = [this, state, &parent, execution_context] {
+
+    MonotonicStopWatch submit_timer;
+    submit_timer.start();
+
+    auto spill_func = [this, state, &parent, execution_context, submit_timer] {
         auto execution_context_lock = execution_context.lock();
         if (!execution_context_lock) {
             LOG(INFO) << "execution_context released, maybe query was cancelled.";
             return Status::OK();
         }
 
+        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
         SCOPED_TIMER(_spill_merge_sort_timer);
         SCOPED_ATTACH_TASK(state);
         Defer defer {[&]() {

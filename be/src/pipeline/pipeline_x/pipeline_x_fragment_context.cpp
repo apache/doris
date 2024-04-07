@@ -1332,7 +1332,7 @@ void PipelineXFragmentContext::close_if_prepare_failed(Status st) {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             DCHECK(!t->is_pending_finish());
-            WARN_IF_ERROR(t->close(Status::OK()), "close_if_prepare_failed failed: ");
+            WARN_IF_ERROR(t->close(st), "close_if_prepare_failed failed: ");
             close_a_pipeline();
         }
     }

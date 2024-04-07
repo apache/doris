@@ -20,6 +20,8 @@
 
 #include "io/cache/block_file_cache.h"
 
+#include "common/status.h"
+
 #if defined(__APPLE__)
 #include <sys/mount.h>
 #else
@@ -365,14 +367,21 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
     return result;
 }
 
-void BlockFileCache::clear_file_cache_async() {
+std::string BlockFileCache::clear_file_cache_async() {
+    LOG(INFO) << "start clear_file_cache_async, path=" << _cache_base_path;
+    int64_t num_cells_all = 0;
+    int64_t num_cells_to_delete = 0;
+    int64_t num_files_all = 0;
     {
         std::lock_guard cache_lock(_mutex);
         if (!_async_clear_file_cache) {
             for (auto& [_, offset_to_cell] : _files) {
+                ++num_files_all;
                 for (auto& [_, cell] : offset_to_cell) {
+                    ++num_cells_all;
                     if (cell.releasable()) {
                         cell.is_deleted = true;
+                        ++num_cells_to_delete;
                     }
                 }
             }
@@ -380,6 +389,13 @@ void BlockFileCache::clear_file_cache_async() {
         }
     }
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::recycle_deleted_blocks");
+    std::stringstream ss;
+    ss << "finish clear_file_cache_async, path=" << _cache_base_path
+       << " num_files_all=" << num_files_all << " num_cells_all=" << num_cells_all
+       << " num_cells_to_delete=" << num_cells_to_delete;
+    auto msg = ss.str();
+    LOG(INFO) << msg;
+    return msg;
 }
 
 void BlockFileCache::recycle_deleted_blocks() {
@@ -406,6 +422,7 @@ void BlockFileCache::recycle_deleted_blocks() {
                         break;
                     }
                     auto* cell = get_cell(entry_key, entry_offset, cache_lock);
+                    if (!cell) continue;
                     if (!cell->is_deleted) {
                         end = true;
                         break;
@@ -450,7 +467,7 @@ void BlockFileCache::recycle_deleted_blocks() {
         _async_clear_file_cache = false;
         auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - start_time);
         LOG_INFO("End clear file cache async")
-                .tag("path", _async_clear_file_cache)
+                .tag("path", _cache_base_path)
                 .tag("use_time", static_cast<int64_t>(use_time.count()));
     }
 }
@@ -858,16 +875,22 @@ bool BlockFileCache::remove_if_ttl_file_unlock(const UInt128Wrapper& file_key, b
         if (!remove_directly) {
             for (auto& [_, cell] : _files[file_key]) {
                 if (cell.file_block->cache_type() == FileCacheType::TTL) {
+                    Status st = cell.file_block->update_expiration_time(0);
+                    if (!st.ok()) {
+                        LOG_WARNING("Failed to update expiration time to 0").error(st);
+                    }
+                }
+            }
+            for (auto& [_, cell] : _files[file_key]) {
+                if (cell.file_block->cache_type() == FileCacheType::TTL) {
                     auto st = cell.file_block->change_cache_type_by_mgr(FileCacheType::NORMAL);
                     if (st.ok()) {
                         auto& queue = get_queue(FileCacheType::NORMAL);
                         cell.queue_iterator = queue.add(
                                 cell.file_block->get_hash_value(), cell.file_block->offset(),
                                 cell.file_block->range().size(), cache_lock);
-                        st = cell.file_block->update_expiration_time(0);
-                    }
-                    if (!st.ok()) {
-                        LOG_WARNING("Failed to change key meta").error(st);
+                    } else {
+                        LOG_WARNING("Failed to change cache type to normal").error(st);
                     }
                 }
             }
@@ -1391,13 +1414,18 @@ void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash,
     // 3. change to ttl if the blocks aren't ttl
     if (auto iter = _files.find(hash); iter != _files.end()) {
         for (auto& [_, cell] : iter->second) {
+            Status st = cell.file_block->update_expiration_time(new_expiration_time);
+            if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+                LOG_WARNING("").error(st);
+            }
+        }
+        for (auto& [_, cell] : iter->second) {
             FileCacheType origin_type = cell.file_block->cache_type();
             auto st = cell.file_block->change_cache_type_by_mgr(FileCacheType::TTL);
             if (st.ok()) {
                 auto& queue = get_queue(origin_type);
                 queue.remove(cell.queue_iterator.value(), cache_lock);
                 cell.queue_iterator.reset();
-                st = cell.file_block->update_expiration_time(new_expiration_time);
             }
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
@@ -1488,13 +1516,32 @@ bool BlockFileCache::try_reserve_for_lazy_load(size_t size,
     return !_disk_resource_limit_mode || removed_size >= size;
 }
 
-Status BlockFileCache::clear_file_cache_directly() {
+std::string BlockFileCache::clear_file_cache_directly() {
     using namespace std::chrono;
-    auto start_time = steady_clock::time_point();
+    std::stringstream ss;
+    auto start = steady_clock::now();
     std::lock_guard cache_lock(_mutex);
-    LOG_INFO("Start clear file cache directly").tag("path", _cache_base_path);
-    RETURN_IF_ERROR(global_local_filesystem()->delete_directory(_cache_base_path));
-    RETURN_IF_ERROR(global_local_filesystem()->create_directory(_cache_base_path));
+    LOG_INFO("start clear_file_cache_directly").tag("path", _cache_base_path);
+
+    auto st = global_local_filesystem()->delete_directory(_cache_base_path);
+    if (!st.ok()) {
+        ss << " failed to clear_file_cache_directly, path=" << _cache_base_path
+           << " delete dir failed: " << st;
+        LOG(WARNING) << ss.str();
+        return ss.str();
+    }
+    st = global_local_filesystem()->create_directory(_cache_base_path);
+    if (!st.ok()) {
+        ss << " failed to clear_file_cache_directly, path=" << _cache_base_path
+           << " create dir failed: " << st;
+        LOG(WARNING) << ss.str();
+        return ss.str();
+    }
+    int64_t num_files = _files.size();
+    int64_t cache_size = _cur_cache_size;
+    int64_t index_queue_size = _index_queue.get_elements_num(cache_lock);
+    int64_t normal_queue_size = _normal_queue.get_elements_num(cache_lock);
+    int64_t disposible_queue_size = _disposable_queue.get_elements_num(cache_lock);
     _files.clear();
     _cur_cache_size = 0;
     _time_to_key.clear();
@@ -1502,12 +1549,17 @@ Status BlockFileCache::clear_file_cache_directly() {
     _index_queue.clear(cache_lock);
     _normal_queue.clear(cache_lock);
     _disposable_queue.clear(cache_lock);
-    auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - start_time);
-    LOG_INFO("End clear file cache directly")
-            .tag("path", _async_clear_file_cache)
-            .tag("use_time", static_cast<int64_t>(use_time.count()));
-    return Status::OK();
+    ss << "finish clear_file_cache_directly"
+       << " path=" << _cache_base_path
+       << " time_elapsed=" << duration_cast<milliseconds>(steady_clock::now() - start).count()
+       << " num_files=" << num_files << " cache_size=" << cache_size
+       << " index_queue_size=" << index_queue_size << " normal_queue_size=" << normal_queue_size
+       << " disposible_queue_size=" << disposible_queue_size;
+    auto msg = ss.str();
+    LOG(INFO) << msg;
+    return msg;
 }
+
 template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
                                      std::lock_guard<std::mutex>& block_lock);
