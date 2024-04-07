@@ -948,7 +948,7 @@ int InstanceRecycler::recycle_versions() {
     int64_t last_scanned_table_id = 0;
     bool is_recycled = false; // Is last scanned kv recycled
     auto recycle_func = [&num_scanned, &num_recycled, &last_scanned_table_id, &is_recycled, this](
-            std::string_view k, std::string_view) {
+                                std::string_view k, std::string_view) {
         ++num_scanned;
         auto k1 = k;
         k1.remove_prefix(1);
@@ -980,8 +980,10 @@ int InstanceRecycler::recycle_versions() {
         }
         auto db_id = std::get<int64_t>(std::get<0>(out[3]));
         // 1. Remove all partition version kvs of this table
-        auto partition_version_key_begin = partition_version_key({instance_id_, db_id, table_id, 0});
-        auto partition_version_key_end = partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
+        auto partition_version_key_begin =
+                partition_version_key({instance_id_, db_id, table_id, 0});
+        auto partition_version_key_end =
+                partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
         txn->remove(partition_version_key_begin, partition_version_key_end);
         LOG(WARNING) << "remove partition version kv, begin=" << hex(partition_version_key_begin)
                      << " end=" << hex(partition_version_key_end);
