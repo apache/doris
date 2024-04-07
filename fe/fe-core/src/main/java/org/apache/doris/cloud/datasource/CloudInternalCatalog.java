@@ -706,7 +706,7 @@ public class CloudInternalCatalog extends InternalCatalog {
      * @param tableId
      * @param indexIdList
      */
-    public void eraseDroppedIndexBackendReplicas(long tableId, List<Long> indexIdList) {
+    public void eraseDroppedIndex(long tableId, List<Long> indexIdList) {
         if (indexIdList == null || indexIdList.size() == 0) {
             LOG.warn("indexIdList is empty");
             return;
