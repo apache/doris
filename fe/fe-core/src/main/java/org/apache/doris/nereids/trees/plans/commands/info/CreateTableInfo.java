@@ -747,4 +747,8 @@ public class CreateTableInfo {
                 partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
                 comment, addRollups, null);
     }
+
+    public void setExternal() {
+        isExternal = true;
+    }
 }
