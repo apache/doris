@@ -21,6 +21,7 @@
 #include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -32,6 +33,7 @@
 #include "gutil/integral_types.h"
 #include "runtime/query_statistics.h"
 #include "runtime/workload_management/workload_condition.h"
+#include "util/hash_util.hpp"
 #include "util/time.h"
 
 namespace doris {

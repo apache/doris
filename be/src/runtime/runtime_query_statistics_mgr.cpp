@@ -23,6 +23,7 @@
 #include <gen_cpp/Types_types.h>
 #include <thrift/TApplicationException.h>
 
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -39,6 +40,7 @@
 #include "runtime/query_context.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
+#include "util/hash_util.hpp"
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
