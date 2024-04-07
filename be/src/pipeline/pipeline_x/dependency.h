@@ -278,6 +278,7 @@ public:
     std::string debug_string(int indentation_level = 0) override;
 
     Dependency* is_blocked_by(PipelineXTask* task) override;
+
 private:
     const IRuntimeFilter* _runtime_filter = nullptr;
 };

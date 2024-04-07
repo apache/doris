@@ -198,9 +198,7 @@ private:
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-    const RowDescriptor& _row_desc() {
-        return _row_descriptor;
-    }
+    const RowDescriptor& _row_desc() { return _row_descriptor; }
 };
 
 } // namespace pipeline
