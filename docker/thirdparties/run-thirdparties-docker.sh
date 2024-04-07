@@ -302,7 +302,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
 fi
 
 if [[ "${RUN_HIVE}" -eq 1 ]]; then
-    # hive
+    # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
     IP_HOST="127.0.0.1"
@@ -313,18 +313,14 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
         exit -1
     fi
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-    cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
-    cp "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl "${ROOT}"/docker-compose/hive/hive-2x.yaml
-    cp "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl.tpl "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
-    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/\${externalEnvIp}/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-    sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
+    # generate hive-3x.yaml and hadoop-hive.env
+    export externalEnvIp=${IP_HOST}
+    export CONTAINER_UID=${CONTAINER_UID}
+    . "${ROOT}"/docker-compose/hive/custom_settings.env
+    envsubst < "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl > "${ROOT}"/docker-compose/hive/hive-2x.yaml
+    envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl > "${ROOT}"/docker-compose/hive/hadoop-hive.env
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
@@ -343,18 +339,14 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
         exit -1
     fi
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-    cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
-    cp "${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl "${ROOT}"/docker-compose/hive/hive-3x.yaml
-    cp "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl.tpl "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-3x.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-3x.yaml
-    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sed -i "s/\${externalEnvIp}/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-    sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
+    # generate hive-3x.yaml and hadoop-hive.env
+    export externalEnvIp=${IP_HOST}
+    export CONTAINER_UID=${CONTAINER_UID}
+    . "${ROOT}"/docker-compose/hive/custom_settings.env
+    envsubst < "${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl > "${ROOT}"/docker-compose/hive/hive-3x.yaml
+    envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl > "${ROOT}"/docker-compose/hive/hadoop-hive.env
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d

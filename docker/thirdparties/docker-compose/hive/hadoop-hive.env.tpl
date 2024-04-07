@@ -15,13 +15,12 @@
 # limitations under the License.
 #
 
-HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://externalEnvIp:5432/metastore
+HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://${externalEnvIp}:5432/metastore
 HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
 HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
 HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive
 HIVE_SITE_CONF_datanucleus_autoCreateSchema=false
-HIVE_SITE_CONF_hive_metastore_uris=thrift://externalEnvIp:9083
-HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
+HIVE_SITE_CONF_hive_metastore_uris=thrift://${externalEnvIp}:${HMS_PORT}
 HIVE_SITE_CONF_hive_server2_thrift_bind_host=0.0.0.0
 HIVE_SITE_CONF_hive_server2_thrift_port=10000
 HIVE_SITE_CONF_hive_compactor_initiator_on=true
@@ -31,9 +30,19 @@ CORE_CONF_hadoop_http_staticuser_user=root
 CORE_CONF_hadoop_proxyuser_hue_hosts=*
 CORE_CONF_hadoop_proxyuser_hue_groups=*
 CORE_CONF_hadoop_proxyuser_hive_hosts=*
+CORE_CONF_fs_defaultFS=hdfs://${externalEnvIp}:${FS_PORT}
 
 HDFS_CONF_dfs_webhdfs_enabled=true
 HDFS_CONF_dfs_permissions_enabled=false
+HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
+HDFS_CONF_dfs_namenode_http___address=0.0.0.0:${NAMENODE_HTTP_PORT}
+HDFS_CONF_dfs_namenode_https___address=0.0.0.0:${NAMENODE_HTTPS_PORT}
+HDFS_CONF_dfs_namenode_secondary_http___address=0.0.0.0:${NAMENODE_SECONDARY_HTTP_PORT}
+HDFS_CONF_dfs_namenode_secondary_https___address=0.0.0.0:${NAMENODE_SECONDARY_HTTPS_PORT}
+HDFS_CONF_dfs_datanode_address=0.0.0.0:${DATANODE_PORT}
+HDFS_CONF_dfs_datanode_http_address=0.0.0.0:${DATANODE_HTTP_PORT}
+HDFS_CONF_dfs_datanode_https_address=0.0.0.0:${DATANODE_HTTPS_PORT}
+HDFS_CONF_dfs_datanode_ipc_address=0.0.0.0:${DATANODE_IPC_PORT}
 
 YARN_CONF_yarn_log___aggregation___enable=true
 YARN_CONF_yarn_resourcemanager_recovery_enabled=true
