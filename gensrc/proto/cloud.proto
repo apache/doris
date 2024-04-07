@@ -67,7 +67,7 @@ message InstanceInfoPB {
     optional int64 ctime = 5;
     optional int64 mtime = 6;
     repeated ClusterPB clusters = 7;
-    repeated ObjectStoreInfoPB obj_info = 8;
+    repeated ObjectStoreInfoPB obj_info = 8; // Only legacy obj info would be store in this fields, other objs would be lied in vaults.
     repeated StagePB stages = 9;
     optional Status status = 10;
     optional RamUserPB ram_user = 11;
@@ -977,6 +977,7 @@ message GetClusterRequest {
     optional string cluster_id = 3;
     optional string cluster_name = 4;
     optional string mysql_user_name = 5;
+    optional bool required_built_in_vault = 6;
 }
 
 message GetClusterStatusRequest {

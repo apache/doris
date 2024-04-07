@@ -1841,6 +1841,18 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         return;
     }
 
+    while (true) {
+        if (std::find_if(instance.storage_vault_names().begin(),
+                         instance.storage_vault_names().end(), [](const std::string& name) {
+                             return name == BUILT_IN_STORAGE_VAULT_NAME;
+                         }) != instance.storage_vault_names().end()) {
+            break;
+        }
+        code = MetaServiceCode::STORAGE_VAULT_NOT_FOUND;
+        msg = "instance has no built in storage vault";
+        return;
+    }
+
     auto get_cluster_mysql_user = [](const ClusterPB& c, std::set<std::string>* mysql_users) {
         for (int i = 0; i < c.mysql_user_name_size(); i++) {
             mysql_users->emplace(c.mysql_user_name(i));
@@ -1868,7 +1880,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         }
     }
 
-    if (response->cluster().size() == 0) {
+    if (response->cluster().empty()) {
         ss << "fail to get cluster with " << request->ShortDebugString();
         msg = ss.str();
         std::replace(msg.begin(), msg.end(), '\n', ' ');
