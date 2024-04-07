@@ -1719,7 +1719,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression end = (Expression) visit(ctx.end);
         Expression step = (Expression) visit(ctx.unitsAmount);
 
-        String unit = ctx.unit.getText();
+        String unit = ctx.unit == null ? null : ctx.unit.getText();
         if (unit != null && !unit.isEmpty()) {
             if ("Year".equalsIgnoreCase(unit)) {
                 return new ArrayRangeYearUnit(start, end, step);
