@@ -96,6 +96,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     _jdbc_param.tuple_desc = _tuple_desc;
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.table_type = _table_type;
+    _jdbc_param.timezone = state->timezone();
     _jdbc_param.connection_pool_min_size = jdbc_table->connection_pool_min_size();
     _jdbc_param.connection_pool_max_size = jdbc_table->connection_pool_max_size();
     _jdbc_param.connection_pool_max_life_time = jdbc_table->connection_pool_max_life_time();

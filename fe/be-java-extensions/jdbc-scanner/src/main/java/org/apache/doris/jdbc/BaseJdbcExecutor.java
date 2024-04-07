@@ -51,6 +51,8 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
+import java.util.concurrent.Callable;
 import java.util.function.Function;
 
 public abstract class BaseJdbcExecutor implements JdbcExecutor {
@@ -90,6 +92,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 .setBatchSize(request.batch_size)
                 .setOp(request.op)
                 .setTableType(request.table_type)
+                .setTimeZone(request.timezone)
                 .setConnectionPoolMinSize(request.connection_pool_min_size)
                 .setConnectionPoolMaxSize(request.connection_pool_max_size)
                 .setConnectionPoolMaxWaitTime(request.connection_pool_max_wait_time)
@@ -173,16 +176,19 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     public int read() throws UdfRuntimeException {
         try {
-            resultSet = ((PreparedStatement) stmt).executeQuery();
-            resultSetMetaData = resultSet.getMetaData();
-            int columnCount = resultSetMetaData.getColumnCount();
-            resultColumnTypeNames = new ArrayList<>(columnCount);
-            block = new ArrayList<>(columnCount);
-            for (int i = 0; i < columnCount; ++i) {
-                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
-            }
-            return columnCount;
-        } catch (SQLException e) {
+            executeWithTimeZone(() -> {
+                resultSet = ((PreparedStatement) stmt).executeQuery();
+                resultSetMetaData = resultSet.getMetaData();
+                int columnCount = resultSetMetaData.getColumnCount();
+                resultColumnTypeNames = new ArrayList<>(columnCount);
+                block = new ArrayList<>(columnCount);
+                for (int i = 0; i < columnCount; ++i) {
+                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                }
+                return null;
+            });
+            return resultColumnTypeNames != null ? resultColumnTypeNames.size() : 0;
+        } catch (Exception e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
     }
@@ -193,40 +199,43 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 outputTable.close();
             }
 
-            outputTable = VectorTable.createWritableTable(outputParams, 0);
+            executeWithTimeZone(() -> {
+                outputTable = VectorTable.createWritableTable(outputParams, 0);
 
-            String isNullableString = outputParams.get("is_nullable");
-            String replaceString = outputParams.get("replace_string");
+                String isNullableString = outputParams.get("is_nullable");
+                String replaceString = outputParams.get("replace_string");
 
-            if (isNullableString == null || replaceString == null) {
-                throw new IllegalArgumentException(
-                        "Output parameters 'is_nullable' and 'replace_string' are required.");
-            }
+                if (isNullableString == null || replaceString == null) {
+                    throw new IllegalArgumentException(
+                            "Output parameters 'is_nullable' and 'replace_string' are required.");
+                }
 
-            String[] nullableList = isNullableString.split(",");
-            String[] replaceStringList = replaceString.split(",");
-            curBlockRows = 0;
-            int columnCount = resultSetMetaData.getColumnCount();
+                String[] nullableList = isNullableString.split(",");
+                String[] replaceStringList = replaceString.split(",");
+                curBlockRows = 0;
+                int columnCount = resultSetMetaData.getColumnCount();
 
-            initializeBlock(columnCount, replaceStringList, batchSize, outputTable);
+                initializeBlock(columnCount, replaceStringList, batchSize, outputTable);
 
-            do {
+                do {
+                    for (int i = 0; i < columnCount; ++i) {
+                        ColumnType type = outputTable.getColumnType(i);
+                        block.get(i)[curBlockRows] = getColumnValue(i, type, replaceStringList);
+                    }
+                    curBlockRows++;
+                } while (curBlockRows < batchSize && resultSet.next());
+
                 for (int i = 0; i < columnCount; ++i) {
                     ColumnType type = outputTable.getColumnType(i);
-                    block.get(i)[curBlockRows] = getColumnValue(i, type, replaceStringList);
+                    Object[] columnData = block.get(i);
+                    Class<?> componentType = columnData.getClass().getComponentType();
+                    Object[] newColumn = (Object[]) Array.newInstance(componentType, curBlockRows);
+                    System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
+                    boolean isNullable = Boolean.parseBoolean(nullableList[i]);
+                    outputTable.appendData(i, newColumn, getOutputConverter(type, replaceStringList[i]), isNullable);
                 }
-                curBlockRows++;
-            } while (curBlockRows < batchSize && resultSet.next());
-
-            for (int i = 0; i < columnCount; ++i) {
-                ColumnType type = outputTable.getColumnType(i);
-                Object[] columnData = block.get(i);
-                Class<?> componentType = columnData.getClass().getComponentType();
-                Object[] newColumn = (Object[]) Array.newInstance(componentType, curBlockRows);
-                System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
-                boolean isNullable = Boolean.parseBoolean(nullableList[i]);
-                outputTable.appendData(i, newColumn, getOutputConverter(type, replaceStringList[i]), isNullable);
-            }
+                return null;
+            });
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
             throw new UdfRuntimeException("jdbc get block address: ", e);
@@ -538,6 +547,16 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
+        }
+    }
+
+    protected void executeWithTimeZone(Callable<Void> action) throws Exception {
+        TimeZone originalTimeZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone(config.getTimeZone()));
+            action.call();
+        } finally {
+            TimeZone.setDefault(originalTimeZone);
         }
     }
 

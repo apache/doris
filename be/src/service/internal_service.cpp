@@ -819,6 +819,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         jdbc_param.passwd = jdbc_table.jdbc_password;
         jdbc_param.query_string = request->query_str();
         jdbc_param.table_type = static_cast<TOdbcTableType::type>(request->jdbc_table_type());
+        jdbc_param.timezone = "Asia/Shanghai";
         jdbc_param.use_transaction = false;
         jdbc_param.connection_pool_min_size = jdbc_table.connection_pool_min_size;
         jdbc_param.connection_pool_max_size = jdbc_table.connection_pool_max_size;

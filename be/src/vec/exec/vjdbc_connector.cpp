@@ -171,6 +171,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         }
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
         ctor_params.__set_table_type(_conn_param.table_type);
+        ctor_params.__set_timezone(_conn_param.timezone);
         ctor_params.__set_connection_pool_min_size(_conn_param.connection_pool_min_size);
         ctor_params.__set_connection_pool_max_size(_conn_param.connection_pool_max_size);
         ctor_params.__set_connection_pool_max_wait_time(_conn_param.connection_pool_max_wait_time);

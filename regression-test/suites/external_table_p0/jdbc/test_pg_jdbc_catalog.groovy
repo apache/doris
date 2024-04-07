@@ -241,6 +241,11 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         sql """ switch ${catalog_name} """
         sql """ use ${ex_schema_name} """
         order_qt_test_old  """ select * from test3 order by id; """
+        sql """set time_zone = 'Asia/Shanghai';"""
+        qt_timezone1 """select tzt_field from catalog_pg_test.dt_test;"""
+        sql """set time_zone = 'UTC';"""
+        qt_timezone2 """select tzt_field from catalog_pg_test.dt_test;"""
+        sql """set time_zone = 'Asia/Shanghai';"""
         sql """ drop catalog if exists ${catalog_name} """
     }
 }
