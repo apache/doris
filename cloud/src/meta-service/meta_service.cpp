@@ -589,7 +589,6 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         // In legacy compatible cloud instances we use the latest obj info's id as default vault id
         if(size_t idx = instance.obj_info().size() - 1; idx > 0) {
             response->set_storage_vault_id(instance.obj_info().at(idx - 1).id());
-            response->set_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
             break;
         }
 
