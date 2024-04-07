@@ -504,6 +504,9 @@ public class StmtExecutor {
                 if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
                     throw e;
                 }
+                if (this.coord.isQueryCancelled()) {
+                    throw e;
+                }
                 TUniqueId lastQueryId = queryId;
                 uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -803,6 +806,9 @@ public class StmtExecutor {
                 break;
             } catch (RpcException | UserException e) {
                 if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                    throw e;
+                }
+                if (this.coord.isQueryCancelled()) {
                     throw e;
                 }
                 // cloud mode retry
