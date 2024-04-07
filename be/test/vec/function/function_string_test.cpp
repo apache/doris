@@ -1192,16 +1192,16 @@ TEST(function_string_test, function_strcmp_test) {
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
     DataSet data_set = {{{Null(), Null()}, Null()},
-                        {{std::string(""), std::string("")}, 0},
-                        {{std::string("test"), std::string("test")}, 0},
-                        {{std::string("test1"), std::string("test")}, 1},
-                        {{std::string("test"), std::string("test1")}, -1},
+                        {{std::string(""), std::string("")}, (int16_t)0},
+                        {{std::string("test"), std::string("test")}, (int16_t)0},
+                        {{std::string("test1"), std::string("test")}, (int16_t)1},
+                        {{std::string("test"), std::string("test1")}, (int16_t)-1},
                         {{Null(), std::string("test")}, Null()},
                         {{std::string("test"), Null()}, Null()},
-                        {{VARCHAR(""), VARCHAR("")}, 0},
-                        {{VARCHAR("test"), VARCHAR("test")}, 0},
-                        {{VARCHAR("test1"), VARCHAR("test")}, 1},
-                        {{VARCHAR("test"), VARCHAR("test1")}, -1},
+                        {{VARCHAR(""), VARCHAR("")}, (int16_t)0},
+                        {{VARCHAR("test"), VARCHAR("test")}, (int16_t)0},
+                        {{VARCHAR("test1"), VARCHAR("test")}, (int16_t)1},
+                        {{VARCHAR("test"), VARCHAR("test1")}, (int16_t)-1},
                         {{Null(), VARCHAR("test")}, Null()},
                         {{VARCHAR("test"), Null()}, Null()}};
     static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
