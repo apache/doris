@@ -116,6 +116,7 @@ Dependency* RuntimeFilterDependency::is_blocked_by(PipelineXTask* task) {
 }
 
 void RuntimeFilterTimer::call_timeout() {
+    _parent->set_timeout();
     _parent->set_ready();
 }
 

@@ -279,8 +279,12 @@ public:
 
     Dependency* is_blocked_by(PipelineXTask* task) override;
 
+    void set_timeout() { _is_timeout = true; }
+    bool timeout() const { return _is_timeout.load(); }
+
 private:
     const IRuntimeFilter* _runtime_filter = nullptr;
+    std::atomic_bool _is_timeout = false;
 };
 
 struct AggSharedState : public BasicSharedState {

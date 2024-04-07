@@ -106,16 +106,22 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter(bool pipeline_x) {
             auto* rf_dep = _runtime_filter_ctxs[i].runtime_filter_dependency->is_blocked_by(
                     _state->pipeline_x_task());
 
-            bool ready = rf_dep == nullptr;
+            bool timeout = _runtime_filter_ctxs[i].runtime_filter_dependency->timeout();
+
+            bool ready = rf_dep == nullptr && !timeout;
             if (!ready) {
                 runtime_filter->await();
             }
             if (ready && !_runtime_filter_ctxs[i].apply_mark) {
+                // Runtime filter has been applied in open phase.
                 RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
                 _runtime_filter_ctxs[i].apply_mark = true;
-            } else if (!ready && !_runtime_filter_ctxs[i].apply_mark) {
-                _is_all_rf_applied = false;
+            } else if (rf_dep != nullptr) {
+                // Runtime filter is neither ready nor timeout, so we should continue to wait RF.
                 return Status::WaitForRf("Runtime filters are neither not ready nor timeout");
+            } else if (!ready && !_runtime_filter_ctxs[i].apply_mark) {
+                // Runtime filter is timeout and not applied.
+                _is_all_rf_applied = false;
             }
         } else {
             bool ready = runtime_filter->is_ready();
