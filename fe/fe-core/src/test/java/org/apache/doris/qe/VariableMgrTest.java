@@ -17,13 +17,16 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -253,5 +256,21 @@ public class VariableMgrTest {
         executor.execute();
         SessionVariable defaultSessionVar = new SessionVariable();
         Assert.assertEquals(defaultSessionVar.enableProfile(), VariableMgr.newSessionVariable().enableProfile());
+    }
+
+    @Test
+    public void testAutoCommitConvert() throws Exception {
+        // boolean var with ConvertBoolToLongMethod annotation
+        VariableExpr desc = new VariableExpr("autocommit");
+        SessionVariable var = new SessionVariable();
+        VariableMgr.fillValue(var, desc);
+        Assert.assertTrue(desc.getLiteralExpr() instanceof IntLiteral);
+        Assert.assertEquals(Type.BIGINT, desc.getType());
+
+        // normal boolean var
+        desc = new VariableExpr("enable_bucket_shuffle_join");
+        VariableMgr.fillValue(var, desc);
+        Assert.assertTrue(desc.getLiteralExpr() instanceof BoolLiteral);
+        Assert.assertEquals(Type.BOOLEAN, desc.getType());
     }
 }
