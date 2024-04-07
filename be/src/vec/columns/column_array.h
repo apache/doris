@@ -119,6 +119,7 @@ public:
     }
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnVector<Offset64>;
