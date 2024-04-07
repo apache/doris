@@ -723,7 +723,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 dropMaterializedIndex(tableId, indexIdList, false);
                 break;
             } catch (Exception e) {
-                LOG.warn("tryCnt:{}, eraseDroppedIndexBackendReplicas exception:", tryCnt, e);
+                LOG.warn("tryCnt:{}, eraseDroppedIndex exception:", tryCnt, e);
             }
             sleepSeveralMs();
         }
