@@ -298,7 +298,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
         if (ctx->is_multi_table) {
-            LOG(INFO) << "recv single-stream-multi-table request, ctx=" << ctx->brief();
+            LOG(INFO) << "recv single-stream-multi-table request, ctx: " << ctx->brief();
             pipe = std::make_shared<io::MultiTablePipe>(ctx);
         } else {
             pipe = std::make_shared<io::KafkaConsumerPipe>();
