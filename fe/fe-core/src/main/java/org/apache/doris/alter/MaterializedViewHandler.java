@@ -1070,7 +1070,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
         List<Long> deleteIndexList = new ArrayList<Long>();
         deleteIndexList.add(rollupIndexId);
-        Env.getCurrentInternalCatalog().eraseDroppedIndexBackendReplicas(olapTable.getId(), deleteIndexList);
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
         LOG.info("replay drop rollup {}", dropInfo.getIndexId());
     }
 
