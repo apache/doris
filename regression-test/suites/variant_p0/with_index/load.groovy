@@ -27,7 +27,9 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
         logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
 
+    def timeout = 60000
     def delta_time = 1000
+    def alter_res = "null"
     def useTime = 0
     def wait_for_latest_op_on_table_finish = { tableName, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){

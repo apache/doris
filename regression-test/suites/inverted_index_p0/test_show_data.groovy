@@ -21,6 +21,8 @@ suite("test_show_data", "p0") {
     def testTableWithIndex = "test_show_data_httplogs_with_index"
     def delta_time = 5000
     def timeout = 60000
+    def alter_res = "null"
+    def useTime = 0
     String database = context.config.getDbNameByFile(context.file)
 
     def create_httplogs_table_without_index = {testTablex ->
