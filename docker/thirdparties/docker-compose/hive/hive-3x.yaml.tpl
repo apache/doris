@@ -61,12 +61,12 @@ services:
       SERVICE_PRECONDITION: "${externalEnvIp}:${HMS_PORT}"
     container_name: ${CONTAINER_UID}hive-server
     expose:
-      - "10000"
+      - "${HS_PORT}"
     depends_on:
       - ${CONTAINER_UID}datanode
       - ${CONTAINER_UID}namenode
     healthcheck:
-      test: beeline -u "jdbc:hive2://127.0.0.1:10000/default" -n health_check -e "show databases;"
+      test: beeline -u "jdbc:hive2://127.0.0.1:${HS_PORT}/default" -n health_check -e "show databases;"
       interval: 10s
       timeout: 120s
       retries: 120

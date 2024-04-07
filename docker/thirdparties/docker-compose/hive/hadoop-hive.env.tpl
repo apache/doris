@@ -22,7 +22,7 @@ HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive
 HIVE_SITE_CONF_datanucleus_autoCreateSchema=false
 HIVE_SITE_CONF_hive_metastore_uris=thrift://${externalEnvIp}:${HMS_PORT}
 HIVE_SITE_CONF_hive_server2_thrift_bind_host=0.0.0.0
-HIVE_SITE_CONF_hive_server2_thrift_port=10000
+HIVE_SITE_CONF_hive_server2_thrift_port=${HS_PORT}
 HIVE_SITE_CONF_hive_compactor_initiator_on=true
 HIVE_SITE_CONF_hive_compactor_worker_threads=2
 
