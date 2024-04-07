@@ -982,6 +982,8 @@ class ListCommand(Command):
                         container.attrs["NetworkSettings"]
                         ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]
                     node.image = ",".join(container.image.tags)
+                    if not node.image:
+                        node.image = container.attrs["Config"]["Image"]
                     node.container_id = container.short_id
                     node.status = container.status
                     if node.container_id and \
