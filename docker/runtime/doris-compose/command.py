@@ -747,6 +747,10 @@ class GenConfCommand(Command):
         parser.add_argument("NAME", default="", help="Specific cluster name.")
         parser.add_argument("DORIS_ROOT_PATH", default="", help="Specify doris or selectdb root path, "\
                 "i.e. the parent directory of regression-test.")
+        parser.add_argument("--connect-follow-fe",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="Connect to follow fe.")
         parser.add_argument("-q",
                             "--quiet",
                             default=False,
@@ -776,11 +780,27 @@ multiClusterBes = "{multi_cluster_bes}"
 cloudUniqueId= "{fe_cloud_unique_id}"
 '''
         cluster = CLUSTER.Cluster.load(args.NAME)
-        master_fe_ip = CLUSTER.get_master_fe_endpoint(args.NAME)
-        if not master_fe_ip:
+        master_fe_ip_ep = CLUSTER.get_master_fe_endpoint(args.NAME)
+        if not master_fe_ip_ep:
             print("Not found cluster with name {} in directory {}".format(
                 args.NAME, CLUSTER.LOCAL_DORIS_PATH))
             return
+
+        master_fe_ip = master_fe_ip_ep[:master_fe_ip_ep.find(':')]
+        fe_ip = ""
+        if not args.connect_follow_fe:
+            fe_ip = master_fe_ip
+        else:
+            for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
+                if fe.get_ip() == master_fe_ip:
+                    continue
+                else:
+                    fe_ip = fe.get_ip()
+                    break
+            if not fe_ip:
+                raise Exception(
+                    "Not found follow fe, pls add a follow fe use command `up <your-cluster> --add-fe-num 1`"
+                )
 
         relative_custom_file_path = "regression-test/conf/regression-conf-custom.groovy"
         regression_conf_custom = os.path.join(args.DORIS_ROOT_PATH,
@@ -793,7 +813,6 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                 return
 
         with open(regression_conf_custom, "w") as f:
-            fe_ip = master_fe_ip[:master_fe_ip.find(':')]
             f.write(base_conf.format(fe_ip=fe_ip))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
