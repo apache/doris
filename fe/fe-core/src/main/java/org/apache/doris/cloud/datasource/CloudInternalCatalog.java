@@ -701,6 +701,37 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    /**
+     * for cloud mode, drop rollup/materializedIndex in kv meta store
+     * @param tableId
+     * @param indexIdList
+     */
+    public void eraseDroppedIndexBackendReplicas(long tableId, List<Long> indexIdList) {
+        if (indexIdList == null || indexIdList.size() == 0) {
+            LOG.warn("indexIdList is empty");
+            return;
+        }
+        long tryCnt = 0;
+        while (true) {
+            if (tryCnt++ > Config.drop_rpc_retry_num) {
+                LOG.warn("failed to drop index {} of table {}, try cnt {} reaches maximum retry count",
+                            indexIdList, tableId, tryCnt);
+                break;
+            }
+
+            try {
+                dropMaterializedIndex(tableId, indexIdList, false);
+                break;
+            } catch (Exception e) {
+                LOG.warn("tryCnt:{}, eraseDroppedIndexBackendReplicas exception:", tryCnt, e);
+            }
+            sleepSeveralMs();
+        }
+
+        LOG.info("eraseDroppedIndexBackendReplicas finished, tableId:{}, indexIdList:{}",
+                tableId, indexIdList);
+    }
+
     // END DROP TABLE
 
     @Override
