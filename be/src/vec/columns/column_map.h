@@ -93,7 +93,7 @@ public:
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && keys_column->is_exclusive() &&
-               values_column->is_exclusive() && offsets_column;
+               values_column->is_exclusive() && offsets_column->is_exclusive();
     }
 
     ColumnPtr convert_to_full_column_if_const() const override;

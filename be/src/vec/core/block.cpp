@@ -686,11 +686,12 @@ void Block::clear() {
 }
 
 std::string Block::print_use_count() {
-    std::stringstream ss;
+    fmt::memory_buffer buf;
     for (auto& d : data) {
-        ss << ", [" << d.name << ", " << d.column->use_count() << ", " << d.column.get() << "]";
+        fmt::format_to(buf, ", [{}, {}, {}]", d.name, d.column->use_count(),
+                       fmt::ptr(d.column.get()));
     }
-    return ss.str();
+    return fmt::to_string(buf);
 }
 
 void Block::clear_column_data(int column_size) noexcept {
@@ -763,7 +764,7 @@ void Block::build_output_block_after_projects(Block& input_block, Block& origin_
         };
         if (is_column_const(*origin_column)) {
             auto column_ptr = origin_column->convert_to_full_column_if_const();
-            insert_column(to, column_ptr, rows, false);
+            insert_column(to, column_ptr, rows, true);
         } else {
             insert_column(to, origin_column, rows, use_swap);
         }
