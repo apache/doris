@@ -42,17 +42,19 @@ hdfsFS HDFSHandle::create_hdfs_fs(HDFSCommonBuilder& hdfs_builder) {
 }
 
 Path convert_path(const Path& path, const std::string& namenode) {
-    Path real_path(path);
-    if (path.string().find(namenode) != std::string::npos) {
-        std::string real_path_str = path.string().substr(namenode.size());
-        if (!real_path_str.starts_with("/")) {
-            // The real path must starts with "/"
-            // Or the hadoop client will add a prefix like "/user/hadoop".
-            real_path_str = "/" + real_path_str;
-        }
-        real_path = real_path_str;
+    std::string fs_path;
+    if (path.native().starts_with(namenode)) {
+        // `path` is URI format, remove the namenode part in `path`
+        fs_path = path.native().substr(namenode.size());
+    } else {
+        fs_path = path;
     }
-    return real_path;
+
+    // Always use absolute path (start with '/') in hdfs
+    if (fs_path.empty() || fs_path[0] != '/') {
+        fs_path.insert(fs_path.begin(), '/');
+    }
+    return fs_path;
 }
 
 bool is_hdfs(const std::string& path_or_fs) {
