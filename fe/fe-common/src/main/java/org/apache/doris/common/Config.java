@@ -2675,6 +2675,12 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static String security_checker_class_name = "";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否允许Cloud FE在没有设置built in vault时启动",
+            "Whether or not allowing Cloud FE to start up without a built-in vault."
+    })
+    public static boolean enable_start_without_built_in_vault = false;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

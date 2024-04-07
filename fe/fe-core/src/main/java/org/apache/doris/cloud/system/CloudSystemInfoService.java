@@ -92,7 +92,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     public Cloud.GetClusterResponse getCloudCluster(String clusterName, String clusterId, String userName) {
         Cloud.GetClusterRequest.Builder builder = Cloud.GetClusterRequest.newBuilder();
         builder.setCloudUniqueId(Config.cloud_unique_id)
-            .setClusterName(clusterName).setClusterId(clusterId).setMysqlUserName(userName);
+            .setClusterName(clusterName).setClusterId(clusterId).setMysqlUserName(userName)
+                .setRequiredBuiltInVault(!Config.enable_start_without_built_in_vault);
         final Cloud.GetClusterRequest pRequest = builder.build();
         Cloud.GetClusterResponse response;
         try {

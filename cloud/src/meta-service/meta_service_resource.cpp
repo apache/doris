@@ -1841,7 +1841,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         return;
     }
 
-    while (true) {
+    while (request->has_required_built_in_vault() && request->required_built_in_vault()) {
         if (std::find_if(instance.storage_vault_names().begin(),
                          instance.storage_vault_names().end(), [](const std::string& name) {
                              return name == BUILT_IN_STORAGE_VAULT_NAME;
