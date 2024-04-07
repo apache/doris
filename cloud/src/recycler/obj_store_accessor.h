@@ -23,15 +23,22 @@
 namespace doris::cloud {
 
 struct ObjectMeta {
-    std::string path; // Relative path to parent directory
+    std::string path; // Relative path to accessor prefix
     int64_t size {0};
+};
+
+enum class AccessorType {
+    S3,
+    HDFS,
 };
 
 // TODO(plat1ko): Redesign `Accessor` interface to adapt to storage vaults other than S3 style
 class ObjStoreAccessor {
 public:
-    ObjStoreAccessor() = default;
+    explicit ObjStoreAccessor(AccessorType type) : type_(type) {}
     virtual ~ObjStoreAccessor() = default;
+
+    AccessorType type() const { return type_; }
 
     // root path
     virtual const std::string& path() const = 0;
@@ -57,6 +64,9 @@ public:
 
     // return 0 if object exists, 1 if object is not found, negative for error
     virtual int exist(const std::string& relative_path) = 0;
+
+private:
+    const AccessorType type_;
 };
 
 } // namespace doris::cloud

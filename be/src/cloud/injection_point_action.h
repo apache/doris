@@ -15,26 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/action/clear_file_cache_action.h"
-
-#include <fmt/core.h>
-
-#include "common/logging.h"
-#include "http/http_channel.h"
-#include "http/http_headers.h"
-#include "http/http_request.h"
-#include "io/cache/block_file_cache_factory.h"
+#include "http/http_handler.h"
 
 namespace doris {
 
-const std::string SYNC = "sync";
+class InjectionPointAction : public HttpHandler {
+public:
+    InjectionPointAction();
 
-void ClearFileCacheAction::handle(HttpRequest* req) {
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, "application/json");
-    std::string sync = req->param(SYNC);
-    auto ret =
-            io::FileCacheFactory::instance()->clear_file_caches(sync == "TRUE" || sync == "true");
-    HttpChannel::send_reply(req, HttpStatus::OK, ret);
-}
+    ~InjectionPointAction() override = default;
+
+    void handle(HttpRequest* req) override;
+};
 
 } // namespace doris
