@@ -166,7 +166,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
         if (isPartialUpdate) {
             for (Column column : targetTable.getFullSchema()) {
-                Expression expr = new NereidsParser().parseExpression(tableName + "." + column.getName());
+                Expression expr = new UnboundSlot(tableName, column.getName());
                 boolean existInExpr = false;
                 for (String colName : partialUpdateColNameToExpression.keySet()) {
                     if (colName.equalsIgnoreCase(column.getName())) {
