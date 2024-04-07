@@ -1421,7 +1421,6 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     }
 
     // get referenced schema
-    bool need_read_schema_dict = false;
     std::unordered_map<int32_t, doris::TabletSchemaCloudPB*> version_to_schema;
     for (auto& rowset_meta : *response->mutable_rowset_meta()) {
         if (rowset_meta.has_tablet_schema()) {
@@ -1431,8 +1430,12 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         rowset_meta.set_index_id(idx.index_id());
     }
+    bool need_read_schema_dict = false;
     auto arena = response->GetArena();
     for (auto& rowset_meta : *response->mutable_rowset_meta()) {
+        if (rowset_meta.has_schema_dict_key_list()) {
+            need_read_schema_dict = true;
+        }
         if (rowset_meta.has_tablet_schema()) continue;
         if (!rowset_meta.has_schema_version()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1441,9 +1444,6 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     "rowset_version=[{}-{}]",
                     rowset_meta.start_version(), rowset_meta.end_version());
             return;
-        }
-        if (rowset_meta.schema_dict_key_list().column_dict_key_list_size() > 0) {
-            need_read_schema_dict = true;
         }
         if (auto it = version_to_schema.find(rowset_meta.schema_version());
             it != version_to_schema.end()) {
@@ -1463,22 +1463,9 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     }
 
     if (need_read_schema_dict) {
-        std::string column_dict_key = meta_schema_pb_dictionary_key({instance_id, idx.index_id()});
-        ValueBuf dict_val;
-        err = cloud::get(txn.get(), column_dict_key, &dict_val);
-        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "internal error, failed to get dict ret=" << err;
-            msg = ss.str();
-            return;
-        }
-        if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(response->mutable_schema_dict())) [[unlikely]] {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = "failed to parse SchemaCloudDictionary";
-            return;
-        }
-        LOG(INFO) << "Get schema_dict, column size=" << response->schema_dict().column_dict_size()
-                    << ", index size=" << response->schema_dict().index_dict_size();
+        std::tie(code, msg) = read_schema_from_dict(instance_id, idx.index_id(), txn.get(),
+                                                response->mutable_rowset_meta());
+        if (code != MetaServiceCode::OK) return;
     }
 }
 

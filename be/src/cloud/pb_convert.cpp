@@ -19,10 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
-#include <unordered_map>
 #include <utility>
-
-#include "common/logging.h"
 
 namespace doris::cloud {
 
@@ -137,55 +134,19 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
 }
 
-RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in,
-                                        std::optional<SchemaCloudDictionary> dict) {
+RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
     RowsetMetaPB out;
-    cloud_rowset_meta_to_doris(&out, in, dict);
+    cloud_rowset_meta_to_doris(&out, in);
     return out;
 }
 
-RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&& in,
-                                        std::optional<SchemaCloudDictionary> dict) {
+RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&& in) {
     RowsetMetaPB out;
-    cloud_rowset_meta_to_doris(&out, std::move(in), dict);
+    cloud_rowset_meta_to_doris(&out, std::move(in));
     return out;
 }
 
-static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
-                                  const SchemaCloudDictionary& dict) {
-    std::unordered_map<int32_t, ColumnPB*> unique_id_map;
-    //init map
-    for (ColumnPB& column : *out->mutable_tablet_schema()->mutable_column()) {
-        unique_id_map[column.unique_id()] = &column;
-    }
-    // column info
-    for (size_t i = 0; i < in.schema_dict_key_list().column_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().column_dict_key_list(i);
-        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
-        ColumnPB& to_add = *out->mutable_tablet_schema()->add_column();
-        to_add = dict_val;
-        VLOG_DEBUG << "fill dict column " << dict_val.ShortDebugString();
-    }
-
-    // index info
-    for (size_t i = 0; i < in.schema_dict_key_list().index_info_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().index_info_dict_key_list(i);
-        const TabletIndexPB& dict_val = dict.index_dict().at(dict_key);
-        *out->mutable_tablet_schema()->add_index() = dict_val;
-        VLOG_DEBUG << "fill dict index " << dict_val.ShortDebugString();
-    }
-
-    // sparse column info
-    for (size_t i = 0; i < in.schema_dict_key_list().sparse_column_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().sparse_column_dict_key_list(i);
-        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
-        *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
-        VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
-    }
-}
-
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
-                                std::optional<SchemaCloudDictionary> dict) {
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) {
     // ATTN: please keep the set order aligned with the definition of proto `TabletSchemaCloudPB`.
     out->set_rowset_id(in.rowset_id());
     out->set_partition_id(in.partition_id());
@@ -220,9 +181,6 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     if (in.has_tablet_schema()) {
         cloud_tablet_schema_to_doris(out->mutable_tablet_schema(), in.tablet_schema());
     }
-    if (dict.has_value()) {
-        fill_schema_with_dict(in, out, dict.value());
-    }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
@@ -234,8 +192,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     out->set_enable_segments_file_size(in.enable_segments_file_size());
 }
 
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
-                                std::optional<SchemaCloudDictionary> dict) {
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     // ATTN: please keep the set order aligned with the definition of proto `TabletSchemaCloudPB`.
     out->set_rowset_id(in.rowset_id());
     out->set_partition_id(in.partition_id());
@@ -270,9 +227,6 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
     if (in.has_tablet_schema()) {
         cloud_tablet_schema_to_doris(out->mutable_tablet_schema(),
                                      std::move(*in.mutable_tablet_schema()));
-    }
-    if (dict.has_value()) {
-        fill_schema_with_dict(in, out, dict.value());
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
@@ -578,7 +532,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.rs_metas_size()) {
         out->mutable_rs_metas()->Reserve(in.rs_metas_size());
         for (const auto& rs_meta : in.rs_metas()) {
-            cloud_rowset_meta_to_doris(out->add_rs_metas(), rs_meta, {});
+            cloud_rowset_meta_to_doris(out->add_rs_metas(), rs_meta);
         }
     }
     // ATTN: inc_rs_metas are deprecated, ignored here.
@@ -593,7 +547,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.stale_rs_metas_size()) {
         out->mutable_stale_rs_metas()->Reserve(in.stale_rs_metas_size());
         for (const auto& rs_meta : in.stale_rs_metas()) {
-            cloud_rowset_meta_to_doris(out->add_stale_rs_metas(), rs_meta, {});
+            cloud_rowset_meta_to_doris(out->add_stale_rs_metas(), rs_meta);
         }
     }
     out->set_replica_id(in.replica_id());
@@ -642,7 +596,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
         size_t rs_metas_size = in.rs_metas_size();
         out->mutable_rs_metas()->Reserve(rs_metas_size);
         for (size_t i = 0; i < rs_metas_size; ++i) {
-            cloud_rowset_meta_to_doris(out->add_rs_metas(), std::move(*in.mutable_rs_metas(i)), {});
+            cloud_rowset_meta_to_doris(out->add_rs_metas(), std::move(*in.mutable_rs_metas(i)));
         }
     }
     // ATTN: inc_rs_metas are deprecated, ignored here.
@@ -659,7 +613,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
         out->mutable_stale_rs_metas()->Reserve(rs_metas_size);
         for (size_t i = 0; i < rs_metas_size; i++) {
             cloud_rowset_meta_to_doris(out->add_stale_rs_metas(),
-                                       std::move(*in.mutable_stale_rs_metas(i)), {});
+                                       std::move(*in.mutable_stale_rs_metas(i)));
         }
     }
     out->set_replica_id(in.replica_id());

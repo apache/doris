@@ -294,4 +294,73 @@ std::pair<MetaServiceCode, std::string> write_schema_dict(
     return {code, msg};
 }
 
+std::pair<MetaServiceCode, std::string> read_schema_from_dict(
+            const std::string& instance_id,
+            int64_t index_id,
+            Transaction* txn,
+            google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>* rowset_metas) {
+    std::string msg;
+    std::stringstream ss;
+    MetaServiceCode code = MetaServiceCode::OK;
+
+    // read dict if any rowset has dict key list
+    SchemaCloudDictionary dict;
+    std::string column_dict_key = meta_schema_pb_dictionary_key({instance_id, index_id});
+    ValueBuf dict_val;
+    auto err = cloud::get(txn, column_dict_key, &dict_val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "internal error, failed to get dict ret=" << err;
+        msg = ss.str();
+        return {code, msg};
+    }
+    if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(&dict)) [[unlikely]] {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "failed to parse SchemaCloudDictionary";
+        return {code, msg};
+    }
+    LOG(INFO) << "Get schema_dict, column size=" << dict.column_dict_size()
+                << ", index size=" << dict.index_dict_size();
+
+    auto fill_schema_with_dict = [&](RowsetMetaCloudPB* out) {
+        std::unordered_map<int32_t, ColumnPB*> unique_id_map;
+        //init map
+        for (ColumnPB& column : *out->mutable_tablet_schema()->mutable_column()) {
+            unique_id_map[column.unique_id()] = &column;
+        }
+        // column info
+        for (size_t i = 0; i < out->schema_dict_key_list().column_dict_key_list_size(); ++i) {
+            int dict_key = out->schema_dict_key_list().column_dict_key_list(i);
+            const ColumnPB& dict_val = dict.column_dict().at(dict_key);
+            ColumnPB& to_add = *out->mutable_tablet_schema()->add_column();
+            to_add = dict_val;
+            VLOG_DEBUG << "fill dict column " << dict_val.ShortDebugString();
+        }
+
+        // index info
+        for (size_t i = 0; i < out->schema_dict_key_list().index_info_dict_key_list_size(); ++i) {
+            int dict_key = out->schema_dict_key_list().index_info_dict_key_list(i);
+            const doris::TabletIndexPB& dict_val = dict.index_dict().at(dict_key);
+            *out->mutable_tablet_schema()->add_index() = dict_val;
+            VLOG_DEBUG << "fill dict index " << dict_val.ShortDebugString();
+        }
+
+        // sparse column info
+        for (size_t i = 0; i < out->schema_dict_key_list().sparse_column_dict_key_list_size(); ++i) {
+            int dict_key = out->schema_dict_key_list().sparse_column_dict_key_list(i);
+            const ColumnPB& dict_val = dict.column_dict().at(dict_key);
+            *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
+            VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
+        }
+    };
+
+    // fill rowsets's schema with dict info
+    for (auto& rowset_meta : *rowset_metas) {
+        if (rowset_meta.has_schema_dict_key_list()) {
+            fill_schema_with_dict(&rowset_meta);
+        }
+    }
+    return {code, msg};
+}
+
 } // namespace doris::cloud

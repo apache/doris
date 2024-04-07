@@ -17,8 +17,6 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
-#include <optional>
-
 namespace doris::cloud {
 
 // RowsetMetaPB <=> RowsetMetaCloudPB
@@ -26,14 +24,10 @@ RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB&);
 RowsetMetaCloudPB doris_rowset_meta_to_cloud(RowsetMetaPB&&);
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in);
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in);
-RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB&,
-                                        std::optional<SchemaCloudDictionary> dict);
-RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&&,
-                                        std::optional<SchemaCloudDictionary> dict);
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
-                                std::optional<SchemaCloudDictionary> dict);
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
-                                std::optional<SchemaCloudDictionary> dict);
+RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB&);
+RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&&);
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in);
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in);
 
 // TabletSchemaPB <=> TabletSchemaCloudPB
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(const TabletSchemaPB&);
