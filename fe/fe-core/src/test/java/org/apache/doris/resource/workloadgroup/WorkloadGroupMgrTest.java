@@ -249,9 +249,9 @@ public class WorkloadGroupMgrTest {
 
         context.getSessionVariable().setWorkloadGroup(name);
         List<TopicInfo> tWorkloadGroups = workloadGroupMgr.getPublishTopicInfo();
-        Assert.assertEquals(2, tWorkloadGroups.size());
+        Assert.assertEquals(3, tWorkloadGroups.size());
         TopicInfo tWorkloadGroup1 = null;
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 3; ++i) {
             if (tWorkloadGroups.get(i).getWorkloadGroupInfo().getName().equals(name)) {
                 tWorkloadGroup1 = tWorkloadGroups.get(i);
                 break;
