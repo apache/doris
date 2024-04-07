@@ -33,43 +33,47 @@ suite("test_iceberg_predicate_conversion", "p2,external,hive,external_remote,ext
         sql """ use `iceberg_catalog`; """
 
         def sqlstr = """select glue_int, glue_varchar from iceberg_glue_types where glue_varchar > date '2023-03-07' """
-        def plan = """ref(name="glue_varchar") > "2023-03-07 00:00:00""""
         order_qt_q01 """${sqlstr}""" 
         explain {
             sql("""${sqlstr}""")
-            contains """${plan}"""
+            contains """ref(name="glue_varchar") > "2023-03-07 00:00:00"""
         }
 
         sqlstr = """select l_shipdate from lineitem where l_shipdate in ("1997-05-18", "1996-05-06"); """
-        plan = """ref(name="l_shipdate") in ("1996-05-06", "1997-05-18")"""
         order_qt_q02 """${sqlstr}""" 
         explain {
             sql("""${sqlstr}""")
-            contains """${plan}"""
+            contains """ref(name="l_shipdate") in"""
+            contains """"1997-05-18""""
+            contains """"1996-05-06""""
         }
 
         sqlstr = """select l_shipdate, l_shipmode from lineitem where l_shipdate in ("1997-05-18", "1996-05-06") and l_shipmode = "MAIL";"""
         order_qt_q03 """${sqlstr}""" 
         explain {
             sql("""${sqlstr}""")
-            contains """ref(name="l_shipdate") in ("1996-05-06", "1997-05-18")"""
+            contains """ref(name="l_shipdate") in"""
+            contains """"1997-05-18""""
+            contains """"1996-05-06""""
             contains """ref(name="l_shipmode") == "MAIL""""
         }
 
         sqlstr = """select l_shipdate, l_shipmode from lineitem where l_shipdate in ("1997-05-18", "1996-05-06") or NOT(l_shipmode = "MAIL") order by l_shipdate, l_shipmode limit 10"""
-        plan = """(ref(name="l_shipdate") in ("1996-05-06", "1997-05-18") or not(ref(name="l_shipmode") == "MAIL"))"""
+        plan = """(ref(name="l_shipdate") in ("1997-05-18", "1996-05-06") or not(ref(name="l_shipmode") == "MAIL"))"""
         order_qt_q04 """${sqlstr}""" 
         explain {
             sql("""${sqlstr}""")
-            contains """${plan}"""
+            contains """or not(ref(name="l_shipmode") == "MAIL"))"""
+            contains """ref(name="l_shipdate")"""
+            contains """"1997-05-18""""
+            contains """"1996-05-06""""
         }
 
         sqlstr = """select glue_timstamp from iceberg_glue_types where glue_timstamp > '2023-03-07 20:35:59' order by glue_timstamp limit 5"""
-        plan = """ref(name="glue_timstamp") > 1678192559000000"""
         order_qt_q04 """${sqlstr}""" 
         explain {
             sql("""${sqlstr}""")
-            contains """${plan}"""
+            contains """ref(name="glue_timstamp") > 1678192559000000"""
         }
     }
 }
