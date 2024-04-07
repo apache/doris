@@ -977,7 +977,6 @@ message GetClusterRequest {
     optional string cluster_id = 3;
     optional string cluster_name = 4;
     optional string mysql_user_name = 5;
-    optional bool required_built_in_vault = 6;
 }
 
 message GetClusterStatusRequest {
