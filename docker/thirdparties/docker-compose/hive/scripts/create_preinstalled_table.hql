@@ -601,6 +601,8 @@ CREATE TABLE `unsupported_type_table`(
   k6 int
 );
 
+set hive.stats.column.autogather=false;
+
 CREATE TABLE `schema_evo_test_text`(
   id int,
   name string
@@ -2440,3 +2442,10 @@ PARTITIONED BY (
   `varchar_col` varchar(50))
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
+
+ create table struct_test(id int,sf struct<f1: int, f2: string>) stored as parquet;
+ insert into struct_test values
+  (1, named_struct('f1', 1, 'f2', 's1')),
+  (2, named_struct('f1', 2, 'f2', 's2')),
+  (3, named_struct('f1', 3, 'f2', 's3'));
+alter table struct_test change sf sf struct<f1:int, f3:string>;
