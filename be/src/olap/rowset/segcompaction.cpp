@@ -261,9 +261,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         std::vector<uint32_t> update_column_ids;
         std::vector<uint32_t> missing_column_ids;
         for (auto cid : column_ids) {
-            LOG(INFO) << "ccc:" << cid;
             if (!missing_cid_set.contains(cid)) {
-                LOG(INFO) << "emplace " << cid;
                 update_column_ids.emplace_back(cid);
             } else {
                 missing_column_ids.emplace_back(cid);

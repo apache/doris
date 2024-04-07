@@ -346,6 +346,7 @@ Status Merger::vertical_compact_one_group(
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     // TODO: record_rowids
+    vectorized::Block block = tablet_schema.create_block(column_group);
     size_t output_rows = 0;
     bool eof = false;
     std::map<uint32_t, uint32_t> index_map;
@@ -372,7 +373,6 @@ Status Merger::vertical_compact_one_group(
     }
 
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
-        vectorized::Block block = tablet_schema.create_block(column_group);
         std::shared_ptr<vectorized::Block> update_block_ptr =
                 std::make_shared<vectorized::Block>(tablet_schema.create_block(update_column_ids));
         if (!update_column_ids.empty()) {
@@ -421,7 +421,8 @@ Status Merger::vertical_compact_one_group(
 
         output_rows += block.rows();
         update_block_ptr.reset();
-        block.clear();
+        mutable_full_columns.clear();
+        block.clear_column_data();
     }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
