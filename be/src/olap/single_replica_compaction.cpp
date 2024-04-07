@@ -241,8 +241,7 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
         _input_rowsets.clear();
         tablet()->traverse_rowsets([this, &proper_version](const auto& rs) {
             // only need rowset in proper_version
-            if (rs->is_local() && rs->start_version() >= proper_version->first &&
-                rs->end_version() <= proper_version->second) {
+            if (rs->is_local() && proper_version->contains(rs->version())) {
                 this->_input_rowsets.emplace_back(rs);
             }
         });
@@ -252,11 +251,10 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
         if (_input_rowsets.front()->start_version() != proper_version->first ||
             _input_rowsets.back()->end_version() != proper_version->second) {
             LOG(WARNING) << fmt::format(
-                    "single compaction input rowsets error, tablet_id={}, input rowset = {}-{}, "
-                    "remote rowset = {}-{}",
+                    "single compaction input rowsets error, tablet_id={}, input rowset = [{}-{}], "
+                    "remote rowset = {}",
                     tablet()->tablet_id(), _input_rowsets.front()->start_version(),
-                    _input_rowsets.back()->end_version(), proper_version->first,
-                    proper_version->second);
+                    _input_rowsets.back()->end_version(), proper_version->to_string());
             return false;
         }
         for (auto& rowset : _input_rowsets) {
