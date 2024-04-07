@@ -603,7 +603,9 @@ void ExecEnv::destroy() {
     _storage_engine.reset();
 
     SAFE_STOP(_spill_stream_mgr);
-    _runtime_query_statistics_mgr->stop_report_thread();
+    if (_runtime_query_statistics_mgr) {
+        _runtime_query_statistics_mgr->stop_report_thread();
+    }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);

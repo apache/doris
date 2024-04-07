@@ -1429,6 +1429,18 @@ PipelineXFragmentContext::collect_realtime_profile_x() const {
             << fmt::format("Query {} calling a pipeline X function, but its pipeline X is disabled",
                            print_id(this->_query_id));
 
+    // we do not have mutex to protect pipeline_id_to_profile
+    // so we need to make sure this funciton is invoked after fragment context
+    // has already been prepared.
+    if (!this->_prepared) {
+        std::string msg = "Query " + print_id(this->_query_id) +
+                          " collecting profile, but its not prepared";
+        DCHECK(false) << msg;                          
+        LOG_ERROR(msg);
+        return res;
+    }
+
+    // pipeline_id_to_profile is initialized in prepare stage
     for (auto& pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
         auto profile_ptr = std::make_shared<TRuntimeProfileTree>();
         pipeline_profile->to_thrift(profile_ptr.get());
@@ -1440,6 +1452,17 @@ PipelineXFragmentContext::collect_realtime_profile_x() const {
 
 std::shared_ptr<TRuntimeProfileTree>
 PipelineXFragmentContext::collect_realtime_load_channel_profile_x() const {
+    // we do not have mutex to protect pipeline_id_to_profile
+    // so we need to make sure this funciton is invoked after fragment context
+    // has already been prepared.
+    if (!this->_prepared) {
+        std::string msg = "Query " + print_id(this->_query_id) +
+                          " collecting profile, but its not prepared";
+        DCHECK(false) << msg;                          
+        LOG_ERROR(msg);
+        return nullptr;
+    }
+
     for (auto& runtime_state : _task_runtime_states) {
         if (runtime_state->runtime_profile() == nullptr) {
             continue;

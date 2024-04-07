@@ -320,6 +320,14 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
 void QueryContext::add_fragment_profile_x(
         int fragment_id, const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profiles,
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile) {
+    if (pipeline_profiles.empty()) {
+        std::string msg = fmt::format("Add pipeline profile failed, query {}, fragment {}",
+                                      print_id(this->_query_id), fragment_id);
+        LOG_ERROR(msg);
+        DCHECK(false) << msg;
+        return;
+    }
+
 #ifndef NDEBUG
     for (const auto& p : pipeline_profiles) {
         DCHECK(p != nullptr) << fmt::format("Add pipeline profile failed, query {}, fragment {}",
@@ -423,12 +431,23 @@ QueryContext::_collect_realtime_query_profile_x() const {
                 std::string msg =
                         fmt::format("PipelineXFragmentContext is nullptr, query {} fragment_id: {}",
                                     print_id(_query_id), fragment_id);
-                DCHECK(false) << "PipelineXFragmentContext is nullptr";
                 LOG_ERROR(msg);
+                DCHECK(false) << msg;
                 continue;
             }
 
-            res.insert(std::make_pair(fragment_id, fragment_ctx_x->collect_realtime_profile_x()));
+            auto profile = fragment_ctx_x->collect_realtime_profile_x();
+
+            if (profile.empty()) {
+                std::string err_msg = fmt::format(
+                        "Get nothing when collecting profile, query {}, fragment_id: {}",
+                        print_id(_query_id), fragment_id);
+                LOG_ERROR(err_msg);
+                DCHECK(false) << err_msg;
+                continue;
+            }
+
+            res.insert(std::make_pair(fragment_id, profile));
         }
     }
 

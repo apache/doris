@@ -160,7 +160,7 @@ protected:
 
     ExecEnv* _exec_env = nullptr;
 
-    bool _prepared = false;
+    std::atomic_bool _prepared = false;
     bool _submitted = false;
 
     std::mutex _status_lock;
