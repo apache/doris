@@ -327,6 +327,8 @@ public:
         return _output_row_descriptor.get();
     }
 
+    bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
+
     [[nodiscard]] bool is_source() const override { return false; }
 
     [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,

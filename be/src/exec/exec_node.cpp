@@ -170,6 +170,11 @@ Status ExecNode::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, projections_row_desc()));
 
+    if (has_output_row_descriptor()) {
+        RETURN_IF_ERROR(
+                vectorized::VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
+    }
+
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->prepare(state));
     }
