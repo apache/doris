@@ -1023,7 +1023,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // no need send be delete task, when be report its tablets, fe will send delete task then.
     }
 
-    public void eraseDroppedIndexBackendReplicas(long tableId, List<Long> indexIdList) {
+    public void eraseDroppedIndex(long tableId, List<Long> indexIdList) {
         // nothing to do in non cloud mode
     }
 
