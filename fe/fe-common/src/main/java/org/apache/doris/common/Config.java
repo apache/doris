@@ -2683,7 +2683,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_preheating_enabled = true;
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
     //==========================================================================
     //                      end of cloud config
