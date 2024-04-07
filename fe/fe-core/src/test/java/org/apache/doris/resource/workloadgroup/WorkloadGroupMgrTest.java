@@ -120,13 +120,13 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.createWorkloadGroup(stmt1);
 
         Map<String, WorkloadGroup> nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
-        Assert.assertEquals(2, nameToRG.size());
+        Assert.assertEquals(3, nameToRG.size());
         Assert.assertTrue(nameToRG.containsKey(name1));
         WorkloadGroup group1 = nameToRG.get(name1);
         Assert.assertEquals(name1, group1.getName());
 
         Map<Long, WorkloadGroup> idToRG = workloadGroupMgr.getIdToWorkloadGroup();
-        Assert.assertEquals(2, idToRG.size());
+        Assert.assertEquals(3, idToRG.size());
         Assert.assertTrue(idToRG.containsKey(group1.getId()));
 
         Map<String, String> properties2 = Maps.newHashMap();
@@ -137,11 +137,11 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.createWorkloadGroup(stmt2);
 
         nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
-        Assert.assertEquals(3, nameToRG.size());
+        Assert.assertEquals(4, nameToRG.size());
         Assert.assertTrue(nameToRG.containsKey(name2));
         WorkloadGroup group2 = nameToRG.get(name2);
         idToRG = workloadGroupMgr.getIdToWorkloadGroup();
-        Assert.assertEquals(3, idToRG.size());
+        Assert.assertEquals(4, idToRG.size());
         Assert.assertTrue(idToRG.containsKey(group2.getId()));
 
         try {
@@ -153,8 +153,8 @@ public class WorkloadGroupMgrTest {
 
         CreateWorkloadGroupStmt stmt3 = new CreateWorkloadGroupStmt(true, name2, properties2);
         workloadGroupMgr.createWorkloadGroup(stmt3);
-        Assert.assertEquals(3, workloadGroupMgr.getIdToWorkloadGroup().size());
-        Assert.assertEquals(3, workloadGroupMgr.getNameToWorkloadGroup().size());
+        Assert.assertEquals(4, workloadGroupMgr.getIdToWorkloadGroup().size());
+        Assert.assertEquals(4, workloadGroupMgr.getNameToWorkloadGroup().size());
     }
 
     @Test
