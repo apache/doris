@@ -25,7 +25,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TReportExecStatusParams;
