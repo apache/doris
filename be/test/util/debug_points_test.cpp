@@ -114,10 +114,13 @@ TEST(DebugPointsTest, Handler) {
     config::enable_debug_points = true;
     DebugPoints::instance()->clear();
 
-    DebugPoints::instance()->add_with_handler("set_a", [](int& a) { a = 1000; });
-
     int got_a = 0;
-    DebugPoints::instance()->add_with_handler("get_a", [&got_a](int a) { got_a = a; });
+
+    std::function<void(int&)> handler1 = [](int& a) { a = 1000; };
+    std::function<void(int)> handler2 = [&got_a](int a) { got_a = a; };
+    DebugPoints::instance()->add_with_handler("set_a", set_handler);
+    DebugPoints::instance()->add_with_handler("get_a", get_handler);
+
     demo_handler();
 
     EXPECT_EQ(1000, got_a);
