@@ -993,7 +993,7 @@ message GetClusterStatusResponse {
 message GetClusterResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ClusterPB cluster = 2;
-    optional string enable_storage_vault = 3;
+    optional bool enable_storage_vault = 3;
 }
 
 message GetTabletStatsRequest {
