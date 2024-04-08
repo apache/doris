@@ -403,7 +403,7 @@ public class EditLog {
                 }
                 case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
                     CloudWarmUpJob cloudWarmUpJob = (CloudWarmUpJob) journal.getData();
-                    env.getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
+                   ((CloudEnv) env).getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
                     break;
                 }
                 case OperationType.OP_DELETE_REPLICA: {
@@ -1211,11 +1211,6 @@ public class EditLog {
                 case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                     UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
                     ((CloudEnv) env).replayUpdateCloudReplica(info);
-                    break;
-                }
-                case OperationType.OP_MODIFY_TTL_SECONDS:
-                case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
-                    // TODO: support cloud replated operation type.
                     break;
                 }
                 default: {

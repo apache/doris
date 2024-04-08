@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -86,7 +87,7 @@ public class ShowCacheHotSpotStmt extends ShowStmt {
             throw new AnalysisException("Path must in format '/cluster/db.table/'");
         }
         if (parts.length >= 2) {
-            if (!Env.getCurrentSystemInfo().containClusterName(parts[1])) {
+            if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).containClusterName(parts[1])) {
                 throw new AnalysisException("The cluster " + parts[1] + " doesn't exist");
             }
             if (parts.length == 3) {

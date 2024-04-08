@@ -2605,7 +2605,7 @@ public class StmtExecutor {
         WarmUpClusterStmt stmt = (WarmUpClusterStmt) parsedStmt;
         long jobId = -1;
         try {
-            jobId = context.getEnv().getCacheHotspotMgr().createJob(stmt);
+            jobId = ((CloudEnv) context.getEnv()).getCacheHotspotMgr().createJob(stmt);
             ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
             builder.addColumn(new Column("JobId", ScalarType.createVarchar(30)));
             List<List<String>> infos = Lists.newArrayList();

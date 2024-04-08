@@ -147,6 +147,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -2412,12 +2413,12 @@ public class ShowExecutor {
     private void handleShowCloudWarmUpJob() throws AnalysisException {
         ShowCloudWarmUpStmt showStmt = (ShowCloudWarmUpStmt) stmt;
         if (showStmt.showAllJobs()) {
-            int limit = Env.getCurrentEnv().getCacheHotspotMgr().MAX_SHOW_ENTRIES;
+            int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
             resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            Env.getCurrentEnv().getCacheHotspotMgr().getAllJobInfos(limit));
+                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
         } else {
             resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            Env.getCurrentEnv().getCacheHotspotMgr().getSingleJobInfo(showStmt.getJobId()));
+                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getSingleJobInfo(showStmt.getJobId()));
         }
     }
 

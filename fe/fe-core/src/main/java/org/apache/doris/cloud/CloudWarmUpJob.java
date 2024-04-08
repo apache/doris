@@ -21,6 +21,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -117,7 +119,7 @@ public class CloudWarmUpJob implements Writable {
         this.createTimeMs = System.currentTimeMillis();
         this.jobType = jobType;
         if (!FeConstants.runningUnitTest) {
-            List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByClusterName(cloudClusterName);
+            List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(cloudClusterName);
             for (Backend backend : backends) {
                 beToThriftAddress.put(backend.getId(), backend.getHost() + ":" + backend.getBePort());
             }
@@ -330,7 +332,7 @@ public class CloudWarmUpJob implements Writable {
         this.finishedTimeMs = System.currentTimeMillis();
         LOG.info("cancel cloud warm up job {}, err {}", jobId, errMsg);
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
-        Env.getCurrentEnv().getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
+        ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
         return true;
 
     }
@@ -364,7 +366,7 @@ public class CloudWarmUpJob implements Writable {
             Thread.sleep(1000);
             this.jobState = JobState.FINISHED;
             this.finishedTimeMs = System.currentTimeMillis();
-            Env.getCurrentEnv().getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
+            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
             Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
             return;
         }
@@ -452,7 +454,7 @@ public class CloudWarmUpJob implements Writable {
                         }
                         this.finishedTimeMs = System.currentTimeMillis();
                         releaseClients();
-                        Env.getCurrentEnv().getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
+                        ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
                         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
                     }
                 }
@@ -469,7 +471,7 @@ public class CloudWarmUpJob implements Writable {
                 }
                 this.finishedTimeMs = System.currentTimeMillis();
                 releaseClients();
-                Env.getCurrentEnv().getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
+                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
                 Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
             }
         } catch (Exception e) {
@@ -482,7 +484,7 @@ public class CloudWarmUpJob implements Writable {
                 this.jobState = JobState.CANCELLED;
                 this.finishedTimeMs = System.currentTimeMillis();
                 this.errMsg = "retry the warm up job until max retry time " + String.valueOf(maxRetryTime);
-                Env.getCurrentEnv().getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
+                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
                 Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
             }
             releaseClients();

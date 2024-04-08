@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -62,13 +64,14 @@ public class WarmUpClusterStmt extends StatementBase {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        if (!Env.getCurrentSystemInfo().containClusterName(dstClusterName)) {
+        if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).containClusterName(dstClusterName)) {
             throw new AnalysisException("The dstClusterName " + dstClusterName + " doesn't exist");
         }
-        if (!isWarmUpWithTable && !Env.getCurrentSystemInfo().containClusterName(srcClusterName)) {
+        if (!isWarmUpWithTable
+                    && !((CloudSystemInfoService) Env.getCurrentSystemInfo()).containClusterName(srcClusterName)) {
             boolean contains = false;
             try {
-                contains = Env.getCurrentEnv().getCacheHotspotMgr().containsCluster(srcClusterName);
+                contains = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().containsCluster(srcClusterName);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }

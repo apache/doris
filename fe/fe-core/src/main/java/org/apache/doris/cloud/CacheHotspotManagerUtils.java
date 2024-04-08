@@ -19,6 +19,7 @@ package org.apache.doris.cloud;
 
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -30,7 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.ResultRow;
-import org.apache.doris.statistics.util.InternalQuery;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.logging.log4j.LogManager;
@@ -107,10 +108,9 @@ public class CacheHotspotManagerUtils {
         params.put("cluster_id", clusterId);
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(CONTAINS_CLUSTER_TEMPLATE);
-        InternalQuery query = new InternalQuery(FeConstants.INTERNAL_DB_NAME, sql);
         List<ResultRow> result = null;
         try {
-            result = query.query();
+            result = StatisticsUtil.execStatisticQuery(sql, false);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -128,10 +128,9 @@ public class CacheHotspotManagerUtils {
         params.put("cluster_id", clusterId);
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(GET_CLUSTER_PARTITIONS_TEMPLATE);
-        InternalQuery query = new InternalQuery(FeConstants.INTERNAL_DB_NAME, sql);
         List<ResultRow> result = null;
         try {
-            result = query.query();
+            result = StatisticsUtil.execStatisticQuery(sql, false);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -180,9 +179,8 @@ public class CacheHotspotManagerUtils {
 
     private static void execCreateDatabase() throws Exception {
         CreateDbStmt createDbStmt = new CreateDbStmt(true,
-                ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME),
+                new DbName(null, ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME)),
                 null);
-        createDbStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
         } catch (DdlException e) {
@@ -226,7 +224,6 @@ public class CacheHotspotManagerUtils {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);
         connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         return new AutoCloseConnectContext(connectContext);
@@ -242,7 +239,7 @@ public class CacheHotspotManagerUtils {
             this.previousContext = ConnectContext.get();
             this.connectContext = connectContext;
             connectContext.setThreadLocalInfo();
-            connectContext.setCloudCluster();
+            connectContext.getCloudCluster();
         }
 
         @Override

@@ -961,11 +961,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_MODIFY_TTL_SECONDS:
-            case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
-                isRead = true;
-                break;
-            }
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);

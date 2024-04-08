@@ -32,6 +32,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.CloudWarmUpJob.JobState;
 import org.apache.doris.cloud.CloudWarmUpJob.JobType;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -43,7 +45,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
 import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
@@ -84,7 +85,7 @@ public class CacheHotspotManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CacheHotspotManager.class);
     private static final int CYCLE_COUNT_TO_CHECK_EXPIRE_CLOUD_WARM_UP_JOB = 20;
     private static int MAX_ACTIVE_CLOUD_WARM_UP_JOB_SIZE = 10;
-    private final SystemInfoService nodeMgr;
+    private final CloudSystemInfoService nodeMgr;
 
     // periodically clear and re-build <id, table> message for
     // efficiency and memory consumption issue
@@ -111,7 +112,7 @@ public class CacheHotspotManager extends MasterDaemon {
     private final ThreadPoolExecutor cloudWarmUpThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
             MAX_ACTIVE_CLOUD_WARM_UP_JOB_SIZE, "cloud-warm-up-pool", true);
 
-    public CacheHotspotManager(SystemInfoService nodeMgr) {
+    public CacheHotspotManager(CloudSystemInfoService nodeMgr) {
         super("CacheHotspotManager", Config.fetch_cluster_cache_hotspot_interval_ms);
         this.nodeMgr = nodeMgr;
     }
@@ -331,7 +332,7 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     private Long getFileCacheUsedBytes(String clusterName) throws RuntimeException {
-        List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByClusterName(clusterName);
+        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(clusterName);
         Long totalFileCache = 0L;
         for (Backend backend : backends) {
             Long fileCacheSize = backend.getfileCacheCapactiyBytes();
@@ -371,7 +372,7 @@ public class CacheHotspotManager extends MasterDaemon {
         } else {
             partitions.addAll(table.getPartitions());
         }
-        List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByClusterName(dstClusterName);
+        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(dstClusterName);
         Long totalFileCache = getFileCacheUsedBytes(dstClusterName);
         Long warmUpTotalFileCache = 0L;
         List<Partition> warmUpPartitions = new ArrayList<>();
@@ -396,7 +397,7 @@ public class CacheHotspotManager extends MasterDaemon {
         }
         Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
         for (Backend backend : backends) {
-            Set<Long> beTabletIds = Env.getCurrentEnv()
+            Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
                                     .getCloudTabletRebalancer()
                                     .getSnapshotTabletsByBeId(backend.getId());
             List<Tablet> warmUpTablets = new ArrayList<>();
@@ -473,10 +474,10 @@ public class CacheHotspotManager extends MasterDaemon {
             }
         }
         Collections.reverse(tablets);
-        List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByClusterName(dstClusterName);
+        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(dstClusterName);
         Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
         for (Backend backend : backends) {
-            Set<Long> beTabletIds = Env.getCurrentEnv()
+            Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
                                     .getCloudTabletRebalancer()
                                     .getSnapshotTabletsByBeId(backend.getId());
             List<Tablet> warmUpTablets = new ArrayList<>();
@@ -565,33 +566,64 @@ public class CacheHotspotManager extends MasterDaemon {
         }
     }
 
-    public long createJob(WarmUpClusterStmt stmt) throws AnalysisException {
-        if (runnableClusterSet.contains(stmt.getDstClusterName())) {
-            throw new AnalysisException("cluster: " + stmt.getDstClusterName() + " already has a runnable job");
-        }
+    private Map<Long, List<Tablet>> warmUpNewClusterByTable(long jobId, String dstClusterName,
+            List<Triple<String, String, String>> tables,
+            boolean isForce) throws RuntimeException {
         Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
-        if (!FeConstants.runningUnitTest) {
-            if (stmt.isWarmUpWithTable()) {
-                beToWarmUpTablets = warmUpNewClusterByTable(stmt.getDstClusterName(), stmt.getDbName(),
-                                                            stmt.getTableName(), stmt.getPartitionName(),
-                                                            stmt.isForce());
+        Long totalFileCache = getFileCacheUsedBytes(dstClusterName);
+        Long warmUpTotalFileCache = 0L;
+        for (Triple<String, String, String> tableTriple : tables) {
+            if (warmUpTotalFileCache > totalFileCache) {
+                break;
+            }
+            String dbName = tableTriple.getLeft();
+            String tableName = tableTriple.getMiddle();
+            String partitionName = tableTriple.getRight();
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+            OlapTable table = (OlapTable) db.getTableNullable(tableName);
+            List<Partition> partitions = new ArrayList<>();
+            if (partitionName.length() != 0) {
+                partitions.add(table.getPartition(partitionName));
             } else {
-                beToWarmUpTablets = warmUpNewClusterByCluster(stmt.getDstClusterName(), stmt.getSrcClusterName());
+                partitions.addAll(table.getPartitions());
+            }
+            List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByClusterName(dstClusterName);
+            List<Partition> warmUpPartitions = new ArrayList<>();
+            for (Partition partition : partitions) {
+                warmUpTotalFileCache += partition.getDataSize(true);
+                warmUpPartitions.add(partition);
+                if (warmUpTotalFileCache > totalFileCache) {
+                    break;
+                }
+            }
+            List<MaterializedIndex> indexes = new ArrayList<>();
+            for (Partition partition : warmUpPartitions) {
+                indexes.addAll(partition.getMaterializedIndices(IndexExtState.VISIBLE));
+            }
+            List<Tablet> tablets = new ArrayList<>();
+            for (MaterializedIndex index : indexes) {
+                tablets.addAll(index.getTablets());
+            }
+            for (Backend backend : backends) {
+                Set<Long> beTabletIds = Env.getCurrentEnv()
+                                        .getCloudTabletRebalancer()
+                                        .getSnapshotTabletsByBeId(backend.getId());
+                List<Tablet> warmUpTablets = new ArrayList<>();
+                for (Tablet tablet : tablets) {
+                    if (beTabletIds.contains(tablet.getId())) {
+                        warmUpTablets.add(tablet);
+                    }
+                }
+                beToWarmUpTablets.computeIfAbsent(backend.getId(),
+                        k -> new ArrayList<>()).addAll(warmUpTablets);
             }
         }
-
-        Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
-
-        long jobId = Env.getCurrentEnv().getNextId();
-        CloudWarmUpJob.JobType jobType = stmt.isWarmUpWithTable() ? JobType.TABLE : JobType.CLUSTER;
-        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType);
-        addCloudWarmUpJob(warmUpJob);
-
-        Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(warmUpJob);
-        LOG.info("finished to create cloud warm up job: {}", warmUpJob.getJobId());
-
-        return jobId;
-
+        LOG.info("The job {} warm up size is {}, the cluster cache size is {}",
+                    jobId, warmUpTotalFileCache, totalFileCache);
+        if (warmUpTotalFileCache > totalFileCache && !isForce) {
+            throw new RuntimeException("The cluster " + dstClusterName + " cache size is not enough");
+        }
+        return beToWarmUpTablets;
     }
 
     public void cancel(CancelCloudWarmUpStmt stmt) throws DdlException {

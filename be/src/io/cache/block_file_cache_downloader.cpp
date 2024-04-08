@@ -342,7 +342,7 @@ void FileCacheBlockS3Downloader::download_file_cache_block(std::vector<FileCache
             context.is_cold_data = true;
             auto* s3_file_system = dynamic_cast<S3FileSystem*>(iter->second->fs().get());
             DCHECK(s3_file_system != nullptr);
-            auto client = s3_file_system->get_client();
+            auto client = s3_file_system->client_holder()->get();
             if (!client) {
                 return;
             }
@@ -350,12 +350,12 @@ void FileCacheBlockS3Downloader::download_file_cache_block(std::vector<FileCache
                 auto h = c->get_or_set(k, off, size, ctx);
                 return std::make_unique<FileBlocksHolder>(std::move(h));
             };
-            std::string key_name = s3_file_system->s3_conf().prefix + '/' +
+            std::string key_name = s3_file_system->prefix() + '/' +
                                    BetaRowset::remote_segment_path(
                                            meta.tablet_id(), meta.rowset_id(), meta.segment_id());
             TEST_SYNC_POINT_CALLBACK("BlockFileCache::mock_key", &key_name);
             download_file(client, key_name, meta.offset(), meta.size(),
-                          s3_file_system->s3_conf().bucket, std::move(alloc_holder),
+                          s3_file_system->bucket(), std::move(alloc_holder),
                           download_callback);
         }
     });
@@ -364,7 +364,7 @@ void FileCacheBlockS3Downloader::download_file_cache_block(std::vector<FileCache
 void FileCacheBlockS3Downloader::download_s3_file(S3FileMeta& meta) {
     auto* s3_file_system = dynamic_cast<S3FileSystem*>(meta.file_system.get());
     DCHECK(s3_file_system != nullptr);
-    auto client = s3_file_system->get_client();
+    auto client = s3_file_system->client_holder()->get();
     int64_t file_size = meta.file_size;
     if (!client) {
         return;
@@ -390,10 +390,10 @@ void FileCacheBlockS3Downloader::download_s3_file(S3FileMeta& meta) {
         auto h = c->get_or_set(k, off, size, ctx);
         return std::make_unique<FileBlocksHolder>(std::move(h));
     };
-    std::string key_name = s3_file_system->s3_conf().prefix + '/' + meta.path.native();
+    std::string key_name = s3_file_system->prefix() + '/' + meta.path.native();
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::remove_prefix", &key_name);
-    download_file(s3_file_system->get_client(), key_name, 0, file_size,
-                  s3_file_system->s3_conf().bucket, std::move(alloc_holder),
+    download_file(client, key_name, 0, file_size,
+                  s3_file_system->bucket(), std::move(alloc_holder),
                   std::move(meta.download_callback));
 }
 
