@@ -257,17 +257,31 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         _partitioner.reset(
                 new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_partition_count));
         _partition_function.reset(new HashPartitionFunction(_partitioner.get()));
-        //        const long MEGABYTE = 1024 * 1024;
-        //        const long MIN_PARTITION_DATA_PROCESSED_REBALANCE_THRESHOLD = 10000 * MEGABYTE; // 1MB
-        //        const long MIN_DATA_PROCESSED_REBALANCE_THRESHOLD = 50000 * MEGABYTE;           // 50MB
 
-        //        const long MIN_PARTITION_DATA_PROCESSED_REBALANCE_THRESHOLD = 1; // 1MB
-        //        const long MIN_DATA_PROCESSED_REBALANCE_THRESHOLD = 1;           // 50MB
+        std::vector<std::string> task_addresses;
+        task_addresses.reserve(channels.size());
+        for (int i = 0; i < channels.size(); ++i) {
+            const TNetworkAddress& brpc_dest_addr = channels[i]->brpc_dest_addr();
+            task_addresses.emplace_back(
+                    fmt::format("{}:{}", brpc_dest_addr.hostname, brpc_dest_addr.port));
+        }
         scale_writer_partitioning_exchanger.reset(new vectorized::ScaleWriterPartitioningExchanger<
                                                   HashPartitionFunction>(
                 channels.size(), *_partition_function, _partition_count, channels.size(), 1,
-                config::table_sink_partition_write_data_processed_threshold,
-                config::table_sink_partition_write_skewed_data_processed_rebalance_threshold));
+                config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
+                                        state->task_num() ==
+                                0
+                        ? config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold
+                        : config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
+                                  state->task_num(),
+                config::table_sink_partition_write_min_data_processed_rebalance_threshold /
+                                        state->task_num() ==
+                                0
+                        ? config::table_sink_partition_write_min_data_processed_rebalance_threshold
+                        : config::table_sink_partition_write_min_data_processed_rebalance_threshold /
+                                  state->task_num(),
+                &task_addresses));
+
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
