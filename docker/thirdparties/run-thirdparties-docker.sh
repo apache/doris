@@ -301,6 +301,11 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     fi
 fi
 
+if [[ $RUN_HIVE -eq 1 && $RUN_HIVE3 -eq 1 ]]; then
+    echo "can not both run hive2 and hive3"
+    exit 1
+fi
+
 if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
