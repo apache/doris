@@ -78,6 +78,7 @@ message InstanceInfoPB {
     repeated string storage_vault_names = 101;
     optional string default_storage_vault_id = 102;
     optional string default_storage_vault_name = 103;
+    optional bool enable_storage_vault = 104;
 }
 
 message StagePB {
@@ -199,11 +200,6 @@ message StorageVaultPB {
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
     reserved 4; // reserved for S3.
-}
-
-message DefaultStorageVaultInfo {
-    optional string id = 1;
-    optional string name = 2;
 }
 
 message HdfsBuildConf {

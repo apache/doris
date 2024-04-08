@@ -5191,7 +5191,6 @@ TEST(MetaServiceTest, AddObjInfoTest) {
         get_test_instance(instance);
         const auto& obj = instance.obj_info().at(0);
         ASSERT_EQ(obj.id(), "1");
-        ASSERT_EQ(obj.name(), "built_in_storage_vault");
 
         sp->clear_all_call_backs();
         sp->clear_trace();
@@ -5681,9 +5680,6 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         InstanceInfoPB i;
         get_test_instance(i, instance_id);
-        ASSERT_EQ(i.default_storage_vault_id(), "1");
-        ASSERT_EQ(i.default_storage_vault_name(), "built_in_storage_vault");
-        ASSERT_EQ(i.obj_info().at(0).name(), "built_in_storage_vault");
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();

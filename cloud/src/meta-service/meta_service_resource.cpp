@@ -604,6 +604,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
     } break;
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO: {
+        if (instance.enable_storage_vault()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Storage vault doesn't support add obj info";
+            return;
+        }
         if (!request->obj().has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf lease provider info";
@@ -653,11 +658,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_region(region);
         last_item.set_provider(request->obj().provider());
         last_item.set_sse_enabled(instance.sse_enabled());
-        if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
-            last_item.set_name(BUILT_IN_STORAGE_VAULT_NAME);
-            instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
-            instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
-        }
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
@@ -912,7 +912,8 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
     }
 
     LOG(INFO) << "instance " << instance_id << " has " << instance.obj_info().size()
-              << " s3 history info, and instance = " << proto_to_json(instance);
+              << " s3 history info, and " << instance.resource_ids_size() << " vaults "
+              << "instance = " << proto_to_json(instance);
 
     val = instance.SerializeAsString();
     if (val.empty()) {
@@ -986,11 +987,6 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     obj_info.set_ctime(time);
     obj_info.set_mtime(time);
     obj_info.set_sse_enabled(sse_enabled);
-    if (obj_info.id() == BUILT_IN_STORAGE_VAULT_ID) {
-        obj_info.set_name(BUILT_IN_STORAGE_VAULT_NAME);
-        instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
-        instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
-    }
     instance.mutable_obj_info()->Add(std::move(obj_info));
     return 0;
 }
@@ -1019,6 +1015,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     instance.set_name(request->has_name() ? request->name() : "");
     instance.set_status(InstanceInfoPB::NORMAL);
     instance.set_sse_enabled(request->sse_enabled());
+    instance.set_enable_storage_vault(!request->has_obj_info());
     if (request->has_obj_info()) {
         if (0 != create_instance_with_object_info(instance, request->obj_info(),
                                                   request->sse_enabled(), code, msg)) {
@@ -1841,9 +1838,10 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         return;
     }
 
-    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+    if (instance.enable_storage_vault() &&
+        std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [](const std::string& name) { return name == BUILT_IN_STORAGE_VAULT_NAME; }) ==
-        instance.storage_vault_names().end()) {
+                instance.storage_vault_names().end()) {
         code = MetaServiceCode::STORAGE_VAULT_NOT_FOUND;
         msg = "instance has no built in storage vault";
         return;
