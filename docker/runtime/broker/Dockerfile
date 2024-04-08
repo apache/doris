@@ -28,6 +28,10 @@
 
 FROM ubuntu:22.04
 
+ARG TARGETARCH
+
+ARG DORIS_VERSION="x.x.x"
+
 RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     patchelf gdb binutils binutils-common mysql-client \
     curl wget less vim htop iproute2 numactl jq iotop sysstat \
@@ -40,7 +44,7 @@ RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no
 ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64}
 
 # apache-doris/broker from doris release xxxx.tar.gz
-ADD resource/apache-doris-xxx-bin-${TARGETARCH:-amd64}/extensions/apache_hdfs_broker /opt/apache-doris/apache_hdfs_broker
+ADD resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/extensions/apache_hdfs_broker /opt/apache-doris/apache_hdfs_broker
 
 COPY resource/broker_*.sh /opt/apache-doris/
 
