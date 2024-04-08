@@ -235,7 +235,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         // required column
         std::vector<u_short> null_map = {(u_short)rows};
         run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-        RETURN_IF_ERROR(chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
+        RETURN_IF_ERROR(
+                chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
     } else {
         // column with null values
         level_t level_type = definitions[0];
