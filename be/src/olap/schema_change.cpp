@@ -1296,7 +1296,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         if (column_mapping->expr != nullptr) {
             *sc_directly = true;
             return Status::OK();
-        } else {
+        } else if (column_mapping->ref_column >= 0) {
             auto column_new = new_tablet_schema->column(i);
             auto column_old = base_tablet_schema->column(column_mapping->ref_column);
             // index changed
