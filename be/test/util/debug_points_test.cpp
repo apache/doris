@@ -96,4 +96,34 @@ TEST(DebugPointsTest, AddTest) {
               DebugPoints::instance()->get_debug_param_or_default<std::string>("dbug4", ""));
 }
 
+void demo_handler() {
+    int a = 0;
+
+    DBUG_EXECUTE_IF("set_a", {
+        auto handler = std::any_cast<std::function<void(int&)>>(dp->handler);
+        handler(a);
+    });
+
+    DBUG_EXECUTE_IF("get_a", {
+        auto handler = std::any_cast<std::function<void(int)>>(dp->handler);
+        handler(a);
+    });
+}
+
+TEST(DebugPointsTest, Handler) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+
+    int got_a = 0;
+
+    std::function<void(int&)> set_handler = [](int& a) { a = 1000; };
+    std::function<void(int)> get_handler = [&got_a](int a) { got_a = a; };
+    DebugPoints::instance()->add_with_handler("set_a", set_handler);
+    DebugPoints::instance()->add_with_handler("get_a", get_handler);
+
+    demo_handler();
+
+    EXPECT_EQ(1000, got_a);
+}
+
 } // namespace doris
