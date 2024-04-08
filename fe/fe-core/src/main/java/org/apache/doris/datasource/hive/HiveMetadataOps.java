@@ -126,6 +126,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             if (properties.containsKey(LOCATION_URI_KEY)) {
                 catalogDatabase.setLocationUri(properties.get(LOCATION_URI_KEY));
             }
+            // remove it when set
             properties.remove(LOCATION_URI_KEY);
             catalogDatabase.setProperties(properties);
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));

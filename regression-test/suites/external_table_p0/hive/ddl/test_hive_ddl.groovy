@@ -88,6 +88,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """use `test_hive_loc`"""
 
             // case1. the table default location is inherited from db
+            sql """DROP TABLE IF EXISTS `loc_tbl_${file_format}_default`"""
             sql """
                     CREATE TABLE loc_tbl_${file_format}_default (
                       `col` STRING COMMENT 'col'
@@ -103,6 +104,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
             // case2. use a custom location to create table
             def tbl_loc = "hdfs://${loc}/custom_loc"
+            sql """DROP TABLE IF EXISTS loc_tbl_${file_format}_custom`"""
             sql """
                     CREATE TABLE loc_tbl_${file_format}_custom (
                       `col` STRING COMMENT 'col'
@@ -118,6 +120,33 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
             sql """DROP TABLE `loc_tbl_${file_format}_custom`"""
 
+            // case3. check default
+            sql """
+                CREATE TABLE all_default_values_${file_format}(
+                  `col1` BOOLEAN DEFAULT 0 COMMENT 'col1',
+                  `col2` TINYINT DEFAULT 255 COMMENT 'col2',
+                  `col3` SMALLINT DEFAULT 65535 COMMENT 'col3',
+                  `col4` INT DEFAULT 2147483647 COMMENT 'col4',
+                  `col5` BIGINT DEFAULT 9223372036854775807 COMMENT 'col5',
+                  `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
+                  `col7` FLOAT DEFAULT 3.1415926 COMMENT 'col7',
+                  `col8` DOUBLE DEFAULT 3.141592653 COMMENT 'col8',
+                  `col9` DECIMAL(9,4) DEFAULT 99999.9999 COMMENT 'col9',
+                  `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
+                  `col11` STRING DEFAULT 'default' COMMENT 'col11',
+                  `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
+                  `col13` DATETIME DEFAULT current_timestamp() COMMENT 'col13'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+            sql """ INSERT INTO all_default_values_${file_format} 
+                    VALUES(null, null, null, null, null, null, null, null, null, null, null, null, null)
+                """
+            order_qt_default_val01 """ SELECT * FROM all_default_values_${file_format} """
+
+            // case4. check some exceptions
             def comment_check = sql """ CREATE TABLE ex_tbl_${file_format}(
                                           `col1` INT COMMENT 'col1',
                                           `col2` STRING COMMENT 'col2',

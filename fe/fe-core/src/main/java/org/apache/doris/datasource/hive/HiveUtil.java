@@ -63,6 +63,8 @@ import java.util.stream.Collectors;
  */
 public final class HiveUtil {
 
+    public static final String COMPRESSION_KEY = "compression";
+
     private HiveUtil() {
     }
 
@@ -201,12 +203,27 @@ public final class HiveUtil {
         table.setTableType("MANAGED_TABLE");
         Map<String, String> props = new HashMap<>(hiveTable.getProperties());
         props.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
+        setCompressType(hiveTable, props);
         props.put("comment", hiveTable.getComment());
         table.setParameters(props);
         if (props.containsKey("owner")) {
             table.setOwner(props.get("owner"));
         }
         return table;
+    }
+
+    private static void setCompressType(HiveTableMetadata hiveTable, Map<String, String> props) {
+        String fileFormat = hiveTable.getFileFormat();
+        // on HMS, default orc compression type is zlib and default parquet compression type is snappy.
+        if (fileFormat.equalsIgnoreCase("parquet")) {
+            props.putIfAbsent("parquet.compression", props.getOrDefault(COMPRESSION_KEY, "snappy"));
+        } else if (fileFormat.equalsIgnoreCase("orc")) {
+            props.putIfAbsent("orc.compress", props.getOrDefault(COMPRESSION_KEY, "zlib"));
+        } else {
+            throw new IllegalArgumentException("Compression is not supported on " + fileFormat);
+        }
+        // remove if exists
+        props.remove(COMPRESSION_KEY);
     }
 
     private static StorageDescriptor toHiveStorageDesc(List<FieldSchema> columns,

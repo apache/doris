@@ -40,14 +40,20 @@ public class ShowCreateDbStmt extends ShowStmt {
                     .addColumn(new Column("Create Database", ScalarType.createVarchar(30)))
                     .build();
 
+    private String ctl;
     private String db;
 
-    public ShowCreateDbStmt(String db) {
-        this.db = db;
+    public ShowCreateDbStmt(DbName db) {
+        this.ctl = db.getCtl();
+        this.db = db.getDb();
     }
 
     public String getDb() {
         return db;
+    }
+
+    public String getCtl() {
+        return ctl;
     }
 
     @Override
