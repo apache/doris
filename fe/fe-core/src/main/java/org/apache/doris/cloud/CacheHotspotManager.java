@@ -20,6 +20,7 @@ package org.apache.doris.cloud;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Database;
@@ -587,7 +588,7 @@ public class CacheHotspotManager extends MasterDaemon {
             } else {
                 partitions.addAll(table.getPartitions());
             }
-            List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByClusterName(dstClusterName);
+            List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(dstClusterName);
             List<Partition> warmUpPartitions = new ArrayList<>();
             for (Partition partition : partitions) {
                 warmUpTotalFileCache += partition.getDataSize(true);
@@ -605,7 +606,7 @@ public class CacheHotspotManager extends MasterDaemon {
                 tablets.addAll(index.getTablets());
             }
             for (Backend backend : backends) {
-                Set<Long> beTabletIds = Env.getCurrentEnv()
+                Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
                                         .getCloudTabletRebalancer()
                                         .getSnapshotTabletsByBeId(backend.getId());
                 List<Tablet> warmUpTablets = new ArrayList<>();
@@ -624,6 +625,34 @@ public class CacheHotspotManager extends MasterDaemon {
             throw new RuntimeException("The cluster " + dstClusterName + " cache size is not enough");
         }
         return beToWarmUpTablets;
+    }
+
+    public long createJob(WarmUpClusterStmt stmt) throws AnalysisException {
+        if (runnableClusterSet.contains(stmt.getDstClusterName())) {
+            throw new AnalysisException("cluster: " + stmt.getDstClusterName() + " already has a runnable job");
+        }
+        Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
+        long jobId = Env.getCurrentEnv().getNextId();
+        if (!FeConstants.runningUnitTest) {
+            if (stmt.isWarmUpWithTable()) {
+                beToWarmUpTablets = warmUpNewClusterByTable(jobId, stmt.getDstClusterName(), stmt.getTables(),
+                                                            stmt.isForce());
+            } else {
+                beToWarmUpTablets = warmUpNewClusterByCluster(stmt.getDstClusterName(), stmt.getSrcClusterName());
+            }
+        }
+
+        Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
+
+        CloudWarmUpJob.JobType jobType = stmt.isWarmUpWithTable() ? JobType.TABLE : JobType.CLUSTER;
+        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType);
+        addCloudWarmUpJob(warmUpJob);
+
+        Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(warmUpJob);
+        LOG.info("finished to create cloud warm up job: {}", warmUpJob.getJobId());
+
+        return jobId;
+
     }
 
     public void cancel(CancelCloudWarmUpStmt stmt) throws DdlException {

@@ -243,6 +243,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.replicaQuotaSize = newQuota;
     }
 
+    public DbState getDbState() {
+        return dbState;
+    }
+
     public void setTransactionQuotaSize(long newQuota) {
         writeLock();
         try {

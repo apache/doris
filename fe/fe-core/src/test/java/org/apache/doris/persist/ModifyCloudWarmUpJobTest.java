@@ -17,12 +17,14 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.CloudWarmUpJob.JobState;
+import org.apache.doris.cloud.CloudWarmUpJob.JobType;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.selectdb.cloud.catalog.CloudWarmUpJob;
-import com.selectdb.cloud.catalog.CloudWarmUpJob.JobState;
-import com.selectdb.cloud.catalog.CloudWarmUpJob.JobType;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -43,6 +45,7 @@ public class ModifyCloudWarmUpJobTest {
 
     @Test
     public void testSerialization() throws IOException {
+        Config.cloud_unique_id = "test_cloud";
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();

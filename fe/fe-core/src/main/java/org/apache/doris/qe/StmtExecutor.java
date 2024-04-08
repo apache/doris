@@ -2618,7 +2618,7 @@ public class StmtExecutor {
                 return;
             }
             if (isProxy) {
-                proxyResultSet = resultSet;
+                proxyShowResultSet = resultSet;
                 return;
             }
 

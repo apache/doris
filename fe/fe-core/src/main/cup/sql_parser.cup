@@ -982,6 +982,8 @@ nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
 nonterminal Map<String, String> opt_datasource_properties;
+nonterminal List<Map<TableName, String>> warm_up_list;
+nonterminal Map<TableName, String> warm_up_item;
 
 nonterminal Boolean opt_signed_unsigned;
 
@@ -1461,13 +1463,36 @@ warm_up_stmt ::=
     {:
         RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
     :}
-    | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_TABLE table_name:tbl opt_force:force
+    | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
     {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, tbl, "", force);
+        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
     :}
-    | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_TABLE table_name:tbl KW_PARTITION ident:partitionName opt_force:force
+    ;
+
+warm_up_item ::=
+    KW_TABLE table_name:tbl
     {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, tbl, partitionName, force);
+        Map<TableName, String> map = new HashMap<TableName, String>();
+        map.put(tbl, "");
+        RESULT = map;
+    :}
+    | KW_TABLE table_name:tbl KW_PARTITION ident:partitonName
+    {:
+        Map<TableName, String> map = new HashMap<TableName, String>();
+        map.put(tbl, partitonName);
+        RESULT = map;
+    :}
+    ;
+
+warm_up_list ::=
+    warm_up_item:map
+    {:
+        RESULT = Lists.newArrayList(map);
+    :}
+    | warm_up_list:list KW_AND warm_up_item:map
+    {:
+        list.add(map);
+        RESULT = list;
     :}
     ;
 
