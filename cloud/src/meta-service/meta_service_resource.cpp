@@ -396,9 +396,6 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     std::string vault_id = next_available_vault_id(instance);
     storage_vault_key({instance.instance_id(), vault_id}, &key);
     hdfs_param.set_id(vault_id);
-    if (vault_id == BUILT_IN_STORAGE_VAULT_ID) {
-        hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME.data());
-    }
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
     LOG_INFO("try to put storage vault_id={}, vault_name={}", vault_id, hdfs_param.name());
@@ -1050,6 +1047,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     if (request->has_hdfs_info()) {
         StorageVaultPB hdfs_param;
         hdfs_param.mutable_hdfs_info()->MergeFrom(request->hdfs_info());
+        hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME.data());
         if (0 != add_hdfs_storage_vault(instance, txn.get(), std::move(hdfs_param), code, msg)) {
             return;
         }
