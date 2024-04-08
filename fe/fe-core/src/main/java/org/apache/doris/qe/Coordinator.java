@@ -30,6 +30,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -718,9 +719,7 @@ public class Coordinator implements CoordInterface {
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
 
-        if (context != null) {
-            context.getExecutor().getSummaryProfile().setAssignFragmentTime();
-        }
+        updateProfileIfPresent(profile -> profile.setAssignFragmentTime());
         if (enablePipelineEngine) {
             sendPipelineCtx();
         } else {
@@ -1011,10 +1010,8 @@ public class Coordinator implements CoordInterface {
                 }
             });
 
-            if (context != null) {
-                context.getExecutor().getSummaryProfile().updateFragmentCompressedSize(compressedSize.get());
-                context.getExecutor().getSummaryProfile().setFragmentSerializeTime();
-            }
+            updateProfileIfPresent(profile -> profile.updateFragmentCompressedSize(compressedSize.get()));
+            updateProfileIfPresent(profile -> profile.setFragmentSerializeTime());
 
             // 4.2 send fragments rpc
             List<Triple<PipelineExecContexts, BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>
@@ -1028,10 +1025,8 @@ public class Coordinator implements CoordInterface {
             }
             waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
 
-            if (context != null) {
-                context.getExecutor().getSummaryProfile().updateFragmentRpcCount(futures.size());
-                context.getExecutor().getSummaryProfile().setFragmentSendPhase1Time();
-            }
+            updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(futures.size()));
+            updateProfileIfPresent(profile -> profile.setFragmentSendPhase1Time());
 
             if (twoPhaseExecution) {
                 // 5. send and wait execution start rpc
@@ -1040,10 +1035,8 @@ public class Coordinator implements CoordInterface {
                     futures.add(ImmutableTriple.of(ctxs, proxy, ctxs.execPlanFragmentStartAsync(proxy)));
                 }
                 waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
-                if (context != null) {
-                    context.getExecutor().getSummaryProfile().updateFragmentRpcCount(futures.size());
-                    context.getExecutor().getSummaryProfile().setFragmentSendPhase2Time();
-                }
+                updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(futures.size()));
+                updateProfileIfPresent(profile -> profile.setFragmentSendPhase2Time());
             }
         } finally {
             unlock();
@@ -4088,6 +4081,13 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentInstanceId = id;
             this.targetFragmentInstanceAddr = host;
         }
+    }
+
+    private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
+        Optional.ofNullable(context)
+                .map(ConnectContext::getExecutor)
+                .map(StmtExecutor::getSummaryProfile)
+                .ifPresent(profileAction);
     }
 }
 
