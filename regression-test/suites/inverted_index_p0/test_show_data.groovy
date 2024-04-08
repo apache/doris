@@ -101,6 +101,8 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
+        def alter_res = "null"
+        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -118,6 +120,8 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        def alter_res = "null"
+        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
@@ -133,6 +137,8 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
+        def alter_res = "null"
+        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
@@ -274,6 +280,8 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
+        def alter_res = "null"
+        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -291,6 +299,8 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        def alter_res = "null"
+        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
@@ -306,6 +316,8 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
+        def alter_res = "null"
+        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
@@ -448,6 +460,8 @@ suite("test_show_data_multi_add", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
+        def alter_res = "null"
+        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -465,6 +479,8 @@ suite("test_show_data_multi_add", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        def alter_res = "null"
+        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
