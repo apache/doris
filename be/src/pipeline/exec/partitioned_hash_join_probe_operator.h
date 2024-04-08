@@ -182,6 +182,12 @@ public:
 
     bool need_data_from_children(RuntimeState* state) const override;
 
+    void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
+                             const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {
+        _inner_sink_operator = sink_operator;
+        _inner_probe_operator = probe_operator;
+    }
+
 private:
     Status _revoke_memory(RuntimeState* state, bool& wait_for_io);
 
@@ -189,6 +195,8 @@ private:
 
     [[nodiscard]] Status _setup_internal_operators(PartitionedHashJoinProbeLocalState& local_state,
                                                    RuntimeState* state) const;
+    [[nodiscard]] Status _setup_internal_operator_for_non_spill(
+            PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state);
 
     bool _should_revoke_memory(RuntimeState* state) const;
 
@@ -197,8 +205,8 @@ private:
 
     const TJoinDistributionType::type _join_distribution;
 
-    std::unique_ptr<HashJoinBuildSinkOperatorX> _sink_operator;
-    std::unique_ptr<HashJoinProbeOperatorX> _probe_operator;
+    std::shared_ptr<HashJoinBuildSinkOperatorX> _inner_sink_operator;
+    std::shared_ptr<HashJoinProbeOperatorX> _inner_probe_operator;
 
     // probe expr
     std::vector<TExpr> _probe_exprs;

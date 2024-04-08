@@ -77,7 +77,7 @@ Status MultiCastDataStreamerSourceOperator::open(doris::RuntimeState* state) {
     if (_t_data_stream_sink.__isset.conjuncts) {
         RETURN_IF_ERROR(vectorized::VExpr::open(_conjuncts, state));
     }
-    return _acquire_runtime_filter();
+    return _acquire_runtime_filter(false);
 }
 
 bool MultiCastDataStreamerSourceOperator::runtime_filters_are_ready_or_timeout() {
@@ -129,10 +129,7 @@ MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(Runtime
           vectorized::RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
                                             parent->runtime_filter_descs(),
                                             static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {
-    _filter_dependency = std::make_shared<RuntimeFilterDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY",
-            state->get_query_ctx());
-};
+}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -145,10 +142,28 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
         RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
     }
+    _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
-    init_runtime_filter_dependency(_filter_dependency.get());
+    init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
+                                   p.get_name() + "_FILTER_DEPENDENCY");
     return Status::OK();
+}
+
+Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_close_timer);
+    SCOPED_TIMER(exec_time_counter());
+    int64_t rf_time = 0;
+    for (auto& dep : _filter_dependencies) {
+        rf_time += dep->watcher_elapse_time();
+    }
+    COUNTER_SET(_wait_for_rf_timer, rf_time);
+
+    return Base::close(state);
 }
 
 Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,

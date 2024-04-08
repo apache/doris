@@ -312,7 +312,7 @@ static int create_partition_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t 
 static int create_table_version_kv(TxnKv* txn_kv, int64_t table_id) {
     auto key = table_version_key({instance_id, db_id, table_id});
     std::string val(sizeof(int64_t), 0);
-    *reinterpret_cast<int64_t*>(val.data()) = (int64_t) 1;
+    *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
@@ -1882,7 +1882,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
 
     std::string start_partition_version_key = partition_version_key({instance_id, 0, 0, 0});
     std::string end_partition_version_key = partition_version_key({instance_id, INT64_MAX, 0, 0});
-    ASSERT_EQ(txn->get(start_partition_version_key, end_partition_version_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(start_partition_version_key, end_partition_version_key, &it),
+              TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
 
     std::string start_table_version_key = table_version_key({instance_id, 0, 0});

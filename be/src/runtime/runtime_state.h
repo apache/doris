@@ -50,6 +50,7 @@ namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineXFragmentContext;
+class PipelineXTask;
 } // namespace pipeline
 
 class DescriptorTbl;
