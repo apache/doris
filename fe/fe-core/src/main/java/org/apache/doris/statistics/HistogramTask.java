@@ -78,11 +78,6 @@ public class HistogramTask extends BaseAnalysisTask {
         Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
     }
 
-    @Override
-    protected void afterExecution() {
-        // DO NOTHING
-    }
-
     private String getSampleRateFunction() {
         if (info.analysisMethod == AnalysisMethod.FULL) {
             return "0";
