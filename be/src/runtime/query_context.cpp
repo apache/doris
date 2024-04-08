@@ -389,7 +389,7 @@ void QueryContext::_report_query_profile_non_pipeline() {
     ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
 }
 
-void QueryContext::_report_query_profile_x() {
+void QueryContext::_report_query_profile_x() const {
     if (!enable_pipeline_x_exec()) {
         return;
     }
