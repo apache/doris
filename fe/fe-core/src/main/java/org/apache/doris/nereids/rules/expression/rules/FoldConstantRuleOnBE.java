@@ -86,12 +86,14 @@ import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.net.InetAddresses;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.Inet4Address;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -425,10 +427,10 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 res.add(dateV2Literal);
             }
         } else if (type.isIPv4Type()) {
-            int num = resultContent.getStringValueCount();
+            int num = resultContent.getUint32ValueCount();
             for (int i = 0; i < num; ++i) {
-                String stringValue = resultContent.getStringValue(i);
-                IPv4Literal iPv4Literal = new IPv4Literal(stringValue);
+                Inet4Address inet4Address = InetAddresses.fromInteger(resultContent.getUint32Value(i));
+                IPv4Literal iPv4Literal = new IPv4Literal(inet4Address.getHostAddress());
                 res.add(iPv4Literal);
             }
         } else if (type.isIPv6Type()) {
