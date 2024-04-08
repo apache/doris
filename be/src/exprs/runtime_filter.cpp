@@ -1148,6 +1148,23 @@ bool IRuntimeFilter::await() {
     return true;
 }
 
+void IRuntimeFilter::update_state() {
+    DCHECK(is_consumer());
+    auto execution_timeout = _state->execution_timeout * 1000;
+    auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
+    // bitmap filter is precise filter and only filter once, so it must be applied.
+    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
+                                    ? execution_timeout
+                                    : runtime_filter_wait_time_ms;
+    auto expected = _rf_state_atomic.load(std::memory_order_acquire);
+    DCHECK(_enable_pipeline_exec);
+    // In pipelineX, runtime filters will be ready or timeout before open phase.
+    if (expected == RuntimeFilterState::NOT_READY) {
+        DCHECK(MonotonicMillis() - registration_time_ >= wait_times_ms);
+        _rf_state_atomic = RuntimeFilterState::TIME_OUT;
+    }
+}
+
 // NOTE: Wait infinitely will not make scan task wait really forever.
 // Because BlockTaskSchedule will make it run when query is timedout.
 bool IRuntimeFilter::wait_infinitely() const {

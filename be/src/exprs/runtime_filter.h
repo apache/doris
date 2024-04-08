@@ -263,6 +263,7 @@ public:
     // This function will wait at most config::runtime_filter_shuffle_wait_time_ms
     // if return true , filter is ready to use
     bool await();
+    void update_state();
     // this function will be called if a runtime filter sent by rpc
     // it will notify all wait threads
     void signal();

@@ -624,12 +624,6 @@ public:
 
     int task_id() const { return _task_id; }
 
-    pipeline::PipelineXTask* pipeline_x_task() const;
-
-    void set_pipeline_x_task(pipeline::PipelineXTask* pipeline_x_task) {
-        _pipeline_x_task = pipeline_x_task;
-    }
-
 private:
     Status create_error_log_file();
 
@@ -753,7 +747,6 @@ private:
     bool _load_zero_tolerance = false;
 
     std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
-    pipeline::PipelineXTask* _pipeline_x_task = nullptr;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

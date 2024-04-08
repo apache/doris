@@ -589,10 +589,4 @@ bool RuntimeState::is_nereids() const {
     return _query_ctx->is_nereids();
 }
 
-pipeline::PipelineXTask* RuntimeState::pipeline_x_task() const {
-    DCHECK(_pipeline_x_task && _pipeline_x_task->is_running())
-            << (_pipeline_x_task ? _pipeline_x_task->debug_string() : "_pipeline_x_task is NULL");
-    return _pipeline_x_task;
-}
-
 } // end namespace doris

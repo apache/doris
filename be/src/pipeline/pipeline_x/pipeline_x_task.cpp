@@ -227,16 +227,15 @@ Status PipelineXTask::execute(bool* eos) {
         set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
         return Status::OK();
     }
+    if (_runtime_filter_blocked_dependency() != nullptr) {
+        set_state(PipelineTaskState::BLOCKED_FOR_RF);
+        return Status::OK();
+    }
     // The status must be runnable
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
-            auto st = _open();
-            if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
-                set_state(PipelineTaskState::BLOCKED_FOR_RF);
-                return Status::OK();
-            }
-            RETURN_IF_ERROR(st);
+            RETURN_IF_ERROR(_open());
         }
         if (!source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);

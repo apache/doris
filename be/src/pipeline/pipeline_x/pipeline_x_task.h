@@ -191,6 +191,17 @@ private:
         return nullptr;
     }
 
+    Dependency* _runtime_filter_blocked_dependency() {
+        for (auto* op_dep : _filter_dependencies) {
+            _blocked_dep = op_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return _blocked_dep;
+            }
+        }
+        return nullptr;
+    }
+
     Status _extract_dependencies();
     void set_close_pipeline_time() override {}
     void _init_profile() override;

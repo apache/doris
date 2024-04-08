@@ -128,7 +128,10 @@ void RuntimeFilterTimerQueue::start() {
     while (!_stop) {
         std::unique_lock<std::mutex> lk(cv_m);
 
-        cv.wait(lk, [this] { return !_que.empty() || _stop; });
+        while (_que.empty() && !_stop) {
+            cv.wait_for(lk, std::chrono::seconds(interval),
+                        [this] { return !_que.empty() || _stop; });
+        }
         if (_stop) {
             break;
         }

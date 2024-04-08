@@ -243,6 +243,7 @@ struct RuntimeFilterTimerQueue {
     void stop() {
         _stop = true;
         cv.notify_all();
+        wait_for_shutdown();
     }
 
     void wait_for_shutdown() const {
@@ -251,7 +252,7 @@ struct RuntimeFilterTimerQueue {
         }
     }
 
-    ~RuntimeFilterTimerQueue() { wait_for_shutdown(); }
+    ~RuntimeFilterTimerQueue() = default;
     RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
     void push_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) { push(filter); }
 

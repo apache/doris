@@ -97,30 +97,16 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
 Status RuntimeFilterConsumer::_acquire_runtime_filter(bool pipeline_x) {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
     std::vector<vectorized::VRuntimeFilterPtr> vexprs;
-    Status rf_status = Status::OK();
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         if (pipeline_x) {
-            DCHECK(_runtime_filter_ctxs[i].runtime_filter_dependency)
-                    << _state->pipeline_x_task()->debug_string();
-            auto* rf_dep = _runtime_filter_ctxs[i].runtime_filter_dependency->is_blocked_by(
-                    _state->pipeline_x_task());
-
-            bool timeout = _runtime_filter_ctxs[i].runtime_filter_dependency->timeout();
-
-            bool ready = rf_dep == nullptr && !timeout;
-            if (!ready) {
-                runtime_filter->await();
-            }
-            if (ready && !_runtime_filter_ctxs[i].apply_mark) {
+            runtime_filter->update_state();
+            if (runtime_filter->is_ready() && !_runtime_filter_ctxs[i].apply_mark) {
                 // Runtime filter has been applied in open phase.
                 RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
                 _runtime_filter_ctxs[i].apply_mark = true;
-            } else if (rf_dep != nullptr) {
-                // Runtime filter is neither ready nor timeout, so we should continue to wait RF.
-                return Status::WaitForRf("Runtime filters are neither not ready nor timeout");
-            } else if (!ready && !_runtime_filter_ctxs[i].apply_mark) {
-                // Runtime filter is timeout and not applied.
+            } else if (!_runtime_filter_ctxs[i].apply_mark) {
+                // Runtime filter is timeout.
                 _is_all_rf_applied = false;
             }
         } else {
