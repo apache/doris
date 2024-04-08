@@ -46,7 +46,7 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
                 p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i], false));
         if (!_runtime_filters[i]->is_broadcast_join()) {
             return Status::InternalError(
-                    "runtime filter({}) on NestedLoopJoin should be set to is_broadcast_join,",
+                    "runtime filter({}) on NestedLoopJoin should be set to is_broadcast_join",
                     _runtime_filters[i]->get_name());
         }
     }

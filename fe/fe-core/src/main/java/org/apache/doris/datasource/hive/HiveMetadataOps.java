@@ -36,13 +36,11 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
-import org.apache.doris.thrift.THivePartitionUpdate;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -73,11 +71,16 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client) {
         this.catalog = catalog;
         this.client = client;
+        // TODO Currently only supports DFSFileSystem, more types will be supported in the future
         this.fs = new DFSFileSystem(catalog.getProperties());
     }
 
     public HMSCachedClient getClient() {
         return client;
+    }
+
+    public RemoteFileSystem getFs() {
+        return fs;
     }
 
     public static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
@@ -251,23 +254,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         return client.getAllDatabases();
-    }
-
-    public void commit(String dbName,
-                       String tableName,
-                       List<THivePartitionUpdate> hivePUs) {
-        Table table = client.getTable(dbName, tableName);
-        HMSCommitter hmsCommitter = new HMSCommitter(this, fs, table);
-        hmsCommitter.commit(hivePUs);
-        try {
-            Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(
-                    dbName,
-                    tableName,
-                    catalog.getName(),
-                    true);
-        } catch (DdlException e) {
-            LOG.warn("Failed to refresh table {}.{} : {}", dbName, tableName, e.getMessage());
-        }
     }
 
     public void updateTableStatistics(

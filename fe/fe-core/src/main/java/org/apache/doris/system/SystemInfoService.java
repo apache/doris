@@ -1004,10 +1004,6 @@ public class SystemInfoService {
     }
 
     public int getMinPipelineExecutorSize() {
-        if (Config.isCloudMode() && ConnectContext.get() != null
-                && Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster(false))) {
-            return 1;
-        }
         List<Backend> currentBackends = null;
         try {
             currentBackends = getBackendsByCurrentCluster();

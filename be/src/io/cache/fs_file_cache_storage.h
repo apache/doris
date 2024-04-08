@@ -69,7 +69,6 @@ public:
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
 
-private:
     [[nodiscard]] static std::string get_path_in_local_cache(const std::string& dir, size_t offset,
                                                              FileCacheType type,
                                                              bool is_tmp = false);
@@ -77,6 +76,7 @@ private:
     [[nodiscard]] std::string get_path_in_local_cache(const UInt128Wrapper&,
                                                       uint64_t expiration_time) const;
 
+private:
     Status rebuild_data_structure() const;
 
     Status read_file_cache_version(std::string* buffer) const;

@@ -308,6 +308,61 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
     return std::to_string(prev + 1);
 }
 
+namespace detail {
+
+// Removes any trailing `c` in `str`
+void strip_trailing(std::string& str, char c) {
+    size_t end = str.find_last_not_of(c);
+    if (end == std::string::npos) {
+        str = "";
+    } else {
+        str.resize(end + 1);
+    }
+}
+
+// Removes any leading `c` in `str`
+void strip_leading(std::string& str, char c) {
+    size_t start = str.find_first_not_of(c);
+    if (start == std::string::npos) {
+        str = "";
+    } else if (start > 0) {
+        str = str.substr(start);
+    }
+}
+
+// Validate and normalize hdfs prefix. Return true if prefix is valid.
+bool normalize_hdfs_prefix(std::string& prefix) {
+    if (prefix.empty()) {
+        return true;
+    }
+
+    if (prefix.find("://") != std::string::npos) {
+        // Should not contain scheme
+        return false;
+    }
+
+    strip_trailing(prefix, ' ');
+    strip_leading(prefix, ' ');
+    strip_trailing(prefix, '/');
+    return true;
+}
+
+// Validate and normalize hdfs fs_name. Return true if fs_name is valid.
+bool normalize_hdfs_fs_name(std::string& fs_name) {
+    if (fs_name.empty()) {
+        return false;
+    }
+
+    // Should check scheme existence?
+
+    strip_trailing(fs_name, ' ');
+    strip_leading(fs_name, ' ');
+    strip_trailing(fs_name, '/');
+    return !fs_name.empty();
+}
+
+} // namespace detail
+
 static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
@@ -323,6 +378,23 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
         msg = fmt::format("vault_name={} already created", hdfs_param.name());
         return -1;
     }
+
+    using namespace detail;
+    // Check and normalize hdfs conf
+    auto* prefix = hdfs_param.mutable_hdfs_info()->mutable_prefix();
+    if (!normalize_hdfs_prefix(*prefix)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid prefix: ", *prefix);
+        return -1;
+    }
+
+    auto* fs_name = hdfs_param.mutable_hdfs_info()->mutable_build_conf()->mutable_fs_name();
+    if (!normalize_hdfs_fs_name(*fs_name)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid fs_name: ", *fs_name);
+        return -1;
+    }
+
     std::string key;
     std::string vault_id = next_available_vault_id(instance);
     storage_vault_key({instance.instance_id(), vault_id}, &key);
@@ -388,8 +460,13 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         std::string plain_ak = obj.has_ak() ? obj.ak() : "";
         std::string plain_sk = obj.has_sk() ? obj.sk() : "";
 
-        if (encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
-                                 msg) != 0) {
+        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
+                                        code, msg);
+        {
+            [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
+            TEST_SYNC_POINT_CALLBACK("alter_obj_store_info_encrypt_ak_sk_helper", &ak_sk_ret);
+        }
+        if (ret != 0) {
             return;
         }
         ak = cipher_ak_sk_pair.first;
@@ -577,7 +654,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_provider(request->obj().provider());
         last_item.set_sse_enabled(instance.sse_enabled());
         if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
-            last_item.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+            last_item.set_name(BUILT_IN_STORAGE_VAULT_NAME);
             instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
             instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
         }
@@ -910,7 +987,7 @@ static int create_instance_with_object_info(InstanceInfoPB& instance, const Obje
     obj_info.set_mtime(time);
     obj_info.set_sse_enabled(sse_enabled);
     if (obj_info.id() == BUILT_IN_STORAGE_VAULT_ID) {
-        obj_info.set_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+        obj_info.set_name(BUILT_IN_STORAGE_VAULT_NAME);
         instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
         instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
     }
@@ -980,7 +1057,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     }
     if (request->has_hdfs_info()) {
         StorageVaultPB hdfs_param;
-        hdfs_param.set_name("Default");
         hdfs_param.mutable_hdfs_info()->MergeFrom(request->hdfs_info());
         if (0 != add_hdfs_storage_vault(instance, txn.get(), std::move(hdfs_param), code, msg)) {
             return;

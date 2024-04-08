@@ -190,13 +190,15 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
-    optional string vault_name = 16;
+    optional string name = 16;
 }
 
+// The legacy OObjectStoreInfoPBbjectStoreInfoPB is stored in instnaceinfopb
 message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
+    reserved 4; // reserved for S3.
 }
 
 message DefaultStorageVaultInfo {
@@ -1200,6 +1202,7 @@ enum MetaServiceCode {
     KV_TXN_STORE_GET_RETRYABLE = 1008;
     KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
     KV_TXN_STORE_CREATE_RETRYABLE = 1010;
+    KV_TXN_TOO_OLD = 1011;
 
     //Doris error
     TXN_GEN_ID_ERR = 2001;

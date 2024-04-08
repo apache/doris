@@ -393,6 +393,15 @@ void MemInfo::refresh_proc_meminfo() {
         _s_sys_mem_available.store(_mem_info_bytes["MemAvailable"], std::memory_order_relaxed);
         _s_sys_mem_available_str = PrettyPrinter::print(
                 _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
+#ifdef ADDRESS_SANITIZER
+        _s_sys_mem_available_str =
+                "[ASAN]" +
+                PrettyPrinter::print(_s_sys_mem_available.load(std::memory_order_relaxed),
+                                     TUnit::BYTES);
+#else
+        _s_sys_mem_available_str = PrettyPrinter::print(
+                _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
+#endif
     }
 }
 
@@ -514,7 +523,7 @@ void MemInfo::init() {
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
-    _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit = static_cast<int64_t>(_s_mem_limit * config::soft_mem_limit_frac);
     _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);

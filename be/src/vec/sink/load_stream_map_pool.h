@@ -63,57 +63,74 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 
 class LoadStreamStub;
 
-class LoadStreamStubPool;
+class LoadStreamMapPool;
 
 using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 
-class LoadStreams {
+class LoadStreamMap {
 public:
-    LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool);
+    LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
+                  LoadStreamMapPool* pool);
 
-    void release();
+    std::shared_ptr<Streams> get_or_create(int64_t dst_id);
 
-    Streams& streams() { return _streams; }
+    std::shared_ptr<Streams> at(int64_t dst_id);
+
+    bool contains(int64_t dst_id);
+
+    void for_each(std::function<void(int64_t, const Streams&)> fn);
+
+    Status for_each_st(std::function<Status(int64_t, const Streams&)> fn);
+
+    void save_tablets_to_commit(int64_t dst_id, const std::vector<PTabletID>& tablets_to_commit);
+
+    // Return true if the last instance is just released.
+    bool release();
+
+    // send CLOSE_LOAD to all streams, return ERROR if any.
+    // only call this method after release() returns true.
+    Status close_load();
 
 private:
-    Streams _streams;
-    UniqueId _load_id;
-    int64_t _dst_id;
+    const UniqueId _load_id;
+    const int64_t _src_id;
+    const int _num_streams;
     std::atomic<int> _use_cnt;
-    LoadStreamStubPool* _pool = nullptr;
+    std::mutex _mutex;
+    std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
+    LoadStreamMapPool* _pool = nullptr;
+    std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
+    std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
+
+    std::mutex _tablets_to_commit_mutex;
+    std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_to_commit;
 };
 
-class LoadStreamStubPool {
+class LoadStreamMapPool {
 public:
-    LoadStreamStubPool();
+    LoadStreamMapPool();
 
-    ~LoadStreamStubPool();
+    ~LoadStreamMapPool();
 
-    std::shared_ptr<LoadStreams> get_or_create(PUniqueId load_id, int64_t src_id, int64_t dst_id,
-                                               int num_streams, int num_sink);
+    std::shared_ptr<LoadStreamMap> get_or_create(UniqueId load_id, int64_t src_id, int num_streams,
+                                                 int num_use);
 
-    void erase(UniqueId load_id, int64_t dst_id);
+    void erase(UniqueId load_id);
 
     size_t size() {
         std::lock_guard<std::mutex> lock(_mutex);
         return _pool.size();
     }
 
-    // for UT only
-    size_t templates_size() {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return _template_stubs.size();
-    }
-
 private:
     std::mutex _mutex;
-    std::unordered_map<UniqueId, std::unique_ptr<LoadStreamStub>> _template_stubs;
-    std::unordered_map<std::pair<UniqueId, int64_t>, std::shared_ptr<LoadStreams>> _pool;
+    std::unordered_map<UniqueId, std::shared_ptr<LoadStreamMap>> _pool;
 };
 
 } // namespace doris

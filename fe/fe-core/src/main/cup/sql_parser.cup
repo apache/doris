@@ -3976,6 +3976,10 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
+    | KW_SHOW KW_STORAGE KW_VAULT
+    {:
+        RESULT = new ShowStorageVaultStmt();
+    :}
     ;
 
 show_param ::=

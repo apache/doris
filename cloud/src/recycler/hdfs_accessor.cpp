@@ -23,24 +23,10 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "recycler/obj_store_accessor.h"
 
 namespace doris::cloud {
 namespace {
-
-// Removes any leading, and trailing `c`
-void strip(std::string& str, char c) {
-    if (!str.empty()) {
-        size_t start = str.find_first_not_of(c);
-        if (start == std::string::npos) {
-            str = "";
-        } else {
-            size_t end = str.find_last_not_of(c);
-            if (start > 0 || end < str.size() - 1) {
-                str = str.substr(start, end - start + 1);
-            }
-        }
-    }
-}
 
 std::string hdfs_error() {
 #ifdef USE_HADOOP_HDFS
@@ -172,9 +158,11 @@ private:
     hdfsBuilder* hdfs_builder_ = nullptr;
 };
 
-HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info) : info_(info), prefix_(info.prefix()) {
-    strip(prefix_, '/');
-    prefix_ = "/" + prefix_;
+HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info)
+        : ObjStoreAccessor(AccessorType::HDFS), info_(info), prefix_(info.prefix()) {
+    if (!prefix_.empty() && prefix_[0] != '/') {
+        prefix_.insert(prefix_.begin(), '/');
+    }
     uri_ = info.build_conf().fs_name() + prefix_;
 }
 
@@ -316,7 +304,7 @@ int HdfsAccessor::list(const std::string& relative_path, std::vector<ObjectMeta>
     for (int idx = 0; idx < num_entries; ++idx) {
         auto& file = hdfs_file_info[idx];
         std::string_view fname(file.mName);
-        fname = fname.substr(fname.rfind('/') + 1);
+        fname.remove_prefix(uri_.size() + 1);
         files->push_back({.path = std::string(fname), .size = file.mSize});
     }
 

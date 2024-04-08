@@ -506,7 +506,8 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
 
     // update table versions
     if (request->has_db_id()) {
-        std::string ver_key = table_version_key({instance_id, request->db_id(), request->table_id()});
+        std::string ver_key =
+                table_version_key({instance_id, request->db_id(), request->table_id()});
         txn->atomic_add(ver_key, 1);
         LOG_INFO("update table version").tag("ver_key", hex(ver_key));
     }
@@ -531,7 +532,8 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     }
     RPC_RATE_LIMIT(drop_partition)
 
-    if (request->partition_ids().empty() || request->index_ids().empty() || !request->has_table_id()) {
+    if (request->partition_ids().empty() || request->index_ids().empty() ||
+        !request->has_table_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty partition_ids or index_ids or table_id";
         return;
@@ -599,7 +601,8 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
 
     // update table versions
     if (request->has_db_id()) {
-        std::string ver_key = table_version_key({instance_id, request->db_id(), request->table_id()});
+        std::string ver_key =
+                table_version_key({instance_id, request->db_id(), request->table_id()});
         txn->atomic_add(ver_key, 1);
         LOG_INFO("update table version").tag("ver_key", hex(ver_key));
     }

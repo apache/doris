@@ -84,6 +84,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
+    public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
@@ -539,6 +540,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
 
+    public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -636,6 +639,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
+    // if true, need report to coordinator when plan fragment execute successfully.
+    @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
+    public int autoProfileThresholdMs = -1;
+
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
     public boolean runtimeFilterPruneForExternal = true;
 
@@ -655,11 +662,18 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
     public String workloadGroup = "";
 
+    @VariableMgr.VarAttr(name = BYPASS_WORKLOAD_GROUP, needForward = true, description = {
+            "查询是否绕开WorkloadGroup的限制，目前仅支持绕开查询排队的逻辑",
+            "whether bypass workload group's limitation, currently only support bypass query queue"})
+    public boolean bypassWorkloadGroup = false;
+
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
 
     // this is used to make mysql client happy
-    @VariableMgr.VarAttr(name = AUTO_COMMIT)
+    // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
+    // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
+    @VariableMgr.VarAttr(name = AUTO_COMMIT, convertBoolToLongMethod = "convertBoolToLong")
     public boolean autoCommit = true;
 
     // this is used to make c3p0 library happy
@@ -1735,7 +1749,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
             checker = "checkExternalAggPartitionBits", fuzzy = true)
-    public int externalAggPartitionBits = 8; // means that the hash table will be partitioned into 256 blocks.
+    public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
 
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
@@ -1990,6 +2004,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableProfile;
     }
 
+    public int getAutoProfileThresholdMs() {
+        return this.autoProfileThresholdMs;
+    }
+
     public boolean enableSingleDistinctColumnOpt() {
         return enableSingleDistinctColumnOpt;
     }
@@ -2008,10 +2026,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableJoinReorderBasedCost() {
         return enableJoinReorderBasedCost;
-    }
-
-    public boolean isAutoCommit() {
-        return autoCommit;
     }
 
     public boolean enableMultiClusterSyncLoad() {
@@ -2226,6 +2240,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setWorkloadGroup(String workloadGroup) {
         this.workloadGroup = workloadGroup;
+    }
+
+    public boolean getBypassWorkloadGroup() {
+        return this.bypassWorkloadGroup;
     }
 
     public String getResourceGroup() {
@@ -2916,6 +2934,10 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Check max_execution_time failed", exception);
             throw exception;
         }
+    }
+
+    public long convertBoolToLong(Boolean val) {
+        return val ? 1 : 0;
     }
 
     public boolean isEnableFileCache() {

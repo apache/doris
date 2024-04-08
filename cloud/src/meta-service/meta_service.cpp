@@ -539,11 +539,24 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             return;
         }
 
-        std::shared_ptr<Transaction> txn(txn0.release());
-        auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
-        if (c0 != TxnErrorCode::TXN_OK) {
+        InstanceKeyInfo key_info {instance_id};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+
+        err = txn0->get(key, &val);
+        LOG(INFO) << "get instance_key=" << hex(key);
+
+        if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get instance, info={}", m0);
+            ss << "failed to get instance, instance_id=" << instance_id << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+
+        if (!instance.ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse InstanceInfoPB";
             return;
         }
 
@@ -573,15 +586,15 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         // The S3 vault would be stored inside the instance.obj_info
         auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
                                    [&](const ObjectStoreInfoPB& obj) {
-                                       if (!obj.has_vault_name()) {
+                                       if (!obj.has_name()) {
                                            return false;
                                        }
-                                       return obj.vault_name() == name;
+                                       return obj.name() == name;
                                    });
 
         if (s3_obj != instance.obj_info().end()) {
             response->set_storage_vault_id(s3_obj->id());
-            response->set_storage_vault_name(s3_obj->vault_name());
+            response->set_storage_vault_name(s3_obj->name());
             break;
         }
 
@@ -591,6 +604,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
     }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
+    TEST_SYNC_POINT_RETURN_WITH_VOID("create_tablets");
     for (auto& tablet_meta : request->tablet_metas()) {
         internal_create_tablet(code, msg, tablet_meta, txn_kv_, instance_id, saved_schema);
         if (code != MetaServiceCode::OK) {
@@ -1306,9 +1320,9 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
     return versions;
 }
 
-static bool try_fetch_and_parse_schema(
-            Transaction* txn, RowsetMetaCloudPB& rowset_meta,
-            const std::string& key, MetaServiceCode& code, std::string& msg) {
+static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rowset_meta,
+                                       const std::string& key, MetaServiceCode& code,
+                                       std::string& msg) {
     ValueBuf val_buf;
     TxnErrorCode err = cloud::get(txn, key, &val_buf);
     if (err != TxnErrorCode::TXN_OK) {
@@ -1431,7 +1445,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         if (rowset_meta.has_variant_type_in_schema()) {
             // get rowset schema kv
-            auto key = meta_rowset_schema_key({instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
+            auto key = meta_rowset_schema_key(
+                    {instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
             if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
@@ -1449,7 +1464,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
-            version_to_schema.emplace(rowset_meta.schema_version(), rowset_meta.mutable_tablet_schema());
+            version_to_schema.emplace(rowset_meta.schema_version(),
+                                      rowset_meta.mutable_tablet_schema());
         }
     }
 }
@@ -1942,7 +1958,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     std::shared_ptr<Transaction> txn(txn0.release());
     auto [c0, m0] = resource_mgr_->get_instance(txn, cloned_instance_id, instance);
     if (c0 != TxnErrorCode::TXN_OK) {
-        return {cast_as<ErrCategory::READ>(err), "failed to get instance, info=" + m0};
+        return {cast_as<ErrCategory::READ>(c0), "failed to get instance, info=" + m0};
     }
 
     // maybe do not decrypt ak/sk?
