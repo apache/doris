@@ -56,7 +56,6 @@ EngineChecksumTask::EngineChecksumTask(StorageEngine& engine, TTabletId tablet_i
 EngineChecksumTask::~EngineChecksumTask() = default;
 
 Status EngineChecksumTask::execute() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     return _compute_checksum();
 } // execute
 
