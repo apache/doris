@@ -263,6 +263,7 @@ public:
     // This function will wait at most config::runtime_filter_shuffle_wait_time_ms
     // if return true , filter is ready to use
     bool await();
+    void update_state();
     // this function will be called if a runtime filter sent by rpc
     // it will notify all wait threads
     void signal();
@@ -355,6 +356,7 @@ public:
     int64_t registration_time() const { return registration_time_; }
 
     void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
+    std::string formatted_state() const;
 
 protected:
     // serialize _wrapper to protobuf
@@ -372,8 +374,6 @@ protected:
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     void _set_push_down(bool push_down) { _is_push_down = push_down; }
-
-    std::string _format_status() const;
 
     std::string _get_explain_state_string() const {
         if (_enable_pipeline_exec) {
