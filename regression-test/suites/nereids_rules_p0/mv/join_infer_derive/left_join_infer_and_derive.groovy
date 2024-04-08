@@ -28,10 +28,10 @@ suite("left_join_infer_and_derive") {
     sql "SET enable_nereids_timeout = false"
 
     sql """
-    drop table if exists orders_1
+    drop table if exists orders_left
     """
 
-    sql """CREATE TABLE `orders_1` (
+    sql """CREATE TABLE `orders_left` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
       `o_orderstatus` VARCHAR(1) NULL,
@@ -51,10 +51,10 @@ suite("left_join_infer_and_derive") {
     );"""
 
     sql """
-    drop table if exists lineitem_1
+    drop table if exists lineitem_left
     """
 
-    sql """CREATE TABLE `lineitem_1` (
+    sql """CREATE TABLE `lineitem_left` (
       `l_orderkey` BIGINT NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
@@ -81,7 +81,7 @@ suite("left_join_infer_and_derive") {
     );"""
 
     sql """
-    insert into orders_1 values 
+    insert into orders_left values 
     (null, 1, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (1, null, 'o', 109.2, 'c','d',2, 'mm', '2023-10-17'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
@@ -95,7 +95,7 @@ suite("left_join_infer_and_derive") {
     """
 
     sql """
-    insert into lineitem_1 values 
+    insert into lineitem_left values 
     (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
@@ -105,8 +105,8 @@ suite("left_join_infer_and_derive") {
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
-    sql """analyze table orders_1 with sync;"""
-    sql """analyze table lineitem_1 with sync;"""
+    sql """analyze table orders_left with sync;"""
+    sql """analyze table lineitem_left with sync;"""
 
     def create_all_mv = { mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
@@ -139,72 +139,72 @@ suite("left_join_infer_and_derive") {
 
     def mtmv_full_join_stmt = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
-        from lineitem_1
-        full join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
-    def mv_name_1 = "mv1"
+        from lineitem_left
+        full join orders_left
+        on lineitem_left.l_orderkey = orders_left.o_orderkey"""
+    def mv_name_1 = "mv_left"
     def mtmv_stmt_list = [mtmv_full_join_stmt]
 
-    def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_1.o_orderkey 
-        from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem_1 where l_shipdate = '2023-10-17') t
-        left join orders_1 
-        on t.l_orderkey = orders_1.o_orderkey"""
+    def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_left.o_orderkey 
+        from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem_left where l_shipdate = '2023-10-17') t
+        left join orders_left 
+        on t.l_orderkey = orders_left.o_orderkey"""
     def mv_stmt_1 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey
-        from lineitem_1  
-        left join (select o_orderdate,o_orderkey from orders_1 where o_orderdate = '2023-10-17' ) t 
-        on lineitem_1.l_orderkey = t.o_orderkey"""
-    def mv_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from lineitem_1  
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+        from lineitem_left  
+        left join (select o_orderdate,o_orderkey from orders_left where o_orderdate = '2023-10-17' ) t 
+        on lineitem_left.l_orderkey = t.o_orderkey"""
+    def mv_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from lineitem_left  
+        left join orders_left 
+        on lineitem_left.l_orderkey = orders_left.o_orderkey 
         where l_shipdate = '2023-10-17'"""
-    def mv_stmt_3 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from lineitem_1  
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+    def mv_stmt_3 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from lineitem_left  
+        left join orders_left 
+        on lineitem_left.l_orderkey = orders_left.o_orderkey 
         where o_orderdate = '2023-10-17'"""
-    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from lineitem_1  
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from lineitem_left  
+        left join orders_left 
+        on lineitem_left.l_orderkey = orders_left.o_orderkey 
         where o_orderkey = 1"""
-    def mv_stmt_5 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from lineitem_1  
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+    def mv_stmt_5 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from lineitem_left  
+        left join orders_left 
+        on lineitem_left.l_orderkey = orders_left.o_orderkey 
         where l_suppkey = 2"""
-    def mv_stmt_6 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_1.o_orderkey 
-        from orders_1 
-        left join  (select l_shipdate, l_orderkey, l_partkey, l_suppkey  from lineitem_1  where l_shipdate = '2023-10-17') t 
-        on t.l_orderkey = orders_1.o_orderkey"""
+    def mv_stmt_6 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_left.o_orderkey 
+        from orders_left 
+        left join  (select l_shipdate, l_orderkey, l_partkey, l_suppkey  from lineitem_left  where l_shipdate = '2023-10-17') t 
+        on t.l_orderkey = orders_left.o_orderkey"""
     def mv_stmt_7 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey 
-        from (select o_orderdate, o_orderkey from orders_1 where o_orderdate = '2023-10-17' ) t 
-        left join lineitem_1   
-        on lineitem_1.l_orderkey = t.o_orderkey"""
-    def mv_stmt_8 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1  
-        left join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+        from (select o_orderdate, o_orderkey from orders_left where o_orderdate = '2023-10-17' ) t 
+        left join lineitem_left   
+        on lineitem_left.l_orderkey = t.o_orderkey"""
+    def mv_stmt_8 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from orders_left  
+        left join lineitem_left  
+        on lineitem_left.l_orderkey = orders_left.o_orderkey 
         where l_shipdate = '2023-10-17' """
-    def mv_stmt_9 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1 
-        left join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+    def mv_stmt_9 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from orders_left 
+        left join lineitem_left  
+        on lineitem_left.l_orderkey = orders_left.o_orderkey 
         where o_orderdate = '2023-10-17'  """
-    def mv_stmt_10 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1  
-        left join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    def mv_stmt_10 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from orders_left  
+        left join lineitem_left  
+        on lineitem_left.l_orderkey = orders_left.o_orderkey
         where o_orderkey = 1"""
-    def mv_stmt_11 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1  
-        left join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    def mv_stmt_11 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from orders_left  
+        left join lineitem_left  
+        on lineitem_left.l_orderkey = orders_left.o_orderkey
         where l_suppkey = 2"""
-    def mv_stmt_12 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1  
-        left join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    def mv_stmt_12 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_left.o_orderkey 
+        from orders_left  
+        left join lineitem_left  
+        on lineitem_left.l_orderkey = orders_left.o_orderkey
         where l_suppkey = 2 and o_orderdate = '2023-10-17'"""
 
     def mv_list = [mv_stmt_0, mv_stmt_1, mv_stmt_2, mv_stmt_3, mv_stmt_4, mv_stmt_5,
