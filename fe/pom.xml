@@ -327,6 +327,7 @@ under the License.
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
         <hadoop.version>3.4.0</hadoop.version>
+        <awssdk.version>2.23.19</awssdk.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
         <spring.version>2.7.13</spring.version>
@@ -1416,7 +1417,16 @@ under the License.
                         <groupId>com.amazonaws</groupId>
                         <artifactId>aws-java-sdk-bundle</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>software.amazon.awssdk</groupId>
+                        <artifactId>bundle</artifactId>
+                    </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>utils</artifactId>
+                <version>${awssdk.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
