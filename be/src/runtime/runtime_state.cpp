@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_x/operator.h"
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -543,4 +544,5 @@ Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilte
 bool RuntimeState::is_nereids() const {
     return _query_ctx->is_nereids();
 }
+
 } // end namespace doris
