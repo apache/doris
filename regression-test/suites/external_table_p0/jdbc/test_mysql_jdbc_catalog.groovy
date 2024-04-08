@@ -64,6 +64,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String dt_null = "dt_null";
         String test_zd = "test_zd"
 
+        sql """set time_zone = 'Asia/Shanghai';"""
+
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
@@ -614,7 +616,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        sql """set time_zone = 'Asia/Shanghai';"""
         qt_timezone1 """select timestamp_value from mysql_test_time_zone.doris_test.ex_tb19;"""
         sql """set time_zone = 'UTC';"""
         qt_timezone2 """select timestamp_value from mysql_test_time_zone.doris_test.ex_tb19;"""

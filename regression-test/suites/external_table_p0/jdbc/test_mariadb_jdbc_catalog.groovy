@@ -35,6 +35,8 @@ suite("test_mariadb_jdbc_catalog", "p0,external,mariadb,external_docker,external
         String auto_default_t = "auto_default_t";
         String dt = "dt";
 
+        sql """set time_zone = 'Asia/Shanghai';"""
+
         sql """create database if not exists ${internal_db_name}; """
 
         sql """drop catalog if exists ${catalog_name} """
