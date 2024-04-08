@@ -24,6 +24,7 @@ import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -163,19 +164,17 @@ public class StorageVaultMgr {
 
     public void createS3Vault(StorageVault vault) throws DdlException {
         S3StorageVault s3StorageVault = (S3StorageVault) vault;
-        Cloud.HdfsVaultInfo hdfsInfos = HdfsStorageVault.generateHdfsParam(hdfsStorageVault.getCopiedProperties());
-        Cloud.ObjectStoreInfoPB.Builder objBuilder = Cloud.ObjectStoreInfoPB.newBuilder();
-        alterHdfsInfoBuilder.setName(hdfsStorageVault.getName());
-        alterHdfsInfoBuilder.setHdfsInfo(hdfsInfos);
+        Cloud.ObjectStoreInfoPB.Builder objBuilder = S3Properties.getObjStoreInfoPB(vault.getCopiedProperties());
+        objBuilder.setName(s3StorageVault.getName());
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
                 = Cloud.AlterObjStoreInfoRequest.newBuilder();
-        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_INFO);
-        requestBuilder.setHdfs(alterHdfsInfoBuilder.build());
+        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_VAULT);
+        requestBuilder.setObj(objBuilder.build());
         try {
             Cloud.AlterObjStoreInfoResponse response =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
-                    && hdfsStorageVault.ifNotExists()) {
+                    && s3StorageVault.ifNotExists()) {
                 return;
             }
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
