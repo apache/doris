@@ -348,8 +348,7 @@ private:
         }
     }
 
-    static void vector_vector(const ColumnString& vec0, const ColumnString& vec1,
-                              ColumnInt8& res) {
+    static void vector_vector(const ColumnString& vec0, const ColumnString& vec1, ColumnInt8& res) {
         size_t size = vec0.size();
         for (size_t i = 0; i < size; ++i) {
             res.get_data()[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
