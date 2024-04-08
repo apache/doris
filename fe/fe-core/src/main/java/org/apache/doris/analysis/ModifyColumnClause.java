@@ -75,7 +75,11 @@ public class ModifyColumnClause extends AlterTableClause {
                     && columnDef.getAggregateType() == null) {
                 columnDef.setIsKey(true);
             }
+            if (table instanceof OlapTable) {
+                columnDef.setKeysType(((OlapTable) table).getKeysType());
+            }
         }
+
         columnDef.analyze(true);
         if (colPos != null) {
             colPos.analyze();
