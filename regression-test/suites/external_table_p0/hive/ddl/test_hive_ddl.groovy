@@ -28,7 +28,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             logger.info("${create_db_res}")
             assertTrue(create_db_res.toString().containsIgnoreCase("/user/hive/warehouse/test_hive_db.db"))
             sql """use `test_hive_db`"""
-
+            sql """ drop database if exists `test_hive_db` """;
             sql """
                     CREATE TABLE test_hive_db_has_tbl (
                       `col` STRING COMMENT 'col'
@@ -39,7 +39,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 exception "Unexpected exception: failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_loc is not empty. One or more tables exist."
             }
 
-            sql """DROP TABLE `test_hive_db_has_tbl`"""
+            sql """ DROP TABLE `test_hive_db_has_tbl` """
             sql """ drop database `test_hive_db` """;
             sql """ drop database if exists `test_hive_db` """;
         }
@@ -448,7 +448,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
-            """;
+                """
 
             // test all columns
             sql """ INSERT INTO part_tbl_${file_format} (col1, col2, col3, col4, pt1, pt2)
@@ -475,6 +475,85 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             order_qt_insert06 """ SELECT col1, col2, col3, col4 FROM part_tbl_${file_format}  """
 
             sql """ drop table if exists part_tbl_${file_format} """
+
+            // test partitions
+            sql """
+                CREATE TABLE all_part_types_tbl_${file_format}(
+                  `col` INT COMMENT 'col',
+                  `pt1` BOOLEAN COMMENT 'pt1',
+                  `pt2` TINYINT COMMENT 'pt2',
+                  `pt3` SMALLINT COMMENT 'pt3',
+                  `pt4` INT COMMENT 'pt4',
+                  `pt5` BIGINT COMMENT 'pt5',
+                  `pt6` DATE COMMENT 'pt6',
+                  `pt7` DATETIME COMMENT 'pt7',
+                  `pt8` CHAR COMMENT 'pt8',
+                  `pt9` VARCHAR COMMENT 'pt9',
+                  `pt10` STRING COMMENT 'pt10'
+                )  ENGINE=hive 
+                PARTITION BY LIST (pt1, pt2, pt3, pt4, pt5, pt6, pt7, pt8, pt9, pt10) ()
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+            sql """ drop table if exists all_part_types_tbl_${file_format} """
+
+            test {
+                sql """
+                    CREATE TABLE all_part_types_tbl_${file_format}_err3(
+                      `col` INT COMMENT 'col',
+                      `pt1` STRING COMMENT 'pt1'
+                    )  ENGINE=hive 
+                    PARTITION BY LIST (pt000) ()
+                    PROPERTIES (
+                      'file_format'='${file_format}'
+                    )
+                    """
+                exception "errCode = 2, detailMessage = partition key pt000 is not exists"
+            }
+
+            test {
+                sql """
+                    CREATE TABLE all_part_types_tbl_${file_format}_err1(
+                      `col` INT COMMENT 'col',
+                      `pt1` LARGEINT COMMENT 'pt1'
+                    )  ENGINE=hive 
+                    PARTITION BY LIST (pt1) ()
+                    PROPERTIES (
+                      'file_format'='${file_format}'
+                    )
+                    """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create database from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of LARGEINT"
+            }
+
+            test {
+                sql """
+                    CREATE TABLE all_part_types_tbl_${file_format}_err2(
+                      `col` INT COMMENT 'col',
+                      `pt1` FLOAT COMMENT 'pt1'
+                    )  ENGINE=hive 
+                    PARTITION BY LIST (pt1) ()
+                    PROPERTIES (
+                      'file_format'='${file_format}'
+                    )
+                    """
+                exception "errCode = 2, detailMessage = Floating point type column can not be partition column"
+            }
+
+            test {
+                sql """
+                    CREATE TABLE all_part_types_tbl_${file_format}_err3(
+                      `col` INT COMMENT 'col',
+                      `pt1` DOUBLE COMMENT 'pt1'
+                    )  ENGINE=hive 
+                    PARTITION BY LIST (pt1) ()
+                    PROPERTIES (
+                      'file_format'='${file_format}'
+                    )
+                    """
+                exception "errCode = 2, detailMessage = Floating point type column can not be partition column"
+            }
+
             sql """ drop database if exists `test_hive_db_tbl` """;
         }
 

@@ -200,16 +200,7 @@ public class CreateTableInfo {
                 ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
         }
-        if (Strings.isNullOrEmpty(engineName)) {
-            if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
-                engineName = "hive";
-            } else if (ctx.getCurrentCatalog() instanceof IcebergExternalCatalog) {
-                engineName = "iceberg";
-            } else {
-                // set to olap by default
-                engineName = "olap";
-            }
-        }
+        paddingEngineName(ctx);
         checkEngineName();
 
         if (properties == null) {
@@ -551,11 +542,25 @@ public class CreateTableInfo {
         }
     }
 
+    private void paddingEngineName(ConnectContext ctx) {
+        if (Strings.isNullOrEmpty(engineName)) {
+            if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
+                engineName = "hive";
+            } else if (ctx.getCurrentCatalog() instanceof IcebergExternalCatalog) {
+                engineName = "iceberg";
+            } else {
+                // set to olap by default
+                engineName = "olap";
+            }
+        }
+    }
+
     /**
      * validate ctas definition
      */
     public void validateCreateTableAsSelect(List<String> qualifierTableName, List<ColumnDefinition> columns,
                                             ConnectContext ctx) {
+        paddingEngineName(ctx);
         this.columns = Utils.copyRequiredMutableList(columns);
         // bucket num is hard coded 10 to be consistent with legacy planner
         if (engineName.equals("olap") && this.distribution == null) {

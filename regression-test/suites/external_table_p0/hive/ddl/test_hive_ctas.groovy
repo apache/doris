@@ -121,6 +121,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             generateSrcDDLForCTAS(file_format, catalog_name)
             try {
                 sql """ switch `${catalog_name}` """
+                sql """ use test_ctas """
                 // 1. external to external un-partitioned table
                 sql """ CREATE TABLE hive_ctas1 ENGINE=hive AS SELECT col1 FROM unpart_ctas_src; 
                 """
@@ -155,18 +156,38 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 order_qt_ctas_03 """ SELECT * FROM hive_ctas3  """
                 sql """ DROP TABLE hive_ctas3 """
 
+                sql """ CREATE TABLE hive_ctas4 AS SELECT * FROM part_ctas_src WHERE col1>0;
+                """
+
+                sql """ INSERT INTO hive_ctas4 SELECT * FROM part_ctas_src WHERE col1>=22;
+                """
+                sql """ INSERT OVERWRITE TABLE hive_ctas4 SELECT * FROM part_ctas_src WHERE col1>=22;
+                """
+                order_qt_ctas_04 """ SELECT * FROM ${catalog_name}.test_ctas.hive_ctas4  """
+                sql """ DROP TABLE hive_ctas4 """
 
                 // 4. external to external partitioned table with partitions and cols
-                sql """ CREATE TABLE hive_ctas4 ENGINE=hive PARTITION BY LIST (pt1, pt2) ()
+                sql """ CREATE TABLE hive_ctas5 ENGINE=hive PARTITION BY LIST (pt1, pt2) ()
                 AS SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>0;
                 """
 
-                sql """ INSERT INTO hive_ctas4 SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>=22;
+                sql """ INSERT INTO hive_ctas5 SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>=22;
                 """
-                sql """ INSERT OVERWRITE TABLE hive_ctas4 SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>=22;
+                sql """ INSERT OVERWRITE TABLE hive_ctas5 SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>=22;
                 """
-                order_qt_ctas_04 """ SELECT * FROM hive_ctas4  """
-                sql """ DROP TABLE hive_ctas4 """
+                order_qt_ctas_05 """ SELECT * FROM hive_ctas5  """
+                sql """ DROP TABLE hive_ctas5 """
+
+                sql """ CREATE TABLE hive_ctas6 PARTITION BY LIST (pt1, pt2) ()
+                AS SELECT * FROM part_ctas_src WHERE col1>0;
+                """
+
+                sql """ INSERT INTO hive_ctas6 SELECT * FROM part_ctas_src WHERE col1>=22;
+                """
+                sql """ INSERT OVERWRITE TABLE hive_ctas6 SELECT * FROM part_ctas_src WHERE col1>=22;
+                """
+                order_qt_ctas_06 """ SELECT * FROM ${catalog_name}.test_ctas.hive_ctas6  """
+                sql """ DROP TABLE hive_ctas6 """
 
             } finally {
                 destroySrcDDLForCTAS(catalog_name)
@@ -325,8 +346,20 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                     exception "errCode = 2, detailMessage = ctas column size is not equal to the query's"
                 }
 
+                test {
+                    sql """ CREATE TABLE ${catalog_name}.test_no_err.ctas_o2 (col1,pt1,pt2) ENGINE=hive 
+                        PARTITION BY LIST (pt1,pt2,pt3) ()
+                        PROPERTIES (
+                            "file_format"="parquet",
+                            "orc.compress"="zstd"
+                        )
+                        AS SELECT * FROM test_ctas.part_ctas_src WHERE col1>0; 
+                    """
+                    exception "errCode = 2, detailMessage = partition key pt3 is not exists"
+                }
+
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_no_err.ctas_o2 """
-                sql """ CREATE TABLE ${catalog_name}.test_no_err.ctas_o2 (col1,col2,pt2) ENGINE=hive 
+                sql """ CREATE TABLE ${catalog_name}.test_no_err.ctas_o2 (col1,col2,pt1) ENGINE=hive 
                         PARTITION BY LIST (pt1) ()
                         PROPERTIES (
                             "file_format"="parquet",
@@ -353,6 +386,9 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             }
         }
 
+        def test_ctas_all_types = { String file_format, String catalog_name ->
+
+        }
 
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
@@ -374,6 +410,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 test_ctas_tbl(file_format, catalog_name)
                 test_ctas_extend(file_format, catalog_name)
                 test_ctas_exception(file_format, catalog_name)
+                test_ctas_all_types(file_format, catalog_name)
             }
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
