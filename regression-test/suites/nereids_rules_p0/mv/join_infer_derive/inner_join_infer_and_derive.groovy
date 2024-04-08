@@ -28,10 +28,10 @@ suite("inner_join_infer_and_derive") {
     sql "SET enable_nereids_timeout = false"
 
     sql """
-    drop table if exists orders_1
+    drop table if exists orders_inner
     """
 
-    sql """CREATE TABLE `orders_1` (
+    sql """CREATE TABLE `orders_inner` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
       `o_orderstatus` VARCHAR(1) NULL,
@@ -51,10 +51,10 @@ suite("inner_join_infer_and_derive") {
     );"""
 
     sql """
-    drop table if exists lineitem_1
+    drop table if exists lineitem_inner
     """
 
-    sql """CREATE TABLE `lineitem_1` (
+    sql """CREATE TABLE `lineitem_inner` (
       `l_orderkey` BIGINT NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
@@ -81,7 +81,7 @@ suite("inner_join_infer_and_derive") {
     );"""
 
     sql """
-    insert into orders_1 values 
+    insert into orders_inner values 
     (null, 1, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (1, null, 'o', 109.2, 'c','d',2, 'mm', '2023-10-17'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
@@ -95,7 +95,7 @@ suite("inner_join_infer_and_derive") {
     """
 
     sql """
-    insert into lineitem_1 values 
+    insert into lineitem_inner values 
     (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
@@ -105,8 +105,8 @@ suite("inner_join_infer_and_derive") {
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
-    sql """analyze table orders_1 with sync;"""
-    sql """analyze table lineitem_1 with sync;"""
+    sql """analyze table orders_inner with sync;"""
+    sql """analyze table lineitem_inner with sync;"""
 
     def create_all_mv = { mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
@@ -139,81 +139,81 @@ suite("inner_join_infer_and_derive") {
 
     def mtmv_left_join_stmt = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
+        from lineitem_inner
+        left join orders_inner
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey"""
     def mtmv_right_join_stmt = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
-        from lineitem_1
-        right join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
+        from lineitem_inner
+        right join orders_inner
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey"""
     def mtmv_full_join_stmt = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
-        from lineitem_1
-        full join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey"""
-    def mv_name_1 = "mv1"
+        from lineitem_inner
+        full join orders_inner
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey"""
+    def mv_name_1 = "mv_inner"
     def mtmv_stmt_list = [mtmv_left_join_stmt, mtmv_right_join_stmt, mtmv_full_join_stmt]
-    def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_1.o_orderkey 
-        from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem_1 where l_shipdate = '2023-10-17') t
-        inner join orders_1 
-        on t.l_orderkey = orders_1.o_orderkey"""
+    def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_inner.o_orderkey 
+        from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem_inner where l_shipdate = '2023-10-17') t
+        inner join orders_inner 
+        on t.l_orderkey = orders_inner.o_orderkey"""
     def mv_stmt_1 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey
-        from lineitem_1  
-        inner join (select o_orderdate,o_orderkey from orders_1 where o_orderdate = '2023-10-17' ) t 
-        on lineitem_1.l_orderkey = t.o_orderkey"""
-    def mv_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from lineitem_1  
-        inner join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+        from lineitem_inner  
+        inner join (select o_orderdate,o_orderkey from orders_inner where o_orderdate = '2023-10-17' ) t 
+        on lineitem_inner.l_orderkey = t.o_orderkey"""
+    def mv_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from lineitem_inner  
+        inner join orders_inner 
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey 
         where l_shipdate = '2023-10-17'"""
-    def mv_stmt_3 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from lineitem_1  
-        inner join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+    def mv_stmt_3 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from lineitem_inner  
+        inner join orders_inner 
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey 
         where o_orderdate = '2023-10-17'"""
-    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from lineitem_1  
-        inner join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from lineitem_inner  
+        inner join orders_inner 
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey 
         where o_orderkey = 1"""
-    def mv_stmt_5 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from lineitem_1  
-        inner join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+    def mv_stmt_5 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from lineitem_inner  
+        inner join orders_inner 
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey 
         where l_suppkey = 2"""
-    def mv_stmt_6 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_1.o_orderkey 
-        from orders_1 
-        inner join  (select l_shipdate, l_orderkey, l_partkey, l_suppkey  from lineitem_1  where l_shipdate = '2023-10-17') t 
-        on t.l_orderkey = orders_1.o_orderkey"""
+    def mv_stmt_6 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_inner.o_orderkey 
+        from orders_inner 
+        inner join  (select l_shipdate, l_orderkey, l_partkey, l_suppkey  from lineitem_inner  where l_shipdate = '2023-10-17') t 
+        on t.l_orderkey = orders_inner.o_orderkey"""
     def mv_stmt_7 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey 
-        from (select o_orderdate, o_orderkey from orders_1 where o_orderdate = '2023-10-17' ) t 
-        inner join lineitem_1   
-        on lineitem_1.l_orderkey = t.o_orderkey"""
-    def mv_stmt_8 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1  
-        inner join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+        from (select o_orderdate, o_orderkey from orders_inner where o_orderdate = '2023-10-17' ) t 
+        inner join lineitem_inner   
+        on lineitem_inner.l_orderkey = t.o_orderkey"""
+    def mv_stmt_8 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from orders_inner  
+        inner join lineitem_inner  
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey 
         where l_shipdate = '2023-10-17' """
-    def mv_stmt_9 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1 
-        inner join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey 
+    def mv_stmt_9 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from orders_inner 
+        inner join lineitem_inner  
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey 
         where o_orderdate = '2023-10-17'  """
-    def mv_stmt_10 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1  
-        inner join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    def mv_stmt_10 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from orders_inner  
+        inner join lineitem_inner  
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey
         where o_orderkey = 1"""
-    def mv_stmt_11 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1  
-        inner join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    def mv_stmt_11 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from orders_inner  
+        inner join lineitem_inner  
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey
         where l_suppkey = 2"""
-    def mv_stmt_12 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_1.o_orderkey 
-        from orders_1  
-        inner join lineitem_1  
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    def mv_stmt_12 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_inner.o_orderkey 
+        from orders_inner  
+        inner join lineitem_inner  
+        on lineitem_inner.l_orderkey = orders_inner.o_orderkey
         where l_suppkey = 2 and o_orderdate = '2023-10-17'"""
 
     def mv_list = [mv_stmt_0, mv_stmt_1, mv_stmt_2, mv_stmt_3, mv_stmt_4, mv_stmt_5,
