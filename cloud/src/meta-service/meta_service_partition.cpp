@@ -601,7 +601,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
 
     // Update table version only when deleting non-empty partitions
     if (request->has_db_id()) {
-        bool needUpdateTableVersion = false;
+        bool need_update_table_version = false;
         for (auto part_id : request->partition_ids()) {
             std::string partition_ver_key = partition_version_key({
                 instance_id, request->db_id(), request->table_id(), part_id});
@@ -631,11 +631,11 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
                 part_version = pb.version();
             }
             if (part_version > 1) {
-                needUpdateTableVersion = true;
+                need_update_table_version = true;
                 break;
             }
         }
-        if (needUpdateTableVersion) {
+        if (need_update_table_version) {
             std::string ver_key =
                     table_version_key({instance_id, request->db_id(), request->table_id()});
             txn->atomic_add(table_ver_key, 1);
