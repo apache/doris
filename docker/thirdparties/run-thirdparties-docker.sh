@@ -41,6 +41,9 @@ Usage: $0 <options>
   "
     exit 1
 }
+COMPONENTS=$2
+HELP=0
+STOP=0
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -54,9 +57,7 @@ fi
 
 eval set -- "${OPTS}"
 
-COMPONENTS=""
-HELP=0
-STOP=0
+
 
 if [[ "$#" == 1 ]]; then
     # default
@@ -103,6 +104,7 @@ fi
 
 if [[ "${COMPONENTS}"x == ""x ]]; then
     echo "Invalid arguments"
+    echo ${COMPONENTS}
     usage
 fi
 
