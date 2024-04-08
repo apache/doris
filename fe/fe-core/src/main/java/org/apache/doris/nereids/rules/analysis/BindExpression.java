@@ -583,10 +583,13 @@ public class BindExpression implements AnalysisRuleFactory {
                     slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains(slot));
                 }
                 boundProjections.addAll(slots);
+
+                // for create view stmt expand star
+                List<Slot> slotsForLambda = slots;
                 UnboundStar unboundStar = (UnboundStar) expression;
-                if (unboundStar.getIndexInSqlString() != null) {
-                    statementContext.addIndexInSqlToString(unboundStar.getIndexInSqlString(), toSqlWithBacktick(slots));
-                }
+                unboundStar.getIndexInSqlString().ifPresent(pair ->
+                        statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda))
+                );
             }
         }
         return project.withProjects(boundProjections.build());
@@ -980,8 +983,8 @@ public class BindExpression implements AnalysisRuleFactory {
         List<? extends Expression> bindSlot(ExpressionAnalyzer analyzer, UnboundSlot unboundSlot);
     }
 
-    public String toSqlWithBacktick(List<Slot> slots) {
-        return slots.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBacktick())
+    public String toSqlWithBackquote(List<Slot> slots) {
+        return slots.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBackquote())
                 .collect(Collectors.joining(", "));
     }
 

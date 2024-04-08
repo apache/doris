@@ -79,7 +79,6 @@ public class CreateViewInfo {
     private final String querySql;
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
     private final List<Column> finalCols = Lists.newArrayList();
-    private final List<Slot> outputs = Lists.newArrayList();
     private Plan analyzedPlan;
 
     /** constructor*/
@@ -102,8 +101,8 @@ public class CreateViewInfo {
         OutermostPlanFinder outermostPlanFinder = new OutermostPlanFinder();
         AtomicReference<Plan> outermostPlan = new AtomicReference<>();
         analyzedPlan.accept(outermostPlanFinder, outermostPlan);
-        outputs.addAll(outermostPlan.get().getOutput());
-        createFinalCols();
+        List<Slot> outputs = outermostPlan.get().getOutput();
+        createFinalCols(outputs);
     }
 
     /**validate*/
@@ -131,7 +130,7 @@ public class CreateViewInfo {
     public CreateViewStmt translateToLegacyStmt(ConnectContext ctx) {
         List<ColWithComment> cols = Lists.newArrayList();
         for (SimpleColumnDefinition def : simpleColumnDefinitions) {
-            cols.add(def.transferToColWithComment());
+            cols.add(def.translateToColWithComment());
         }
         CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, viewName.transferToTableName(), cols, comment,
                 null);
@@ -199,7 +198,7 @@ public class CreateViewInfo {
                 finder.getIndex().second + 1);
     }
 
-    private void createFinalCols() throws org.apache.doris.common.AnalysisException {
+    private void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
                 Column column = new Column(output.getName(), output.getDataType().toCatalogDataType());

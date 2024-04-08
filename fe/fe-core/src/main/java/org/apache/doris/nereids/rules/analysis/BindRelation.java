@@ -241,11 +241,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
                                                List<String> tableQualifier, CascadesContext cascadesContext) {
-        if (unboundRelation.getIndexInSqlString() != null) {
+        // for create view stmt replace tablename to ctl.db.tablename
+        unboundRelation.getIndexInSqlString().ifPresent(pair -> {
             StatementContext statementContext = cascadesContext.getStatementContext();
-            statementContext.addIndexInSqlToString(unboundRelation.getIndexInSqlString(),
-                    Utils.qualifiedNameWithBacktick(tableQualifier));
-        }
+            statementContext.addIndexInSqlToString(pair,
+                    Utils.qualifiedNameWithBackquote(tableQualifier));
+        });
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(tableQualifier.subList(0, tableQualifier.size() - 1));
         switch (table.getType()) {

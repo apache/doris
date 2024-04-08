@@ -182,3 +182,47 @@ test_view_star_except	CREATE VIEW `test_view_star_except` COMMENT 'VIEW' AS sele
 -- !test_create_view_from_view_sql --
 test_view_from_view	CREATE VIEW `test_view_from_view` COMMENT 'VIEW' AS select `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`pk` AS `c1`, `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`a` AS `c2`, `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`test_view_with_as`;	utf8mb4	utf8mb4_0900_bin
 
+-- !test_backquote_in_view_define --
+\N	6
+1	2
+1	3
+1	4
+1	4
+1	7
+2	8
+3	5
+3	6
+3	9
+4	2
+5	\N
+5	6
+5	6
+5	6
+5	8
+7	1
+
+-- !test_backquote_in_view_define_sql --
+test_backquote_in_view_define	CREATE VIEW `test_backquote_in_view_define` COMMENT 'VIEW' AS select a AS `ab``c`, b AS `c2` from `internal`.`regression_test_ddl_p0`.`mal_test_view`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_backquote_in_table_alias --
+\N	6
+1	2
+1	3
+1	4
+1	4
+1	7
+2	8
+3	5
+3	6
+3	9
+4	2
+5	\N
+5	6
+5	6
+5	6
+5	8
+7	1
+
+-- !test_backquote_in_table_alias_sql --
+test_backquote_in_table_alias	CREATE VIEW `test_backquote_in_table_alias` COMMENT 'VIEW' AS select `ab``c`.`a` AS `c1`, `ab``c`.`b` AS `c2` from (select a,b from `internal`.`regression_test_ddl_p0`.`mal_test_view`) `ab``c`;	utf8mb4	utf8mb4_0900_bin
+

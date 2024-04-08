@@ -266,4 +266,15 @@ suite("test_create_view_nereids") {
     qt_test_create_view_from_view "select * from test_view_from_view order by c1,c2,c3"
     qt_test_create_view_from_view_sql "show create view test_view_from_view"
 
+    // test backquote in name
+
+    sql "drop view if exists test_backquote_in_view_define;"
+    sql "create view test_backquote_in_view_define(`ab``c`, c2) as select a,b from mal_test_view;"
+    qt_test_backquote_in_view_define "select * from test_backquote_in_view_define order by `ab``c`, c2;"
+    qt_test_backquote_in_view_define_sql "show create view test_backquote_in_view_define;"
+
+    sql "drop view if exists test_backquote_in_table_alias;"
+    sql "create view test_backquote_in_table_alias(c1, c2) as  select * from (select a,b from mal_test_view) `ab``c`;"
+    qt_test_backquote_in_table_alias "select * from test_backquote_in_table_alias order by c1, c2;"
+    qt_test_backquote_in_table_alias_sql "show create view test_backquote_in_table_alias;"
 }

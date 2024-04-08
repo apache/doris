@@ -129,18 +129,20 @@ public class Utils {
     }
 
     /** get qualified name with Backtick */
-    public static String qualifiedNameWithBacktick(List<String> qualifiers, String name) {
+    public static String qualifiedNameWithBackquote(List<String> qualifiers, String name) {
         List<String> fullName = new ArrayList<>(qualifiers);
         fullName.add(name);
-        return qualifiedNameWithBacktick(fullName);
+        return qualifiedNameWithBackquote(fullName);
     }
 
-    public static String qualifiedNameWithBacktick(List<String> qualifiers) {
-        List<String> qualifierWithBacktick = Lists.newArrayListWithCapacity(qualifiers.size());
+    /** get qualified name with Backtick */
+    public static String qualifiedNameWithBackquote(List<String> qualifiers) {
+        List<String> qualifierWithBackquote = Lists.newArrayListWithCapacity(qualifiers.size());
         for (String qualifier : qualifiers) {
-            qualifierWithBacktick.add('`' + qualifier + '`');
+            String escapeQualifier = qualifier.replace("`", "``");
+            qualifierWithBackquote.add('`' + escapeQualifier + '`');
         }
-        return StringUtils.join(qualifierWithBacktick, ".");
+        return StringUtils.join(qualifierWithBackquote, ".");
     }
 
     /**

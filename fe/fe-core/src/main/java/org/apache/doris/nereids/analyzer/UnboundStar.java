@@ -29,6 +29,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Star expression.
@@ -36,14 +37,15 @@ import java.util.Objects;
 public class UnboundStar extends NamedExpression implements LeafExpression, Unbound, PropagateNullable {
     private final List<String> qualifier;
     // the start and end position of the sql substring(e.g. "*", "table.*")
-    private Pair<Integer, Integer> indexInSqlString;
+    private final Optional<Pair<Integer, Integer>> indexInSqlString;
 
     public UnboundStar(List<String> qualifier) {
         super(ImmutableList.of());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
+        this.indexInSqlString = Optional.empty();
     }
 
-    public UnboundStar(List<String> qualifier, Pair<Integer, Integer> indexInSqlString) {
+    public UnboundStar(List<String> qualifier, Optional<Pair<Integer, Integer>> indexInSqlString) {
         super(ImmutableList.of());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = indexInSqlString;
@@ -79,7 +81,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
         return qualifier.equals(that.qualifier);
     }
 
-    public Pair<Integer, Integer> getIndexInSqlString() {
+    public Optional<Pair<Integer, Integer>> getIndexInSqlString() {
         return indexInSqlString;
     }
 

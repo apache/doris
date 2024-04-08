@@ -298,7 +298,7 @@ public class SlotReference extends Slot {
         }
     }
 
-    public String getQualifiedNameWithBacktick() throws UnboundException {
-        return Utils.qualifiedNameWithBacktick(getQualifier(), getName());
+    public String getQualifiedNameWithBackquote() throws UnboundException {
+        return Utils.qualifiedNameWithBackquote(getQualifier(), getName());
     }
 }

@@ -421,6 +421,7 @@ public enum RuleType {
     LOGICAL_GENERATE_TO_PHYSICAL_GENERATE(RuleTypeClass.IMPLEMENTATION),
     LOGICAL_WINDOW_TO_PHYSICAL_WINDOW_RULE(RuleTypeClass.IMPLEMENTATION),
     IMPLEMENTATION_SENTINEL(RuleTypeClass.IMPLEMENTATION),
+
     // sentinel, use to count rules
     SENTINEL(RuleTypeClass.SENTINEL),
     ;

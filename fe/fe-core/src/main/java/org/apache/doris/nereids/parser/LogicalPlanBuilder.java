@@ -1346,7 +1346,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         UnboundRelation relation = forCreateView ? new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                 tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
                 Optional.ofNullable(tableSample), indexName, scanParams,
-                Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex())) :
+                Optional.of(Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex()))) :
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
                         Optional.ofNullable(tableSample), indexName, scanParams);
@@ -1400,7 +1400,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 target = ImmutableList.of();
             }
             return forCreateView
-                    ? new UnboundStar(target, Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex())) :
+                    ? new UnboundStar(target, Optional.of(Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex()))) :
                     new UnboundStar(target);
         });
     }
@@ -2891,7 +2891,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
                     UnboundStar star = forCreateView ? new UnboundStar(ImmutableList.of(),
-                            Pair.of(selectColumnCtx.start.getStartIndex(), selectColumnCtx.stop.getStopIndex())) :
+                            Optional.of(Pair.of(selectColumnCtx.start.getStartIndex(), selectColumnCtx.stop.getStopIndex()))) :
                             new UnboundStar(ImmutableList.of());
                     project = new LogicalProject<>(ImmutableList.of(star), expressions, isDistinct, aggregate);
                 } else {
@@ -3073,7 +3073,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
                     UnboundStar star = forCreateView ? new UnboundStar(ImmutableList.of(),
-                            Pair.of(selectCtx.start.getStartIndex(), selectCtx.stop.getStopIndex())) :
+                            Optional.of(Pair.of(selectCtx.start.getStartIndex(), selectCtx.stop.getStopIndex()))) :
                             new UnboundStar(ImmutableList.of());
                     return new LogicalProject<>(ImmutableList.of(star), expressions, isDistinct, input);
                 } else {

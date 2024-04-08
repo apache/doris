@@ -42,7 +42,7 @@ public class SimpleColumnDefinition {
         return comment;
     }
 
-    public ColWithComment transferToColWithComment() {
+    public ColWithComment translateToColWithComment() {
         return new ColWithComment(name, comment);
     }
 }
