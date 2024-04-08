@@ -55,41 +55,39 @@
 
 // example of debug point with handler.
 //
-// demo code:
+// base code:
 //
-// void demo() {
-//     int a = 100;
-//     int b = 0;
+// void demo_handler() {
+//    int a = 0;
 //
-//     DBUG_EXECUTE_IF("my_test", {
-//          std::function<void(int, int&)> handler;
-//          try {
-//              handler = std::any_cast<decltype(handler)>(dp->handler);
-//          } catch (const std::bad_any_cast& e)
-//              LOG(WARNING) << "cast debug point my_test function failed, err=" << e.what();
-//          }
+//    DBUG_EXECUTE_IF("set_a", {
+//        auto handler = std::any_cast<std::function<void(int&)>>(dp->handler);
+//        handler(a);
+//    });
 //
-//          if (handler) {
-//              handler(a, b);
-//          }
-//     });
-// }
+//    DBUG_EXECUTE_IF("get_a", {
+//        auto handler = std::any_cast<std::function<void(int)>>(dp->handler);
+//        handler(a);
+//    });
+//}
 //
 // test code:
 //
-// void test {
-//    int input_b = 1000;
-//    int output_a = 0;
+//TEST(DebugPointsTest, Handler) {
+//    config::enable_debug_points = true;
+//    DebugPoints::instance()->clear();
 //
-//    std::function<void(int, int&)> handler = [=input_b, &output_a](int a, int& b) {
-//        output_a = a;
-//        b = input_b;
-//    }
+//    int got_a = 0;
 //
-//    DebugPoints.instance()->add_with_handler("my_test", handler);
+//    std::function<void(int&)> set_handler = [](int& a) { a = 1000; };
+//    std::function<void(int)> get_handler = [&got_a](int a) { got_a = a; };
+//    DebugPoints::instance()->add_with_handler("set_a", set_handler);
+//    DebugPoints::instance()->add_with_handler("get_a", get_handler);
 //
-//    ASSERT.EQ(100, output_a);
-// }
+//    demo_handler();
+//
+//    EXPECT_EQ(1000, got_a);
+//}
 
 namespace doris {
 
@@ -100,7 +98,7 @@ struct DebugPoint {
 
     std::map<std::string, std::string> params;
 
-    // Usually `handler` use in be ut, to get local variable of the injected code,
+    // Usually `handler` use in be ut, to exchange local variable between base code and injected code,
     // or change with different injected handlers.
     // test/util/debug_points_test.cpp#Handler give a example.
     std::any handler;
