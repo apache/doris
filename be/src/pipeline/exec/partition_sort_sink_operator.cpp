@@ -30,7 +30,19 @@ OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
+    _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
+    _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
+    _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
+    _passthrough_rows_counter = ADD_COUNTER(_profile, "PassThroughRowsCounter", TUnit::UNIT);
+    return Status::OK();
+}
+
+Status PartitionSortSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortNodeSharedState>::open(state));
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     _partition_expr_ctxs.resize(p._partition_expr_ctxs.size());
@@ -41,11 +53,6 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _partition_exprs_num = p._partition_exprs_num;
     _partitioned_data = std::make_unique<vectorized::PartitionedHashMapVariants>();
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
-    _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
-    _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
-    _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
-    _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
-    _passthrough_rows_counter = ADD_COUNTER(_profile, "PassThroughRowsCounter", TUnit::UNIT);
     _partition_sort_info = std::make_shared<vectorized::PartitionSortInfo>(
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
             p._child_x->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,

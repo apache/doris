@@ -32,7 +32,7 @@ OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
     return Status::OK();
 }

@@ -100,15 +100,22 @@ Status ResultFileSinkOperatorX::open(RuntimeState* state) {
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _sender_id = info.sender_id;
-
+    _dest_node_id = info.tsink.result_file_sink.dest_node_id;
     _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
     _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
     _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
     _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
+    return Status::OK();
+}
+
+Status ResultFileSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     CHECK(p._file_opts.get() != nullptr);
     if (p._is_top_sink) {
@@ -134,7 +141,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         for (int i = 0; i < p._dests.size(); ++i) {
             _channels.push_back(new vectorized::Channel(this, p._row_desc, p._dests[i].brpc_server,
                                                         state->fragment_instance_id(),
-                                                        info.tsink.result_file_sink.dest_node_id));
+                                                        _dest_node_id));
         }
         std::random_device rd;
         std::mt19937 g(rd());
@@ -152,12 +159,6 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
-}
-
-Status ResultFileSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    return Base::open(state);
 }
 
 Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) {
