@@ -262,7 +262,7 @@ public class ExecutionProfile {
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
             for (TDetailedReportParams param : params.detailed_report) {
                 String name = "Pipeline :" + pipelineIdx + " "
-                        + " (host=" + backend.getAddress() + ")";
+                        + " (host=" + backend.getHeartbeatAddress() + ")";
                 RuntimeProfile profile = new RuntimeProfile(name);
                 taskProfile.add(profile);
                 if (param.isSetProfile()) {
@@ -279,7 +279,7 @@ public class ExecutionProfile {
             if (params.isSetLoadChannelProfile()) {
                 loadChannelProfile.update(params.loadChannelProfile);
             }
-            multiBeProfile.get(params.fragment_id).put(address, taskProfile);
+            multiBeProfile.get(params.fragment_id).put(backend.getHeartbeatAddress(), taskProfile);
         } else {
             PlanFragmentId fragmentId = instanceIdToFragmentId.get(params.fragment_instance_id);
             if (fragmentId == null) {

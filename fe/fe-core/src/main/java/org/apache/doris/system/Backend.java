@@ -899,6 +899,10 @@ public class Backend implements Writable {
         return new TNetworkAddress(getHost(), getBrpcPort());
     }
 
+    public TNetworkAddress getHeartbeatAddress() {
+        return new TNetworkAddress(getHost(), getHeartbeatPort());
+    }
+
     public TNetworkAddress getArrowFlightAddress() {
         return new TNetworkAddress(getHost(), getArrowFlightSqlPort());
     }

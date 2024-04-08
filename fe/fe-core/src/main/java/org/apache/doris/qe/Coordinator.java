@@ -3044,7 +3044,7 @@ public class Coordinator implements CoordInterface {
             this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
             String profileName = "Instance " + DebugUtil.printId(
-                    fi.instanceId) + " (host=" + this.backend.getAddress() + ")";
+                    fi.instanceId) + " (host=" + this.backend.getHeartbeatAddress() + ")";
             RuntimeProfile instanceProfile = new RuntimeProfile(profileName);
             executionProfile.addInstanceProfile(fragmentId, fi.instanceId, instanceProfile);
         }
