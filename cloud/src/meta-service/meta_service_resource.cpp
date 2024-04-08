@@ -1841,13 +1841,9 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         return;
     }
 
-    while (true) {
-        if (std::find_if(instance.storage_vault_names().begin(),
-                         instance.storage_vault_names().end(), [](const std::string& name) {
-                             return name == BUILT_IN_STORAGE_VAULT_NAME;
-                         }) != instance.storage_vault_names().end()) {
-            break;
-        }
+    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+                     [](const std::string& name) { return name == BUILT_IN_STORAGE_VAULT_NAME; }) ==
+        instance.storage_vault_names().end()) {
         code = MetaServiceCode::STORAGE_VAULT_NOT_FOUND;
         msg = "instance has no built in storage vault";
         return;
