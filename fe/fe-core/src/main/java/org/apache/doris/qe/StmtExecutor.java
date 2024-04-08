@@ -2602,6 +2602,9 @@ public class StmtExecutor {
             if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
+            } else if (iotStmt.isAutoDetectPartition()) {
+                // insert overwrite table auto detect which partitions need to replace
+                handleAutoOverwritePartition(iotStmt);
             } else {
                 // insert overwrite table with partition
                 handleOverwritePartition(iotStmt);
