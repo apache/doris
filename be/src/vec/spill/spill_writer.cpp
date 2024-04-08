@@ -22,6 +22,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -31,12 +32,6 @@ Status SpillWriter::open() {
         return Status::OK();
     }
     return io::global_local_filesystem()->create_file(file_path_, &file_writer_);
-}
-
-SpillWriter::~SpillWriter() {
-    if (!closed_) {
-        (void)Status::Error<ErrorCode::INTERNAL_ERROR>("spill writer not closed correctly");
-    }
 }
 
 Status SpillWriter::close() {
@@ -65,7 +60,7 @@ Status SpillWriter::close() {
     return Status::OK();
 }
 
-Status SpillWriter::write(const Block& block, size_t& written_bytes) {
+Status SpillWriter::write(RuntimeState* state, const Block& block, size_t& written_bytes) {
     written_bytes = 0;
     DCHECK(file_writer_);
     auto rows = block.rows();
@@ -76,7 +71,7 @@ Status SpillWriter::write(const Block& block, size_t& written_bytes) {
         auto tmp_block = block.clone_empty();
         const auto& src_data = block.get_columns_with_type_and_name();
 
-        for (size_t row_idx = 0; row_idx < rows;) {
+        for (size_t row_idx = 0; row_idx < rows && !state->is_cancelled();) {
             tmp_block.clear_column_data();
 
             auto& dst_data = tmp_block.get_columns_with_type_and_name();
