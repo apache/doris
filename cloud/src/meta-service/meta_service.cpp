@@ -587,7 +587,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         // The obj info stores the legacy obj info for Cloud and stage.
         // All the obj info stored in obj_info is sorted in descending order by id
         // In legacy compatible cloud instances we use the latest obj info's id as default vault id
-        if(size_t idx = instance.obj_info().size() - 1; idx > 0) {
+        if(int idx = instance.obj_info().size() - 1; idx > 0) {
             response->set_storage_vault_id(instance.obj_info().at(idx - 1).id());
             break;
         }
