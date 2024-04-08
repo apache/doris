@@ -66,7 +66,6 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * CreateViewInfo
@@ -98,10 +97,9 @@ public class CreateViewInfo {
     /** init */
     public void init(ConnectContext ctx) throws UserException {
         analyzeAndFillRewriteSqlMap(querySql, ctx);
-        OutermostPlanFinder outermostPlanFinder = new OutermostPlanFinder();
-        AtomicReference<Plan> outermostPlan = new AtomicReference<>();
-        analyzedPlan.accept(outermostPlanFinder, outermostPlan);
-        List<Slot> outputs = outermostPlan.get().getOutput();
+        OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
+        analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
+        List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
         createFinalCols(outputs);
     }
 
@@ -217,31 +215,36 @@ public class CreateViewInfo {
         }
     }
 
-    private static class OutermostPlanFinder extends DefaultPlanVisitor<Void, AtomicReference<Plan>> {
-        boolean found = false;
+    private static class OutermostPlanFinderContext {
+        public Plan outermostPlan = null;
+        public boolean found = false;
+    }
+
+    private static class OutermostPlanFinder extends DefaultPlanVisitor<Void, OutermostPlanFinderContext> {
+        public static final OutermostPlanFinder INSTANCE = new OutermostPlanFinder();
 
         @Override
-        public Void visit(Plan plan, AtomicReference<Plan> target) {
-            if (found) {
+        public Void visit(Plan plan, OutermostPlanFinderContext ctx) {
+            if (ctx.found) {
                 return null;
             }
-            target.set(plan);
-            found = true;
+            ctx.outermostPlan = plan;
+            ctx.found = true;
             return null;
         }
 
         @Override
         public Void visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
-                AtomicReference<Plan> target) {
-            if (found) {
+                OutermostPlanFinderContext ctx) {
+            if (ctx.found) {
                 return null;
             }
-            return super.visit(cteAnchor, target);
+            return super.visit(cteAnchor, ctx);
         }
 
         @Override
         public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
-                AtomicReference<Plan> target) {
+                OutermostPlanFinderContext ctx) {
             return null;
         }
     }
