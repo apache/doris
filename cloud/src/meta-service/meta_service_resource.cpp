@@ -1833,6 +1833,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         return;
     }
 
+    response->set_enable_storage_vault(instance.enable_storage_vault());
     if (instance.enable_storage_vault() &&
         std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [](const std::string& name) { return name == BUILT_IN_STORAGE_VAULT_NAME; }) ==
