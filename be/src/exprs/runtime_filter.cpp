@@ -1095,7 +1095,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
         _set_push_down(!is_late_arrival);
         RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
-    _profile->add_info_string("Info", _format_status());
+    _profile->add_info_string("Info", formatted_state());
     // The runtime filter is pushed down, adding filtering information.
     auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
     auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
@@ -1146,6 +1146,23 @@ bool IRuntimeFilter::await() {
         }
     }
     return true;
+}
+
+void IRuntimeFilter::update_state() {
+    DCHECK(is_consumer());
+    auto execution_timeout = _state->execution_timeout * 1000;
+    auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
+    // bitmap filter is precise filter and only filter once, so it must be applied.
+    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
+                                    ? execution_timeout
+                                    : runtime_filter_wait_time_ms;
+    auto expected = _rf_state_atomic.load(std::memory_order_acquire);
+    DCHECK(_enable_pipeline_exec);
+    // In pipelineX, runtime filters will be ready or timeout before open phase.
+    if (expected == RuntimeFilterState::NOT_READY) {
+        DCHECK(MonotonicMillis() - registration_time_ >= wait_times_ms);
+        _rf_state_atomic = RuntimeFilterState::TIME_OUT;
+    }
 }
 
 // NOTE: Wait infinitely will not make scan task wait really forever.
@@ -1236,7 +1253,7 @@ void IRuntimeFilter::set_ignored(const std::string& msg) {
     _wrapper->_ignored_msg = msg;
 }
 
-std::string IRuntimeFilter::_format_status() const {
+std::string IRuntimeFilter::formatted_state() const {
     return fmt::format(
             "[IsPushDown = {}, RuntimeFilterState = {}, IgnoredMsg = {}, HasRemoteTarget = {}, "
             "HasLocalTarget = {}]",
@@ -1411,7 +1428,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     } else {
         _profile_init = true;
         parent_profile->add_child(_profile.get(), true, nullptr);
-        _profile->add_info_string("Info", _format_status());
+        _profile->add_info_string("Info", formatted_state());
     }
 }
 
