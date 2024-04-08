@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.mv;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -59,7 +60,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
 
 import java.util.Comparator;
 import java.util.HashMap;
@@ -185,6 +185,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
             return scan.getTable().getBaseIndexId();
         }
 
+        MaterializedIndex baseIndex = scan.getTable().getBaseIndex();
+        candidates.add(baseIndex);
+
         OlapTable table = scan.getTable();
         // Scan slot exprId -> slot name
         Map<ExprId, String> exprIdToName = scan.getOutput()
@@ -205,11 +208,13 @@ public abstract class AbstractSelectMaterializedIndexRule {
                                 .sum())
                         // compare by column count
                         .thenComparing(rid -> table.getSchemaByIndexId((Long) rid).size())
+                        // prioritize using non-base index
+                        .thenComparing(rid -> (Long) rid == baseIndex.getId())
                         // compare by index id
                         .thenComparing(rid -> (Long) rid))
                 .collect(Collectors.toList());
 
-        return CollectionUtils.isEmpty(sortedIndexIds) ? scan.getTable().getBaseIndexId() : sortedIndexIds.get(0);
+        return sortedIndexIds.get(0);
     }
 
     protected List<MaterializedIndex> matchPrefixMost(
@@ -222,6 +227,22 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 .map(String::toLowerCase).collect(Collectors.toSet());
         Set<String> nonEqualColNames = split.getOrDefault(false, ImmutableSet.of()).stream()
                 .map(String::toLowerCase).collect(Collectors.toSet());
+
+        // prioritize using index with where clause
+        if (candidate.stream()
+                .anyMatch(index -> scan.getTable().getIndexMetaByIndexId(index.getId()).getWhereClause() != null)) {
+            candidate = candidate.stream()
+                    .filter(index -> scan.getTable().getIndexMetaByIndexId(index.getId()).getWhereClause() != null)
+                    .collect(Collectors.toList());
+        }
+
+        // prioritize using index with pre agg
+        if (candidate.stream().anyMatch(
+                index -> scan.getTable().getIndexMetaByIndexId(index.getId()).getKeysType() != KeysType.DUP_KEYS)) {
+            candidate = candidate.stream().filter(
+                    index -> scan.getTable().getIndexMetaByIndexId(index.getId()).getKeysType() != KeysType.DUP_KEYS)
+                    .collect(Collectors.toList());
+        }
 
         if (!(equalColNames.isEmpty() && nonEqualColNames.isEmpty())) {
             List<MaterializedIndex> matchingResult = matchKeyPrefixMost(scan.getTable(), candidate,
