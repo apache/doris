@@ -292,7 +292,7 @@ public class Coordinator implements CoordInterface {
 
     private final ExecutionProfile executionProfile;
 
-    private QueueToken queueToken = null;
+    private volatile QueueToken queueToken = null;
     private QueryQueue queryQueue = null;
 
     public ExecutionProfile getExecutionProfile() {
@@ -625,7 +625,9 @@ public class Coordinator implements CoordInterface {
         if (context != null) {
             if (Config.enable_workload_group) {
                 this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
-                if (Config.enable_query_queue && !context.getSessionVariable().getBypassWorkloadGroup()) {
+                boolean shouldQueue = Config.enable_query_queue && !context.getSessionVariable()
+                        .getBypassWorkloadGroup() && !isQueryCancelled();
+                if (shouldQueue) {
                     queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
                     if (queryQueue == null) {
                         // This logic is actually useless, because when could not find query queue, it will
@@ -1440,6 +1442,9 @@ public class Coordinator implements CoordInterface {
     // if any, as well as all plan fragments on remote nodes.
     public void cancel() {
         cancel(Types.PPlanFragmentCancelReason.USER_CANCEL);
+        if (queueToken != null) {
+            queueToken.signalForCancel();
+        }
     }
 
     @Override
@@ -1457,6 +1462,15 @@ public class Coordinator implements CoordInterface {
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
                     DebugUtil.printId(queryId), cancelReason.toString());
             cancelInternal(cancelReason);
+        } finally {
+            unlock();
+        }
+    }
+
+    public boolean isQueryCancelled() {
+        lock();
+        try {
+            return queryStatus.isCancelled();
         } finally {
             unlock();
         }
