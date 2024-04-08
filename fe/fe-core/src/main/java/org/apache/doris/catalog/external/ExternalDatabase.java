@@ -141,8 +141,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
             T table = getTableForReplay(log.getRefreshTableIds().get(i));
-            tmpTableNameToId.put(table.getName(), table.getId());
-            tmpIdToTbl.put(table.getId(), table);
+            if (table != null) {
+                table.unsetObjectCreated();
+                tmpTableNameToId.put(table.getName(), table.getId());
+                tmpIdToTbl.put(table.getId(), table);
+            }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
             T table = getExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
