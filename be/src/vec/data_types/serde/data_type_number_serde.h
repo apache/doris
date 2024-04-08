@@ -107,49 +107,50 @@ private:
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto old_column_size = column.size();
     if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
                   std::is_same_v<T, UInt32>) {
-        column.reserve(arg.uint32_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        column.resize(old_column_size + arg.uint32_value_size());
+        auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
-            data.emplace_back(arg.uint32_value(i));
+            data[old_column_size + i] = arg.uint32_value(i);
         }
     } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> ||
                          std::is_same_v<T, Int32>) {
-        column.reserve(arg.int32_value_size());
+        column.resize(old_column_size + arg.int32_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
-            data.emplace_back(arg.int32_value(i));
+            data[old_column_size + i] = arg.int32_value(i);
         }
     } else if constexpr (std::is_same_v<T, UInt64>) {
-        column.reserve(arg.uint64_value_size());
+        column.resize(old_column_size + arg.uint64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
-            data.emplace_back(arg.uint64_value(i));
+            data[old_column_size + i] = arg.uint64_value(i);
         }
     } else if constexpr (std::is_same_v<T, Int64>) {
-        column.reserve(arg.int64_value_size());
+        column.resize(old_column_size + arg.int64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
-            data.emplace_back(arg.int64_value(i));
+            data[old_column_size + i] = arg.int64_value(i);
         }
     } else if constexpr (std::is_same_v<T, float>) {
-        column.reserve(arg.float_value_size());
+        column.resize(old_column_size + arg.float_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.float_value_size(); ++i) {
-            data.emplace_back(arg.float_value(i));
+            data[old_column_size + i] = arg.float_value(i);
         }
     } else if constexpr (std::is_same_v<T, double>) {
-        column.reserve(arg.double_value_size());
+        column.resize(old_column_size + arg.double_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.double_value_size(); ++i) {
-            data.emplace_back(arg.double_value(i));
+            data[old_column_size + i] = arg.double_value(i);
         }
     } else if constexpr (std::is_same_v<T, Int128>) {
-        column.reserve(arg.bytes_value_size());
+        column.resize(old_column_size + arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
-            data.emplace_back(*(int128_t*)(arg.bytes_value(i).c_str()));
+            data[old_column_size + i] = *(int128_t*)(arg.bytes_value(i).c_str());
         }
     } else {
         return Status::NotSupported("unknown ColumnType for reading from pb");

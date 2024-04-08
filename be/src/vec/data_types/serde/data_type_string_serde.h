@@ -133,10 +133,10 @@ public:
         return Status::OK();
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        column.reserve(arg.string_value_size());
+        auto& column_dest = assert_cast<ColumnType&>(column);
+        column_dest.reserve(column_dest.size() + arg.string_value_size());
         for (int i = 0; i < arg.string_value_size(); ++i) {
-            assert_cast<ColumnType&>(column).insert_data(arg.string_value(i).c_str(),
-                                                         arg.string_value(i).size());
+            column_dest.insert_data(arg.string_value(i).c_str(), arg.string_value(i).size());
         }
         return Status::OK();
     }

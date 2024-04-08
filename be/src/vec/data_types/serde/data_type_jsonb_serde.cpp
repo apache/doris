@@ -259,7 +259,7 @@ Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& re
 
 Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& column_string = assert_cast<ColumnString&>(column);
-    column_string.reserve(arg.string_value_size());
+    column_string.reserve(column_string.size() + arg.string_value_size());
     JsonBinaryValue value;
     for (int i = 0; i < arg.string_value_size(); ++i) {
         RETURN_IF_ERROR(
