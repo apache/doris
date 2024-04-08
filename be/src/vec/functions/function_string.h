@@ -305,10 +305,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments[0]->is_nullable() || arguments[1]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeInt16>());
-        }
-        return std::make_shared<DataTypeInt16>();
+        return std::make_shared<DataTypeInt8>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -318,7 +315,7 @@ public:
         const auto& [arg1_column, arg1_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        auto result_column = ColumnInt16::create(input_rows_count);
+        auto result_column = ColumnInt8::create(input_rows_count);
 
         if (auto arg0 = check_and_get_column<ColumnString>(arg0_column.get())) {
             if (auto arg1 = check_and_get_column<ColumnString>(arg1_column.get())) {
@@ -337,14 +334,14 @@ public:
     }
 
 private:
-    static void scalar_vector(const StringRef str, const ColumnString& vec1, ColumnInt16& res) {
+    static void scalar_vector(const StringRef str, const ColumnString& vec1, ColumnInt8& res) {
         size_t size = vec1.size();
         for (size_t i = 0; i < size; ++i) {
             res.get_data()[i] = str.compare(vec1.get_data_at(i));
         }
     }
 
-    static void vector_scalar(const ColumnString& vec0, const StringRef str, ColumnInt16& res) {
+    static void vector_scalar(const ColumnString& vec0, const StringRef str, ColumnInt8& res) {
         size_t size = vec0.size();
         for (size_t i = 0; i < size; ++i) {
             res.get_data()[i] = vec0.get_data_at(i).compare(str);
@@ -352,7 +349,7 @@ private:
     }
 
     static void vector_vector(const ColumnString& vec0, const ColumnString& vec1,
-                              ColumnInt16& res) {
+                              ColumnInt8& res) {
         size_t size = vec0.size();
         for (size_t i = 0; i < size; ++i) {
             res.get_data()[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
