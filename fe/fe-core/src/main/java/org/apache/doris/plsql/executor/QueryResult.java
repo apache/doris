@@ -58,6 +58,10 @@ public class QueryResult {
         return metadata != null ? metadata().columnCount() : 0;
     }
 
+    public boolean isSelectByFe() {
+        return processor.isSelectByFe();
+    }
+
     /**
      * Get the nth column from the row result.
      * The index is 0 based unlike in JDBC.
