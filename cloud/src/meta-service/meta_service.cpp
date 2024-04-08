@@ -560,6 +560,11 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             return;
         }
 
+        // This instance hasn't enable storage vault which means it's using legacy cloud mode
+        if (!instance.enable_storage_vault()) {
+            break;
+        }
+
         std::string_view name = request->storage_vault_name();
 
         // Try to use the default vault name if user doesn't specify the vault name
