@@ -199,13 +199,42 @@ public:
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override { return nullptr; }
 };
 
-struct FinishDependency final : public Dependency {
+struct FinishDependency : public Dependency {
 public:
     using SharedState = FakeSharedState;
     FinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : Dependency(id, node_id, name, true, query_ctx) {}
 
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override;
+};
+
+struct CountedFinishDependency final : public FinishDependency {
+public:
+    using SharedState = FakeSharedState;
+    CountedFinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
+            : FinishDependency(id, node_id, name, query_ctx) {}
+
+    void add() {
+        std::unique_lock<std::mutex> l(_mtx);
+        if (!_counter) {
+            block();
+        }
+        _counter++;
+    }
+
+    void sub() {
+        std::unique_lock<std::mutex> l(_mtx);
+        _counter--;
+        if (!_counter) {
+            set_ready();
+        }
+    }
+
+    std::string debug_string(int indentation_level = 0) override;
+
+private:
+    std::mutex _mtx;
+    uint32_t _counter = 0;
 };
 
 class RuntimeFilterDependency;

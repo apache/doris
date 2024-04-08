@@ -70,6 +70,7 @@ struct SharedRuntimeFilterContext;
 
 namespace pipeline {
 class RuntimeFilterTimer;
+struct CountedFinishDependency;
 } // namespace pipeline
 
 enum class RuntimeFilterType {
@@ -221,7 +222,7 @@ public:
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                          bool build_bf_exactly = false, bool need_local_merge = false);
 
-    vectorized::SharedRuntimeFilterContext& get_shared_context_ref();
+    SharedRuntimeFilterContext& get_shared_context_ref();
 
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);
@@ -229,6 +230,8 @@ public:
     // publish filter
     // push filter to remote node or push down it to scan_node
     Status publish(bool publish_local = false);
+
+    Status send_filter_size(uint64_t local_filter_size);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
@@ -294,10 +297,13 @@ public:
     void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
                        int64_t start_apply);
 
-    void set_ignored(const std::string& msg);
+    void set_ignored();
 
-    // for ut
-    bool is_bloomfilter();
+    bool get_ignored();
+
+    RuntimeFilterType get_real_type();
+
+    bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
     Status push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf);
@@ -357,6 +363,14 @@ public:
 
     void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
     std::string formatted_state() const;
+
+    void set_synced_size(uint64_t global_size);
+
+    void set_dependency(pipeline::CountedFinishDependency* dependency);
+
+    int64_t get_synced_size() const { return _synced_size; }
+
+    bool isset_synced_size() const { return _synced_size != -1; }
 
 protected:
     // serialize _wrapper to protobuf
@@ -437,6 +451,9 @@ protected:
     bool _need_local_merge = false;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
+
+    int64_t _synced_size = -1;
+    pipeline::CountedFinishDependency* _dependency = nullptr;
 };
 
 // avoid expose RuntimePredicateWrapper
