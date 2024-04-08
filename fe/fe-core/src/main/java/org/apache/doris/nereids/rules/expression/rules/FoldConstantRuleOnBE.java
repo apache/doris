@@ -363,13 +363,25 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isFloatType()) {
             int num = resultContent.getFloatValueCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = new FloatLiteral(resultContent.getFloatValue(i));
+                float value = resultContent.getFloatValue(i);
+                Literal literal = null;
+                if (Float.isNaN(value)) {
+                    literal = new NullLiteral(type);
+                } else {
+                    literal = new FloatLiteral(value);
+                }
                 res.add(literal);
             }
         } else if (type.isDoubleType()) {
             int num = resultContent.getDoubleValueCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = new DoubleLiteral(resultContent.getDoubleValue(i));
+                double value = resultContent.getDoubleValue(i);
+                Literal literal = null;
+                if (Double.isNaN(value)) {
+                    literal = new NullLiteral(type);
+                } else {
+                    literal = new DoubleLiteral(value);
+                }
                 res.add(literal);
             }
         } else if (type.isDecimalV2Type()) {
