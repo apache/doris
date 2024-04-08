@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
@@ -120,12 +121,16 @@ public abstract class StorageVault {
         switch (type) {
             case HDFS:
                 vault = new HdfsStorageVault(name, ifNotExists);
+                vault.modifyProperties(stmt.getProperties());
+                break;
+            case S3:
+                CreateResourceStmt resourceStmt =
+                        new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
+                vault = new S3StorageVault(name, ifNotExists, resourceStmt);
                 break;
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);
         }
-        vault.modifyProperties(stmt.getProperties());
-
         return vault;
     }
 

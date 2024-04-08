@@ -64,7 +64,8 @@ public class StorageVaultMgr {
                 createHdfsVault(StorageVault.fromStmt(stmt));
                 break;
             case S3:
-                throw new DdlException("Currently S3 is not support.");
+                createS3Vault(StorageVault.fromStmt(stmt));
+                break;
             case UNKNOWN:
             default:
                 throw new DdlException("Only support S3, HDFS storage vault.");
@@ -158,5 +159,32 @@ public class StorageVaultMgr {
                 LOG.warn("failed to alter sync vault");
             }
         });
+    }
+
+    public void createS3Vault(StorageVault vault) throws DdlException {
+        S3StorageVault s3StorageVault = (S3StorageVault) vault;
+        Cloud.HdfsVaultInfo hdfsInfos = HdfsStorageVault.generateHdfsParam(hdfsStorageVault.getCopiedProperties());
+        Cloud.ObjectStoreInfoPB.Builder objBuilder = Cloud.ObjectStoreInfoPB.newBuilder();
+        alterHdfsInfoBuilder.setName(hdfsStorageVault.getName());
+        alterHdfsInfoBuilder.setHdfsInfo(hdfsInfos);
+        Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
+                = Cloud.AlterObjStoreInfoRequest.newBuilder();
+        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_INFO);
+        requestBuilder.setHdfs(alterHdfsInfoBuilder.build());
+        try {
+            Cloud.AlterObjStoreInfoResponse response =
+                    MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
+            if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
+                    && hdfsStorageVault.ifNotExists()) {
+                return;
+            }
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to alter storage vault response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            LOG.warn("failed to alter storage vault due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
+        }
     }
 }
