@@ -40,9 +40,6 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
-const static char* BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
-const static char* BUILT_IN_STORAGE_VAULT_ID = "1";
-
 static void* run_bthread_work(void* arg) {
     auto f = reinterpret_cast<std::function<void()>*>(arg);
     (*f)();
@@ -400,9 +397,7 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     storage_vault_key({instance.instance_id(), vault_id}, &key);
     hdfs_param.set_id(vault_id);
     if (vault_id == BUILT_IN_STORAGE_VAULT_ID) {
-        hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME);
-        instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
-        instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
+        hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME.data());
     }
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
