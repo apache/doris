@@ -234,3 +234,8 @@ enum PPlanFragmentCancelReason {
     CALL_RPC_ERROR = 5;
     MEMORY_LIMIT_EXCEED = 6;
 }
+
+message PNetworkAddress {
+    required string hostname = 1;
+    required int32 port = 2;
+}
