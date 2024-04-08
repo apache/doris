@@ -58,7 +58,7 @@ public class ShowCreateDbStmt extends ShowStmt {
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db,
-                PrivPredicate.ALTER_CREATE_DROP)) {
+                PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     ConnectContext.get().getQualifiedUser(), db);
         }
