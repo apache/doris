@@ -92,7 +92,7 @@ timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-18
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
 # shellcheck source=/dev/null
-source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 
 echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]] || ${need_collect_log}; then
