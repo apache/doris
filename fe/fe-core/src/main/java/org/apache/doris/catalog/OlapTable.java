@@ -247,11 +247,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 String.valueOf(isBeingSynced));
     }
 
-    public void setStorageVault(String storageVaultName) {
-        if (storageVaultName == null && storageVaultName.isEmpty()) {
+    public void setStorageVaultName(String storageVaultName) throws DdlException {
+        if (storageVaultName == null || storageVaultName.isEmpty()) {
             return;
         }
         getOrCreatTableProperty().setStorageVaultName(storageVaultName);
+    }
+
+    public String getStorageVaultName() {
+        return getOrCreatTableProperty().getStorageVaultName();
+    }
+
+    public void setStorageVaultId(String setStorageVaultId) throws DdlException {
+        if (setStorageVaultId == null || setStorageVaultId.isEmpty()) {
+            throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
+        }
+        getOrCreatTableProperty().setStorageVaultId(setStorageVaultId);
+    }
+
+    public String getStorageVaultId() {
+        return getOrCreatTableProperty().getStorageVaultId();
     }
 
     public boolean isBeingSynced() {
@@ -516,6 +531,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
         return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE)
                 : Collections.emptyList();
+    }
+
+    public MaterializedIndex getBaseIndex() {
+        Optional<Partition> partition = idToPartition.values().stream().findFirst();
+        if (!partition.isPresent()) {
+            partition = tempPartitions.getAllPartitions().stream().findFirst();
+        }
+        return partition.isPresent() ? partition.get().getBaseIndex() : null;
     }
 
     public Column getVisibleColumn(String columnName) {
@@ -1077,12 +1100,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             return CloudPartition.selectNonEmptyPartitionIds(partitions);
         }
 
-        return partitionIds.stream()
-                .map(this::getPartition)
-                .filter(p -> p != null)
-                .filter(Partition::hasData)
-                .map(Partition::getId)
-                .collect(Collectors.toList());
+        List<Long> nonEmptyIds = Lists.newArrayListWithCapacity(partitionIds.size());
+        for (Long partitionId : partitionIds) {
+            Partition partition = getPartition(partitionId);
+            if (partition != null && partition.hasData()) {
+                nonEmptyIds.add(partitionId);
+            }
+        }
+        return nonEmptyIds;
     }
 
     public int getPartitionNum() {
@@ -2529,9 +2554,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public boolean isDupKeysOrMergeOnWrite() {
-        return getKeysType() == KeysType.DUP_KEYS
-                || (getKeysType() == KeysType.UNIQUE_KEYS
-                && getEnableUniqueKeyMergeOnWrite());
+        return keysType == KeysType.DUP_KEYS
+                || (keysType == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite());
     }
 
     public void initAutoIncrementGenerator(long dbId) {

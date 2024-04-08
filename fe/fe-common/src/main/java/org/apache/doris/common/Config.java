@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.ConfigBase.ConfField;
+
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -2213,11 +2215,6 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "启用外表DDL",
-            "Enable external table DDL"})
-    public static boolean enable_external_ddl = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
             "Enable external hive bucket table"})
     public static boolean enable_create_hive_bucket_table = false;
@@ -2244,6 +2241,16 @@ public class Config extends ConfigBase {
                     + "and modifying table properties. "
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "用于强制设定内表的副本分布，如果该参数不为空，则用户在建表或者创建分区时指定的副本数及副本标签将被忽略，而使用本参数设置的值。"
+                    + "该参数影响包括创建分区、修改表属性、动态分区等操作。该参数建议仅用于测试环境",
+            "Used to force set the replica allocation of the internal table. If the config is not empty, "
+                    + "the replication_num and replication_allocation specified by the user when creating the table "
+                    + "or partitions will be ignored, and the value set by this parameter will be used."
+                    + "This config effect the operations including create tables, create partitions and create "
+                    + "dynamic partitions. This config is recommended to be used only in the test environment"})
+    public static String force_olap_table_replication_allocation = "";
 
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
@@ -2518,6 +2525,11 @@ public class Config extends ConfigBase {
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
+    @ConfField(description = {"指定 mysql登录身份认证类型",
+            "Specifies the authentication type"},
+            options = {"default", "ldap"})
+    public static String authentication_type = "default";
+
     @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
@@ -2536,6 +2548,7 @@ public class Config extends ConfigBase {
             "Whether to enable proxy protocol"
     })
     public static boolean enable_proxy_protocol = false;
+    public static int profile_async_collect_expire_time_secs = 5;
 
     // Used to check compatibility when upgrading.
     @ConfField
@@ -2640,6 +2653,38 @@ public class Config extends ConfigBase {
     @ConfField
     public static int drop_user_notify_ms_max_times = 86400;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static long cloud_tablet_rebalancer_interval_second = 20;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_cloud_partition_balance = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_cloud_table_balance = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_cloud_global_balance = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_pre_heating_time_limit_sec = 300;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static double cloud_rebalance_percent_threshold = 0.05;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long cloud_rebalance_number_threshold = 2;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static double cloud_balance_tablet_percent_per_run = 0.05;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_min_balance_tablet_num_per_run = 2;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_preheating_enabled = true;
+
+    @ConfField(mutable = true, masterOnly = false)
+    public static String security_checker_class_name = "";
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

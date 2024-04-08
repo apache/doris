@@ -76,6 +76,8 @@ message InstanceInfoPB {
 
     repeated string resource_ids = 100;
     repeated string storage_vault_names = 101;
+    optional string default_storage_vault_id = 102;
+    optional string default_storage_vault_name = 103;
 }
 
 message StagePB {
@@ -188,12 +190,20 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional string name = 16;
 }
 
+// The legacy OObjectStoreInfoPBbjectStoreInfoPB is stored in instnaceinfopb
 message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
+    reserved 4; // reserved for S3.
+}
+
+message DefaultStorageVaultInfo {
+    optional string id = 1;
+    optional string name = 2;
 }
 
 message HdfsBuildConf {
@@ -631,6 +641,7 @@ message CommitTxnRequest {
     optional TxnCommitAttachmentPB commit_attachment = 5;
     // merge-on-write table ids
     repeated int64 mow_table_ids = 6;
+    repeated int64 base_tablet_ids= 7; // all tablet from base tables (excluding mv)
 }
 
 // corresponding to TabletStats in meta_service.h and FrontendServiceImpl.java
@@ -748,6 +759,9 @@ message AlterObjStoreInfoRequest {
 
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
+        ADD_BUILT_IN_VAULT = 102;
+
+        SET_DEFAULT_VAULT = 200;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
@@ -785,6 +799,7 @@ message CreateTabletsRequest {
 message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
+    optional string storage_vault_name = 3;
 }
 
 message UpdateTabletRequest {
@@ -1187,6 +1202,7 @@ enum MetaServiceCode {
     KV_TXN_STORE_GET_RETRYABLE = 1008;
     KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
     KV_TXN_STORE_CREATE_RETRYABLE = 1010;
+    KV_TXN_TOO_OLD = 1011;
 
     //Doris error
     TXN_GEN_ID_ERR = 2001;

@@ -570,19 +570,23 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
-        LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
-                                 has_cancel_reason
-                                         ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                         : "INTERNAL_ERROR");
         if (request->has_fragment_id()) {
             TUniqueId query_id;
             query_id.__set_hi(request->query_id().hi());
             query_id.__set_lo(request->query_id().lo());
+            LOG(INFO) << fmt::format(
+                    "Cancel query {}, reason: {}", print_id(query_id),
+                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                      : "INTERNAL_ERROR");
             _exec_env->fragment_mgr()->cancel_fragment(
                     query_id, request->fragment_id(),
                     has_cancel_reason ? request->cancel_reason()
                                       : PPlanFragmentCancelReason::INTERNAL_ERROR);
         } else {
+            LOG(INFO) << fmt::format(
+                    "Cancel instance {}, reason: {}", print_id(tid),
+                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                      : "INTERNAL_ERROR");
             _exec_env->fragment_mgr()->cancel_instance(
                     tid, has_cancel_reason ? request->cancel_reason()
                                            : PPlanFragmentCancelReason::INTERNAL_ERROR);
@@ -690,13 +694,17 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            static_cast<void>(
-                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
+            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -1175,9 +1183,36 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
         Status st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
-        if (!st.ok()) {
-            LOG(WARNING) << "merge meet error" << st.to_string();
-        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::send_filter_size(::google::protobuf::RpcController* controller,
+                                        const ::doris::PSendFilterSizeRequest* request,
+                                        ::doris::PSendFilterSizeResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = _exec_env->fragment_mgr()->send_filter_size(request);
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::sync_filter_size(::google::protobuf::RpcController* controller,
+                                        const ::doris::PSyncFilterSizeRequest* request,
+                                        ::doris::PSyncFilterSizeResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {

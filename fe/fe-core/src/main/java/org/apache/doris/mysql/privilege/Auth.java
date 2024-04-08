@@ -50,15 +50,15 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.ldap.LdapManager;
-import org.apache.doris.ldap.LdapUserInfo;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.mysql.authenticate.MysqlAuthType;
+import org.apache.doris.mysql.authenticate.ldap.LdapManager;
+import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -80,6 +80,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -132,7 +133,7 @@ public class Auth implements Writable {
     }
 
     public enum PrivLevel {
-        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER
+        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER, STAGE,
     }
 
     public Auth() {
@@ -445,7 +446,7 @@ public class Auth implements Writable {
 
     // Check if LDAP authentication is enabled.
     private boolean isLdapAuthEnabled() {
-        return LdapConfig.ldap_authentication_enabled;
+        return MysqlAuthType.getAuthTypeConfig() == MysqlAuthType.LDAP;
     }
 
     // create user
@@ -1338,6 +1339,20 @@ public class Auth implements Writable {
             userAuthInfo.add(Joiner.on("; ").join(cloudClusterPrivs));
         }
 
+        // cloudStage
+        List<String> cloudStagePrivs = Lists.newArrayList();
+        for (PrivEntry entry : getUserCloudStagePrivTable(userIdent).entries) {
+            ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
+            PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
+            cloudStagePrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
+        }
+
+        if (cloudStagePrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(cloudStagePrivs));
+        }
+
         // workload group
         List<String> workloadGroupPrivs = Lists.newArrayList();
         for (PrivEntry entry : getUserWorkloadGroupPrivTable(userIdent).entries) {
@@ -1360,6 +1375,15 @@ public class Auth implements Writable {
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getCloudClusterPrivTable());
+        }
+        return table;
+    }
+
+    private ResourcePrivTable getUserCloudStagePrivTable(UserIdentity userIdentity) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getCloudStagePrivTable());
         }
         return table;
     }
@@ -1937,4 +1961,97 @@ public class Auth implements Writable {
         return cluster;
     }
     // ====== END CLOUD ======
+
+    // for mysql.user table
+    public List<List<String>> getAllUserInfo() {
+        List<List<String>> userInfos = Lists.newArrayList();
+        readLock();
+        try {
+            Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
+            for (List<User> users : nameToUsers.values()) {
+                for (User user : users) {
+                    if (!user.isSetByDomainResolver()) {
+                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(32, ""));
+                        UserIdentity userIdent = user.getUserIdentity();
+                        userInfo.set(0, userIdent.getHost());
+                        userInfo.set(1, userIdent.getQualifiedUser());
+                        for (int i = 2; i <= 13; i++) {
+                            userInfo.set(i, "N");
+                        }
+
+                        PrivTable privTable = getUserGlobalPrivTable(userIdent);
+                        if (!privTable.entries.isEmpty()) {
+                            PrivEntry privEntry = privTable.entries.get(0);
+                            if (!privEntry.getPrivSet().isEmpty()) {
+                                boolean isAdmin = false;
+                                for (Privilege globalPriv : privEntry.getPrivSet().toPrivilegeList()) {
+                                    switch (globalPriv) {
+                                        case NODE_PRIV:
+                                            userInfo.set(2, "Y");
+                                            break;
+                                        case ADMIN_PRIV:
+                                            isAdmin = true;
+                                            userInfo.set(3, "Y");
+                                            break;
+                                        case GRANT_PRIV:
+                                            userInfo.set(4, "Y");
+                                            break;
+                                        case SELECT_PRIV:
+                                            userInfo.set(5, "Y");
+                                            break;
+                                        case LOAD_PRIV:
+                                            userInfo.set(6, "Y");
+                                            break;
+                                        case ALTER_PRIV:
+                                            userInfo.set(7, "Y");
+                                            break;
+                                        case CREATE_PRIV:
+                                            userInfo.set(8, "Y");
+                                            break;
+                                        case DROP_PRIV:
+                                            userInfo.set(9, "Y");
+                                            break;
+                                        case USAGE_PRIV:
+                                            userInfo.set(10, "Y");
+                                            break;
+                                        case SHOW_VIEW_PRIV:
+                                            userInfo.set(11, "Y");
+                                            break;
+                                        case CLUSTER_USAGE_PRIV:
+                                            userInfo.set(12, "Y");
+                                            break;
+                                        case STAGE_USAGE_PRIV:
+                                            userInfo.set(13, "Y");
+                                            break;
+                                        default:
+                                            break;
+                                    }
+                                }
+
+                                // If the user is admin, set all permissions to 'Y' except Node_priv
+                                if (isAdmin) {
+                                    for (int i = 4; i <= 13; i++) {
+                                        userInfo.set(i, "Y");
+                                    }
+                                }
+                            }
+                        }
+
+                        // Set password policy info
+                        userInfo.set(21, String.valueOf(getMaxConn(userIdent.getQualifiedUser())));
+                        List<List<String>> passWordPolicyInfo = getPasswdPolicyInfo(userIdent);
+                        if (passWordPolicyInfo.size() == 8) {
+                            for (int i = 0; i < passWordPolicyInfo.size(); i++) {
+                                userInfo.set(24 + i, passWordPolicyInfo.get(i).get(1));
+                            }
+                        }
+                        userInfos.add(userInfo);
+                    }
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return userInfos;
+    }
 }

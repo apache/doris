@@ -31,6 +31,7 @@ suite("test_crud_wlg") {
     sql "drop workload group if exists tag1_mem_wg1;"
     sql "drop workload group if exists tag1_mem_wg2;"
     sql "drop workload group if exists tag1_mem_wg3;"
+    sql "drop workload group if exists bypass_group;"
 
     sql """
         CREATE TABLE IF NOT EXISTS `${table_name}` (
@@ -516,6 +517,17 @@ suite("test_crud_wlg") {
 
     qt_show_wg_tag "select name,MEMORY_LIMIT,CPU_HARD_LIMIT,TAG from information_schema.workload_groups where name in('tag1_wg1','tag1_wg2','tag2_wg1','tag1_wg3','tag1_mem_wg1','tag1_mem_wg2','tag1_mem_wg3') order by tag,name;"
 
+    // test bypass
+    sql "create workload group if not exists bypass_group properties (  'max_concurrency'='0','max_queue_size'='0','queue_timeout'='0');"
+    sql "set workload_group=bypass_group;"
+    test {
+        sql "select count(1) from information_schema.active_queries;"
+        exception "query waiting queue is full"
+    }
+
+    sql "set bypass_workload_group = true;"
+    sql "select count(1) from information_schema.active_queries;"
+
     sql "drop workload group tag1_wg1;"
     sql "drop workload group tag1_wg2;"
     sql "drop workload group if exists tag2_wg1;"
@@ -523,5 +535,6 @@ suite("test_crud_wlg") {
     sql "drop workload group tag1_mem_wg1;"
     sql "drop workload group tag1_mem_wg2;"
     sql "drop workload group tag1_mem_wg3;"
+    sql "drop workload group bypass_group;"
 
 }

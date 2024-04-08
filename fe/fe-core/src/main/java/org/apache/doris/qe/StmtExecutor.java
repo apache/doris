@@ -138,8 +138,11 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
+import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -233,7 +236,6 @@ public class StmtExecutor {
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     public static final String NULL_VALUE_FOR_LOAD = "\\N";
     private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
-    private final Object writeProfileLock = new Object();
     private ConnectContext context;
     private final StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -273,7 +275,9 @@ public class StmtExecutor {
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile);
+        this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile,
+                this.context.getSessionVariable().profileLevel,
+                this.context.getSessionVariable().getEnablePipelineXEngine());
     }
 
     // for test
@@ -303,7 +307,8 @@ public class StmtExecutor {
             this.statementContext.setParsedStatement(parsedStmt);
         }
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", context.getSessionVariable().enableProfile());
+        this.profile = new Profile("Query", context.getSessionVariable().enableProfile(),
+                context.getSessionVariable().profileLevel, context.getSessionVariable().getEnablePipelineXEngine());
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
@@ -499,6 +504,9 @@ public class StmtExecutor {
                 if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
                     throw e;
                 }
+                if (this.coord != null && this.coord.isQueryCancelled()) {
+                    throw e;
+                }
                 TUniqueId lastQueryId = queryId;
                 uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -649,9 +657,11 @@ public class StmtExecutor {
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
-            if (!(logicalPlan instanceof BatchInsertIntoTableCommand
-                    || logicalPlan instanceof InsertIntoTableCommand)) {
-                String errMsg = "This is in a transaction, only insert, commit, rollback is acceptable.";
+            if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
+                    || logicalPlan instanceof UpdateCommand || logicalPlan instanceof DeleteFromUsingCommand
+                    || logicalPlan instanceof DeleteFromCommand)) {
+                String errMsg = "This is in a transaction, only insert, update, delete, "
+                        + "commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
             }
         }
@@ -796,6 +806,9 @@ public class StmtExecutor {
                 break;
             } catch (RpcException | UserException e) {
                 if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                    throw e;
+                }
+                if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
                 // cloud mode retry
@@ -1110,9 +1123,7 @@ public class StmtExecutor {
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
-            profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
-                    context.getSessionVariable().profileLevel, this.planner,
-                    context.getSessionVariable().getEnablePipelineXEngine());
+            profile.updateSummary(context.startTime, getSummaryInfo(isFinished), isFinished, this.planner);
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ingore this error", t);
         }
@@ -1745,9 +1756,9 @@ public class StmtExecutor {
         } else {
             coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
                 planner, context.getStatsErrorEstimator());
+            profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-            profile.addExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
 
@@ -1755,35 +1766,10 @@ public class StmtExecutor {
             coordBase.exec();
             profile.getSummaryProfile().setQueryScheduleFinishTime();
             updateProfile(false);
-            if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                try {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
-                                context.getQualifiedUser(), context.getDatabase(),
-                                parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                coordBase.getInstanceTotalNum());
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Fail to print fragment concurrency for Query.", e);
-                }
-            }
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
-                if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                    try {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, "
-                                            + "fragment instance num: {}",
-                                    context.getQualifiedUser(), context.getDatabase(),
-                                    parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                    coordBase.getInstanceTotalNum());
-                        }
-                    } catch (Exception e) {
-                        LOG.warn("Fail to print fragment concurrency for Query.", e);
-                    }
-                }
                 return;
             }
 
@@ -1868,18 +1854,6 @@ public class StmtExecutor {
             throw e;
         } finally {
             coordBase.close();
-            if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-                try {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
-                                context.getQualifiedUser(), context.getDatabase(),
-                                parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                                coordBase.getInstanceTotalNum());
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Fail to print fragment concurrency for Query.", e);
-                }
-            }
         }
     }
 
@@ -1976,13 +1950,11 @@ public class StmtExecutor {
             int schemaSize = tbl.getBaseSchema(false).size();
             if (parsedStmt instanceof NativeInsertStmt
                     && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
-
-                if (((NativeInsertStmt) parsedStmt).getTargetColumnNames()
-                        .contains(Column.SEQUENCE_COL)) {
+                NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+                if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)) {
                     schemaSize++;
                 }
-                if (((NativeInsertStmt) parsedStmt).getTargetColumnNames()
-                        .contains(Column.DELETE_SIGN)) {
+                if (nativeInsertStmt.containTargetColumnName(Column.DELETE_SIGN)) {
                     schemaSize++;
                 }
             }
@@ -2060,19 +2032,13 @@ public class StmtExecutor {
                 .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism).setTrimDoubleQuotes(true);
         if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
-            List<String> targetColumnNames = ((NativeInsertStmt) parsedStmt).getTargetColumnNames();
-            if (targetColumnNames.contains(Column.SEQUENCE_COL) || targetColumnNames.contains(Column.DELETE_SIGN)) {
-                if (targetColumnNames.contains(Column.SEQUENCE_COL)) {
+            NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+            if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)
+                    || nativeInsertStmt.containTargetColumnName(Column.DELETE_SIGN)) {
+                if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)) {
                     request.setSequenceCol(Column.SEQUENCE_COL);
                 }
-                StringBuilder allCols = new StringBuilder();
-                for (String col : ((NativeInsertStmt) parsedStmt).getTargetColumnNames()) {
-                    allCols.append(col);
-                    allCols.append(",");
-                }
-                allCols.deleteCharAt(allCols.length() - 1);
-                request.setColumns(String.valueOf(allCols));
-                request.setColumnSeparator(",");
+                request.setColumns("`" + String.join("`,`", nativeInsertStmt.getTargetColumnNames()) + "`");
             }
         }
 

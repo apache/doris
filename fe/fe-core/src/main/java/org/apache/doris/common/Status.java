@@ -128,4 +128,9 @@ public class Status {
             }
         }
     }
+
+    @Override
+    public String toString() {
+        return "Status [errorCode=" + errorCode + ", errorMsg=" + errorMsg + "]";
+    }
 }

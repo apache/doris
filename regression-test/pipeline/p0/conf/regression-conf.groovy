@@ -77,6 +77,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 // this directories will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "cloud," +
+    "cloud_p0," +
     "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line

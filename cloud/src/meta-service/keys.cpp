@@ -222,18 +222,18 @@ std::string version_key_prefix(std::string_view instance_id) {
 }
 
 void table_version_key(const TableVersionKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);               // 0x01 "version" ${instance_id}
+    encode_prefix(in, out);                     // 0x01 "version" ${instance_id}
     encode_bytes(TABLE_VERSION_KEY_INFIX, out); // "table"
-    encode_int64(std::get<1>(in), out);   // db_id
-    encode_int64(std::get<2>(in), out);   // tbl_id
+    encode_int64(std::get<1>(in), out);         // db_id
+    encode_int64(std::get<2>(in), out);         // tbl_id
 }
 
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);               // 0x01 "version" ${instance_id}
+    encode_prefix(in, out);                         // 0x01 "version" ${instance_id}
     encode_bytes(PARTITION_VERSION_KEY_INFIX, out); // "partition"
-    encode_int64(std::get<1>(in), out);   // db_id
-    encode_int64(std::get<2>(in), out);   // tbl_id
-    encode_int64(std::get<3>(in), out);   // partition_id
+    encode_int64(std::get<1>(in), out);             // db_id
+    encode_int64(std::get<2>(in), out);             // tbl_id
+    encode_int64(std::get<3>(in), out);             // partition_id
 }
 
 //==============================================================================
@@ -283,10 +283,10 @@ void meta_schema_key(const MetaSchemaKeyInfo& in, std::string* out) {
 }
 
 void meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);                   // 0x01 "meta" ${instance_id}
+    encode_prefix(in, out);                          // 0x01 "meta" ${instance_id}
     encode_bytes(META_KEY_INFIX_ROWSET_SCHEMA, out); // "rowset_schema"
-    encode_int64(std::get<1>(in), out);       // tablet_id 
-    encode_bytes(std::get<2>(in), out);              // rowset_id 
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_bytes(std::get<2>(in), out);              // rowset_id
 }
 
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out) {

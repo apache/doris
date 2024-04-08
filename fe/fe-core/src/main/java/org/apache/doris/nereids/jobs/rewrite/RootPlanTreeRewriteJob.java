@@ -27,9 +27,11 @@ import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** RootPlanTreeRewriteJob */
 public class RootPlanTreeRewriteJob implements RewriteJob {
+    private static final AtomicInteger BATCH_ID = new AtomicInteger();
 
     private final List<Rule> rules;
     private final RewriteJobBuilder rewriteJobBuilder;
@@ -47,7 +49,9 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
         // get plan from the cascades context
         Plan root = cascadesContext.getRewritePlan();
         // write rewritten root plan to cascades context by the RootRewriteJobContext
-        RootRewriteJobContext rewriteJobContext = new RootRewriteJobContext(root, false, context);
+        int batchId = BATCH_ID.incrementAndGet();
+        RootRewriteJobContext rewriteJobContext = new RootRewriteJobContext(
+                root, false, context, batchId);
         Job rewriteJob = rewriteJobBuilder.build(rewriteJobContext, context, rules);
 
         context.getScheduleContext().pushJob(rewriteJob);
@@ -71,8 +75,8 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
 
         private final JobContext jobContext;
 
-        RootRewriteJobContext(Plan plan, boolean childrenVisited, JobContext jobContext) {
-            super(plan, null, -1, childrenVisited);
+        RootRewriteJobContext(Plan plan, boolean childrenVisited, JobContext jobContext, int batchId) {
+            super(plan, null, -1, childrenVisited, batchId);
             this.jobContext = Objects.requireNonNull(jobContext, "jobContext cannot be null");
             jobContext.getCascadesContext().setCurrentRootRewriteJobContext(this);
         }
@@ -89,17 +93,17 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
 
         @Override
         public RewriteJobContext withChildrenVisited(boolean childrenVisited) {
-            return new RootRewriteJobContext(plan, childrenVisited, jobContext);
+            return new RootRewriteJobContext(plan, childrenVisited, jobContext, batchId);
         }
 
         @Override
         public RewriteJobContext withPlan(Plan plan) {
-            return new RootRewriteJobContext(plan, childrenVisited, jobContext);
+            return new RootRewriteJobContext(plan, childrenVisited, jobContext, batchId);
         }
 
         @Override
         public RewriteJobContext withPlanAndChildrenVisited(Plan plan, boolean childrenVisited) {
-            return new RootRewriteJobContext(plan, childrenVisited, jobContext);
+            return new RootRewriteJobContext(plan, childrenVisited, jobContext, batchId);
         }
 
         /** linkChildren */

@@ -28,6 +28,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/schema.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -461,7 +462,7 @@ void internal_create_tablet(MetaServiceCode& code, std::string& msg,
         return;
     }
     txn->put(key, val);
-    LOG(INFO) << "xxx put tablet_key=" << hex(key);
+    LOG(INFO) << "xxx put tablet_key=" << hex(key) << " tablet id " << tablet_id;
 
     // Index tablet_id -> table_id, index_id, partition_id
     std::string key1;
@@ -528,7 +529,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
-    if (request->has_storage_vault_name() && !request->storage_vault_name().empty()) {
+    for (; request->has_storage_vault_name();) {
         InstanceInfoPB instance;
         std::unique_ptr<Transaction> txn0;
         TxnErrorCode err = txn_kv_->create_txn(&txn0);
@@ -538,28 +539,72 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             return;
         }
 
-        std::shared_ptr<Transaction> txn(txn0.release());
-        auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
-        if (c0 != TxnErrorCode::TXN_OK) {
+        InstanceKeyInfo key_info {instance_id};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+
+        err = txn0->get(key, &val);
+        LOG(INFO) << "get instance_key=" << hex(key);
+
+        if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get instance, info={}", m0);
+            ss << "failed to get instance, instance_id=" << instance_id << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+
+        if (!instance.ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse InstanceInfoPB";
+            return;
+        }
+
+        std::string_view name = request->storage_vault_name();
+
+        // Try to use the default vault name if user doesn't specify the vault name
+        // for correspoding table
+        if (name.empty()) {
+            if (!instance.has_default_storage_vault_name()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format("You must supply at least one default vault");
+                return;
+            }
+            name = instance.default_storage_vault_name();
         }
 
         auto vault_name = std::find_if(
                 instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
-                [&](const auto& name) { return name == request->storage_vault_name(); });
+                [&](const auto& candidate_name) { return candidate_name == name; });
         if (vault_name != instance.storage_vault_names().end()) {
             auto idx = vault_name - instance.storage_vault_names().begin();
             response->set_storage_vault_id(instance.resource_ids().at(idx));
-        } else {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get vault id, vault name={}",
-                              request->storage_vault_name());
-            return;
+            response->set_storage_vault_name(*vault_name);
+            break;
         }
+
+        // The S3 vault would be stored inside the instance.obj_info
+        auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
+                                   [&](const ObjectStoreInfoPB& obj) {
+                                       if (!obj.has_name()) {
+                                           return false;
+                                       }
+                                       return obj.name() == name;
+                                   });
+
+        if (s3_obj != instance.obj_info().end()) {
+            response->set_storage_vault_id(s3_obj->id());
+            response->set_storage_vault_name(s3_obj->name());
+            break;
+        }
+
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("failed to get vault id, vault name={}", name);
+        return;
     }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
+    TEST_SYNC_POINT_RETURN_WITH_VOID("create_tablets");
     for (auto& tablet_meta : request->tablet_metas()) {
         internal_create_tablet(code, msg, tablet_meta, txn_kv_, instance_id, saved_schema);
         if (code != MetaServiceCode::OK) {
@@ -1038,8 +1083,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         std::string schema_key;
         if (rowset_meta.has_variant_type_in_schema()) {
             // encodes schema in a seperate kv, since variant schema is volatile
-            schema_key = meta_rowset_schema_key({instance_id,
-                    rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+            schema_key = meta_rowset_schema_key(
+                    {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
         } else {
             schema_key = meta_schema_key(
                     {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
@@ -1275,9 +1320,9 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
     return versions;
 }
 
-static bool try_fetch_and_parse_schema(
-            Transaction* txn, RowsetMetaCloudPB& rowset_meta,
-            const std::string& key, MetaServiceCode& code, std::string& msg) {
+static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rowset_meta,
+                                       const std::string& key, MetaServiceCode& code,
+                                       std::string& msg) {
     ValueBuf val_buf;
     TxnErrorCode err = cloud::get(txn, key, &val_buf);
     if (err != TxnErrorCode::TXN_OK) {
@@ -1400,7 +1445,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         if (rowset_meta.has_variant_type_in_schema()) {
             // get rowset schema kv
-            auto key = meta_rowset_schema_key({instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
+            auto key = meta_rowset_schema_key(
+                    {instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
             if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
@@ -1418,7 +1464,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
-            version_to_schema.emplace(rowset_meta.schema_version(), rowset_meta.mutable_tablet_schema());
+            version_to_schema.emplace(rowset_meta.schema_version(),
+                                      rowset_meta.mutable_tablet_schema());
         }
     }
 }
@@ -1911,7 +1958,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     std::shared_ptr<Transaction> txn(txn0.release());
     auto [c0, m0] = resource_mgr_->get_instance(txn, cloned_instance_id, instance);
     if (c0 != TxnErrorCode::TXN_OK) {
-        return {cast_as<ErrCategory::READ>(err), "failed to get instance, info=" + m0};
+        return {cast_as<ErrCategory::READ>(c0), "failed to get instance, info=" + m0};
     }
 
     // maybe do not decrypt ak/sk?

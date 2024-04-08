@@ -228,7 +228,7 @@ public:
     }
 
 private:
-    Decompressor* _decompressor;
+    std::unique_ptr<Decompressor> _decompressor;
 };
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
