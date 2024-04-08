@@ -1249,7 +1249,7 @@ TEST(function_string_test, function_strcmp_test) {
             DataSet const_dataset = {line};
             static_cast<void>(
                     check_function<DataTypeInt16, true>(func_name, input_types, const_dataset));
-        }    
+        }
     }
 }
 
