@@ -100,12 +100,12 @@ void demo_handler() {
     int a = 0;
 
     DBUG_EXECUTE_IF("set_a", {
-        std::function<void(int&)> handler = std::any_cast<std::function<void(int&)>>(dp->handler);
+        auto handler = std::any_cast<std::function<void(int&)>>(dp->handler);
         handler(a);
     });
 
     DBUG_EXECUTE_IF("get_a", {
-        std::function<void(int)> handler = std::any_cast<std::function<void(int)>>(dp->handler);
+        auto handler = std::any_cast<std::function<void(int)>>(dp->handler);
         handler(a);
     });
 }

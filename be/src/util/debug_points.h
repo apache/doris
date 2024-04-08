@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <any>
 #include <atomic>
 #include <boost/lexical_cast.hpp>
 #include <chrono>
@@ -42,6 +43,7 @@
 
 // define some common debug actions
 // usage example: DBUG_EXECUTE_IF("xxx", DBUG_BLOCK);
+
 #define DBUG_BLOCK                                                      \
     {                                                                   \
         LOG(INFO) << "start debug block " << DP_NAME;                   \
@@ -51,6 +53,44 @@
         LOG(INFO) << "end debug block " << DP_NAME;                     \
     }
 
+// example of debug point with handler.
+//
+// demo code:
+//
+// void demo() {
+//     int a = 100;
+//     int b = 0;
+//
+//     DBUG_EXECUTE_IF("my_test", {
+//          std::function<void(int, int&)> handler;
+//          try {
+//              handler = std::any_cast<decltype(handler)>(dp->handler);
+//          } catch (const std::bad_any_cast& e)
+//              LOG(WARNING) << "cast debug point my_test function failed, err=" << e.what();
+//          }
+//
+//          if (handler) {
+//              handler(a, b);
+//          }
+//     });
+// }
+//
+// test code:
+//
+// void test {
+//    int input_b = 1000;
+//    int output_a = 0;
+//
+//    std::function<void(int, int&)> handler = [=input_b, &output_a](int a, int& b) {
+//        output_a = a;
+//        b = input_b;
+//    }
+//
+//    DebugPoints.instance()->add_with_handler("my_test", handler);
+//
+//    ASSERT.EQ(100, output_a);
+// }
+
 namespace doris {
 
 struct DebugPoint {
@@ -59,6 +99,11 @@ struct DebugPoint {
     int64_t expire_ms = -1;
 
     std::map<std::string, std::string> params;
+
+    // Usually `handler` use in be ut, to get local variable of the injected code,
+    // or change with different injected handlers.
+    // test/util/debug_points_test.cpp#Handler give a example.
+    std::any handler;
 
     template <typename T>
     T param(const std::string& key, T default_value = T()) {
@@ -118,6 +163,10 @@ public:
     template <typename T>
     void add_with_value(const std::string& name, const T& value) {
         add_with_params(name, {{"value", fmt::format("{}", value)}});
+    }
+
+    void add_with_handler(const std::string& name, std::any handler) {
+        add(name, std::shared_ptr<DebugPoint>(new DebugPoint {.handler = handler}));
     }
 
     static DebugPoints* instance();
