@@ -71,6 +71,7 @@ TBackend BackendOptions::get_local_backend() {
     _backend.__set_host(_s_localhost);
     _backend.__set_be_port(config::be_port);
     _backend.__set_http_port(config::webserver_port);
+    _backend.__set_brpc_port(config::brpc_port);
     return _backend;
 }
 

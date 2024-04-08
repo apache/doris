@@ -130,6 +130,16 @@ public:
                       ::doris::PMergeFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
 
+    void send_filter_size(::google::protobuf::RpcController* controller,
+                          const ::doris::PSendFilterSizeRequest* request,
+                          ::doris::PSendFilterSizeResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
+    void sync_filter_size(::google::protobuf::RpcController* controller,
+                          const ::doris::PSyncFilterSizeRequest* request,
+                          ::doris::PSyncFilterSizeResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
     void apply_filter(::google::protobuf::RpcController* controller,
                       const ::doris::PPublishFilterRequest* request,
                       ::doris::PPublishFilterResponse* response,
