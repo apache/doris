@@ -36,7 +36,7 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
             Transaction* txn,
             RowsetMetaCloudPB* rowset_meta);
 
-// Writes schema dictionary metadata to RowsetMetaCloudPB
+// Read schema from dictionary metadata, modified to rowset_metas
 [[nodiscard]] std::pair<MetaServiceCode, std::string> read_schema_from_dict(
             const std::string& instance_id,
             int64_t index_id,
