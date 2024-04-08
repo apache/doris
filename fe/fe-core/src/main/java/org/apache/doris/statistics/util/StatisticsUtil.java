@@ -187,7 +187,6 @@ public class StatisticsUtil {
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(true);
         sessionVariable.setEnablePipelineEngine(false);
-        sessionVariable.enableProfile = false;
         sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.queryTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
@@ -195,6 +194,7 @@ public class StatisticsUtil {
         sessionVariable.forbidUnknownColStats = false;
         sessionVariable.enablePushDownMinMaxOnUnique = true;
         sessionVariable.enablePushDownStringMinMax = true;
+        sessionVariable.enableUniqueKeyPartialUpdate = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
