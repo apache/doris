@@ -84,13 +84,13 @@ public:
 template <typename T>
 struct AggregateFunctionGroupArrayIntersectData {
     using NullableNumericOrDateSetType = NullableNumericOrDateSet<T>;
-    using Set = std::shared_ptr<NullableNumericOrDateSetType>;
+    using Set = std::unique_ptr<NullableNumericOrDateSetType>;
 
     AggregateFunctionGroupArrayIntersectData()
-            : value(std::make_shared<NullableNumericOrDateSetType>()) {}
+            : value(std::make_unique<NullableNumericOrDateSetType>()) {}
 
     Set value;
-    UInt64 version = 0;
+    bool init = false;
 };
 
 /// Puts all values to the hash set. Returns an array of unique values. Implemented for numeric types.
@@ -125,7 +125,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         auto& data = this->data(place);
-        auto& version = data.version;
+        auto& init = data.init;
         auto& set = data.value;
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
@@ -143,8 +143,8 @@ public:
         using ColVecType = ColumnVector<T>;
         const auto& column_data = column.get_data();
 
-        bool is_column_data_nullable = column_data.is_nullable();
-        ColumnNullable* col_null = nullptr;
+        const bool is_column_data_nullable = column_data.is_nullable();
+        const ColumnNullable* col_null = nullptr;
         const ColVecType* nested_column_data = nullptr;
 
         if (is_column_data_nullable) {
@@ -155,8 +155,7 @@ public:
             nested_column_data = &static_cast<const ColVecType&>(column_data);
         }
 
-        ++version;
-        if (version == 1) {
+        if (!init) {
             for (size_t i = 0; i < arr_size; ++i) {
                 const bool is_null_element =
                         is_column_data_nullable && col_null->is_null_at(offset + i);
@@ -165,9 +164,10 @@ public:
 
                 set->insert(src_data);
             }
+            init = true;
         } else if (set->size() != 0 || set->contain_null()) {
             typename State::Set new_set =
-                    std::make_shared<typename State::NullableNumericOrDateSetType>();
+                    std::make_unique<typename State::NullableNumericOrDateSetType>();
 
             for (size_t i = 0; i < arr_size; ++i) {
                 const bool is_null_element =
@@ -189,12 +189,12 @@ public:
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
 
-        if (this->data(rhs).version == 0) {
+        if (!this->data(rhs).init) {
             return;
         }
 
-        UInt64 version = data.version++;
-        if (version == 0) {
+        auto& init = data.init;
+        if (!init) {
             set->change_contains_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
@@ -202,13 +202,14 @@ public:
                 set->insert(value);
                 it->next();
             }
+            init = true;
             return;
         }
 
         if (set->size() != 0) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
                 typename State::Set new_set =
-                        std::make_shared<typename State::NullableNumericOrDateSetType>();
+                        std::make_unique<typename State::NullableNumericOrDateSetType>();
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
                 while (it->has_next()) {
                     const void* value = it->get_value();
@@ -230,13 +231,11 @@ public:
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& data = this->data(place);
         auto& set = data.value;
-        auto version = data.version;
-
-        bool is_set_contains_null = set->contain_null();
+        auto& init = data.init;
+        const bool is_set_contains_null = set->contain_null();
 
         write_pod_binary(is_set_contains_null, buf);
-
-        write_var_uint(version, buf);
+        write_pod_binary(init, buf);
         write_var_uint(set->size(), buf);
         HybridSetBase::IteratorBase* it = set->begin();
 
@@ -254,7 +253,7 @@ public:
 
         read_pod_binary(is_set_contains_null, buf);
         data.value->change_contains_null_value(is_set_contains_null);
-        read_var_uint(data.version, buf);
+        read_pod_binary(data.init, buf);
         size_t size;
         read_var_uint(size, buf);
 
@@ -270,10 +269,9 @@ public:
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
 
         auto& to_nested_col = arr_to.get_data();
-        using ElementType = T;
-        using ColVecType = ColumnVector<ElementType>;
+        using ColVecType = ColumnVector<T>;
 
-        bool is_nullable = to_nested_col.is_nullable();
+        const bool is_nullable = to_nested_col.is_nullable();
 
         auto insert_values = [](ColVecType& nested_col, auto& set, bool is_nullable = false,
                                 ColumnNullable* col_null = nullptr) {
@@ -291,7 +289,7 @@ public:
 
             HybridSetBase::IteratorBase* it = set->begin();
             while (it->has_next()) {
-                ElementType value = *reinterpret_cast<const ElementType*>(it->get_value());
+                const auto value = *reinterpret_cast<const T*>(it->get_value());
                 nested_col.get_data()[old_size + i] = value;
                 if (is_nullable) {
                     col_null->get_null_map_data().push_back(0);
@@ -324,12 +322,12 @@ public:
 };
 
 struct AggregateFunctionGroupArrayIntersectGenericData {
-    using Set = std::shared_ptr<NullableStringSet>;
+    using Set = std::unique_ptr<NullableStringSet>;
 
     AggregateFunctionGroupArrayIntersectGenericData()
-            : value(std::make_shared<NullableStringSet>()) {}
+            : value(std::make_unique<NullableStringSet>()) {}
     Set value;
-    UInt64 version = 0;
+    bool init = false;
 };
 
 /** Template parameter with true value should be used for columns that store their elements in memory continuously.
@@ -361,7 +359,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         auto& data = this->data(place);
-        auto& version = data.version;
+        auto& init = data.init;
         auto& set = data.value;
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
@@ -373,10 +371,10 @@ public:
 
         const auto nested_column_data = column.get_data_ptr();
         const auto& offsets = column.get_offsets();
-        const size_t offset = offsets[static_cast<ssize_t>(row_num) - 1];
+        const auto offset = offsets[row_num - 1];
         const auto arr_size = offsets[row_num] - offset;
         const auto& column_data = column.get_data();
-        bool is_column_data_nullable = column_data.is_nullable();
+        const bool is_column_data_nullable = column_data.is_nullable();
         ColumnNullable* col_null = nullptr;
 
         if (is_column_data_nullable) {
@@ -400,14 +398,14 @@ public:
             return src;
         };
 
-        ++version;
-        if (version == 1) {
+        if (!init) {
             for (size_t i = 0; i < arr_size; ++i) {
                 StringRef src = process_element(i);
                 set->insert((void*)src.data, src.size);
             }
+            init = true;
         } else if (set->size() != 0 || set->contain_null()) {
-            typename State::Set new_set = std::make_shared<NullableStringSet>();
+            typename State::Set new_set = std::make_unique<NullableStringSet>();
 
             for (size_t i = 0; i < arr_size; ++i) {
                 StringRef src = process_element(i);
@@ -425,12 +423,12 @@ public:
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
 
-        if (this->data(rhs).version == 0) {
+        if (!this->data(rhs).init) {
             return;
         }
 
-        UInt64 version = data.version++;
-        if (version == 0) {
+        auto& init = data.init;
+        if (!init) {
             set->change_contains_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
@@ -438,9 +436,10 @@ public:
                 set->insert((void*)(value->data), value->size);
                 it->next();
             }
+            init = true;
         } else if (set->size() != 0) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
-                typename State::Set new_set = std::make_shared<NullableStringSet>();
+                typename State::Set new_set = std::make_unique<NullableStringSet>();
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
                 while (it->has_next()) {
                     const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
@@ -462,12 +461,11 @@ public:
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& data = this->data(place);
         auto& set = data.value;
-        auto version = data.version;
-
-        bool is_set_contains_null = set->contain_null();
+        auto& init = data.init;
+        const bool is_set_contains_null = set->contain_null();
 
         write_pod_binary(is_set_contains_null, buf);
-        write_var_uint(version, buf);
+        write_pod_binary(init, buf);
         write_var_uint(set->size(), buf);
 
         HybridSetBase::IteratorBase* it = set->begin();
@@ -485,8 +483,7 @@ public:
 
         read_pod_binary(is_set_contains_null, buf);
         data.value->change_contains_null_value(is_set_contains_null);
-
-        read_var_uint(data.version, buf);
+        read_pod_binary(data.init, buf);
         size_t size;
         read_var_uint(size, buf);
 
@@ -498,7 +495,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        ColumnArray& arr_to = assert_cast<ColumnArray&>(to);
+        auto& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& data_to = arr_to.get_data();
         auto col_null = reinterpret_cast<ColumnNullable*>(&data_to);
