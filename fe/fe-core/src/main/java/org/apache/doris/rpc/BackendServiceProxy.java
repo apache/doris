@@ -198,8 +198,23 @@ public class BackendServiceProxy {
         }
         // VERSION 3 means we send TPipelineFragmentParamsList
         builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_3);
+        return execPlanFragmentsAsync(address, builder.build(), twoPhaseExecution);
+    }
 
-        final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+            ByteString serializedFragments, boolean twoPhaseExecution) throws RpcException {
+        InternalService.PExecPlanFragmentRequest.Builder builder =
+                InternalService.PExecPlanFragmentRequest.newBuilder();
+        builder.setRequest(serializedFragments);
+        builder.setCompact(true);
+        // VERSION 3 means we send TPipelineFragmentParamsList
+        builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_3);
+        return execPlanFragmentsAsync(address, builder.build(), twoPhaseExecution);
+    }
+
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+            InternalService.PExecPlanFragmentRequest pRequest, boolean twoPhaseExecution)
+            throws RpcException {
         MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);
         MetricRepo.BE_COUNTER_QUERY_RPC_SIZE.getOrAdd(address.hostname).increase((long) pRequest.getSerializedSize());
         try {
