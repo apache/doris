@@ -334,7 +334,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                 RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
                 olap_scanner->set_compound_filters(_compound_filters);
             }
-            LOG(INFO) << "parallel scanners count: " << scanners->size();
             return Status::OK();
         }
     }

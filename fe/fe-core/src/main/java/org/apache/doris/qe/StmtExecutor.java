@@ -504,6 +504,9 @@ public class StmtExecutor {
                 if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
                     throw e;
                 }
+                if (this.coord != null && this.coord.isQueryCancelled()) {
+                    throw e;
+                }
                 TUniqueId lastQueryId = queryId;
                 uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -803,6 +806,9 @@ public class StmtExecutor {
                 break;
             } catch (RpcException | UserException e) {
                 if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                    throw e;
+                }
+                if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
                 // cloud mode retry
@@ -2799,12 +2805,12 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.isAutoDetectPartition()) {
-                // insert overwrite table auto detect which partitions need to replace
-                handleAutoOverwritePartition(iotStmt);
-            } else if (iotStmt.getPartitionNames().size() == 0) {
+            if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
+            } else if (iotStmt.isAutoDetectPartition()) {
+                // insert overwrite table auto detect which partitions need to replace
+                handleAutoOverwritePartition(iotStmt);
             } else {
                 // insert overwrite table with partition
                 handleOverwritePartition(iotStmt);

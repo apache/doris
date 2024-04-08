@@ -104,16 +104,29 @@ public:
 
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::open(state));
-        RETURN_IF_ERROR(_acquire_runtime_filter());
+        RETURN_IF_ERROR(_acquire_runtime_filter(true));
         return Status::OK();
     }
+    Status close(RuntimeState* state) override;
     friend class MultiCastDataStreamerSourceOperatorX;
 
-    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); }
+    std::vector<Dependency*> filter_dependencies() override {
+        if (_filter_dependencies.empty()) {
+            return {};
+        }
+        std::vector<Dependency*> res;
+        res.resize(_filter_dependencies.size());
+        for (size_t i = 0; i < _filter_dependencies.size(); i++) {
+            res[i] = _filter_dependencies[i].get();
+        }
+        return res;
+    }
 
 private:
     vectorized::VExprContextSPtrs _output_expr_contexts;
-    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
+    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
+
+    RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
 };
 
 class MultiCastDataStreamerSourceOperatorX final
