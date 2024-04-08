@@ -1296,6 +1296,17 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         if (column_mapping->expr != nullptr) {
             *sc_directly = true;
             return Status::OK();
+        } else {
+            auto column_new = new_tablet_schema->column(i);
+            auto column_old = base_tablet_schema->column(column_mapping->ref_column);
+            // index changed
+            if (column_new.is_bf_column() != column_old.is_bf_column() ||
+                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
+                new_tablet_schema->has_inverted_index(column_new) !=
+                        base_tablet_schema->has_inverted_index(column_old)) {
+                *sc_directly = true;
+                return Status::OK();
+            }
         }
     }
 
