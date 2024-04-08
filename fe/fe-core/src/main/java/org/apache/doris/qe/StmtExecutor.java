@@ -504,7 +504,7 @@ public class StmtExecutor {
                 if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
                     throw e;
                 }
-                if (this.coord.isQueryCancelled()) {
+                if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
                 TUniqueId lastQueryId = queryId;
@@ -808,7 +808,7 @@ public class StmtExecutor {
                 if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
                     throw e;
                 }
-                if (this.coord.isQueryCancelled()) {
+                if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
                 // cloud mode retry
