@@ -638,7 +638,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         if (need_update_table_version) {
             std::string ver_key =
                     table_version_key({instance_id, request->db_id(), request->table_id()});
-            txn->atomic_add(table_ver_key, 1);
+            txn->atomic_add(ver_key, 1);
             LOG_INFO("update table version").tag("ver_key", hex(ver_key));
         }
     }
