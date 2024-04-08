@@ -41,6 +41,7 @@ class PageReader {
 public:
     struct Statistics {
         int64_t decode_header_time = 0;
+        int64_t skip_page_header_num = 0;
         int64_t parse_page_header_num = 0;
     };
 
@@ -93,6 +94,7 @@ protected:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
     PageReaderState _state = INITIALIZED;
     tparquet::PageHeader _cur_page_header;
+    Statistics _statistics;
 
     Status _parse_page_header();
 
@@ -103,7 +105,6 @@ private:
     uint64_t _next_header_offset = 0;
     uint64_t _start_offset = 0;
     uint64_t _end_offset = 0;
-    Statistics _statistics;
 };
 
 class PageReaderWithOffsetIndex : public PageReader {
@@ -145,6 +146,10 @@ public:
     Status skip_page() override {
         if (UNLIKELY(_page_index >= _offset_index->page_locations.size())) {
             return Status::IOError("End of page");
+        }
+
+        if (_state != HEADER_PARSED) {
+            _statistics.skip_page_header_num++;
         }
 
         seek_to_page(_offset_index->page_locations[_page_index].offset +
