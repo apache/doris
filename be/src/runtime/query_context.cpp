@@ -132,7 +132,9 @@ QueryContext::~QueryContext() {
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
 
-    _report_query_profile();
+    if (enable_profile()) {
+        _report_query_profile();
+    }
 
     // Not release the the thread token in query context's dector method, because the query
     // conext may be dectored in the thread token it self. It is very dangerous and may core.
@@ -359,10 +361,6 @@ void QueryContext::add_instance_profile(const TUniqueId& instance_id,
 }
 
 void QueryContext::_report_query_profile() {
-    if (!enable_profile()) {
-        return;
-    }
-
     _report_query_profile_x();
     _report_query_profile_non_pipeline();
 }
