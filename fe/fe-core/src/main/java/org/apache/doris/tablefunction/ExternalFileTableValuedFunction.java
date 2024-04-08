@@ -379,12 +379,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected Backend getBackend() {
-        ConnectContext ctx = ConnectContext.get();
         // For the http stream task, we should obtain the be for processing the task
-        long backendId = ctx.getBackendId();
         if (getTFileType() == TFileType.FILE_STREAM) {
+            long backendId = ConnectContext.get().getBackendId();
             Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
-            if (be == null || be.isAlive()) {
+            if (be == null || !be.isAlive()) {
+                LOG.warn("Backend {} is not alive", backendId);
+                return null;
+            } else {
                 return be;
             }
         }
