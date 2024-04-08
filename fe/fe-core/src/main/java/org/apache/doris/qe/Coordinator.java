@@ -4045,22 +4045,6 @@ public class Coordinator implements CoordInterface {
         return fragments;
     }
 
-    private void attachInstanceProfileToFragmentProfile() {
-        if (enablePipelineEngine) {
-            for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                if (!enablePipelineXEngine) {
-                    ctx.profileStream()
-                            .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));
-                }
-            }
-        } else {
-            for (BackendExecState backendExecState : backendExecStates) {
-                executionProfile.addInstanceProfile(backendExecState.profileFragmentId,
-                        backendExecState.instanceProfile);
-            }
-        }
-    }
-
     // Runtime filter target fragment instance param
     static class FRuntimeFilterTargetParam {
         public TUniqueId targetFragmentInstanceId;
