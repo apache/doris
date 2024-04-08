@@ -319,7 +319,7 @@ public:
 
     [[nodiscard]] int64_t limit() const { return _limit; }
 
-    [[nodiscard]] const RowDescriptor& row_desc() const override {
+    [[nodiscard]] const RowDescriptor& output_row_desc() const override {
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
 

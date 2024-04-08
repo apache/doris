@@ -40,7 +40,7 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
             ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionShuffleTime", "Spill", 1);
     _spill_build_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillBuildTime", "Spill", 1);
 
-    return _partitioner->prepare(state, p._child_x->row_desc());
+    return _partitioner->prepare(state, p._child_x->output_row_desc());
 }
 
 Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {

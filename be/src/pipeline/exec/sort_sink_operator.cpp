@@ -39,19 +39,19 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     case SortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = vectorized::HeapSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child_x->row_desc());
+                p._child_x->output_row_desc());
         break;
     }
     case SortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = vectorized::TopNSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child_x->row_desc(), state, _profile);
+                p._child_x->output_row_desc(), state, _profile);
         break;
     }
     case SortAlgorithm::FULL_SORT: {
         _shared_state->sorter = vectorized::FullSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child_x->row_desc(), state, _profile);
+                p._child_x->output_row_desc(), state, _profile);
         break;
     }
     default: {
@@ -120,7 +120,7 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status SortSinkOperatorX::prepare(RuntimeState* state) {
-    const auto& row_desc = _child_x->row_desc();
+    const auto& row_desc = _child_x->output_row_desc();
 
     // If `limit` is smaller than HEAP_SORT_THRESHOLD, we consider using heap sort in priority.
     // To do heap sorting, each income block will be filtered by heap-top row. There will be some
@@ -137,7 +137,7 @@ Status SortSinkOperatorX::prepare(RuntimeState* state) {
     } else {
         _algorithm = SortAlgorithm::FULL_SORT;
     }
-    return _vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor);
+    return _vsort_exec_exprs.prepare(state, _child_x->output_row_desc(), _row_descriptor);
 }
 
 Status SortSinkOperatorX::open(RuntimeState* state) {

@@ -90,7 +90,7 @@ public:
         return Status::OK();
     }
 
-    const RowDescriptor& row_desc() const override { return _row_desc; }
+    const RowDescriptor& output_row_desc() const override { return _row_desc; }
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override {
         std::shared_ptr<BasicSharedState> ss =

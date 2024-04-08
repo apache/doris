@@ -59,13 +59,14 @@ Status MultiCastDataStreamerSourceOperator::prepare(doris::RuntimeState* state) 
     if (_t_data_stream_sink.__isset.output_exprs) {
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.output_exprs,
                                                              _output_expr_contexts));
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_contexts, state, row_desc()));
+        RETURN_IF_ERROR(
+                vectorized::VExpr::prepare(_output_expr_contexts, state, output_row_desc()));
     }
 
     if (_t_data_stream_sink.__isset.conjuncts) {
         RETURN_IF_ERROR(
                 vectorized::VExpr::create_expr_trees(_t_data_stream_sink.conjuncts, _conjuncts));
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(_conjuncts, state, row_desc()));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_conjuncts, state, output_row_desc()));
     }
     return Status::OK();
 }

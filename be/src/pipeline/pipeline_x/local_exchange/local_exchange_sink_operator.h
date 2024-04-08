@@ -127,7 +127,7 @@ public:
 
     Status prepare(RuntimeState* state) override {
         if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-            RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+            RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->output_row_desc()));
         }
 
         return Status::OK();

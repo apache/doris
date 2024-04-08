@@ -442,7 +442,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                                                 {thrift_sink.multi_cast_stream_sink.sinks[i]
                                                          .output_tuple_id},
                                                 {false})
-                                : _sink->row_desc();
+                                : _sink->output_row_desc();
                 _row_desc = pool->add(new RowDescriptor(tmp_row_desc));
             }
             auto source_id = sources[i];

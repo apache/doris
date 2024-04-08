@@ -289,7 +289,7 @@ Status PipelineTask::execute(bool* eos) {
         }
         // TODO llj: Pipeline entity should_yield
         SCOPED_RAW_TIMER(&time_spent);
-        _block->clear_column_data(_root->row_desc().num_materialized_slots());
+        _block->clear_column_data(_root->output_row_desc().num_materialized_slots());
         auto* block = _block.get();
 
         // Pull block from operator chain

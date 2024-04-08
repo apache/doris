@@ -218,7 +218,8 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
         column_type.type = remove_nullable(column_type.type);
     }
     _key_columns_holder.clear();
-    _probe_block.clear_column_data(_parent->get_child()->row_desc().num_materialized_slots());
+    _probe_block.clear_column_data(
+            _parent->get_child()->output_row_desc().num_materialized_slots());
 }
 
 HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
@@ -292,7 +293,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &temp_block, false));
         temp_block.clear();
-        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+        local_state._probe_block.clear_column_data(
+                _child_x->output_row_desc().num_materialized_slots());
         return Status::OK();
     }
 
@@ -603,8 +605,9 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
             }
         }
     };
-    init_output_slots_flags(_child_x->row_desc().tuple_descriptors(), _left_output_slot_flags);
-    init_output_slots_flags(_build_side_child->row_desc().tuple_descriptors(),
+    init_output_slots_flags(_child_x->output_row_desc().tuple_descriptors(),
+                            _left_output_slot_flags);
+    init_output_slots_flags(_build_side_child->output_row_desc().tuple_descriptors(),
                             _right_output_slot_flags);
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
@@ -616,14 +619,16 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
 
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(
+            vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->output_row_desc()));
     DCHECK(_build_side_child != nullptr);
     // right table data types
     _right_table_data_types =
-            vectorized::VectorizedUtils::get_data_types(_build_side_child->row_desc());
-    _left_table_data_types = vectorized::VectorizedUtils::get_data_types(_child_x->row_desc());
+            vectorized::VectorizedUtils::get_data_types(_build_side_child->output_row_desc());
+    _left_table_data_types =
+            vectorized::VectorizedUtils::get_data_types(_child_x->output_row_desc());
     _right_table_column_names =
-            vectorized::VectorizedUtils::get_column_names(_build_side_child->row_desc());
+            vectorized::VectorizedUtils::get_column_names(_build_side_child->output_row_desc());
     _build_side_child.reset();
     return Status::OK();
 }

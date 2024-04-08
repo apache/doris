@@ -50,7 +50,7 @@ Status OperatorBase::close(RuntimeState* state) {
     return Status::OK();
 }
 
-const RowDescriptor& OperatorBase::row_desc() const {
+const RowDescriptor& OperatorBase::output_row_desc() const {
     return _operator_builder->row_desc();
 }
 

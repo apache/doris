@@ -72,7 +72,7 @@ Status RepeatOperatorX::prepare(RuntimeState* state) {
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_expr_ctxs, state, _child_x->output_row_desc()));
     for (const auto& slot_desc : _output_tuple_desc->slots()) {
         _output_slots.push_back(slot_desc);
     }
@@ -231,7 +231,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
         int size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
-            _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+            _child_block.clear_column_data(_child_x->output_row_desc().num_materialized_slots());
             _repeat_id_idx = 0;
         }
     } else if (local_state._expr_ctxs.empty()) {
@@ -245,7 +245,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
             RETURN_IF_ERROR(
                     local_state.add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
         }
-        _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+        _child_block.clear_column_data(_child_x->output_row_desc().num_materialized_slots());
     }
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
                                                            output_block->columns()));

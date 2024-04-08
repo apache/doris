@@ -48,8 +48,8 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _passthrough_rows_counter = ADD_COUNTER(_profile, "PassThroughRowsCounter", TUnit::UNIT);
     _partition_sort_info = std::make_shared<vectorized::PartitionSortInfo>(
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
-            p._child_x->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
-            p._top_n_algorithm, p._topn_phase);
+            p._child_x->output_row_desc(), state, _profile, p._has_global_limit,
+            p._partition_inner_limit, p._top_n_algorithm, p._topn_phase);
     _init_hash_method();
     return Status::OK();
 }
@@ -86,8 +86,9 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 }
 
 Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->output_row_desc(), _row_descriptor));
+    RETURN_IF_ERROR(
+            vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child_x->output_row_desc()));
     return Status::OK();
 }
 
@@ -110,7 +111,8 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state._value_places.push_back(_pool->add(new vectorized::PartitionBlocks(
                         local_state._partition_sort_info, local_state._value_places.empty())));
             }
-            local_state._value_places[0]->append_whole_block(input_block, _child_x->row_desc());
+            local_state._value_places[0]->append_whole_block(input_block,
+                                                             _child_x->output_row_desc());
         } else {
             //just simply use partition num to check
             //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.

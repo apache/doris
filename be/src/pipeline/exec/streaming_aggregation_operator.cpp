@@ -1184,7 +1184,8 @@ Status StreamingAggOperatorX::prepare(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(
+            vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->output_row_desc()));
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -1199,7 +1200,7 @@ Status StreamingAggOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, _child_x->row_desc(), intermediate_slot_desc, output_slot_desc));
+                state, _child_x->output_row_desc(), intermediate_slot_desc, output_slot_desc));
     }
 
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
@@ -1295,7 +1296,7 @@ Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_bl
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state.do_pre_agg(in_block, local_state._pre_aggregated_block.get()));
     }
-    in_block->clear_column_data(_child_x->row_desc().num_materialized_slots());
+    in_block->clear_column_data(_child_x->output_row_desc().num_materialized_slots());
     return Status::OK();
 }
 

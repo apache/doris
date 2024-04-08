@@ -243,7 +243,7 @@ public:
 
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
 
-    virtual const RowDescriptor& row_desc() const;
+    virtual const RowDescriptor& output_row_desc() const;
 
     virtual std::string debug_string() const;
     virtual int32_t id() const { return _operator_builder->id(); }

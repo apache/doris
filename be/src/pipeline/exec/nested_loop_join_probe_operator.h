@@ -225,7 +225,7 @@ public:
         return {ExchangeType::ADAPTIVE_PASSTHROUGH};
     }
 
-    const RowDescriptor& row_desc() const override {
+    const RowDescriptor& output_row_desc() const override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
                        : (_output_row_descriptor ? *_output_row_descriptor : *_output_row_desc);

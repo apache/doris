@@ -37,7 +37,7 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
     _probe_spilling_streams.resize(p._partition_count);
     _partitioner = std::make_unique<PartitionerType>(p._partition_count);
     RETURN_IF_ERROR(_partitioner->init(p._probe_exprs));
-    RETURN_IF_ERROR(_partitioner->prepare(state, p._child_x->row_desc()));
+    RETURN_IF_ERROR(_partitioner->prepare(state, p._child_x->output_row_desc()));
 
     _spill_and_partition_label = ADD_LABEL_COUNTER(profile(), "Partition");
     _partition_timer = ADD_CHILD_TIMER(profile(), "PartitionTime", "Partition");

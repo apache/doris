@@ -446,7 +446,8 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
             _shared_hash_table_context = _shared_hashtable_controller->get_context(node_id());
         }
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(
+            vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->output_row_desc()));
     return Status::OK();
 }
 
@@ -502,7 +503,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         if (local_state._build_side_mutable_block.empty()) {
             auto tmp_build_block = vectorized::VectorizedUtils::create_empty_columnswithtypename(
-                    _child_x->row_desc());
+                    _child_x->output_row_desc());
             tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
             local_state._build_col_ids.resize(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(tmp_build_block, local_state._build_expr_ctxs,

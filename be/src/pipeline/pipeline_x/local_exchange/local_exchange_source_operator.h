@@ -66,7 +66,7 @@ public:
         return _child_x->intermediate_row_desc();
     }
     RowDescriptor& row_descriptor() override { return _child_x->row_descriptor(); }
-    const RowDescriptor& row_desc() const override { return _child_x->row_desc(); }
+    const RowDescriptor& output_row_desc() const override { return _child_x->output_row_desc(); }
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

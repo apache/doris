@@ -226,11 +226,11 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 
 Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     for (const auto& ctx : _agg_expr_ctxs) {
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child_x->output_row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
-        tuple_ids.push_back(_child_x->row_desc().tuple_descriptors()[0]->id());
+        tuple_ids.push_back(_child_x->output_row_desc().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_id);
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, vector<bool>(2, false));
         if (!_partition_by_eq_expr_ctxs.empty()) {

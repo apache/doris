@@ -94,7 +94,7 @@ Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, Runtime
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
-    return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
+    return vectorized::VExpr::prepare(_child_exprs, state, _child_x->output_row_desc());
 }
 
 template <bool is_intersect>

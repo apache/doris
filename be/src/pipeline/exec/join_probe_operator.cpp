@@ -98,7 +98,7 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
             is_mem_reuse ? vectorized::MutableBlock(output_block)
                          : vectorized::MutableBlock(
                                    vectorized::VectorizedUtils::create_empty_columnswithtypename(
-                                           p.row_desc()));
+                                           p.output_row_desc()));
     auto rows = origin_block->rows();
     // TODO: After FE plan support same nullable of output expr and origin block and mutable column
     // we should replace `insert_column_datas` by `insert_range_from`
@@ -123,15 +123,17 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
-            DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots())
-                    << mutable_columns.size() << " " << p.row_desc().num_materialized_slots();
+            DCHECK(mutable_columns.size() == p.output_row_desc().num_materialized_slots())
+                    << mutable_columns.size() << " "
+                    << p.output_row_desc().num_materialized_slots();
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 insert_column_datas(mutable_columns[i], origin_block->get_by_position(i).column,
                                     rows);
             }
         } else {
-            DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots())
-                    << mutable_columns.size() << " " << p.row_desc().num_materialized_slots();
+            DCHECK(mutable_columns.size() == p.output_row_desc().num_materialized_slots())
+                    << mutable_columns.size() << " "
+                    << p.output_row_desc().num_materialized_slots();
             SCOPED_TIMER(Base::_projection_timer);
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
