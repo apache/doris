@@ -28,6 +28,19 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             logger.info("${create_db_res}")
             assertTrue(create_db_res.toString().containsIgnoreCase("/user/hive/warehouse/test_hive_db.db"))
             sql """use `test_hive_db`"""
+
+            sql """
+                    CREATE TABLE test_hive_db_has_tbl (
+                      `col` STRING COMMENT 'col'
+                    )  ENGINE=hive
+                 """
+            test {
+                sql """ drop database `test_hive_db` """;
+                exception "Unexpected exception: failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_loc is not empty. One or more tables exist."
+            }
+
+            sql """DROP TABLE `test_hive_db_has_tbl`"""
+            sql """ drop database `test_hive_db` """;
             sql """ drop database if exists `test_hive_db` """;
         }
 
@@ -104,7 +117,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
             // case2. use a custom location to create table
             def tbl_loc = "hdfs://${loc}/custom_loc"
-            sql """DROP TABLE IF EXISTS loc_tbl_${file_format}_custom`"""
+            sql """ DROP TABLE IF EXISTS loc_tbl_${file_format}_customm"""
             sql """
                     CREATE TABLE loc_tbl_${file_format}_custom (
                       `col` STRING COMMENT 'col'
@@ -123,28 +136,117 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             // case3. check default
             sql """
                 CREATE TABLE all_default_values_${file_format}(
-                  `col1` BOOLEAN DEFAULT 0 COMMENT 'col1',
-                  `col2` TINYINT DEFAULT 255 COMMENT 'col2',
-                  `col3` SMALLINT DEFAULT 65535 COMMENT 'col3',
-                  `col4` INT DEFAULT 2147483647 COMMENT 'col4',
-                  `col5` BIGINT DEFAULT 9223372036854775807 COMMENT 'col5',
+                  `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
+                  `col2` TINYINT DEFAULT '127' COMMENT 'col2',
+                  `col3` SMALLINT DEFAULT '32767' COMMENT 'col3',
+                  `col4` INT DEFAULT '2147483647' COMMENT 'col4',
+                  `col5` BIGINT DEFAULT '9223372036854775807' COMMENT 'col5',
                   `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
-                  `col7` FLOAT DEFAULT 3.1415926 COMMENT 'col7',
-                  `col8` DOUBLE DEFAULT 3.141592653 COMMENT 'col8',
-                  `col9` DECIMAL(9,4) DEFAULT 99999.9999 COMMENT 'col9',
+                  `col7` FLOAT DEFAULT '1' COMMENT 'col7',
+                  `col8` DOUBLE DEFAULT '3.141592653' COMMENT 'col8',
+                  `col9` DECIMAL(9,4) DEFAULT '99999.9999' COMMENT 'col9',
                   `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
                   `col11` STRING DEFAULT 'default' COMMENT 'col11',
                   `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
                   `col13` DATETIME DEFAULT current_timestamp() COMMENT 'col13'
+                )  ENGINE=hive
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+            // need support default insert:
+            //            sql """ INSERT INTO all_default_values_${file_format}
+            //                    VALUES(null, null, null, null, null, null, null, null, null, null, null, null, null)
+            //                """
+            //            sql """ INSERT INTO all_default_values_${file_format} (col1, col3, col5, col7, col12)
+            //                    VALUES(null, null, null, null)
+            //                """
+            //            order_qt_default_val01 """ SELECT * FROM all_default_values_${file_format} """
+            sql """DROP TABLE `all_default_values_${file_format}`"""
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_bool(
+                  `col1` BOOLEAN DEFAULT '-1' COMMENT 'col1'
                 )  ENGINE=hive 
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
                 """
-            sql """ INSERT INTO all_default_values_${file_format} 
-                    VALUES(null, null, null, null, null, null, null, null, null, null, null, null, null)
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid BOOLEAN literal: -1"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_float(
+                  `col1` FLOAT DEFAULT '1.1234' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
                 """
-            order_qt_default_val01 """ SELECT * FROM all_default_values_${file_format} """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Default value will loose precision: 1.1234"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_double(
+                  `col1` DOUBLE DEFAULT 'abc' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid floating-point literal: abc"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_int(
+                  `col1` INT DEFAULT 'abcd' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid number format: abcd"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_date(
+                  `col1` DATE DEFAULT '123' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [123] is invalid: null"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_datetime(
+                   `col1` DATETIME DEFAULT '1512561000000' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [1512561000000] is invalid: errCode = 2, detailMessage = Invalid date value: 1512561000000"
+            }
+
+            test {
+                sql """
+                CREATE TABLE all_default_values_${file_format}_err_datetime(
+                   `col1` DATETIME DEFAULT '2020-09-20 02:60' COMMENT 'col1'
+                )  ENGINE=hive 
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [2020-09-20 02:60] is invalid: Text '2020-09-20 02:60' could not be parsed: Invalid value for MinuteOfHour (valid values 0 - 59): 60"
+            }
 
             // case4. check some exceptions
             def comment_check = sql """ CREATE TABLE ex_tbl_${file_format}(
@@ -182,7 +284,98 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                     """
                 exception "AnalysisException, msg: Should contain at least one column in a table"
             }
-            sql """ drop database if exists `test_hive_loc_db` """;
+        }
+
+        def test_tbl_compress = { String compression, String file_format, String catalog_name ->
+            logger.info("Test create table with compression...")
+            sql """ switch ${catalog_name} """
+            sql  """ create database if not exists `test_hive_compress`
+                 """
+            sql """use `test_hive_compress`"""
+
+            // check table compression here, write/test_hive_write_insert.groovy contains the insert into compression
+            sql """ DROP TABLE IF EXISTS tbl_${file_format}_${compression} """
+            sql """
+                    CREATE TABLE tbl_${file_format}_${compression} (
+                      `col` STRING COMMENT 'col'
+                    )  ENGINE=hive 
+                    PROPERTIES (
+                      'file_format'='${file_format}',
+                      'compression'='${compression}'
+                    )
+                 """
+            def create_tbl_res = sql """ show create table tbl_${file_format}_${compression} """
+            logger.info("${create_tbl_res}")
+            if ("${file_format}".equals("parquet")) {
+                assertTrue(create_tbl_res.toString().containsIgnoreCase("'parquet.compression'='${compression}'"))
+            } else if ("${file_format}".equals("orc")) {
+                assertTrue(create_tbl_res.toString().containsIgnoreCase("'orc.compress'='${compression}'"))
+            } else {
+                throw new Exception("Invalid compression type: ${compression} for tbl_${file_format}_${compression}")
+            }
+
+            sql """DROP TABLE `tbl_${file_format}_${compression}`"""
+            sql """ drop database if exists `test_hive_compress` """;
+        }
+
+        def test_create_tbl_cross_catalog = { String file_format, String catalog_name ->
+            sql """switch ${catalog_name}"""
+            sql """ CREATE DATABASE IF NOT EXISTS `test_olap_cross_catalog` """;
+            sql """ USE test_olap_cross_catalog """;
+            test {
+                sql """
+                        CREATE TABLE `test_olap_cross_catalog_tbl` (
+                            `col1` INT COMMENT 'col1',
+                            `col2` STRING COMMENT 'col2'
+                        )
+                        ENGINE=olap
+                        DISTRIBUTED BY HASH(col1) BUCKETS 16
+                        PROPERTIES (
+                            'replication_num' = '1'
+                        );
+                    """
+                exception "Cannot create olap table out of internal catalog. Make sure 'engine' type is specified when use the catalog: test_hive_ddl"
+            }
+
+            // test default engine is hive in hive catalog
+            sql """
+                    CREATE TABLE `test_olap_cross_catalog_tbl` (
+                        `col1` INT COMMENT 'col1',
+                        `col2` STRING COMMENT 'col2'
+                    )
+                """
+            sql """ DROP TABLE `test_olap_cross_catalog_tbl`
+                """
+
+            test {
+                sql """
+                        CREATE TABLE `test_olap_cross_catalog_tbl` (
+                            `col1` INT COMMENT 'col1',
+                            `col2` STRING COMMENT 'col2'
+                        ) DISTRIBUTED BY HASH(col1) BUCKETS 16
+                        PROPERTIES (
+                            'replication_num' = '1'
+                        );
+                    """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = errCode = 2, detailMessage = Create hive bucket table need set enable_create_hive_bucket_table to true"
+            }
+
+            sql """ SWITCH internal """
+            sql """ CREATE DATABASE IF NOT EXISTS test_hive_cross_catalog """;
+            sql """ USE internal.test_hive_cross_catalog """
+
+            test {
+                sql """
+                        CREATE TABLE test_hive_cross_catalog_tbl (
+                          `col` STRING COMMENT 'col'
+                        )  ENGINE=hive 
+                    """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Cannot create hive table in internal catalog, should switch to hive catalog."
+            }
+
+
+            sql """ DROP DATABASE IF EXISTS TEST_OLAP_CROSS_CATALOG """
+            sql """ DROP DATABASE IF EXISTS TEST_HIVE_CROSS_CATALOG """
         }
 
         def test_db_tbl = { String file_format, String catalog_name ->
@@ -303,10 +496,20 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """set enable_fallback_to_original_planner=false;"""
             test_db(catalog_name)
             test_loc_db(externalEnvIp, hdfs_port, catalog_name)
+            def compressions = ["snappy", "zlib", "zstd"]
             for (String file_format in file_formats) {
-                logger.info("Process file format" + file_format)
+                logger.info("Process file format " + file_format)
                 test_loc_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)
                 test_db_tbl(file_format, catalog_name)
+
+                for (String compression in compressions) {
+                    if ("${file_format}".equals("parquet") && "${compression}".equals("zlib")) {
+                        continue
+                    }
+                    logger.info("Process file compression " + compression)
+                    test_tbl_compress(compression, file_format, catalog_name)
+                }
+                test_create_tbl_cross_catalog(file_format, catalog_name)
             }
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
