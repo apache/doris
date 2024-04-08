@@ -291,10 +291,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 }
 
 Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
-    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
-        while (true) {
-        };
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
     if (!_is_init.load()) {
         return Status::InternalError("stream {} is not opened, load_id={}", _stream_id,
                                      print_id(_load_id));
