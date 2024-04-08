@@ -34,7 +34,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
-import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -58,7 +58,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
     private static final int MIN_CLIENT_POOL_SIZE = 8;
     private final HMSCachedClient client;
-    private final RemoteFileSystem fs;
+    private final FileSystem fs;
     private final HMSExternalCatalog catalog;
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
@@ -76,7 +76,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     // for test
-    public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client, RemoteFileSystem fs) {
+    public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client, FileSystem fs) {
         this.catalog = catalog;
         this.client = client;
         this.fs = fs;
@@ -87,7 +87,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return client;
     }
 
-    public RemoteFileSystem getFs() {
+    public FileSystem getFs() {
         return fs;
     }
 

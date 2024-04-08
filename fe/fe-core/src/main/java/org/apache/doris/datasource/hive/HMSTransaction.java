@@ -23,8 +23,8 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
+import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
@@ -65,7 +65,7 @@ import java.util.stream.Collectors;
 public class HMSTransaction implements Transaction {
     private static final Logger LOG = LogManager.getLogger(HMSTransaction.class);
     private final HiveMetadataOps hiveOps;
-    private final RemoteFileSystem fs;
+    private final FileSystem fs;
     private String dbName;
     private String tbName;
 

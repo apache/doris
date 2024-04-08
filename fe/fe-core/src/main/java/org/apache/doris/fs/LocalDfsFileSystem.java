@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+package org.apache.doris.fs;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
@@ -34,17 +33,22 @@ import org.apache.hadoop.fs.RemoteIterator;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class LocalDfs extends RemoteFileSystem {
+public class LocalDfsFileSystem implements FileSystem {
 
     public LocalFileSystem fs = LocalFileSystem.getLocal(new Configuration());
 
-    public LocalDfs(String name, StorageBackend.StorageType type) throws IOException {
-        super(name, type);
+    public LocalDfsFileSystem() throws IOException {
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return null;
     }
 
     @Override
@@ -108,7 +112,12 @@ public class LocalDfs extends RemoteFileSystem {
     }
 
     @Override
-    public void asyncRename(Executor executor, List<CompletableFuture<?>> renameFileFutures, AtomicBoolean cancelled, String origFilePath, String destFilePath, List<String> fileNames) {
+    public void asyncRename(Executor executor,
+                            List<CompletableFuture<?>> renameFileFutures,
+                            AtomicBoolean cancelled,
+                            String origFilePath,
+                            String destFilePath,
+                            List<String> fileNames)  {
         for (String fileName : fileNames) {
             Path source = new Path(origFilePath, fileName);
             Path target = new Path(destFilePath, fileName);
@@ -125,7 +134,12 @@ public class LocalDfs extends RemoteFileSystem {
     }
 
     @Override
-    public void asyncRenameDir(Executor executor, List<CompletableFuture<?>> renameFileFutures, AtomicBoolean cancelled, String origFilePath, String destFilePath, Runnable runWhenPathNotExist) {
+    public void asyncRenameDir(Executor executor,
+                               List<CompletableFuture<?>> renameFileFutures,
+                               AtomicBoolean cancelled,
+                               String origFilePath,
+                               String destFilePath,
+                               Runnable runWhenPathNotExist) {
         renameFileFutures.add(CompletableFuture.runAsync(() -> {
             if (cancelled.get()) {
                 return;
@@ -157,6 +171,10 @@ public class LocalDfs extends RemoteFileSystem {
         return Status.OK;
     }
 
+    @Override
+    public RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException {
+        return null;
+    }
 
     @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {

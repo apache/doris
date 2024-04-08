@@ -17,9 +17,10 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.datasource.HMSCachedClientTest;
+import org.apache.doris.fs.LocalDfsFileSystem;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TUpdateMode;
@@ -35,7 +36,6 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -47,7 +47,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
-@Ignore
 public class HmsCommitTest {
 
     private static HiveMetadataOps hmsOps;
@@ -55,9 +54,11 @@ public class HmsCommitTest {
     private static final String dbName = "test_db";
     private static final String tbWithPartition = "test_tb_with_partition";
     private static final String tbWithoutPartition = "test_tb_without_partition";
-    private static LocalDfs fs;
+    private static LocalDfsFileSystem fs;
     static String dbLocation;
     static String writeLocation;
+    static String uri = "thrift://127.0.0.1:9083";
+    static boolean hasRealHmsService = false;
 
     @BeforeClass
     public static void beforeClass() throws Throwable {
@@ -71,16 +72,20 @@ public class HmsCommitTest {
 
     @AfterClass
     public static void afterClass() {
-        hmsClient.dropTable(dbName, tbWithPartition);
-        hmsClient.dropTable(dbName, tbWithoutPartition);
         hmsClient.dropDatabase(dbName);
     }
 
     public static void createTestHiveCatalog() throws IOException {
-        fs = new LocalDfs("local", StorageBackend.StorageType.HDFS);
-        HiveConf entries = new HiveConf();
-        entries.set("hive.metastore.uris", "thrift://127.0.0.1:9083");
-        hmsClient = new ThriftHMSCachedClient(entries, 2);
+        fs = new LocalDfsFileSystem();
+
+        if (hasRealHmsService) {
+            // If you have a real HMS service, then you can use this client to create real connections for testing
+            HiveConf entries = new HiveConf();
+            entries.set("hive.metastore.uris", uri);
+            hmsClient = new ThriftHMSCachedClient(entries, 2);
+        } else {
+            hmsClient = new HMSCachedClientTest();
+        }
         hmsOps = new HiveMetadataOps(null, hmsClient, fs);
     }
 
@@ -92,10 +97,9 @@ public class HmsCommitTest {
         hmsClient.createDatabase(dbMetadata);
     }
 
-
     @Before
     public void before() {
-        // create table
+        // create table for tbWithPartition
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("c1", PrimitiveType.INT, true));
         columns.add(new Column("c2", PrimitiveType.STRING, true));
@@ -103,14 +107,21 @@ public class HmsCommitTest {
         List<String> partitionKeys = new ArrayList<>();
         partitionKeys.add("c3");
         String fileFormat = "orc";
+        HashMap<String, String> params = new HashMap<String, String>() {{
+                put("location_uri", dbLocation + tbWithPartition);
+            }};
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
                 dbName, tbWithPartition, columns, partitionKeys,
-                new HashMap<>(), fileFormat);
+                params, fileFormat);
         hmsClient.createTable(tableMetadata, true);
 
+        // create table for tbWithoutPartition
+        HashMap<String, String> params2 = new HashMap<String, String>() {{
+                put("location_uri", dbLocation + tbWithPartition);
+            }};
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
-                dbName, tbWithoutPartition, columns, new ArrayList<>(),
-                new HashMap<>(), fileFormat);
+                    dbName, tbWithoutPartition, columns, new ArrayList<>(),
+                    params2, fileFormat);
         hmsClient.createTable(tableMetadata2, true);
 
     }
@@ -382,6 +393,7 @@ public class HmsCommitTest {
 
         try {
             commit(dbName, tbWithPartition, pus);
+            Assert.assertTrue(false);
         } catch (Exception e) {
             // ignore
         }
@@ -429,6 +441,7 @@ public class HmsCommitTest {
 
         try {
             commit(dbName, tbWithPartition, pus);
+            Assert.assertTrue(false);
         } catch (Exception e) {
             // ignore
         }
@@ -483,6 +496,7 @@ public class HmsCommitTest {
 
         try {
             commit(dbName, tbWithPartition, pus);
+            Assert.assertTrue(false);
         } catch (Exception e) {
             // ignore
         }
