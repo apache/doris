@@ -1138,18 +1138,13 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
     }
 
     LOG_INFO("Getting realtime exec status of query {}", print_id(request.id));
-    std::shared_ptr<TReportExecStatusParams> report_exec_status_params;
+    std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
+            std::make_unique<TReportExecStatusParams>();
     Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
-            request.id, report_exec_status_params);
+            request.id, report_exec_status_params.get());
 
     if (!st.ok()) {
         response.__set_status(st.to_thrift());
-        return;
-    }
-
-    if (report_exec_status_params == nullptr) {
-        LOG_WARNING("Query {} profile not found", print_id(request.id));
-        response.__set_status(Status::NotFound("Query profile not found").to_thrift());
         return;
     }
 

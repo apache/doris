@@ -152,7 +152,7 @@ public:
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
     Status get_realtime_exec_status(const TUniqueId& query_id,
-                                    std::shared_ptr<TReportExecStatusParams> exec_status);
+                                    TReportExecStatusParams* exec_status);
 
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,

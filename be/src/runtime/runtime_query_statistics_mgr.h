@@ -102,10 +102,6 @@ public:
     void trigger_report_profile();
     void stop_report_thread();
 
-    void submit_report_status_task(const TUniqueId& q_id, const TNetworkAddress& coor_addr,
-                                   int32 f_id, const TUniqueId& i_id, int be_num, bool done,
-                                   Status exec_status);
-
     void register_instance_profile(const TUniqueId& query_id, const TNetworkAddress& coor_addr,
                                    const TUniqueId& instance_id,
                                    std::shared_ptr<TRuntimeProfileTree> instance_profile,

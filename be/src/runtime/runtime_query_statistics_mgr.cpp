@@ -280,7 +280,9 @@ void RuntimeQueryStatiticsMgr::register_instance_profile(
                 coor_addr, std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>>());
     }
 
-    std::get<1>(_query_profile_map[query_id]).insert(std::make_pair(instance_id, instance_profile));
+    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>>& instance_profile_map =
+            std::get<1>(_query_profile_map[query_id]);
+    instance_profile_map.insert(std::make_pair(instance_id, instance_profile));
 
     if (load_channel_profile != nullptr) {
         _load_channel_profile_map[instance_id] = load_channel_profile;

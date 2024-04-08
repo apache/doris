@@ -454,7 +454,6 @@ QueryContext::_collect_realtime_query_profile_x() const {
     return res;
 }
 
-// Result size is the same as the number of fragments(piplineX)/instance(non-pipeline)
 TReportExecStatusParams QueryContext::get_realtime_exec_status_x() const {
     TReportExecStatusParams exec_status;
 

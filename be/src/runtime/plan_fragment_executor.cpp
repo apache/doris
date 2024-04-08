@@ -648,16 +648,28 @@ void PlanFragmentExecutor::close() {
 
 std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_query_profile() const {
     std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
-    _runtime_state->runtime_profile()->compute_time_in_profile();
-    _runtime_state->runtime_profile()->to_thrift(res.get());
+
+    if (_runtime_state != nullptr) {
+        _runtime_state->runtime_profile()->compute_time_in_profile();
+        _runtime_state->runtime_profile()->to_thrift(res.get());
+    } else {
+        return nullptr;
+    }
+
     return res;
 }
 
 std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_load_channel_profile()
         const {
     std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
-    _runtime_state->load_channel_profile()->compute_time_in_profile();
-    _runtime_state->load_channel_profile()->to_thrift(res.get());
+
+    if (_runtime_state != nullptr) {
+        _runtime_state->load_channel_profile()->compute_time_in_profile();
+        _runtime_state->load_channel_profile()->to_thrift(res.get());
+    } else {
+        return nullptr;
+    }
+
     return res;
 }
 

@@ -407,8 +407,7 @@ public:
     TReportExecStatusParams get_realtime_exec_status_x() const;
 
     bool enable_profile() const {
-        return true;
-        // return _query_options.__isset.enable_profile && _query_options.enable_profile;
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 };
 

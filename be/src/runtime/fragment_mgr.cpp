@@ -1621,7 +1621,11 @@ void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_i
 }
 
 Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
-                                             std::shared_ptr<TReportExecStatusParams> exes_status) {
+                                             TReportExecStatusParams* exec_status) {
+    if (exec_status == nullptr) {
+        return Status::InvalidArgument("exes_status is nullptr");
+    }
+
     std::shared_ptr<QueryContext> query_context = nullptr;
 
     {
@@ -1634,7 +1638,7 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
     }
 
     if (query_context->enable_pipeline_x_exec()) {
-        *exes_status = query_context->get_realtime_exec_status_x();
+        *exec_status = query_context->get_realtime_exec_status_x();
     } else {
         auto instance_ids = query_context->get_fragment_instance_ids();
         std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> instance_profiles;
@@ -1664,7 +1668,7 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
             }
         }
 
-        *exes_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_non_pipeline(
+        *exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_non_pipeline(
                 query_id, instance_profiles, load_channel_profiles);
     }
 
