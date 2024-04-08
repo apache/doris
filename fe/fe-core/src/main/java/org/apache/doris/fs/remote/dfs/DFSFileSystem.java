@@ -486,7 +486,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @return Status.OK if success.
      */
     @Override
-    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
             FileSystem fileSystem = nativeFileSystem(remotePath);

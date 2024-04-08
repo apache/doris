@@ -225,7 +225,7 @@ public class S3FileSystemTest {
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".1"));
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".2"));
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".3"));
-        Assertions.assertEquals(Status.OK, fileSystem.list(bucket + basePath + "_list/*", result));
+        Assertions.assertEquals(Status.OK, fileSystem.globList(bucket + basePath + "_list/*", result));
         Assertions.assertEquals(3, result.size());
     }
 

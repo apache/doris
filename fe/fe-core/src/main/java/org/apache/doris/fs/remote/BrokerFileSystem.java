@@ -651,7 +651,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
     // List files in remotePath
     @Override
-    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         // get a proper broker
         Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBroker();
         if (pair == null) {

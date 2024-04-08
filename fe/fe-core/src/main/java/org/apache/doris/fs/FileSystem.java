@@ -80,13 +80,13 @@ public interface FileSystem {
 
     RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException;
 
-    // List files in remotePath
+    // List files in remotePath by wildcard
     // The remote file name will only contain file name only(Not full path)
-    default Status list(String remotePath, List<RemoteFile> result) {
-        return list(remotePath, result, true);
+    default Status globList(String remotePath, List<RemoteFile> result) {
+        return globList(remotePath, result, true);
     }
 
-    Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
+    Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
 
     default Status listFiles(String remotePath, List<RemoteFile> result) {
         throw new UnsupportedOperationException("Unsupported operation list files on current file system.");
