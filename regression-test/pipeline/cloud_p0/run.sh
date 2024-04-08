@@ -67,7 +67,7 @@ run() {
         -actionParallel 2; then
         echo
     else
-        need_collect_log=true
+        bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export need_collect_log=true"
         # regression 测试跑完后输出的汇总信息，Test 1961 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
         # 如果 test_suites>0 && failed_suites<=3  && fatal_scripts=0，就把返回状态码改为正常的0，让teamcity根据跑case的情况去判断成功还是失败
         # 这样预期能够快速 mute 不稳定的 case
@@ -91,6 +91,7 @@ export -f run
 timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-180}))m
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
+source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 
 echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]] || ${need_collect_log}; then
