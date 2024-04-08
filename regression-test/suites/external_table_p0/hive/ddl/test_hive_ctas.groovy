@@ -295,6 +295,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 """
                 order_qt_ctas_04 """ SELECT * FROM ctas_o2  """
                 sql """ DROP TABLE ctas_o2 """
+                sql """ DROP DATABASE IF EXISTS test_ctas_ex """
             } finally {
                 destroySrcDDLForCTAS(catalog_name)
             }
@@ -309,7 +310,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 exception "errCode = 2, detailMessage = Can't create database 'test_hive_ex'; database exists"
             }
             sql """use `${catalog_name}`.`test_hive_ex`"""
-
+            sql """ DROP DATABASE IF EXISTS ${catalog_name}.test_hive_ex """
             // check ctas error
             generateSrcDDLForCTAS(file_format, catalog_name)
             try {
@@ -328,6 +329,8 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                     """;
                     exception "errCode = 2, detailMessage = Can't create database 'test_err'; database exists"
                 }
+                sql """ DROP DATABASE IF EXISTS ${catalog_name}.test_err """
+
                 sql """ CREATE DATABASE IF NOT EXISTS `test_no_err`""";
                 sql """ use `${catalog_name}`.`test_no_err` """
 
@@ -381,13 +384,106 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                         """
                     exception "errCode = 2, detailMessage = insert into cols should be corresponding to the query output"
                 }
+                sql """ DROP TABLE IF EXISTS ${catalog_name}.test_no_err.ctas_o2  """
+                sql """ DROP DATABASE IF EXISTS test_no_err """
+
             } finally {
                 destroySrcDDLForCTAS(catalog_name)
             }
         }
 
         def test_ctas_all_types = { String file_format, String catalog_name ->
+            sql """ switch `${catalog_name}` """
+            sql """ CREATE DATABASE IF NOT EXISTS `test_ctas_all_type` """;
+            sql """ use test_ctas_all_type """;
 
+            sql """
+                CREATE TABLE IF NOT EXISTS all_types_ctas_${file_format}(
+                  `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
+                  `col2` TINYINT DEFAULT '127' COMMENT 'col2',
+                  `col3` SMALLINT DEFAULT '32767' COMMENT 'col3',
+                  `col4` INT DEFAULT '2147483647' COMMENT 'col4',
+                  `col5` BIGINT DEFAULT '9223372036854775807' COMMENT 'col5',
+                  `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
+                  `col7` FLOAT DEFAULT '1' COMMENT 'col7',
+                  `col8` DOUBLE DEFAULT '3.141592653' COMMENT 'col8',
+                  `col9` DECIMAL(9,4) DEFAULT '99999.9999' COMMENT 'col9',
+                  `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
+                  `col11` STRING DEFAULT 'default' COMMENT 'col11',
+                  `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
+                  `col13` DATETIME DEFAULT current_timestamp COMMENT 'col13'
+                )  ENGINE=hive
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+                """
+
+            sql """
+                    INSERT INTO all_types_ctas_${file_format} (
+                        col1,
+                        col2,
+                        col3,
+                        col4,
+                        col5,
+                        col6,
+                        col7,
+                        col8,
+                        col9,
+                        col10,
+                        col11,
+                        col12,
+                        col13
+                    ) VALUES (
+                        true,        -- col1 (BOOLEAN)
+                        127,         -- col2 (TINYINT)
+                        32767,       -- col3 (SMALLINT)
+                        2147483647,  -- col4 (INT)
+                        9223372036854775807, -- col5 (BIGINT)
+                        'default',   -- col6 (CHAR)
+                        22.12345,         -- col7 (FLOAT)
+                        3.141592653, -- col8 (DOUBLE)
+                        99999.9999,  -- col9 (DECIMAL)
+                        'default',   -- col10 (VARCHAR)
+                        'default',   -- col11 (STRING)
+                        '2023-05-29',-- col12 (DATE)
+                        '2023-05-29 23:19:34' -- col13 (DATETIME)
+                    );
+                """
+
+            sql """
+                    CREATE TABLE IF NOT EXISTS all_types_ctas1 AS SELECT * FROM all_types_ctas_${file_format}
+                """
+            sql """
+                    INSERT INTO all_types_ctas1 SELECT * FROM all_types_ctas_${file_format}
+                """
+            sql """
+                    INSERT OVERWRITE TABLE all_types_ctas1 SELECT * FROM all_types_ctas_${file_format}
+                """
+            order_qt_ctas_types_01 """ SELECT * FROM all_types_ctas1 """
+            sql """
+                    DROP TABLE all_types_ctas1
+                """
+
+            sql """
+                    CREATE TABLE IF NOT EXISTS all_types_ctas2 (col1, col2, col3, col4, col6, col7, col8, col9, col11) 
+                    AS SELECT col1, col2, col3, col4, col6, col7, col8, col9, col11 FROM all_types_ctas_${file_format}
+                """
+            sql """
+                    INSERT INTO all_types_ctas2 (col1, col3, col7, col9) 
+                    SELECT col1, col3, col7, col9 FROM all_types_ctas_${file_format}
+                """
+            sql """
+                    INSERT OVERWRITE TABLE all_types_ctas2 (col1, col2, col3, col4, col6, col7, col8, col9, col11)
+                    SELECT col1, col2, col3, col4, col6, col7, col8, col9, col11 FROM all_types_ctas_${file_format}
+                """
+            order_qt_ctas_types_02 """ SELECT * FROM all_types_ctas2 """
+            sql """
+                DROP TABLE all_types_ctas2
+                """
+            sql """
+                DROP TABLE all_types_ctas_${file_format}
+                """
+            sql """ drop database if exists `test_ctas_all_type` """;
         }
 
         try {

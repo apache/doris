@@ -23,12 +23,12 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
         def test_db = { String catalog_name ->
             logger.info("Test create/drop database...")
             sql """switch ${catalog_name}"""
+            sql """ drop database if exists `test_hive_db` """;
             sql """ create database if not exists ${catalog_name}.`test_hive_db` """;
-            def create_db_res = sql """show create database test_hive_db"""
+            def create_db_res = sql """ show create database test_hive_db """
             logger.info("${create_db_res}")
             assertTrue(create_db_res.toString().containsIgnoreCase("/user/hive/warehouse/test_hive_db.db"))
-            sql """use `test_hive_db`"""
-            sql """ drop database if exists `test_hive_db` """;
+            sql """ use `test_hive_db` """
             sql """
                     CREATE TABLE test_hive_db_has_tbl (
                       `col` STRING COMMENT 'col'
@@ -36,7 +36,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                  """
             test {
                 sql """ drop database `test_hive_db` """;
-                exception "Unexpected exception: failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_loc is not empty. One or more tables exist."
+                exception "java.sql.SQLException: Unexpected exception: failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_db is not empty. One or more tables exist."
             }
 
             sql """ DROP TABLE `test_hive_db_has_tbl` """
@@ -148,7 +148,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
                   `col11` STRING DEFAULT 'default' COMMENT 'col11',
                   `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
-                  `col13` DATETIME DEFAULT current_timestamp() COMMENT 'col13'
+                  `col13` DATETIME DEFAULT current_timestamp COMMENT 'col13'
                 )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
@@ -306,9 +306,9 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                  """
             def create_tbl_res = sql """ show create table tbl_${file_format}_${compression} """
             logger.info("${create_tbl_res}")
-            if ("${file_format}".equals("parquet")) {
+            if (file_format.equals("parquet")) {
                 assertTrue(create_tbl_res.toString().containsIgnoreCase("'parquet.compression'='${compression}'"))
-            } else if ("${file_format}".equals("orc")) {
+            } else if (file_format.equals("orc")) {
                 assertTrue(create_tbl_res.toString().containsIgnoreCase("'orc.compress'='${compression}'"))
             } else {
                 throw new Exception("Invalid compression type: ${compression} for tbl_${file_format}_${compression}")
@@ -373,9 +373,8 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Cannot create hive table in internal catalog, should switch to hive catalog."
             }
 
-
-            sql """ DROP DATABASE IF EXISTS TEST_OLAP_CROSS_CATALOG """
-            sql """ DROP DATABASE IF EXISTS TEST_HIVE_CROSS_CATALOG """
+            sql """ DROP DATABASE IF EXISTS test_olap_cross_catalog """
+            sql """ DROP DATABASE IF EXISTS test_hive_cross_catalog """
         }
 
         def test_db_tbl = { String file_format, String catalog_name ->
@@ -582,7 +581,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 test_db_tbl(file_format, catalog_name)
 
                 for (String compression in compressions) {
-                    if ("${file_format}".equals("parquet") && "${compression}".equals("zlib")) {
+                    if (file_format.equals("parquet") && compression.equals("zlib")) {
                         continue
                     }
                     logger.info("Process file compression " + compression)
