@@ -394,6 +394,8 @@ public:
     }
     [[nodiscard]] bool is_source() const override { return true; }
 
+    [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
+
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
     }
