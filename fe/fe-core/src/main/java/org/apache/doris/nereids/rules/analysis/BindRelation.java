@@ -276,6 +276,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case TEST_EXTERNAL_TABLE:
                 return new LogicalTestScan(unboundRelation.getRelationId(), table, tableQualifier);
             default:
+                try {
+                    // TODO: support other type table, such as ELASTICSEARCH
+                    cascadesContext.getConnectContext().getSessionVariable().enableFallbackToOriginalPlannerOnce();
+                } catch (Exception e) {
+                    // ignore
+                }
                 throw new AnalysisException("Unsupported tableType " + table.getType());
         }
     }
