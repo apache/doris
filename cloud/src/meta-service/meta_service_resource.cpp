@@ -449,6 +449,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     RPC_PREPROCESS(alter_obj_store_info);
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
+    case AlterObjStoreInfoRequest::ADD_S3_VAULT:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
         // Prepare data
@@ -605,12 +606,17 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             }
         }
     } break;
+<<<<<<< HEAD
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO: {
         if (instance.enable_storage_vault()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "Storage vault doesn't support add obj info";
             return;
         }
+=======
+    case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
+    case AlterObjStoreInfoRequest::ADD_S3_VAULT: {
+>>>>>>> e0d5431091 (add one enum)
         if (!request->obj().has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf lease provider info";
@@ -660,7 +666,23 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_region(region);
         last_item.set_provider(request->obj().provider());
         last_item.set_sse_enabled(instance.sse_enabled());
-        instance.add_obj_info()->CopyFrom(last_item);
+        if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
+            last_item.set_name(BUILT_IN_STORAGE_VAULT_NAME);
+            instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
+            instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
+        }
+        if (request->op() == AlterObjStoreInfoRequest::ADD_OBJ_INFO) {
+            instance.add_obj_info()->CopyFrom(last_item);
+        } else if (request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT) {
+            StorageVaultPB vault;
+            vault.set_id(last_item.id());
+            vault.set_name(last_item.name());
+            *instance.mutable_resource_ids()->Add() = last_item.id();
+            *instance.mutable_storage_vault_names()->Add() = last_item.name();
+            vault.mutable_s3_obj()->MergeFrom(last_item);
+            auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
+            txn->put(vault_key, vault.SerializeAsString());
+        }
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
         if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
