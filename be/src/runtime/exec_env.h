@@ -19,19 +19,15 @@
 
 #include <common/multi_version.h>
 
-#include <algorithm>
 #include <atomic>
-#include <cstddef>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "olap/memtable_memory_limiter.h"
-#include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_fwd.h"
@@ -52,6 +48,7 @@ class BlockedTaskScheduler;
 struct RuntimeFilterTimerQueue;
 } // namespace pipeline
 class WorkloadGroupMgr;
+struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
 } // namespace io
@@ -233,6 +230,9 @@ public:
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
     WalManager* wal_mgr() { return _wal_manager.get(); }
     DNSCache* dns_cache() { return _dns_cache; }
+    WriteCooldownMetaExecutors* write_cooldown_meta_executors() {
+        return _write_cooldown_meta_executors.get();
+    }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -263,6 +263,7 @@ public:
     void set_dummy_lru_cache(std::shared_ptr<DummyLRUCache> dummy_lru_cache) {
         this->_dummy_lru_cache = dummy_lru_cache;
     }
+    void set_write_cooldown_meta_executors();
 
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
@@ -396,6 +397,7 @@ private:
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
     std::shared_ptr<WalManager> _wal_manager;
     DNSCache* _dns_cache = nullptr;
+    std::unique_ptr<WriteCooldownMetaExecutors> _write_cooldown_meta_executors;
 
     std::mutex _frontends_lock;
     // ip:brpc_port -> frontend_indo

@@ -26,12 +26,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -39,7 +36,6 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "io/fs/file_meta_cache.h"
-#include "io/fs/s3_file_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -234,6 +230,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
+    _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
     _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
 
     _backend_client_cache->init_metrics("backend");
@@ -567,8 +564,11 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
+
     SAFE_STOP(_storage_engine);
+    SAFE_STOP(_write_cooldown_meta_executors);
     SAFE_STOP(_spill_stream_mgr);
+
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
@@ -625,6 +625,7 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
+    _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
