@@ -105,6 +105,9 @@ struct VaultCreateFSVisitor {
     // TODO(ByteYue): Make sure enable_java_support is on
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
         auto hdfs_params = io::to_hdfs_params(vault);
+        std::stringstream ss;
+        hdfs_params.printTo(ss);
+        LOG_INFO("the vault thrift is {}", ss.str());
         auto fs =
                 DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
                                                      vault.has_prefix() ? vault.prefix() : ""));
