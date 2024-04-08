@@ -580,19 +580,23 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
-        LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
-                                 has_cancel_reason
-                                         ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                         : "INTERNAL_ERROR");
         if (request->has_fragment_id()) {
             TUniqueId query_id;
             query_id.__set_hi(request->query_id().hi());
             query_id.__set_lo(request->query_id().lo());
+            LOG(INFO) << fmt::format(
+                    "Cancel query {}, reason: {}", print_id(query_id),
+                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                      : "INTERNAL_ERROR");
             _exec_env->fragment_mgr()->cancel_fragment(
                     query_id, request->fragment_id(),
                     has_cancel_reason ? request->cancel_reason()
                                       : PPlanFragmentCancelReason::INTERNAL_ERROR);
         } else {
+            LOG(INFO) << fmt::format(
+                    "Cancel instance {}, reason: {}", print_id(tid),
+                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                      : "INTERNAL_ERROR");
             _exec_env->fragment_mgr()->cancel_instance(
                     tid, has_cancel_reason ? request->cancel_reason()
                                            : PPlanFragmentCancelReason::INTERNAL_ERROR);

@@ -398,6 +398,7 @@ struct PartitionedAggSharedState : public BasicSharedState,
     size_t max_partition_index;
     Status sink_status;
     bool is_spilled = false;
+    std::atomic_bool is_closed = false;
     std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
 
     size_t get_partition_index(size_t hash_value) const {
@@ -467,11 +468,12 @@ struct SpillSortSharedState : public BasicSharedState,
             LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
         }
     }
-    void clear();
+    void close();
 
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
     bool is_spilled = false;
+    std::atomic_bool is_closed = false;
     Status sink_status;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
