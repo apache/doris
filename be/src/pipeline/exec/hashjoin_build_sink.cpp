@@ -48,40 +48,7 @@ HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* 
 Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
-    _shared_state->join_op_variants = p._join_op_variants;
-
-    _shared_state->is_null_safe_eq_join = p._is_null_safe_eq_join;
-    _shared_state->store_null_in_hash_table = p._store_null_in_hash_table;
-    _build_expr_ctxs.resize(p._build_expr_ctxs.size());
-    for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._build_expr_ctxs[i]->clone(state, _build_expr_ctxs[i]));
-    }
-    _shared_state->build_exprs_size = _build_expr_ctxs.size();
-
-    _should_build_hash_table = true;
-    if (p._is_broadcast_join) {
-        profile()->add_info_string("BroadcastJoin", "true");
-        if (state->enable_share_hash_table_for_broadcast_join()) {
-            _should_build_hash_table = info.task_idx == 0;
-            if (_should_build_hash_table) {
-                profile()->add_info_string("ShareHashTableEnabled", "true");
-                CHECK(p._shared_hashtable_controller->should_build_hash_table(
-                        state->fragment_instance_id(), p.node_id()));
-            }
-        } else {
-            profile()->add_info_string("ShareHashTableEnabled", "false");
-        }
-    }
-    if (!_should_build_hash_table) {
-        _dependency->block();
-        _finish_dependency->block();
-        p._shared_hashtable_controller->append_dependency(p.node_id(),
-                                                          _dependency->shared_from_this(),
-                                                          _finish_dependency->shared_from_this());
-    }
-
+    SCOPED_TIMER(_init_timer);
     _build_blocks_memory_usage =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile(), "BuildBlocks", TUnit::BYTES, "MemoryUsage", 1);
     _hash_table_memory_usage =
@@ -99,6 +66,50 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     _allocate_resource_timer = ADD_TIMER(profile(), "AllocateResourceTime");
 
+    _should_build_hash_table = true;
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    if (p._is_broadcast_join) {
+        if (state->enable_share_hash_table_for_broadcast_join()) {
+            _should_build_hash_table = info.task_idx == 0;
+        }
+    }
+    _shared_state->join_op_variants = p._join_op_variants;
+    return Status::OK();
+}
+
+Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+
+    _shared_state->is_null_safe_eq_join = p._is_null_safe_eq_join;
+    _shared_state->store_null_in_hash_table = p._store_null_in_hash_table;
+    _build_expr_ctxs.resize(p._build_expr_ctxs.size());
+    for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._build_expr_ctxs[i]->clone(state, _build_expr_ctxs[i]));
+    }
+    _shared_state->build_exprs_size = _build_expr_ctxs.size();
+    if (p._is_broadcast_join) {
+        profile()->add_info_string("BroadcastJoin", "true");
+        if (state->enable_share_hash_table_for_broadcast_join()) {
+            if (_should_build_hash_table) {
+                profile()->add_info_string("ShareHashTableEnabled", "true");
+                CHECK(p._shared_hashtable_controller->should_build_hash_table(
+                        state->fragment_instance_id(), p.node_id()));
+            }
+        } else {
+            profile()->add_info_string("ShareHashTableEnabled", "false");
+        }
+    }
+    if (!_should_build_hash_table) {
+        _dependency->block();
+        _finish_dependency->block();
+        p._shared_hashtable_controller->append_dependency(p.node_id(),
+                                                          _dependency->shared_from_this(),
+                                                          _finish_dependency->shared_from_this());
+    }
     // Hash Table Init
     _hash_table_init(state);
     _runtime_filters.resize(p._runtime_filter_descs.size());
@@ -110,14 +121,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     _runtime_filter_slots =
             std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, runtime_filters());
-
-    return Status::OK();
-}
-
-Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
     return Status::OK();
 }
 
