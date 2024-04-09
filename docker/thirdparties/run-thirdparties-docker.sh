@@ -285,8 +285,8 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
         declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone")
 
         for topic in "${topics[@]}"; do
-            echo "docker exec "${container_id}" bash -c echo '/opt/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --partitions 10 --topic '${topic}'" 
-            docker exec "${container_id}" bash -c "/opt/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --partitions 10 --topic '${topic}'"
+            echo "docker exec "${container_id}" bash -c echo '/opt/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'" 
+            docker exec "${container_id}" bash -c "/opt/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
         done
 
     }

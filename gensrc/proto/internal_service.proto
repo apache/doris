@@ -602,8 +602,10 @@ message PPublishFilterResponse {
 
 message PExprResult {
     required PScalarType type = 1;
-    required string content = 2;
+    required string content = 2; //maybe need remove after next version of 2.1
     required bool success = 3;
+    optional PTypeDesc type_desc = 4;
+    optional PValues result_content = 5;
 };
 
 message PExprResultMap {
@@ -687,6 +689,17 @@ message PFetchTableSchemaResult {
   optional int32 column_nums = 2;
   repeated string column_names = 3;
   repeated PTypeDesc column_types = 4;
+}
+
+message POutfileWriteSuccessRequest {
+    // optional string file_path = 1;
+    // optional string success_file_name = 2;
+    // map<string, string> broker_properties = 4; // only for remote file
+    optional bytes result_file_sink = 1;
+}
+
+message POutfileWriteSuccessResult {
+    optional PStatus status = 1;
 }
 
 message PJdbcTestConnectionRequest {
@@ -952,6 +965,7 @@ service PBackendService {
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
+    rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
