@@ -52,8 +52,7 @@
         LOG(INFO) << "end debug block " << DP_NAME;                     \
     }
 
-// DBUG_RUN_CALLBACK is usually use in be ut, to exchange local variable between the injected code
-// and callback codlocal variable between the injected code and callback code.
+// DBUG_RUN_CALLBACK is usually use in be ut, to exchange local variable between the injected code and callback code.
 // usage example: DBUG_EXECUTE_IF("xxx", DBUG_RUN_CALLBACK(yyy,...));
 #define DBUG_RUN_CALLBACK(...) \
     { dp->execute_callback(__VA_ARGS__); }
