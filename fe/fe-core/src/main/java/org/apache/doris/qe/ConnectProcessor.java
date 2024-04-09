@@ -106,8 +106,8 @@ public abstract class ConnectProcessor {
         return ctx;
     }
 
-    public boolean isSelectByFe() {
-        return executor.isSelectByFe();
+    public boolean isHandleQueryInFe() {
+        return executor.isHandleQueryInFe();
     }
 
     // change current database of this session.

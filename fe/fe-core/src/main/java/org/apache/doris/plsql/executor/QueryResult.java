@@ -58,8 +58,8 @@ public class QueryResult {
         return metadata != null ? metadata().columnCount() : 0;
     }
 
-    public boolean isSelectByFe() {
-        return processor.isSelectByFe();
+    public boolean isHandleQueryInFe() {
+        return processor.isHandleQueryInFe();
     }
 
     /**

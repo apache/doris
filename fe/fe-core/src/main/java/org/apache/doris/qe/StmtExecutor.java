@@ -259,7 +259,7 @@ public class StmtExecutor {
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
     // Handle selects that fe can do without be
-    private boolean isSelectByFe = false;
+    private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
 
@@ -491,8 +491,8 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
-    public boolean isSelectByFe() {
-        return isSelectByFe;
+    public boolean isHandleQueryInFe() {
+        return isHandleQueryInFe;
     }
 
     // query with a random sql
@@ -1695,7 +1695,7 @@ public class StmtExecutor {
             Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get());
-                isSelectByFe = true;
+                isHandleQueryInFe = true;
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
