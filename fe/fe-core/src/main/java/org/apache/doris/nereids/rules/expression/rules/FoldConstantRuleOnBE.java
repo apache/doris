@@ -48,7 +48,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
-import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -190,9 +189,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 return;
             }
             // eg: avg_state(1) return is agg function serialize data
-            // and some type can't find a literal to represent
+            // and some type can't find a literal to represent.
+            // time type: need add a time literal in nereids
+            // IPv6 type: need get a library to output the compressed address format
             if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
-                    || expr.getDataType().isVariantType() || expr.getDataType().isTimeLikeType()) {
+                    || expr.getDataType().isVariantType() || expr.getDataType().isTimeLikeType()
+                    || expr.getDataType().isIPv6Type()) {
                 return;
             }
             if (skipSleepFunction(expr) || (expr instanceof TableGeneratingFunction)) {
@@ -269,8 +271,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             tParams.setQueryId(context.queryId());
             tParams.setIsNereids(true);
 
-            // TODO: will be delete the debug log after find problem of timeout.
-            LOG.info("fold query {} ", DebugUtil.printId(context.queryId()));
             Future<PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress,
                     tParams);
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
@@ -286,7 +286,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                             List<Literal> resultExpression = getResultExpression(type, resultContent);
                             if (resultExpression.isEmpty()) {
                                 ret = constMap.get(e1.getKey());
-                                LOG.info("Be constant folding convert {} to {} failed query_id: {}", e1.getKey(), ret,
+                                LOG.debug("Be constant folding convert {} to {} failed query_id: {}", e1.getKey(), ret,
                                         DebugUtil.printId(context.queryId()));
                             } else {
                                 ret = resultExpression.get(0);
@@ -432,13 +432,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 Inet4Address inet4Address = InetAddresses.fromInteger(resultContent.getUint32Value(i));
                 IPv4Literal iPv4Literal = new IPv4Literal(inet4Address.getHostAddress());
                 res.add(iPv4Literal);
-            }
-        } else if (type.isIPv6Type()) {
-            int num = resultContent.getStringValueCount();
-            for (int i = 0; i < num; ++i) {
-                String stringValue = resultContent.getStringValue(i);
-                IPv6Literal iPv6Literal = new IPv6Literal(stringValue);
-                res.add(iPv6Literal);
             }
         } else if (type.isJsonType()) {
             int num = resultContent.getStringValueCount();

@@ -62,9 +62,6 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
 
-using std::string;
-using std::map;
-
 namespace doris {
 
 static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
@@ -76,7 +73,7 @@ static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
     const auto& expr_map = params.expr_map;
-    auto expr_result_map = response->mutable_expr_result_map();
+    auto* expr_result_map = response->mutable_expr_result_map();
 
     TQueryGlobals query_globals = params.query_globals;
     _query_id = params.query_id;
@@ -112,7 +109,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             const auto& column_ptr = tmp_block.get_by_position(result_column).column;
             const auto& column_type = tmp_block.get_by_position(result_column).type;
             // 4 from fe: Config.be_exec_version maybe need remove after next version, now in 2.1
-            if (_runtime_state->be_exec_version() >= 4 && params.is_nereids) {
+            if (_runtime_state->be_exec_version() >= 4 && params.__isset.is_nereids &&
+                params.is_nereids) {
                 auto* p_type_desc = expr_result.mutable_type_desc();
                 auto* p_values = expr_result.mutable_result_content();
                 res_type.to_protobuf(p_type_desc);
@@ -149,8 +147,6 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
         }
         expr_result_map->insert({m.first, pexpr_result_map});
     }
-    //TODO: will be delete the debug log after find problem of timeout.
-    LOG(INFO) << "finish fold_query_id: " << query_id_string();
     return Status::OK();
 }
 
