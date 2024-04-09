@@ -35,8 +35,10 @@ public:
         ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
                 _query_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, _exceed_msg);
     }
+
+private:
     TUniqueId _query_id;
-    std::string _exceed_msg
+    std::string _exceed_msg;
 };
 
 void ThreadMemTrackerMgr::attach_limiter_tracker(
