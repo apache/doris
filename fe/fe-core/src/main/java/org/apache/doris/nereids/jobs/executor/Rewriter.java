@@ -210,8 +210,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateJoinCondition(),
                             new EliminateAssertNumRows(),
                             new EliminateSemiJoin()
-                    ),
-                    bottomUp(RuleSet.PUSH_DOWN_FILTERS)
+                    )
             ),
             // please note: this rule must run before NormalizeAggregate
             topDown(new AdjustAggregateNullableForEmptySet()),
