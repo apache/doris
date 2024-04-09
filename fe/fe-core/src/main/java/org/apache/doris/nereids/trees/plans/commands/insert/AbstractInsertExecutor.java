@@ -185,15 +185,15 @@ public abstract class AbstractInsertExecutor {
             if (!checkStrictMode()) {
                 return;
             }
-            int retry_times = 0;
-            while (retry_times < Config.mow_insert_into_commit_retry_times) {
+            int retryTimes = 0;
+            while (retryTimes < Config.mow_insert_into_commit_retry_times) {
                 try {
                     onComplete();
                     break;
                 } catch (UserException e) {
                     LOG.warn("failed to commit txn", e);
                     if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
-                        retry_times++;
+                        retryTimes++;
                     } else {
                         throw e;
                     }
