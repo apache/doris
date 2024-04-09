@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -72,6 +73,7 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
+import org.apache.doris.rpc.BackendServiceClient;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
@@ -79,6 +81,8 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
+import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.BackendService.Client;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDataSinkType;
@@ -90,6 +94,8 @@ import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -4092,6 +4098,55 @@ public class Coordinator implements CoordInterface {
 
     public List<PlanFragment> getFragments() {
         return fragments;
+    }
+    
+    @Override
+    public void refreshExecStatus() {
+        List<TNetworkAddress> backendAddresses = Lists.newArrayList();
+        if (this.enablePipelineXEngine) {
+            for (Long backendId : this.beToPipelineExecCtxs.keySet()) {
+                Backend backend = idToBackend.get(backendId);
+                backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+            }
+        } else {
+            for (Long backendId : this.beToExecStates.keySet()) {
+                Backend backend = idToBackend.get(backendId);
+                backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+            }
+        }
+
+        for (TNetworkAddress address : backendAddresses) {
+            try {
+                Client client = ClientPool.backendPool.borrowObject(address);
+                TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
+                req.setId(this.queryId);
+                LOG.debug("Refreshing exec status of query {}, backend {}",
+                            DebugUtil.printId(this.queryId), address.toString());
+                TGetRealtimeExecStatusResponse resp = client.getRealtimeExecStatus(req);
+                if (!resp.isSetStatus()) {
+                    LOG.warn("Broken GetRealtimeExecStatusResponse response, query {} backend {}",
+                                DebugUtil.printId(queryId), address.toString());
+                    continue;
+                }
+
+                if (resp.getStatus().status_code != TStatusCode.OK) {
+                    LOG.warn("Failed to get realtime query exec status, query {} backend {} error msg {}",
+                            DebugUtil.printId(queryId), address.toString(), resp.getStatus().toString());
+                    continue;
+                }
+
+                if (!resp.isSetReportExecStatusParams()) {
+                    LOG.warn("Invalid GetRealtimeExecStatusResponse, query {} backend {}",
+                            DebugUtil.printId(queryId), address.toString());
+                    continue;
+                }
+                LOG.info("Get real-time exec status succeed, query {} backend {}", DebugUtil.printId(queryId), address.toString());
+                QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), address);
+            } catch (Exception e) {
+                LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
+                        DebugUtil.printId(queryId), address.toString(), e);
+            }
+        }
     }
 
     // Runtime filter target fragment instance param
