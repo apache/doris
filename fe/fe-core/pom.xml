@@ -360,6 +360,10 @@ under the License.
                     <artifactId>netty-all</artifactId>
                     <groupId>io.netty</groupId>
                 </exclusion>
+                <exclusion>
+                    <groupId>com.google.guava</groupId>
+                    <artifactId>guava</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.alibaba.otter/canal.protocol -->
@@ -616,6 +620,11 @@ under the License.
             <artifactId>protocol-core</artifactId>
             <version>${awssdk.version}</version>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>utils</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
         <!-- For Iceberg, must be consistent with Iceberg version -->
         <dependency>
             <groupId>org.apache.avro</groupId>
@@ -679,7 +688,7 @@ under the License.
         <dependency>
             <groupId>com.google.cloud.bigdataoss</groupId>
             <artifactId>gcs-connector</artifactId>
-            <version>hadoop2-2.2.8</version>
+            <version>hadoop3-2.2.21</version>
             <classifier>shaded</classifier>
             <exclusions>
                 <exclusion>
@@ -700,11 +709,6 @@ under the License.
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.quartz-scheduler</groupId>
-            <artifactId>quartz</artifactId>
-        </dependency>
-
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->
