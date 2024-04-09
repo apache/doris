@@ -332,13 +332,10 @@ fi
 if [[ -z "${WITH_MYSQL}" ]]; then
     WITH_MYSQL='OFF'
 fi
-if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        GLIBC_COMPATIBILITY='ON'
-    else
-        GLIBC_COMPATIBILITY='OFF'
-    fi
-fi
+
+# test
+GLIBC_COMPATIBILITY='OFF'
+
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
 fi

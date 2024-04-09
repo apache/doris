@@ -392,7 +392,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
-    public static int thrift_client_timeout_ms = 0;
+    public static int thrift_client_timeout_ms = 10000;
 
     @ConfField(description = {"thrift server 的 backlog 数量。"
             + "如果调大这个值，则需同时调整 /proc/sys/net/core/somaxconn 的值",
