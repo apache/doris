@@ -560,6 +560,10 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             return;
         }
 
+        // This instance hasn't enable storage vault which means it's using legacy cloud mode
+        DCHECK(instance.enable_storage_vault())
+                << "Only instances with enable_storage_vault true have vault name";
+
         std::string_view name = request->storage_vault_name();
 
         // Try to use the default vault name if user doesn't specify the vault name
@@ -573,6 +577,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             name = instance.default_storage_vault_name();
         }
 
+        // The S3 vault would be stored inside the instance.storage_vault_names and instance.resource_ids
         auto vault_name = std::find_if(
                 instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                 [&](const auto& candidate_name) { return candidate_name == name; });
@@ -580,21 +585,6 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             auto idx = vault_name - instance.storage_vault_names().begin();
             response->set_storage_vault_id(instance.resource_ids().at(idx));
             response->set_storage_vault_name(*vault_name);
-            break;
-        }
-
-        // The S3 vault would be stored inside the instance.obj_info
-        auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
-                                   [&](const ObjectStoreInfoPB& obj) {
-                                       if (!obj.has_name()) {
-                                           return false;
-                                       }
-                                       return obj.name() == name;
-                                   });
-
-        if (s3_obj != instance.obj_info().end()) {
-            response->set_storage_vault_id(s3_obj->id());
-            response->set_storage_vault_name(s3_obj->name());
             break;
         }
 
