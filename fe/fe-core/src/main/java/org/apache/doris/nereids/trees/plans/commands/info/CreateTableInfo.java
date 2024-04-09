@@ -543,12 +543,10 @@ public class CreateTableInfo {
     }
 
     private void paddingEngineName(String ctlName, ConnectContext ctx) {
-        if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName)) {
-            engineName = "olap";
-            return;
-        }
         if (Strings.isNullOrEmpty(engineName)) {
-            if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
+            if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName)) {
+                engineName = "olap";
+            } else if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
                 engineName = "hive";
             } else if (ctx.getCurrentCatalog() instanceof IcebergExternalCatalog) {
                 engineName = "iceberg";

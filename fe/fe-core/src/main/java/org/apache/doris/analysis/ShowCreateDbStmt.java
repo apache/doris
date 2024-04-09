@@ -59,6 +59,9 @@ public class ShowCreateDbStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        if (Strings.isNullOrEmpty(ctl)) {
+            ctl = Env.getCurrentEnv().getCurrentCatalog().getName();
+        }
         if (Strings.isNullOrEmpty(db)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, db);
         }

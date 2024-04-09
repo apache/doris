@@ -162,7 +162,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             sql """use `${catalog_name}`.`test_hive_ex`"""
 
             sql """
-                CREATE TABLE test_hive_ex.ex_tbl_${file_format}(
+                CREATE TABLE IF NOT EXISTS test_hive_ex.ex_tbl_${file_format}(
                   `col1` BOOLEAN COMMENT 'col1',
                   `col2` INT COMMENT 'col2',
                   `col3` BIGINT COMMENT 'col3',
@@ -182,22 +182,25 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                 )
             """;
 
-            test {
+            try {
                 // test  columns
                 sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`) 
                     VALUES 
                     (true, 123, 987654321099, 'abcdefghij', 3.1214, 63.28, 123.4567, 'varcharval', 'stringval');
                 """
-                exception "errCode = 2, detailMessage = (172.21.0.101)[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"
+            } catch (Exception e) {
+                // BE err msg need use string contains to check
+                assertTrue(e.getMessage().contains("[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
             }
 
-            test {
+            try {
                 // test type diff columns
                 sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`) 
                     VALUES 
                     ('1', 123, 987654319, 'abcdefghij', '3.15', '6.28', 123.4567, 432, 'stringval');
                 """
-                exception "errCode = 2, detailMessage = (172.21.0.101)[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"
+            } catch (Exception e) {
+                assertTrue(e.getMessage().contains("[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
             }
 
             test {

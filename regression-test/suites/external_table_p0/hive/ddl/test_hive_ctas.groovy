@@ -304,13 +304,13 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
         def test_ctas_exception = { String file_format, String catalog_name ->
             sql """ switch ${catalog_name} """
 
-            sql """ create database if not exists `test_hive_ex` """;
+            sql """ create database if not exists `test_hive_ex_ctas` """;
             test {
-                sql """ create database `test_hive_ex` """
-                exception "errCode = 2, detailMessage = Can't create database 'test_hive_ex'; database exists"
+                sql """ create database `test_hive_ex_ctas` """
+                exception "errCode = 2, detailMessage = Can't create database 'test_hive_ex_ctas'; database exists"
             }
-            sql """use `${catalog_name}`.`test_hive_ex`"""
-            sql """ DROP DATABASE IF EXISTS ${catalog_name}.test_hive_ex """
+            sql """use `${catalog_name}`.`test_hive_ex_ctas`"""
+            sql """ DROP DATABASE IF EXISTS ${catalog_name}.test_hive_ex_ctas """
             // check ctas error
             generateSrcDDLForCTAS(file_format, catalog_name)
             try {

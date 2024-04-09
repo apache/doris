@@ -543,7 +543,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                                   )
                               """
             logger.info("${pt_check}")
-            assertEquals(11, pt_check[0].size())
+            assertEquals(11, pt_check[0][0].size())
             sql """ drop table if exists all_part_types_tbl_${file_format} """
 
             test {
