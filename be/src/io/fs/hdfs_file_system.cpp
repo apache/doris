@@ -283,11 +283,12 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<F
         if (only_file && file.mKind == kObjectKindDirectory) {
             continue;
         }
-        FileInfo file_info;
-        file_info.file_name = file.mName;
+        auto& file_info = files->emplace_back();
+        std::string_view fname(file.mName);
+        fname.remove_prefix(fname.rfind('/') + 1);
+        file_info.file_name = fname;
         file_info.file_size = file.mSize;
         file_info.is_file = (file.mKind != kObjectKindDirectory);
-        files->emplace_back(std::move(file_info));
     }
     hdfsFreeFileInfo(hdfs_file_info, numEntries);
     return Status::OK();
