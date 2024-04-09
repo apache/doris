@@ -2625,7 +2625,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
         String comment = ctx.comment != null ? ctx.comment.getText() : "";
         // change BITMAP index to INVERTED index
-        if ("BITMAP".equalsIgnoreCase(indexType)) {
+        if (Config.enable_create_bitmap_index_as_inverted_index
+                && "BITMAP".equalsIgnoreCase(indexType)) {
             indexType = "INVERTED";
         }
         return new IndexDefinition(indexName, indexCols, indexType, properties, comment);
