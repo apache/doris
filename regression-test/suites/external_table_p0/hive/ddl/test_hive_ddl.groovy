@@ -112,8 +112,27 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                  """
             def create_tbl_res = sql """ show create table loc_tbl_${file_format}_default """
             logger.info("${create_tbl_res}")
-            assertTrue(create_tbl_res.toString().containsIgnoreCase("${loc}/loc_tbl_${file_format}"))
+            assertTrue(create_tbl_res.toString().containsIgnoreCase("${loc}/loc_tbl_${file_format}_default"))
+
+            sql """ INSERT INTO loc_tbl_${file_format}_default values(1)  """
+
+            def tvfRes = sql """ SELECT * FROM hdfs(
+                                  'uri'='hdfs://${loc}/loc_tbl_${file_format}_default/*',
+                                  'format' = '${file_format}',
+                                  'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                 )
+                             """
+            logger.info("${tvfRes}")
+            assertTrue(!tvfRes.isEmpty())
             sql """DROP TABLE `loc_tbl_${file_format}_default`"""
+            def tvfDropRes = sql """ SELECT * FROM hdfs(
+                                  'uri'='hdfs://${loc}/loc_tbl_${file_format}_default/*',
+                                  'format' = '${file_format}',
+                                  'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                 )
+                             """
+            logger.info("${tvfDropRes}")
+            assertTrue(tvfDropRes.isEmpty())
 
             // case2. use a custom location to create table
             def tbl_loc = "hdfs://${loc}/custom_loc"
@@ -130,8 +149,24 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             def create_tbl_res2 = sql """ show create table loc_tbl_${file_format}_custom """
             logger.info("${create_tbl_res2}")
             assertTrue(create_tbl_res2.toString().containsIgnoreCase("${tbl_loc}"))
-
+            sql """ INSERT INTO loc_tbl_${file_format}_custom values(1)  """
+            def tvfRes2 = sql """ SELECT * FROM hdfs(
+                                    'uri'='${tbl_loc}/*',
+                                    'format' = '${file_format}',
+                                    'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                  )
+                              """
+            logger.info("${tvfRes2}")
+            assertTrue(!tvfRes2.isEmpty())
             sql """DROP TABLE `loc_tbl_${file_format}_custom`"""
+            def tvfDropRes2 = sql """ SELECT * FROM hdfs(
+                                        'uri'='${tbl_loc}/*',
+                                        'format' = '${file_format}',
+                                        'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                      )
+                                  """
+            logger.info("${tvfDropRes2}")
+            assertTrue(tvfDropRes2.isEmpty())
 
             // case3. check default
             sql """
@@ -377,7 +412,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """ DROP DATABASE IF EXISTS test_hive_cross_catalog """
         }
 
-        def test_db_tbl = { String file_format, String catalog_name ->
+        def test_db_tbl = { String file_format,  String externalEnvIp, String hdfs_port, String catalog_name ->
             logger.info("Test create/drop table...")
             sql """switch ${catalog_name}"""
             sql """ create database if not exists `test_hive_db_tbl` """;
@@ -495,6 +530,20 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
+            sql """ 
+                    INSERT INTO all_part_types_tbl_${file_format} (`col`, `pt1`, `pt2`, `pt3`, `pt4`, `pt5`, `pt6`, `pt7`, `pt8`, `pt9`, `pt10`)
+                    VALUES
+                    (1, true, 1, 123, 456789, 922232355, '2024-04-09', '2024-04-09 12:34:56', 'A', 'example', 'string_value');
+                """
+            def loc = "hdfs://${externalEnvIp}:${hdfs_port}/user/hive/warehouse/test_hive_db_tbl.db/all_part_types_tbl_${file_format}/pt1=1/pt2=1/pt3=123/pt4=456789/pt5=922232355/pt6=2024-04-09/*/pt8=A/pt9=example/pt10=string_value"
+            def pt_check = sql """ SELECT * FROM hdfs(
+                                    'uri'='${loc}/*',
+                                    'format' = '${file_format}',
+                                    'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                  )
+                              """
+            logger.info("${pt_check}")
+            assertEquals(11, pt_check[0].size())
             sql """ drop table if exists all_part_types_tbl_${file_format} """
 
             test {
@@ -608,7 +657,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             for (String file_format in file_formats) {
                 logger.info("Process file format " + file_format)
                 test_loc_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)
-                test_db_tbl(file_format, catalog_name)
+                test_db_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)
 
                 for (String compression in compressions) {
                     if (file_format.equals("parquet") && compression.equals("zlib")) {
