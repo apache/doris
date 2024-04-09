@@ -36,6 +36,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.TransactionManager;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TransactionType;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -102,7 +103,13 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
             String dbName = ((HMSExternalTable) table).getDbName();
             String tbName = table.getName();
             transaction.finishInsertTable(dbName, tbName);
+            if (ConnectContext.get().getExecutor() != null) {
+                ConnectContext.get().getExecutor().getSummaryProfile().setTransactionBeginTime(TransactionType.HMS);
+            }
             transactionManager.commit(txnId);
+            if (ConnectContext.get().getExecutor() != null) {
+                ConnectContext.get().getExecutor().getSummaryProfile().setTransactionEndTime();
+            }
             txnStatus = TransactionStatus.COMMITTED;
             Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(
                     dbName,
@@ -135,7 +142,7 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         sb.append("{");
         sb.append("'status':'")
                 .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
-        // sb.append("', 'txnId':'").append(txnId).append("'");
+        sb.append("', 'txnId':'").append(txnId).append("'");
         if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
         }
