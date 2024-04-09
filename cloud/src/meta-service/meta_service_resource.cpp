@@ -16,6 +16,7 @@
 // under the License.
 
 #include <brpc/channel.h>
+#include <butil/guid.h>
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 
@@ -383,6 +384,15 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("invalid prefix: ", *prefix);
         return -1;
+    }
+    if (config::enable_distinguish_hdfs_path) {
+        auto uuid_suffix = butil::GenerateGUID();
+        if (uuid_suffix.empty()) [[unlikely]] {
+            code = MetaServiceCode::UNDEFINED_ERR;
+            msg = fmt::format("failed to generate one suffix for hdfs prefix");
+            return -1;
+        }
+        *prefix = fmt::format("{}_{}", *prefix, uuid_suffix);
     }
 
     auto* fs_name = hdfs_param.mutable_hdfs_info()->mutable_build_conf()->mutable_fs_name();
