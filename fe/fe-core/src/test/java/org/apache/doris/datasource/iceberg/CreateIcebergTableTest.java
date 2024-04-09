@@ -184,7 +184,7 @@ public class CreateIcebergTableTest {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
-        createTableInfo.setExternal();
+        createTableInfo.setIsExternal(true);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
         ops.createTable(createTableStmt);
     }

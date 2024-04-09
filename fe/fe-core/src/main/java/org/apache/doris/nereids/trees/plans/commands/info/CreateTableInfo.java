@@ -748,7 +748,7 @@ public class CreateTableInfo {
                 comment, addRollups, null);
     }
 
-    public void setExternal() {
-        isExternal = true;
+    public void setIsExternal(boolean isExternal) {
+        this.isExternal = isExternal;
     }
 }
