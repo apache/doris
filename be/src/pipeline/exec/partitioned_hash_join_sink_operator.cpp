@@ -95,7 +95,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_shared_state->need_to_spill) {
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         _shared_state->inner_shared_state->hash_table_variants.reset();
-        auto row_desc = p._child_x->row_desc();
+        auto row_desc = p._child_x->output_row_desc();
         auto build_block = std::move(_shared_state->inner_shared_state->build_block);
         if (!build_block) {
             build_block = vectorized::Block::create_shared();
