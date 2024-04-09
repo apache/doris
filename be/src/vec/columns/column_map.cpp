@@ -58,10 +58,12 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with key_column";
+            LOG(FATAL) << "offsets_column has data inconsistent with key_column "
+                       << keys_column->size() << " " << last_offset;
         }
         if (values_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with value_column";
+            LOG(FATAL) << "offsets_column has data inconsistent with value_column "
+                       << values_column->size() << " " << last_offset;
         }
     }
 }
