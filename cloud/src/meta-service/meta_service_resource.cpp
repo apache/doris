@@ -618,8 +618,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
     case AlterObjStoreInfoRequest::ADD_S3_VAULT: {
-        if (!request->obj().has_provider()) {
-        auto& obj = request->has_obj() ? request->obj() : request->vault().has_s3_obj();
+        auto& obj = request->has_obj() ? request->obj() : request->vault().s3_obj();
         if (!obj.has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf lease provider info";
@@ -669,11 +668,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_region(region);
         last_item.set_provider(obj.provider());
         last_item.set_sse_enabled(instance.sse_enabled());
-        if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
-            last_item.set_name(BUILT_IN_STORAGE_VAULT_NAME);
-            instance.set_default_storage_vault_name(BUILT_IN_STORAGE_VAULT_NAME);
-            instance.set_default_storage_vault_id(BUILT_IN_STORAGE_VAULT_ID);
-        }
         if (request->op() == AlterObjStoreInfoRequest::ADD_OBJ_INFO) {
             instance.add_obj_info()->CopyFrom(last_item);
         } else if (request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT) {

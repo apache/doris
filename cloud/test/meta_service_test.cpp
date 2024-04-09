@@ -6053,7 +6053,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         AlterObjStoreInfoRequest set_default_req;
         set_default_req.set_cloud_unique_id("test_cloud_unique_id");
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
-        set_default_req.mutable_hdfs()->CopyFrom(hdfs);
+        set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
         brpc::Controller cntl;
         meta_service->alter_obj_store_info(
