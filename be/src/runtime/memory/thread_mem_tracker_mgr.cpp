@@ -28,7 +28,7 @@ class AsyncCancelQueryTask : public Runnable {
     ENABLE_FACTORY_CREATOR(AsyncCancelQueryTask);
 
 public:
-    AsyncCancelQueryTask(TUniqueId query_id, std::string& exceed_msg)
+    AsyncCancelQueryTask(TUniqueId query_id, const std::string& exceed_msg)
             : _query_id(query_id), _exceed_msg(exceed_msg) {}
     ~AsyncCancelQueryTask() override = default;
     void run() override {
@@ -38,7 +38,7 @@ public:
 
 private:
     TUniqueId _query_id;
-    std::string _exceed_msg;
+    const std::string _exceed_msg;
 };
 
 void ThreadMemTrackerMgr::attach_limiter_tracker(
