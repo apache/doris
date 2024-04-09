@@ -72,8 +72,8 @@ public class DropMaterializedViewStmt extends DdlStmt {
 
         // check access
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.DROP)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+                tableName.getTbl(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }
 

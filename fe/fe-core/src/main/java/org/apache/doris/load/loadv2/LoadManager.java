@@ -611,9 +611,31 @@ public class LoadManager implements Writable {
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }
+                    String dbName = loadJob.getDb().getName();
+                    Set<String> tableNames = loadJob.getTableNames();
+                    // check auth
+                    if (tableNames.isEmpty()) {
+                        // forward compatibility
+                        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
+                                PrivPredicate.LOAD)) {
+                            continue;
+                        }
+                    } else {
+                        boolean auth = true;
+                        for (String tblName : tableNames) {
+                            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
+                                    tblName, PrivPredicate.LOAD)) {
+                                auth = false;
+                                break;
+                            }
+                        }
+                        if (!auth) {
+                            continue;
+                        }
+                    }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
-                } catch (RuntimeException | DdlException e) {
+                } catch (RuntimeException | DdlException | MetaNotFoundException e) {
                     // ignore this load job
                     LOG.warn("get load job info failed. job id: {}", loadJob.getId(), e);
                 }

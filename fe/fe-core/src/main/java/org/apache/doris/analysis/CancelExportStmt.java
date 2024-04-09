@@ -18,9 +18,14 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJobState;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -135,6 +140,14 @@ public class CancelExportStmt extends DdlStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 throw new AnalysisException("No database selected");
             }
+        }
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
+                PrivPredicate.SELECT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(), dbName);
         }
 
         if (null == whereClause) {

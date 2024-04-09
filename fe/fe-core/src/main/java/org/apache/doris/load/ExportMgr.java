@@ -26,6 +26,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
@@ -33,6 +35,7 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
@@ -122,6 +125,29 @@ public class ExportMgr {
         if (matchExportJobs.isEmpty()) {
             throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
         }
+
+        // check auth
+        String dbName = stmt.getDbName();
+        if (matchExportJobs.size() > 1) {
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "SELECT",
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(), dbName);
+            }
+        } else {
+            String tableName = matchExportJobs.get(0).getTableName().getTbl();
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                            tableName,
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(), dbName + ":" + tableName);
+            }
+        }
+
         try {
             for (ExportJob exportJob : matchExportJobs) {
                 // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
