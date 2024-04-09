@@ -62,6 +62,8 @@ public class CloudEnv extends Env {
 
     private CloudTabletRebalancer cloudTabletRebalancer;
 
+    private boolean enableStorageVault;
+
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
@@ -111,6 +113,7 @@ public class CloudEnv extends Env {
                     Config.cloud_unique_id, Config.cloud_sql_server_cluster_id, response);
             return null;
         }
+        this.enableStorageVault = response.getEnableStorageVault();
         List<Cloud.NodeInfoPB> allNodes = response.getCluster(0).getNodesList()
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
@@ -430,5 +433,9 @@ public class CloudEnv extends Env {
 
     public void replayUpdateCloudReplica(UpdateCloudReplicaInfo info) throws MetaNotFoundException {
         ((CloudInternalCatalog) getInternalCatalog()).replayUpdateCloudReplica(info);
+    }
+
+    public boolean getEnableStorageVault() {
+        return this.enableStorageVault;
     }
 }

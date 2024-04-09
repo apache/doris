@@ -198,8 +198,6 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
 }
 
 void SpillStreamManager::delete_spill_stream(SpillStreamSPtr stream) {
-    stream->close();
-
     auto gc_dir = fmt::format("{}/{}/{}", stream->get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
                               std::filesystem::path(stream->get_spill_dir()).filename().string());
     (void)io::global_local_filesystem()->rename(stream->get_spill_dir(), gc_dir);

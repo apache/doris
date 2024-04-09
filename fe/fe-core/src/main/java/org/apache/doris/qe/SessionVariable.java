@@ -185,6 +185,8 @@ public class SessionVariable implements Serializable, Writable {
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
+    public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
+
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
     // max ms to wait transaction publish finish when exec insert stmt.
@@ -671,7 +673,9 @@ public class SessionVariable implements Serializable, Writable {
     public String resourceGroup = "";
 
     // this is used to make mysql client happy
-    @VariableMgr.VarAttr(name = AUTO_COMMIT)
+    // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
+    // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
+    @VariableMgr.VarAttr(name = AUTO_COMMIT, convertBoolToLongMethod = "convertBoolToLong")
     public boolean autoCommit = true;
 
     // this is used to make c3p0 library happy
@@ -992,6 +996,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM, needForward = true)
     private int runtimeFilterMaxInNum = 1024;
+
+    @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true)
+    private boolean enableSyncRuntimeFilterSize = true;
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
@@ -1747,7 +1754,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
             checker = "checkExternalAggPartitionBits", fuzzy = true)
-    public int externalAggPartitionBits = 8; // means that the hash table will be partitioned into 256 blocks.
+    public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
 
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
@@ -2024,10 +2031,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableJoinReorderBasedCost() {
         return enableJoinReorderBasedCost;
-    }
-
-    public boolean isAutoCommit() {
-        return autoCommit;
     }
 
     public boolean enableMultiClusterSyncLoad() {
@@ -2938,6 +2941,10 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public long convertBoolToLong(Boolean val) {
+        return val ? 1 : 0;
+    }
+
     public boolean isEnableFileCache() {
         return enableFileCache;
     }
@@ -3470,6 +3477,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnablePipelineXEngine() {
         return enablePipelineXEngine;
+    }
+
+    public boolean enableSyncRuntimeFilterSize() {
+        return enableSyncRuntimeFilterSize;
     }
 
     public static boolean enablePipelineEngine() {

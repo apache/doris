@@ -46,6 +46,8 @@
 namespace doris {
 
 class DelayReleaseToken : public Runnable {
+    ENABLE_FACTORY_CREATOR(DelayReleaseToken);
+
 public:
     DelayReleaseToken(std::unique_ptr<ThreadPoolToken>&& token) { token_ = std::move(token); }
     ~DelayReleaseToken() override = default;
@@ -141,8 +143,12 @@ QueryContext::~QueryContext() {
     // And also thread token need shutdown, it may take some time, may cause the thread that
     // release the token hang, the thread maybe a pipeline task scheduler thread.
     if (_thread_token) {
-        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+        Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                DelayReleaseToken::create_shared(std::move(_thread_token)));
+        if (!submit_st.ok()) {
+            LOG(WARNING) << "Failed to release query context thread token, query_id "
+                         << print_id(_query_id) << ", error status " << submit_st;
+        }
     }
 
     //TODO: check if pipeline and tracing both enabled
@@ -193,13 +199,14 @@ void QueryContext::set_execution_dependency_ready() {
 }
 
 void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
+    // we must get this wrong status once query ctx's `_is_cancelled` = true.
+    set_exec_status(new_status);
     // Just for CAS need a left value
     bool false_cancel = false;
     if (!_is_cancelled.compare_exchange_strong(false_cancel, true)) {
         return;
     }
     DCHECK(!false_cancel && _is_cancelled);
-    set_exec_status(new_status);
 
     set_ready_to_execute(true);
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
@@ -219,7 +226,6 @@ void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
             pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
         }
     }
-    return;
 }
 
 void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
