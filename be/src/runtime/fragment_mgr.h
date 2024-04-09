@@ -134,6 +134,10 @@ public:
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
+    Status send_filter_size(const PSendFilterSizeRequest* request);
+
+    Status sync_filter_size(const PSyncFilterSizeRequest* request);
+
     std::string to_http_path(const std::string& file_name);
 
     void coordinator_callback(const ReportStatusRequest& req);

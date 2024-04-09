@@ -295,13 +295,22 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     return ColumnStruct::create(new_columns);
 }
 
+bool ColumnStruct::could_shrinked_column() {
+    const size_t tuple_size = columns.size();
+    for (size_t i = 0; i < tuple_size; ++i) {
+        if (columns[i]->could_shrinked_column()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 MutableColumnPtr ColumnStruct::get_shrinked_column() {
     const size_t tuple_size = columns.size();
     MutableColumns new_columns(tuple_size);
 
     for (size_t i = 0; i < tuple_size; ++i) {
-        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
-            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
+        if (columns[i]->could_shrinked_column()) {
             new_columns[i] = columns[i]->get_shrinked_column();
         } else {
             new_columns[i] = columns[i]->get_ptr();

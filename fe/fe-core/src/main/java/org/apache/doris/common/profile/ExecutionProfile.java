@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
@@ -24,6 +25,7 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
@@ -247,7 +249,7 @@ public class ExecutionProfile {
         }
     }
 
-    public Status updateProfile(TQueryProfile profile, TNetworkAddress address) {
+    public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress) {
         if (isPipelineXProfile) {
             if (!profile.isSetFragmentIdToProfile()) {
                 return new Status(TStatusCode.INVALID_ARGUMENT, "FragmentIdToProfile is not set");
@@ -260,7 +262,7 @@ public class ExecutionProfile {
                 List<RuntimeProfile> taskProfile = Lists.newArrayList();
                 for (TDetailedReportParams pipelineProfile : fragmentProfile) {
                     String name = "Pipeline :" + pipelineIdx + " "
-                            + " (host=" + address + ")";
+                            + " (host=" + backendHBAddress + ")";
                     RuntimeProfile profileNode = new RuntimeProfile(name);
                     taskProfile.add(profileNode);
                     if (!pipelineProfile.isSetProfile()) {
@@ -271,7 +273,7 @@ public class ExecutionProfile {
                     pipelineIdx++;
                     fragmentProfiles.get(fragmentId).addChild(profileNode);
                 }
-                multiBeProfile.get(fragmentId).put(address, taskProfile);
+                multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
             }
         } else {
             if (!profile.isSetInstanceProfiles() || !profile.isSetFragmentInstanceIds()) {
@@ -322,13 +324,24 @@ public class ExecutionProfile {
         return new Status(TStatusCode.OK, "Success");
     }
 
-    public void updateProfile(TReportExecStatusParams params, TNetworkAddress address) {
+    public void updateProfile(TReportExecStatusParams params) {
+        Backend backend  = null;
+        if (params.isSetBackendId()) {
+            backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
+            if (backend == null) {
+                LOG.warn("could not find backend with id {}", params.getBackendId());
+                return;
+            }
+        } else {
+            LOG.warn("backend id is not set in report profile request, bad message");
+            return;
+        }
         if (isPipelineXProfile) {
             int pipelineIdx = 0;
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
             for (TDetailedReportParams param : params.detailed_report) {
                 String name = "Pipeline :" + pipelineIdx + " "
-                        + " (host=" + address + ")";
+                        + " (host=" + backend.getHeartbeatAddress() + ")";
                 RuntimeProfile profile = new RuntimeProfile(name);
                 taskProfile.add(profile);
                 if (param.isSetProfile()) {
@@ -345,7 +358,7 @@ public class ExecutionProfile {
             if (params.isSetLoadChannelProfile()) {
                 loadChannelProfile.update(params.loadChannelProfile);
             }
-            multiBeProfile.get(params.fragment_id).put(address, taskProfile);
+            multiBeProfile.get(params.fragment_id).put(backend.getHeartbeatAddress(), taskProfile);
         } else {
             PlanFragmentId fragmentId = instanceIdToFragmentId.get(params.fragment_instance_id);
             if (fragmentId == null) {

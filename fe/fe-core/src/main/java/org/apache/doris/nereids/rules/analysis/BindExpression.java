@@ -478,7 +478,8 @@ public class BindExpression implements AnalysisRuleFactory {
             conjunct = TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType.INSTANCE);
             boundConjuncts.add(conjunct);
         }
-        checkIfOutputAliasNameDuplicatedForGroupBy(boundConjuncts.build(), child.getOutput());
+        checkIfOutputAliasNameDuplicatedForGroupBy(boundConjuncts.build(),
+                child instanceof LogicalProject ? ((LogicalProject<?>) child).getOutputs() : child.getOutput());
         return new LogicalHaving<>(boundConjuncts.build(), having.child());
     }
 

@@ -745,6 +745,17 @@ class GenConfCommand(Command):
             "config",
             help="Generate regression-conf-custom.groovy for regression test.")
         parser.add_argument("NAME", default="", help="Specific cluster name.")
+        parser.add_argument("DORIS_ROOT_PATH", default="", help="Specify doris or selectdb root path, "\
+                "i.e. the parent directory of regression-test.")
+        parser.add_argument("--connect-follow-fe",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="Connect to follow fe.")
+        parser.add_argument("-q",
+                            "--quiet",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="write config quiet, no need confirm.")
 
         return parser
 
@@ -761,46 +772,47 @@ feHttpAddress = "{fe_ip}:8030"
         cloud_conf = '''
 feCloudHttpAddress = "{fe_ip}:18030"
 metaServiceHttpAddress = "{ms_endpoint}"
+metaServiceToken = "greedisgood9999"
 recycleServiceHttpAddress = "{recycle_endpoint}"
+instanceId = "default_instance_id"
 multiClusterInstance = "default_instance_id"
 multiClusterBes = "{multi_cluster_bes}"
-metaServiceToken = "greedisgood9999"
+cloudUniqueId= "{fe_cloud_unique_id}"
 '''
-
-        def confirm_custom_file_path(doris_root_dir):
-            relative_custom_file_path = "regression-test/conf/regression-conf-custom.groovy"
-            regression_conf_custom = os.path.join(doris_root_dir,
-                                                  relative_custom_file_path)
-            ans = input(
-                "\nwrite file {} ?  y / n / c(change custom conf path):  ".
-                format(regression_conf_custom))
-            if ans == 'y':
-                return regression_conf_custom
-            elif ans == 'c':
-                return confirm_custom_file_path(
-                    input("\ninput your doris or selectdb-core root path (ie. the regression-test 's "\
-                        "parent path, for save the custom conf file): "
-                    ).strip())
-            else:
-                return ""
-
         cluster = CLUSTER.Cluster.load(args.NAME)
-        master_fe_ip = CLUSTER.get_master_fe_endpoint(args.NAME)
-        if not master_fe_ip:
+        master_fe_ip_ep = CLUSTER.get_master_fe_endpoint(args.NAME)
+        if not master_fe_ip_ep:
             print("Not found cluster with name {} in directory {}".format(
                 args.NAME, CLUSTER.LOCAL_DORIS_PATH))
             return
-        doris_root_dir = os.path.abspath(__file__)
-        for i in range(4):
-            doris_root_dir = os.path.dirname(doris_root_dir)
 
-        regression_conf_custom = confirm_custom_file_path(doris_root_dir)
-        if not regression_conf_custom:
-            print("\nNo write regression custom file.")
-            return
+        master_fe_ip = master_fe_ip_ep[:master_fe_ip_ep.find(':')]
+        fe_ip = ""
+        if not args.connect_follow_fe:
+            fe_ip = master_fe_ip
+        else:
+            for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
+                if fe.get_ip() == master_fe_ip:
+                    continue
+                else:
+                    fe_ip = fe.get_ip()
+                    break
+            if not fe_ip:
+                raise Exception(
+                    "Not found follow fe, pls add a follow fe use command `up <your-cluster> --add-fe-num 1`"
+                )
+
+        relative_custom_file_path = "regression-test/conf/regression-conf-custom.groovy"
+        regression_conf_custom = os.path.join(args.DORIS_ROOT_PATH,
+                                              relative_custom_file_path)
+        if not args.quiet:
+            ans = input(
+                "\nwrite file {} ?  y/n: ".format(regression_conf_custom))
+            if ans != 'y':
+                print("\nNo write regression custom file.")
+                return
 
         with open(regression_conf_custom, "w") as f:
-            fe_ip = master_fe_ip[:master_fe_ip.find(':')]
             f.write(base_conf.format(fe_ip=fe_ip))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
@@ -816,7 +828,9 @@ metaServiceToken = "greedisgood9999"
                         fe_ip=fe_ip,
                         ms_endpoint=cluster.get_meta_server_addr(),
                         recycle_endpoint=cluster.get_recycle_addr(),
-                        multi_cluster_bes=multi_cluster_bes))
+                        multi_cluster_bes=multi_cluster_bes,
+                        fe_cloud_unique_id=cluster.get_node(
+                            CLUSTER.Node.TYPE_FE, 1).cloud_unique_id()))
         print("\nWrite succ: " + regression_conf_custom)
 
 
@@ -987,6 +1001,8 @@ class ListCommand(Command):
                         container.attrs["NetworkSettings"]
                         ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]
                     node.image = ",".join(container.image.tags)
+                    if not node.image:
+                        node.image = container.attrs["Config"]["Image"]
                     node.container_id = container.short_id
                     node.status = container.status
                     if node.container_id and \

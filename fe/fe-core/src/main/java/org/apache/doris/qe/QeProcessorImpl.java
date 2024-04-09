@@ -27,6 +27,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
 import org.apache.doris.thrift.TQueryType;
@@ -83,7 +84,15 @@ public final class QeProcessorImpl implements QeProcessor {
                     + DebugUtil.printId(profile.query_id));
         }
 
-        return executionProfile.updateProfile(profile, address);
+        // Update profile may cost a lot of time, use a seperate pool to deal with it.
+        writeProfileExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                executionProfile.updateProfile(profile, address);
+            }
+        });
+
+        return Status.OK;
     }
 
     @Override
@@ -222,7 +231,12 @@ public final class QeProcessorImpl implements QeProcessor {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
         if (params.isSetQueryProfile()) {
-            processQueryProfile(params.getQueryProfile(), beAddr);
+            if (params.isSetBackendId()) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
+                if (backend != null) {
+                    processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress());
+                }
+            }
         }
 
         if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
@@ -238,7 +252,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 writeProfileExecutor.submit(new Runnable() {
                     @Override
                     public void run() {
-                        executionProfile.updateProfile(params, beAddr);
+                        executionProfile.updateProfile(params);
                     }
                 });
             } else {

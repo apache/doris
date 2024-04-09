@@ -152,6 +152,11 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, projections_row_desc()));
 
+    if (has_output_row_desc()) {
+        RETURN_IF_ERROR(
+                vectorized::VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
+    }
+
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->prepare(state));
     }

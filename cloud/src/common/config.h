@@ -123,7 +123,7 @@ CONF_mBool(split_tablet_stats, "true");
 CONF_mBool(snapshot_get_tablet_stats, "true");
 
 // Value codec version
-CONF_mInt16(meta_schema_value_version, 0);
+CONF_mInt16(meta_schema_value_version, "1");
 
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
@@ -149,7 +149,11 @@ CONF_Bool(focus_add_kms_data_key, "false");
 
 // Whether to retry the retryable errors that returns by the underlying txn store.
 CONF_Bool(enable_txn_store_retry, "true");
-CONF_Int32(txn_store_retry_times, "20");
+// The rpc timeout of BE cloud meta mgr is set to 10s, to avoid BE rpc timeout, the retry time here
+// should satisfy that:
+//  (1 << txn_store_retry_times) * txn_store_retry_base_internvals_ms < 10s
+CONF_Int32(txn_store_retry_times, "4");
+CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 // Whether to retry the txn conflict errors that returns by the underlying txn store.
 CONF_Bool(enable_retry_txn_conflict, "true");
 
@@ -160,5 +164,7 @@ CONF_String(secondary_package_name, "");
 CONF_String(kerberos_ccache_path, "");
 // set krb5.conf path, use "/etc/krb5.conf" by default
 CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
+
+CONF_mBool(enable_distinguish_hdfs_path, "true");
 
 } // namespace doris::cloud::config

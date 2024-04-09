@@ -18,11 +18,10 @@
 suite("test_sum") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    // Nereids does't support window function
-    // qt_select """
-    //               select k1, sum(k5) over 
-    //                   (partition by k1 order by k3 range between current row and unbounded following) as w 
-    //               from nereids_test_query_db.test order by k1, w
-    //           """
+    qt_select """
+                  select k1, sum(k5) over 
+                      (partition by k1 order by k3 range between current row and unbounded following) as w 
+                  from nereids_test_query_db.test order by k1, w
+              """
 }
 
