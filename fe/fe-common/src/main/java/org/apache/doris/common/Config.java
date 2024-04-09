@@ -2688,6 +2688,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
+
+    @ConfField(mutable = true)
+    public static int mow_insert_into_commit_retry_times = 10;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
