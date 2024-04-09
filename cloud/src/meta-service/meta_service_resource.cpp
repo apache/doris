@@ -1841,8 +1841,11 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         return;
     }
 
-    response->set_enable_storage_vault(instance.enable_storage_vault());
-    if (instance.enable_storage_vault() &&
+    // For old cloud instance created with obj info, it has no vault and no such field
+    bool enable_storage_vault =
+            instance.has_enable_storage_vault() ? instance.enable_storage_vault() : false;
+    response->set_enable_storage_vault(enable_storage_vault);
+    if (enable_storage_vault &&
         std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [](const std::string& name) { return name == BUILT_IN_STORAGE_VAULT_NAME; }) ==
                 instance.storage_vault_names().end()) {
