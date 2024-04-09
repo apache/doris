@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
@@ -157,7 +158,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
                 requestBuilder.addTabletMetas(builder);
             }
-            if (!storageVaultIdSet) {
+            if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
                 requestBuilder.setStorageVaultName(storageVaultName);
             }
 
@@ -165,6 +166,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     + "indexId: {}, vault name {}",
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
+            // If the resp has no vault id set, it means the MS is running with enable_storage_vault false
             if (resp.hasStorageVaultId() && !storageVaultIdSet) {
                 tbl.setStorageVaultId(resp.getStorageVaultId());
                 storageVaultIdSet = true;

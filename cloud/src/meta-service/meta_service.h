@@ -37,6 +37,8 @@ namespace doris::cloud {
 
 class Transaction;
 
+constexpr std::string_view BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
