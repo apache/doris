@@ -5974,7 +5974,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
         StorageVaultPB hdfs;
-        hdfs.set_name("test_alter_add_hdfs_info");
+        hdfs.set_name("built_in_storage_vault");
         HdfsVaultInfo params;
         params.mutable_build_conf()->set_fs_name("hdfs://ip:port");
 
