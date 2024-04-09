@@ -598,6 +598,8 @@ private:
         static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
         static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
 
+        using namespace std::chrono;
+
         brpc::ClosureGuard done_guard(done);
         if (!config::enable_txn_store_retry) {
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
@@ -631,8 +633,8 @@ private:
             TEST_SYNC_POINT("MetaServiceProxy::call_impl:2");
             if (retry_times == 0) {
                 // the first retry, add random drift.
-                auto rng = std::default_random_engine {static_cast<uint64_t>(
-                        std::chrono::steady_clock::now().time_since_epoch().count())};
+                duration seed = duration_cast<nanoseconds>(steady_clock::now().time_since_epoch());
+                std::default_random_engine rng(static_cast<uint64_t>(seed.count()));
                 retry_drift_ms = std::uniform_int_distribution<uint64_t>(
                         0, config::txn_store_retry_base_intervals_ms)(rng);
             }
