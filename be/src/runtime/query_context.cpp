@@ -29,6 +29,8 @@
 namespace doris {
 
 class DelayReleaseToken : public Runnable {
+    ENABLE_FACTORY_CREATOR(DelayReleaseToken);
+
 public:
     DelayReleaseToken(std::unique_ptr<ThreadPoolToken>&& token) { token_ = std::move(token); }
     ~DelayReleaseToken() override = default;
@@ -115,8 +117,12 @@ QueryContext::~QueryContext() {
     // And also thread token need shutdown, it may take some time, may cause the thread that
     // release the token hang, the thread maybe a pipeline task scheduler thread.
     if (_thread_token) {
-        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+        Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                DelayReleaseToken::create_shared(std::move(_thread_token)));
+        if (!submit_st.ok()) {
+            LOG(WARNING) << "Failed to release query context thread token, query_id "
+                         << print_id(_query_id) << ", error status " << submit_st;
+        }
     }
 
     //TODO: check if pipeline and tracing both enabled
