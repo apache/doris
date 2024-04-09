@@ -590,7 +590,8 @@ Status CloudTablet::calc_delete_bitmap_for_compaciton(
             input_rowsets, rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
             tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
     std::size_t missed_rows_size = missed_rows.size();
-    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
+    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
+        tablet_state() == TABLET_RUNNING) {
         if (merged_rows >= 0 && merged_rows != missed_rows_size) {
             std::string err_msg = fmt::format(
                     "cumulative compaction: the merged rows({}) is not equal to missed "
