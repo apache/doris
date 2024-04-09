@@ -30,6 +30,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -39,6 +41,8 @@ import java.util.Map;
  * mv_infos("database" = "db1").
  */
 public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
+    private static final Logger LOG = LogManager.getLogger(MvInfosTableValuedFunction.class);
+
     public static final String NAME = "mv_infos";
     private static final String DB = "database";
 
@@ -75,6 +79,7 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
     private final String databaseName;
 
     public MvInfosTableValuedFunction(Map<String, String> params) throws AnalysisException {
+        LOG.info("start MvInfosTableValuedFunction()");
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -97,12 +102,14 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public TMetaScanRange getMetaScanRange() {
+        LOG.info("start getMetaScanRange()");
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.MATERIALIZED_VIEWS);
         TMaterializedViewsMetadataParams mtmvParam = new TMaterializedViewsMetadataParams();
         mtmvParam.setDatabase(databaseName);
         mtmvParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setMaterializedViewsParams(mtmvParam);
+        LOG.info("end getMetaScanRange()");
         return metaScanRange;
     }
 
