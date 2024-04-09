@@ -94,8 +94,7 @@ ColumnPtr ColumnTypeConverter::get_column(const TypeDescriptor& src_type, Column
                                           const DataTypePtr& dst_type) {
     if (is_consistent()) {
         if (_cached_src_type == nullptr) {
-            _cached_src_type =
-                    DataTypeFactory::instance().create_data_type(src_type, dst_type->is_nullable());
+            _cached_src_type = dst_type;
         }
         return dst_column;
     }
@@ -284,6 +283,9 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(
         return std::make_unique<ConsistentConverter>();
     }
     if (is_string_type(src_primitive_type) && is_string_type(dst_primitive_type)) {
+        return std::make_unique<ConsistentConverter>();
+    }
+    if (_is_decimal_type(src_primitive_type) && _is_decimal_type(dst_primitive_type)) {
         return std::make_unique<ConsistentConverter>();
     }
 

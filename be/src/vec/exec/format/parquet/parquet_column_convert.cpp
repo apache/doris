@@ -135,18 +135,20 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
     return _cached_src_physical_column;
 }
 
-static void get_decimal_converter(FieldSchema* field_schema, const TypeDescriptor& src_logical_type,
+static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_logical_type,
                                   const DataTypePtr& dst_logical_type,
                                   ConvertParams* convert_params,
                                   std::unique_ptr<PhysicalToLogicalConverter>& physical_converter) {
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
+    if (is_decimal(remove_nullable(dst_logical_type))) {
+        // using destination decimal type, avoid type and scale change
+        src_logical_type = remove_nullable(dst_logical_type)->get_type_as_type_descriptor();
+    }
+
     tparquet::Type::type src_physical_type = parquet_schema.type;
     PrimitiveType src_logical_primitive = src_logical_type.type;
-
     int dst_scale = src_logical_type.scale;
-    if (is_decimal(remove_nullable(dst_logical_type))) {
-        dst_scale = remove_nullable(dst_logical_type)->get_scale();
-    }
+
     if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
         switch (src_logical_primitive) {
 #define DISPATCH(LOGICAL_PTYPE)                                                                   \
