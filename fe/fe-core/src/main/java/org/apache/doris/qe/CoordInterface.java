@@ -30,4 +30,6 @@ public interface CoordInterface {
     // When call exec or get next data finished, should call this method to release
     // some resource.
     public default void close() {}
+
+    public void refreshExecStatus();
 }

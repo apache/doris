@@ -28,6 +28,8 @@ import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.qe.CoordInterface;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
@@ -270,6 +272,15 @@ public class ProfileManager {
             if (element == null) {
                 return null;
             }
+            
+            TUniqueId thriftQueryId = Util.parseTUniqueIdFromString(queryID);
+            if (thriftQueryId != null) {
+                CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(thriftQueryId);
+                if (coor != null) {
+                    coor.refreshExecStatus();
+                }
+            }
+
             return element.getProfileContent();
         } finally {
             readLock.unlock();
