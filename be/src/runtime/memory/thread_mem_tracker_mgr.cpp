@@ -61,7 +61,7 @@ void ThreadMemTrackerMgr::detach_limiter_tracker(
 void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {
     if (is_attach_query() && !_is_query_cancelled) {
         Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                std::make_shared<AsyncCancelQueryTask>(_query_id, exceed_msg));
+                AsyncCancelQueryTask::create_shared(_query_id, exceed_msg));
         if (submit_st.ok()) {
             // Use this flag to avoid the cancel request submit to pool many times, because even we cancel the query
             // successfully, but the application may not use if (state.iscancelled) to exist quickly. And it may try to
