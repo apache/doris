@@ -92,9 +92,9 @@ public:
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
                         const std::vector<TParquetSchema>& parquet_schemas,
-                        const TParquetCompressionType::type& compression_type,
-                        const bool& parquet_disable_dictionary,
-                        const TParquetVersion::type& parquet_version, bool output_object_data);
+                        TParquetCompressionType::type compression_type,
+                        bool parquet_disable_dictionary, TParquetVersion::type parquet_version,
+                        bool output_object_data);
 
     ~VParquetTransformer() override = default;
 
@@ -118,9 +118,9 @@ private:
     std::shared_ptr<arrow::Schema> _arrow_schema;
 
     const std::vector<TParquetSchema>& _parquet_schemas;
-    const TParquetCompressionType::type& _compression_type;
-    const bool& _parquet_disable_dictionary;
-    const TParquetVersion::type& _parquet_version;
+    const TParquetCompressionType::type _compression_type;
+    const bool _parquet_disable_dictionary;
+    const TParquetVersion::type _parquet_version;
 };
 
 } // namespace doris::vectorized
