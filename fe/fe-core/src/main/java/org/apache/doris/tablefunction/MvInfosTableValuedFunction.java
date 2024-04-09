@@ -79,7 +79,9 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
     private final String databaseName;
 
     public MvInfosTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        LOG.info("start MvInfosTableValuedFunction()");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MvInfosTableValuedFunction() start");
+        }
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -93,6 +95,9 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Invalid mtmv metadata query");
         }
         this.databaseName = dbName;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MvInfosTableValuedFunction() end");
+        }
     }
 
     @Override
@@ -102,14 +107,18 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public TMetaScanRange getMetaScanRange() {
-        LOG.info("start getMetaScanRange()");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getMetaScanRange() start");
+        }
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.MATERIALIZED_VIEWS);
         TMaterializedViewsMetadataParams mtmvParam = new TMaterializedViewsMetadataParams();
         mtmvParam.setDatabase(databaseName);
         mtmvParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setMaterializedViewsParams(mtmvParam);
-        LOG.info("end getMetaScanRange()");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getMetaScanRange() end");
+        }
         return metaScanRange;
     }
 
