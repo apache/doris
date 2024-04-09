@@ -453,7 +453,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             for (DatabaseIf db : dbs) {
                 String dbName = db.getFullName();
                 if (!env.getAccessManager()
-                        .checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SHOW)) {
+                        .checkDbPriv(currentUser, catalog.getName(), dbName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -538,7 +538,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         LOG.debug("get table: {}, wait to check", tableName);
                     }
                     if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName,
+                            .checkTblPriv(currentUser, catalogName, dbName, tableName,
                                     PrivPredicate.SHOW)) {
                         continue;
                     }
@@ -604,7 +604,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                     for (TableIf table : tables) {
                         if (!Env.getCurrentEnv().getAccessManager()
-                                .checkTblPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                .checkTblPriv(currentUser, catalogName, dbName,
                                         table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
@@ -2323,7 +2323,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         } else if (privHier == TPrivilegeHier.DATABASE) {
             String fullDbName = privCtrl.getDb();
-            if (!accessManager.checkDbPriv(currentUser.get(0), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+            if (!accessManager.checkDbPriv(currentUser.get(0), privCtrl.getCtl(), fullDbName,
                     predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs("Database permissions error");
