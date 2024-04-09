@@ -1073,9 +1073,9 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         LOG(WARNING) << msg << " err=" << err;
         return;
     }
-    if (request->has_hdfs_info()) {
+    if (request->has_vault()) {
         StorageVaultPB hdfs_param;
-        hdfs_param.mutable_hdfs_info()->MergeFrom(request->hdfs_info());
+        hdfs_param.mutable_hdfs_info()->MergeFrom(request->vault());
         hdfs_param.set_name(BUILT_IN_STORAGE_VAULT_NAME.data());
         if (0 != add_hdfs_storage_vault(instance, txn.get(), std::move(hdfs_param), code, msg)) {
             return;

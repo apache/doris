@@ -342,7 +342,9 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         conf.set_fs_name("hdfs://127.0.0.1:8020");
         conf.set_user("test_user");
         hdfs.mutable_build_conf()->CopyFrom(conf);
-        req.mutable_hdfs_info()->CopyFrom(hdfs);
+        StorageVaultPB vault;
+        vault.mutable_hdfs_info()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(vault);
 
         auto sp = SyncPoint::get_instance();
         sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
@@ -5661,7 +5663,9 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         conf.set_fs_name("hdfs://127.0.0.1:8020");
         conf.set_user("test_user");
         hdfs.mutable_build_conf()->CopyFrom(conf);
-        req.mutable_hdfs_info()->CopyFrom(hdfs);
+        StorageVaultPB vault;
+        vault.mutable_hdfs_info()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(vault);
 
         auto sp = SyncPoint::get_instance();
         sp->set_call_back("create_instance_with_object_info",
@@ -5761,7 +5765,9 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
     conf.set_fs_name("hdfs://127.0.0.1:8020");
     conf.set_user("test_user");
     hdfs.mutable_build_conf()->CopyFrom(conf);
-    req.mutable_hdfs_info()->CopyFrom(hdfs);
+    StorageVaultPB vault;
+    vault.mutable_hdfs_info()->CopyFrom(hdfs);
+    req.mutable_vault()->CopyFrom(vault);
 
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",

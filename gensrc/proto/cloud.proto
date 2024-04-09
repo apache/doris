@@ -913,7 +913,7 @@ message CreateInstanceRequest {
     optional ObjectStoreInfoPB obj_info = 4;
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
-    optional HdfsVaultInfo hdfs_info = 7;
+    optional StorageVaultPB vault = 7;
 }
 
 message CreateInstanceResponse {
