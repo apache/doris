@@ -83,12 +83,7 @@ public class PartitionTableInfo {
         this.partitionType = partitionType;
         this.partitionDefs = partitionDefs;
         this.partitionList = partitionFields;
-        if (this.partitionList != null) {
-            this.partitionColumns = this.partitionList.stream()
-                .filter(UnboundSlot.class::isInstance)
-                .map(partition -> ((UnboundSlot) partition).getName())
-                .collect(Collectors.toList());
-        }
+        extractPartitionColumns();
     }
 
     public boolean isAutoPartition() {
