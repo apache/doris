@@ -165,6 +165,6 @@ CONF_String(kerberos_ccache_path, "");
 // set krb5.conf path, use "/etc/krb5.conf" by default
 CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
-CONF_mBool(enable_distinguish_hdfs_path, "false");
+CONF_mBool(enable_distinguish_hdfs_path, "true");
 
 } // namespace doris::cloud::config
