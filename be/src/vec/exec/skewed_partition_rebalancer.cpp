@@ -20,6 +20,8 @@
 
 #include "vec/exec/skewed_partition_rebalancer.h"
 
+#include <glog/logging.h>
+
 #include <cmath>
 #include <list>
 

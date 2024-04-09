@@ -49,6 +49,7 @@
 #include <iostream>
 #include <list>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "util/indexed_priority_queue.hpp"
@@ -62,7 +63,8 @@ private:
         int id;
         std::string task_address;
 
-        TaskBucket(int task_id_, int bucket_id_, int task_bucket_count_, std::string task_address_)
+        TaskBucket(int task_id_, int bucket_id_, int task_bucket_count_,
+                   const std::string& task_address_)
                 : task_id(task_id_),
                   id(task_id_ * task_bucket_count_ + bucket_id_),
                   task_address(task_address_) {}
