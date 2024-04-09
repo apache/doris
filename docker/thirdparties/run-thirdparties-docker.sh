@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive/hive3,iceberg,hudi,trino,kafka,mariadb,db2
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,hive3,iceberg,hudi,trino,kafka,mariadb,db2
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
+    COMPONENTS="mysql,es,hive,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive3,iceberg,hudi,trino,kafka,mariadb,db2"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,hive3,iceberg,hudi,trino,kafka,mariadb,db2"
         fi
     fi
 fi
@@ -301,11 +301,6 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     fi
 fi
 
-if [[ $RUN_HIVE -eq 1 && $RUN_HIVE3 -eq 1 ]]; then
-    echo "can not both run hive2 and hive3"
-    exit 1
-fi
-
 if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
@@ -323,12 +318,12 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # generate hive-3x.yaml and hadoop-hive.env
     export externalEnvIp=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
-    . "${ROOT}"/docker-compose/hive/custom_settings.env
+    . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
     envsubst < "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl > "${ROOT}"/docker-compose/hive/hive-2x.yaml
     envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl > "${ROOT}"/docker-compose/hive/hadoop-hive.env
-    sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
     fi
 fi
 
@@ -349,12 +344,12 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     # generate hive-3x.yaml and hadoop-hive.env
     export externalEnvIp=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
-    . "${ROOT}"/docker-compose/hive/custom_settings.env
+    . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     envsubst < "${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl > "${ROOT}"/docker-compose/hive/hive-3x.yaml
     envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl > "${ROOT}"/docker-compose/hive/hadoop-hive.env
-    sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
     fi
 fi
 

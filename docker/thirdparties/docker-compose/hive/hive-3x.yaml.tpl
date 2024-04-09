@@ -19,13 +19,13 @@
 version: "3.8"
 
 services:
-  ${CONTAINER_UID}namenode:
+  ${CONTAINER_UID}hadoop3-namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
     environment:
       - CLUSTER_NAME=test
     env_file:
       - ./hadoop-hive.env
-    container_name: ${CONTAINER_UID}namenode
+    container_name: ${CONTAINER_UID}hadoop3-namenode
     expose:
       - "${NAMENODE_HTTP_PORT}"
       - "${FS_PORT}"
@@ -36,13 +36,13 @@ services:
       retries: 120
     network_mode: "host"
 
-  ${CONTAINER_UID}datanode:
+  ${CONTAINER_UID}hadoop3-datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     env_file:
       - ./hadoop-hive.env
     environment:
       SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT}"
-    container_name: ${CONTAINER_UID}datanode
+    container_name: ${CONTAINER_UID}hadoop3-datanode
     expose:
       - "${DATANODE_HTTP_PORT}"
     healthcheck:
@@ -57,14 +57,14 @@ services:
     env_file:
       - ./hadoop-hive.env
     environment:
-      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${externalEnvIp}:5432/metastore"
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${externalEnvIp}:${PG_PORT}/metastore"
       SERVICE_PRECONDITION: "${externalEnvIp}:${HMS_PORT}"
-    container_name: ${CONTAINER_UID}hive-server
+    container_name: ${CONTAINER_UID}hive3-server
     expose:
       - "${HS_PORT}"
     depends_on:
-      - ${CONTAINER_UID}datanode
-      - ${CONTAINER_UID}namenode
+      - ${CONTAINER_UID}hadoop3-datanode
+      - ${CONTAINER_UID}hadoop3-namenode
     healthcheck:
       test: beeline -u "jdbc:hive2://127.0.0.1:${HS_PORT}/default" -n health_check -e "show databases;"
       interval: 10s
@@ -73,32 +73,32 @@ services:
     network_mode: "host"
 
 
-  ${CONTAINER_UID}hive-metastore:
+  ${CONTAINER_UID}hive3-metastore:
     image: lishizhen/hive:3.1.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     # command: /opt/hive/bin/hive --service metastore
     environment:
-      SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT} ${externalEnvIp}:${DATANODE_HTTP_PORT} ${externalEnvIp}:5432"
-    container_name: ${CONTAINER_UID}hive-metastore
+      SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT} ${externalEnvIp}:${DATANODE_HTTP_PORT} ${externalEnvIp}:${PG_PORT}"
+    container_name: ${CONTAINER_UID}hive3-metastore
     expose:
       - "${HMS_PORT}"
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
-      - ${CONTAINER_UID}hive-metastore-postgresql
+      - ${CONTAINER_UID}hive3-metastore-postgresql
     network_mode: "host"
 
-  ${CONTAINER_UID}hive-metastore-postgresql:
+  ${CONTAINER_UID}hive3-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:3.1.0
     restart: always
-    container_name: ${CONTAINER_UID}hive-metastore-postgresql
-    expose:
-      - "5432"
+    container_name: ${CONTAINER_UID}hive3-metastore-postgresql
+    ports:
+      - ${PG_PORT}:5432
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 60s
       retries: 120
-    network_mode: "host"
+    network_mode: "bridge"

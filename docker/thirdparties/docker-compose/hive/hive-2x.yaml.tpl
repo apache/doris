@@ -57,7 +57,7 @@ services:
     env_file:
       - ./hadoop-hive.env
     environment:
-      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${externalEnvIp}:5432/metastore"
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${externalEnvIp}:${PG_PORT}/metastore"
       SERVICE_PRECONDITION: "${externalEnvIp}:${HMS_PORT}"
     container_name: ${CONTAINER_UID}hive-server
     expose:
@@ -80,7 +80,7 @@ services:
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     # command: /opt/hive/bin/hive --service metastore
     environment:
-      SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT} ${externalEnvIp}:${DATANODE_HTTP_PORT} ${externalEnvIp}:5432"
+      SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT} ${externalEnvIp}:${DATANODE_HTTP_PORT} ${externalEnvIp}:${PG_PORT}"
     container_name: ${CONTAINER_UID}hive-metastore
     expose:
       - "${HMS_PORT}"
@@ -94,11 +94,11 @@ services:
     image: bde2020/hive-metastore-postgresql:2.3.0
     restart: always
     container_name: ${CONTAINER_UID}hive-metastore-postgresql
-    expose:
-      - "5432"
+    ports:
+      - ${PG_PORT}:5432
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 60s
       retries: 120
-    network_mode: "host"
+    network_mode: "bridge"
