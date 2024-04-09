@@ -171,7 +171,7 @@ suite("nested_materialized_view") {
             from lineitem
             inner join orders on l_orderkey = o_orderkey
             inner join partsupp on  l_partkey = ps_partkey AND l_suppkey = ps_suppkey
-            where o_orderstatus = 'o' AND l_linenumber in (1, 2, 3, 4, 5)
+            where o_orderstatus = 'o'
             """
     order_qt_query1_0_before "${query1_0}"
     create_mtmv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
