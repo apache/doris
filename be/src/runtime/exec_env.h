@@ -206,6 +206,12 @@ public:
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
+    ThreadPool* sync_load_for_tablets_thread_pool() {
+        return _sync_load_for_tablets_thread_pool.get();
+    }
+    ThreadPool* s3_downloader_download_thread_pool() {
+        return _s3_downloader_download_thread_pool.get();
+    }
 
     Status init_pipeline_task_scheduler();
     void init_file_cache_factory();
@@ -390,6 +396,8 @@ private:
     std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // Pool to use a new thread to release object
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
+    std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+    std::unique_ptr<ThreadPool> _s3_downloader_download_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;

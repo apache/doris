@@ -72,8 +72,7 @@ struct TabletHotspotMapValue {
 using TabletHotspotMapKey = std::pair<int64_t, int64_t>;
 
 TabletHotspot* TabletHotspot::instance() {
-    // return ExecEnv::GetInstance()->tabletHotspot();
-    return nullptr;
+    return ExecEnv::GetInstance()->tablet_hotspot();
 }
 
 void TabletHotspot::get_top_n_hot_partition(std::vector<THotTableMessage>* hot_tables) {

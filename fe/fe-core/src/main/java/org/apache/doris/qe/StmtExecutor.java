@@ -2352,7 +2352,6 @@ public class StmtExecutor {
                 } else {
                     txnStatus = TransactionStatus.COMMITTED;
                 }
-
                 // TODO(meiyi)
                 // insertStmt.afterFinishTxn(true);
                 if (Config.isCloudMode()) {
@@ -2456,16 +2455,15 @@ public class StmtExecutor {
         backendsList.forEach(backends -> backends.forEach(backend -> {
             if (backend.isAlive()) {
                 List<Long> tabletIdList = new ArrayList<Long>();
-                Set<Long> beTabletIds = null;
-                // TODO(merge-cloud): need implements cloud rebalancer, otherwise raise beTabletIds NPE
-                //Set<Long> beTabletIds = Env.getCurrentEnv()
-                //                            .getCloudTabletRebalancer()
-                //                            .getSnapshotTabletsByBeId(backend.getId());
+                Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
+                                           .getCloudTabletRebalancer()
+                                           .getSnapshotTabletsByBeId(backend.getId());
                 allTabletIds.forEach(tabletId -> {
                     if (beTabletIds.contains(tabletId)) {
                         tabletIdList.add(tabletId);
                     }
                 });
+                LOG.info("lightman 0409 warmup {} {}", backend.getId(), tabletIdList.size());
                 boolean ok = false;
                 TNetworkAddress address = null;
                 Client client = null;

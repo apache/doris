@@ -54,8 +54,10 @@ Status CloudBackendService::create_service(CloudStorageEngine& engine, ExecEnv* 
 
 void CloudBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse&,
                                                 const TSyncLoadForTabletsRequest& request) {
+    LOG_INFO("lightman 0409 ???? {}", request.tablet_ids.size());
     auto f = [this, tablet_ids = request.tablet_ids]() {
         std::for_each(tablet_ids.cbegin(), tablet_ids.cend(), [this](int64_t tablet_id) {
+            LOG_INFO("lightman 0409 sync_load_for_tablets tablet_id {}", tablet_id);
             CloudTabletSPtr tablet;
             auto result = _engine.tablet_mgr().get_tablet(tablet_id, true);
             if (!result.has_value()) {
@@ -67,6 +69,7 @@ void CloudBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse&,
             }
         });
     };
+    static_cast<void>(_exec_env->sync_load_for_tablets_thread_pool()->submit_func(std::move(f)));
 }
 
 void CloudBackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
