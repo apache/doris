@@ -585,8 +585,10 @@ message PPublishFilterResponse {
 
 message PExprResult {
     required PScalarType type = 1;
-    required string content = 2;
+    required string content = 2; //maybe need remove after next version of 2.1
     required bool success = 3;
+    optional PTypeDesc type_desc = 4;
+    optional PValues result_content = 5;
 };
 
 message PExprResultMap {

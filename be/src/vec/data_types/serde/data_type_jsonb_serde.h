@@ -65,6 +65,9 @@ public:
                                   rapidjson::Document::AllocatorType& allocator,
                                   int row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
+                              int end) const override;
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
 private:
     template <bool is_binary_format>
