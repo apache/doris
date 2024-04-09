@@ -4079,6 +4079,14 @@ public class Coordinator implements CoordInterface {
         return result;
     }
 
+    public Map<PlanFragmentId, FragmentExecParams> getFragmentExecParamsMap() {
+        return fragmentExecParamsMap;
+    }
+
+    public List<PlanFragment> getFragments() {
+        return fragments;
+    }
+
     // Runtime filter target fragment instance param
     static class FRuntimeFilterTargetParam {
         public TUniqueId targetFragmentInstanceId;
