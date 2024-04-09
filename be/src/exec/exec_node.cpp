@@ -587,12 +587,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
     auto& mutable_columns = mutable_block.mutable_columns();
 
-    if (mutable_columns.size() != _projections.size()) {
-        return Status::InternalError(
-                "Logical error during processing {}, output of projections {} mismatches with "
-                "exec node output {}",
-                this->get_name(), _projections.size(), mutable_columns.size());
-    }
+    DCHECK_EQ(mutable_columns.size(), _projections.size());
 
     for (int i = 0; i < mutable_columns.size(); ++i) {
         auto result_column_id = -1;
