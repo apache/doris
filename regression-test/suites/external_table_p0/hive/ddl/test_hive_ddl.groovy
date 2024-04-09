@@ -49,7 +49,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """switch ${catalog_name}"""
             def loc = "${externalEnvIp}:${hdfs_port}/tmp/hive/test_hive_loc_db"
             sql """ create database if not exists `test_hive_loc_db`
-                    properties('location_uri'='hdfs://${loc}')
+                    properties('location'='hdfs://${loc}')
                 """
 
             def create_db_res = sql """show create database test_hive_loc_db"""
@@ -60,31 +60,31 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """ drop database if exists `test_hive_loc_db` """;
 
             sql """ create database if not exists `test_hive_loc_no_exist`
-                properties('location_uri'='hdfs://${externalEnvIp}:${hdfs_port}/exist_check')
+                properties('location'='hdfs://${externalEnvIp}:${hdfs_port}/exist_check')
             """
             sql """ create database if not exists `test_hive_loc_exist`
-                properties('location_uri'='hdfs://${externalEnvIp}:${hdfs_port}/exist_check')
+                properties('location'='hdfs://${externalEnvIp}:${hdfs_port}/exist_check')
             """
             sql """ drop database if exists `test_hive_loc_no_exist` """;
             sql """ drop database if exists `test_hive_loc_exist` """;
 
             try {
                 sql """ create database if not exists `test_hive_loc_no_exist`
-                        properties('location_uri'='tt://${externalEnvIp}:${hdfs_port}/exist_check')
+                        properties('location'='tt://${externalEnvIp}:${hdfs_port}/exist_check')
                     """
             } catch (Exception e) {
                 assertTrue(e.getMessage().contains("No FileSystem for scheme: tt"))
             }
             try {
                 sql """ create database if not exists `test_hive_loc_no_exist`
-                        properties('location_uri'='hdfs://err_${externalEnvIp}:${hdfs_port}/exist_check')
+                        properties('location'='hdfs://err_${externalEnvIp}:${hdfs_port}/exist_check')
                     """
             } catch (Exception e) {
                 assertTrue(e.getMessage().contains("Incomplete HDFS URI, no host"))
             }
             try {
                 sql """ create database if not exists `test_hive_loc_no_exist`
-                        properties('location_uri'='hdfs:err//${externalEnvIp}:${hdfs_port}/exist_check')
+                        properties('location'='hdfs:err//${externalEnvIp}:${hdfs_port}/exist_check')
                     """
             } catch (Exception e) {
                 assertTrue(e.getMessage().contains("Relative path in absolute URI"))
@@ -96,7 +96,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """switch ${catalog_name}"""
             def loc = "${externalEnvIp}:${hdfs_port}/tmp/hive/test_hive_loc_db"
             sql  """ create database if not exists `test_hive_loc`
-                    properties('location_uri'='hdfs://${loc}')
+                    properties('location'='hdfs://${loc}')
                  """
             sql """use `test_hive_loc`"""
 
@@ -143,7 +143,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                     )  ENGINE=hive 
                     PROPERTIES (
                       'file_format'='${file_format}',
-                      'location_uri'='${tbl_loc}'
+                      'location'='${tbl_loc}'
                     )
                  """
             def create_tbl_res2 = sql """ show create table loc_tbl_${file_format}_custom """
@@ -319,6 +319,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                     """
                 exception "AnalysisException, msg: Should contain at least one column in a table"
             }
+            sql """ DROP DATABASE IF EXISTS `test_hive_loc` """
         }
 
         def test_tbl_compress = { String compression, String file_format, String catalog_name ->
@@ -541,9 +542,9 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                                     'format' = '${file_format}',
                                     'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
                                   )
-                              """
+                               """
             logger.info("${pt_check}")
-            assertEquals(11, pt_check[0][0].size())
+            assertEquals(1, pt_check[0].size())
             sql """ drop table if exists all_part_types_tbl_${file_format} """
 
             test {

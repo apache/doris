@@ -203,12 +203,12 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ DROP DATABASE IF EXISTS `test_ctas_ex` """;
                 sql """ CREATE DATABASE IF NOT EXISTS ${catalog_name}.test_ctas_ex
                     PROPERTIES (
-                        "location_uri" = "/user/hive/warehouse/test_ctas_ex"
+                        "location" = "/user/hive/warehouse/test_ctas_ex"
                     )
                     """;
                 sql """ CREATE DATABASE IF NOT EXISTS `test_ctas_ex`
                     PROPERTIES (
-                        "location_uri" = "/user/hive/warehouse/test_ctas_ex"
+                        "location" = "/user/hive/warehouse/test_ctas_ex"
                     )
                     """;
                 sql """ use `${catalog_name}`.`test_ctas_ex` """
@@ -217,7 +217,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_ctas_ex.hive_ctas1 """
                 sql """ CREATE TABLE ${catalog_name}.test_ctas_ex.hive_ctas1 (col1) ENGINE=hive 
                         PROPERTIES (
-                            "location_uri" = "/user/hive/warehouse/test_ctas_ex/loc_hive_ctas1",
+                            "location" = "/user/hive/warehouse/test_ctas_ex/loc_hive_ctas1",
                             "file_format"="orc",
                             "orc.compress"="zlib"
                         ) AS SELECT col1 FROM test_ctas.unpart_ctas_src; 
@@ -236,7 +236,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ CREATE TABLE ${catalog_name}.test_ctas_ex.hive_ctas2 (col1,pt1,pt2) ENGINE=hive 
                         PARTITION BY LIST (pt1, pt2) ()
                         PROPERTIES (
-                            "location_uri" = "/user/hive/warehouse/test_ctas_ex/loc_hive_ctas2",
+                            "location" = "/user/hive/warehouse/test_ctas_ex/loc_hive_ctas2",
                             "file_format"="parquet",
                             "parquet.compression"="snappy"
                         )
@@ -258,7 +258,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_ctas_ex.ctas_o1 """
                 sql """ CREATE TABLE ${catalog_name}.test_ctas_ex.ctas_o1 (col1,col2) ENGINE=hive
                         PROPERTIES (
-                            "location_uri" = "/user/hive/warehouse/test_ctas_ex/loc_ctas_o1",
+                            "location" = "/user/hive/warehouse/test_ctas_ex/loc_ctas_o1",
                             "file_format"="parquet",
                             "parquet.compression"="snappy"
                         )
@@ -278,7 +278,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ CREATE TABLE ${catalog_name}.test_ctas_ex.ctas_o2 (col1,col2,pt1) ENGINE=hive
                         PARTITION BY LIST (pt1) ()
                         PROPERTIES (
-                            "location_uri" = "/user/hive/warehouse/test_ctas_ex/loc_ctas_o2",
+                            "location" = "/user/hive/warehouse/test_ctas_ex/loc_ctas_o2",
                             "file_format"="orc",
                             "orc.compress"="zlib"
                         ) 
@@ -323,7 +323,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 test {
                     sql """ CREATE DATABASE ${catalog_name}.test_err
                     PROPERTIES (
-                        "location_uri" = "/user/hive/warehouse/test_err",
+                        "location" = "/user/hive/warehouse/test_err",
                         "owner" = "err"
                     )
                     """;

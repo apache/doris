@@ -55,7 +55,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 public class HiveMetadataOps implements ExternalMetadataOps {
-    public static final String LOCATION_URI_KEY = "location_uri";
+    public static final String LOCATION_URI_KEY = "location";
     public static final String FILE_FORMAT_KEY = "file_format";
     public static final Set<String> DORIS_HIVE_KEYS = ImmutableSet.of(FILE_FORMAT_KEY, LOCATION_URI_KEY);
     private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
