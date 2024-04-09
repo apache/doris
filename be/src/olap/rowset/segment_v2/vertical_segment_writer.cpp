@@ -708,6 +708,7 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
                                 _tablet_schema->keys_type(), block->columns(),
                                 _tablet_schema->num_key_columns(), _tablet_schema->num_columns()));
         }
+        // different with unique key, agg key can update all columns in partial update mode
         if (_tablet_schema->keys_type() == AGG_KEYS &&
             (block->columns() <= _tablet_schema->num_key_columns() ||
              block->columns() > _tablet_schema->num_columns())) {
@@ -723,7 +724,20 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
                 "illegal block columns, block columns = {}, tablet_schema columns = {}",
                 block->columns(), _tablet_schema->num_columns());
     }
-    _batched_blocks.emplace_back(block, row_pos, num_rows);
+    bool is_agg_partial_update = _opts.rowset_ctx->partial_update_info &&
+                                 _opts.rowset_ctx->partial_update_info->is_partial_update &&
+                                 _tablet_schema->keys_type() == AGG_KEYS &&
+                                 _opts.write_type == DataWriteType::TYPE_DIRECT;
+    if (is_agg_partial_update) {
+        std::shared_ptr<vectorized::Block> full_block_ptr = nullptr;
+        RETURN_IF_ERROR(_tablet_schema->make_full_block(
+                full_block_ptr, block, num_rows, _opts.rowset_ctx->partial_update_info->update_cids,
+                _opts.rowset_ctx->partial_update_info->missing_cids));
+        _full_blocks.emplace_back(full_block_ptr);
+        _batched_blocks.emplace_back(full_block_ptr.get(), row_pos, num_rows);
+    } else {
+        _batched_blocks.emplace_back(block, row_pos, num_rows);
+    }
     return Status::OK();
 }
 
@@ -745,36 +759,15 @@ Status VerticalSegmentWriter::write_batch() {
         }
         return Status::OK();
     }
-    bool is_agg_partial_update = _opts.rowset_ctx->partial_update_info &&
-                                 _opts.rowset_ctx->partial_update_info->is_partial_update &&
-                                 _tablet_schema->keys_type() == AGG_KEYS &&
-                                 _opts.write_type == DataWriteType::TYPE_DIRECT;
-    std::vector<std::shared_ptr<vectorized::Block>> full_blocks;
-    if (is_agg_partial_update) {
-        for (auto& data : _batched_blocks) {
-            std::shared_ptr<vectorized::Block> full_block_ptr = nullptr;
-            RETURN_IF_ERROR(_tablet_schema->make_full_block(
-                    full_block_ptr, data.block, data.num_rows,
-                    _opts.rowset_ctx->partial_update_info->update_cids,
-                    _opts.rowset_ctx->partial_update_info->missing_cids));
-            full_blocks.emplace_back(full_block_ptr);
-        }
-    }
 
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_tablet_schema->store_row_column() &&
         (_opts.write_type == DataWriteType::TYPE_DIRECT ||
          _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
-        int index = 0;
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
-            if (is_agg_partial_update) {
-                _serialize_block_to_row_column(
-                        *const_cast<vectorized::Block*>(full_blocks[index++].get()));
-            } else {
-                _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));
-            }
+            _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));
         }
     }
 
@@ -782,11 +775,9 @@ Status VerticalSegmentWriter::write_batch() {
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
-        int index = 0;
         for (auto& data : _batched_blocks) {
             _olap_data_convertor->set_source_content_with_specifid_columns(
-                    is_agg_partial_update ? full_blocks[index++].get() : data.block, data.row_pos,
-                    data.num_rows, std::vector<uint32_t> {cid});
+                    data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid});
 
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -811,11 +802,8 @@ Status VerticalSegmentWriter::write_batch() {
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
-    int index = 0;
     for (auto& data : _batched_blocks) {
-        _olap_data_convertor->set_source_content(
-                is_agg_partial_update ? full_blocks[index++].get() : data.block, data.row_pos,
-                data.num_rows);
+        _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
         // find all row pos for short key indexes
         std::vector<size_t> short_key_pos;
         // We build a short key index every `_opts.num_rows_per_block` rows. Specifically, we
@@ -857,10 +845,11 @@ Status VerticalSegmentWriter::write_batch() {
         _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
     }
-    for (auto& full_block : full_blocks) {
+    _batched_blocks.clear();
+    for (auto& full_block : _full_blocks) {
         full_block.reset();
     }
-    _batched_blocks.clear();
+    _full_blocks.clear();
     return Status::OK();
 }
 

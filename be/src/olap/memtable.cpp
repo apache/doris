@@ -108,6 +108,9 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
                     "replace_load", {block->get_data_type(cid)},
                     block->get_data_type(cid)->is_nullable());
         } else if (_keys_type == KeysType::AGG_KEYS && _is_partial_update) {
+            // In partial update mode, the block and _num_columns are also corresponding to partial,
+            // and we can't use cid to find function because this cid is not the column id of
+            // the full tablet_schema, it's the order of columns in partial block.
             function = vectorized::AggregateFunctionSimpleFactory::instance().get(
                     "replace_if_not_null_load", {block->get_data_type(cid)},
                     block->get_data_type(cid)->is_nullable());

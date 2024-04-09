@@ -1500,8 +1500,6 @@ Status TabletSchema::make_full_block(std::shared_ptr<vectorized::Block>& full_bl
 
     for (auto idx = 0; idx < num_rows; idx++) {
         for (auto i = 0; i < missing_cids.size(); ++i) {
-            // if the column has default value, fill it with default value
-            // otherwise, if the column is nullable, fill it with null value
             const auto& tablet_column = this->column(missing_cids[i]);
             if (tablet_column.is_nullable()) {
                 auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
