@@ -430,7 +430,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         createTable(createOlapSrc, true);
         switchHive();
         useDatabase(mockedDbName);
-        String olapCtasErr = "CREATE TABLE no_buck_olap AS SELECT * FROM internal.mockedDb.olap_src";
+        String olapCtasErr = "CREATE TABLE no_buck_olap ENGINE=olap AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasErrPlan = nereidsParser.parseSingle(olapCtasErr);
         Assertions.assertTrue(olapCtasErrPlan instanceof CreateTableCommand);
         ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
