@@ -487,13 +487,6 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
                             .count();
         std::lock_guard<std::mutex> lock(_lock);
 
-        if (query_ctx->enable_profile()) {
-            query_ctx->add_instance_profile(
-                    fragment_executor->fragment_instance_id(),
-                    fragment_executor->collect_realtime_query_profile(),
-                    fragment_executor->collect_realtime_load_channel_profile());
-        }
-
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
 
         g_fragment_executing_count << -1;

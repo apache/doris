@@ -249,7 +249,7 @@ public class ExecutionProfile {
         }
     }
 
-    public Status updateProfile(TQueryProfile profile, TNetworkAddress address) {
+    public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress) {
         if (isPipelineXProfile) {
             if (!profile.isSetFragmentIdToProfile()) {
                 return new Status(TStatusCode.INVALID_ARGUMENT, "FragmentIdToProfile is not set");
@@ -262,7 +262,7 @@ public class ExecutionProfile {
                 List<RuntimeProfile> taskProfile = Lists.newArrayList();
                 for (TDetailedReportParams pipelineProfile : fragmentProfile) {
                     String name = "Pipeline :" + pipelineIdx + " "
-                            + " (host=" + address + ")";
+                            + " (host=" + backendHBAddress + ")";
                     RuntimeProfile profileNode = new RuntimeProfile(name);
                     taskProfile.add(profileNode);
                     if (!pipelineProfile.isSetProfile()) {
@@ -273,7 +273,7 @@ public class ExecutionProfile {
                     pipelineIdx++;
                     fragmentProfiles.get(fragmentId).addChild(profileNode);
                 }
-                multiBeProfile.get(fragmentId).put(address, taskProfile);
+                multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
             }
         } else {
             if (!profile.isSetInstanceProfiles() || !profile.isSetFragmentInstanceIds()) {

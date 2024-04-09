@@ -156,6 +156,8 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
 
     TReportExecStatusParams req;
     req.__set_query_profile(profile);
+    req.__set_backend_id(ExecEnv::GetInstance()->master_info()->backend_id);
+    // invalid query id to avoid API compatibility during upgrade
     req.__set_query_id(TUniqueId());
 
     return req;
@@ -194,7 +196,9 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
 
     TReportExecStatusParams res;
     res.__set_query_profile(profile);
+    // invalid query id to avoid API compatibility during upgrade
     res.__set_query_id(TUniqueId());
+    res.__set_backend_id(ExecEnv::GetInstance()->master_info()->backend_id);
     return res;
 }
 
@@ -220,7 +224,7 @@ void RuntimeQueryStatiticsMgr::report_query_profiles_thread() {
 
             while (_query_profile_map.empty() && _profile_map_x.empty() &&
                    !_report_profile_thread_stop) {
-                _report_profile_cv.wait(lock);
+                _report_profile_cv.wait_for(lock, std::chrono::seconds(3));
             }
         }
 
@@ -332,10 +336,8 @@ void RuntimeQueryStatiticsMgr::_report_query_profiles_non_pipeline() {
 
     {
         std::lock_guard<std::shared_mutex> lg(_query_profile_map_lock);
-        profile_copy = _query_profile_map;
-        load_channel_profile_copy = _load_channel_profile_map;
-        _query_profile_map.clear();
-        _load_channel_profile_map.clear();
+        _query_profile_map.swap(profile_copy);
+        _load_channel_profile_map.swap(load_channel_profile_copy);
     }
 
     // query_id -> {coordinator_addr, {instance_id -> instance_profile}}
@@ -394,10 +396,8 @@ void RuntimeQueryStatiticsMgr::_report_query_profiles_x() {
 
     {
         std::lock_guard<std::shared_mutex> lg(_query_profile_map_lock);
-        profile_copy = _profile_map_x;
-        load_channel_profile_copy = _load_channel_profile_map_x;
-        _profile_map_x.clear();
-        _load_channel_profile_map_x.clear();
+        _profile_map_x.swap(profile_copy);
+        _load_channel_profile_map_x.swap(load_channel_profile_copy);
     }
 
     // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
