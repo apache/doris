@@ -88,7 +88,7 @@ public:
 
     bool is_attach_query() { return _query_id != TUniqueId(); }
 
-    bool is_query_cancelled() { return _is_query_cancelled; }
+    bool is_query_cancelled() const { return _is_query_cancelled; }
 
     void reset_query_cancelled_flag(bool new_val) { _is_query_cancelled = new_val; }
 
