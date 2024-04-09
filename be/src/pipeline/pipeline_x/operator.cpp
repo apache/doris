@@ -539,12 +539,12 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-            _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
     _async_writer_dependency = AsyncWriterDependency::create_shared(
             _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+            _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
     return Status::OK();
 }
 
