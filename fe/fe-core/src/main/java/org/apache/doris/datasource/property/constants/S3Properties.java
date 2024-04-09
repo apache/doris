@@ -50,6 +50,7 @@ public class S3Properties extends BaseProperties {
 
     public static final String CREDENTIALS_PROVIDER = "s3.credentials.provider";
     public static final String ENDPOINT = "s3.endpoint";
+    public static final String EXTERNAL_ENDPOINT = "s3.external_endpoint";
     public static final String REGION = "s3.region";
     public static final String ACCESS_KEY = "s3.access_key";
     public static final String SECRET_KEY = "s3.secret_key";
@@ -289,6 +290,7 @@ public class S3Properties extends BaseProperties {
         builder.setSk(properties.get(S3Properties.SECRET_KEY));
         builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
         builder.setBucket(properties.get(S3Properties.BUCKET));
+        builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
         builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
         return builder;
     }

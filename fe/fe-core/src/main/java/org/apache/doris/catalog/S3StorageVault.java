@@ -25,10 +25,10 @@ import com.google.gson.annotations.SerializedName;
 import java.util.Map;
 
 /**
- * S3 resource
+ * S3 storage vault
  * <p>
  * Syntax:
- * CREATE RESOURCE "remote_s3"
+ * CREATE STORAGE VAULT "remote_s3"
  * PROPERTIES
  * (
  * "type" = "s3",
