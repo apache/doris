@@ -452,14 +452,19 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
+        if (!request->has_obj() && (!request->has_vault() || request->vault().has_s3_obj())) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 obj info err " + proto_to_json(*request);
+            return;
+        }
+        auto& obj = request->has_obj() ? request->obj() : request->vault().s3_obj();
         // Prepare data
-        if (!request->has_obj() || !request->obj().has_ak() || !request->obj().has_sk()) {
+        if (!obj.has_ak() || !obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
             return;
         }
 
-        auto& obj = request->obj();
         std::string plain_ak = obj.has_ak() ? obj.ak() : "";
         std::string plain_sk = obj.has_sk() ? obj.sk() : "";
 
@@ -489,14 +494,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
-        if (!request->has_hdfs() || !request->hdfs().has_name()) {
+        if (!request->has_vault() || !request->vault().has_name()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "hdfs info is not found " + proto_to_json(*request);
             return;
         }
     } break;
     case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
-        if (!request->has_hdfs() || !request->hdfs().has_name()) {
+        if (!request->has_vault() || !request->vault().has_name()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "hdfs info is not found " + proto_to_json(*request);
             return;
@@ -504,8 +509,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         break;
     }
     case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
-        // It should at least has one hdfs info or obj info
-        if ((!request->has_hdfs() && !request->has_obj())) {
+        // It should at least has one hdfs info or obj info inside storage vault
+        if ((!request->has_vault())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "hdfs info is not found " + proto_to_json(*request);
             return;
@@ -606,18 +611,16 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             }
         }
     } break;
-<<<<<<< HEAD
-    case AlterObjStoreInfoRequest::ADD_OBJ_INFO: {
+    case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
         if (instance.enable_storage_vault()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "Storage vault doesn't support add obj info";
             return;
         }
-=======
-    case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::ADD_S3_VAULT: {
->>>>>>> e0d5431091 (add one enum)
         if (!request->obj().has_provider()) {
+        auto& obj = request->has_obj() ? request->obj() : request->vault().has_s3_obj();
+        if (!obj.has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf lease provider info";
             return;
@@ -638,7 +641,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         for (auto& it : objs) {
             if (bucket == it.bucket() && prefix == it.prefix() && endpoint == it.endpoint() &&
                 region == it.region() && ak == it.ak() && sk == it.sk() &&
-                request->obj().provider() == it.provider() &&
+                obj.provider() == it.provider() &&
                 external_endpoint == it.external_endpoint()) {
                 // err, anything not changed
                 code = MetaServiceCode::INVALID_ARGUMENT;
@@ -651,8 +654,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_ctime(time);
         last_item.set_mtime(time);
         last_item.set_id(next_available_vault_id(instance));
-        if (request->obj().has_user_id()) {
-            last_item.set_user_id(request->obj().user_id());
+        if (obj.has_user_id()) {
+            last_item.set_user_id(obj.user_id());
         }
         last_item.set_ak(std::move(cipher_ak_sk_pair.first));
         last_item.set_sk(std::move(cipher_ak_sk_pair.second));
@@ -664,7 +667,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_endpoint(endpoint);
         last_item.set_external_endpoint(external_endpoint);
         last_item.set_region(region);
-        last_item.set_provider(request->obj().provider());
+        last_item.set_provider(obj.provider());
         last_item.set_sse_enabled(instance.sse_enabled());
         if (last_item.id() == BUILT_IN_STORAGE_VAULT_ID) {
             last_item.set_name(BUILT_IN_STORAGE_VAULT_NAME);
@@ -685,7 +688,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
-        if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
+        if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->vault(), code, msg);
             ret != 0) {
             return;
         }
@@ -701,21 +704,21 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
         // TODO(ByteYue): Also support create s3 obj info vault
-        if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
+        if (auto ret = add_hdfs_storage_vault(instance, txn.get(), request->vault(), code, msg);
             ret != 0) {
             return;
         }
         return;
     }
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
-        if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->hdfs(), code, msg);
+        if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->vault(), code, msg);
             ret != 0) {
             return;
         }
         break;
     }
     case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
-        const auto& name = request->hdfs().name();
+        const auto& name = request->vault().name();
         auto name_itr = std::find_if(instance.storage_vault_names().begin(),
                                      instance.storage_vault_names().end(),
                                      [&](const auto& vault_name) { return name == vault_name; });

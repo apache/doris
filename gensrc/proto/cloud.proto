@@ -769,7 +769,7 @@ message AlterObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
-    optional StorageVaultPB hdfs = 4;
+    optional StorageVaultPB vault = 4;
 }
 
 message AlterObjStoreInfoResponse {

@@ -5312,7 +5312,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         HdfsVaultInfo params;
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5320,7 +5320,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         // Invalid fs name
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
-        req.mutable_hdfs()->mutable_hdfs_info()->mutable_build_conf()->set_fs_name(
+        req.mutable_vault()->mutable_hdfs_info()->mutable_build_conf()->set_fs_name(
                 "hdfs://ip:port");
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
@@ -5343,7 +5343,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         params.mutable_build_conf()->set_fs_name("hdfs://ip:port");
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5363,7 +5363,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         params.mutable_build_conf()->set_fs_name("hdfs://ip:port");
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5451,7 +5451,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         HdfsVaultInfo params;
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5471,7 +5471,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         HdfsVaultInfo params;
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5503,7 +5503,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5530,7 +5530,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5556,7 +5556,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5579,7 +5579,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         HdfsVaultInfo params;
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5617,7 +5617,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5795,7 +5795,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -5806,7 +5806,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         AlterObjStoreInfoRequest set_default_req;
         set_default_req.set_cloud_unique_id("test_cloud_unique_id");
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
-        set_default_req.mutable_hdfs()->CopyFrom(hdfs);
+        set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
@@ -5830,7 +5830,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         AlterObjStoreInfoRequest set_default_req;
         set_default_req.set_cloud_unique_id("test_cloud_unique_id");
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
-        set_default_req.mutable_hdfs()->CopyFrom(hdfs);
+        set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
         meta_service->alter_obj_store_info(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
@@ -5906,7 +5906,7 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
         params.mutable_build_conf()->MergeFrom(conf);
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -6026,7 +6026,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         params.mutable_build_conf()->set_fs_name("hdfs://ip:port");
 
         hdfs.mutable_hdfs_info()->CopyFrom(params);
-        req.mutable_hdfs()->CopyFrom(hdfs);
+        req.mutable_vault()->CopyFrom(hdfs);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
