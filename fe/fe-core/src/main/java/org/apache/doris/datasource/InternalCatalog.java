@@ -1673,6 +1673,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
                             isTempPartition, partitionInfo.getIsMutable(partitionId));
                 }
+
+                afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, false);
                 Env.getCurrentEnv().getEditLog().logAddPartition(info);
 
                 LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
