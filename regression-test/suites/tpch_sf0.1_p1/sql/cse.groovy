@@ -50,5 +50,5 @@ suite('cse') {
     // become syntax illegal: case cseSlot when r_regionkey=2 the 1 else ....
     qt_cse_5 """select (case r_regionkey when 1 then 0 when 2 then 1 else r_regionkey+1 END) + 1 As x,
                 (case r_regionkey when 1 then 0 when 2 then 3 else r_regionkey+1 END) + 2  as y
-            from region;"""
+            from region order by x, y;"""
 }
