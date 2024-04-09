@@ -2145,14 +2145,13 @@ public class StmtExecutor {
 
     private void sendStmtPrepareOK() throws IOException {
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
-        SelectStmt selectStmt = (SelectStmt) prepareStmt.getInnerStmt();
         serializer.reset();
         // 0x00 OK
         serializer.writeInt1(0);
         // statement_id
         serializer.writeInt4(Integer.valueOf(prepareStmt.getName()));
         // num_columns
-        int numColumns = selectStmt.getResultExprs().size();
+        int numColumns = 0;
         serializer.writeInt2(numColumns);
         // num_params
         int numParams = prepareStmt.getColLabelsOfPlaceHolders().size();
@@ -2174,24 +2173,6 @@ public class StmtExecutor {
             for (int i = 0; i < colNames.size(); ++i) {
                 serializer.reset();
                 serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-            serializer.reset();
-            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-                eofPacket.writeTo(serializer);
-            } else {
-                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
-                okPacket.writeTo(serializer);
-            }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        }
-        if (numColumns > 0) {
-            List<String> colNames = selectStmt.getColLabels();
-            List<Type> types = exprToType(selectStmt.getResultExprs());
-            for (int i = 0; i < colNames.size(); ++i) {
-                serializer.reset();
-                serializer.writeField(colNames.get(i), types.get(i));
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
             serializer.reset();
