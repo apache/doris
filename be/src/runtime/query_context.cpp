@@ -125,7 +125,7 @@ QueryContext::~QueryContext() {
     if (_thread_token) {
         Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
                 std::make_shared<DelayReleaseToken>(std::move(_thread_token)));
-        if (!st.ok()) {
+        if (!submit_st.ok()) {
             LOG(WARNING) << "Failed to release query context thread token, query_id "
                          << print_id(_query_id) << ", error status " << submit_st;
         }
