@@ -305,12 +305,10 @@ std::string JdbcTableDescriptor::debug_string() const {
 
 TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
         : _id(tdesc.id),
-          _table_desc(nullptr),
-          _num_null_bytes(tdesc.numNullBytes),
           _num_materialized_slots(0),
           _has_varlen_slots(false),
           _own_slots(own_slots) {
-    if (false == tdesc.__isset.numNullSlots) {
+    if (!tdesc.__isset.numNullSlots) {
         //be compatible for existing tables with no nullptr value
         _num_null_slots = 0;
     } else {
@@ -320,8 +318,6 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
 
 TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
         : _id(pdesc.id()),
-          _table_desc(nullptr),
-          _num_null_bytes(pdesc.num_null_bytes()),
           _num_materialized_slots(0),
           _has_varlen_slots(false),
           _own_slots(own_slots) {
@@ -339,24 +335,10 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     if (slot->is_materialized()) {
         ++_num_materialized_slots;
 
-        if (slot->type().is_string_type()) {
-            _string_slots.push_back(slot);
+        if (slot->type().is_string_type() || slot->type().is_complex_type()) {
             _has_varlen_slots = true;
-        } else if (slot->type().is_collection_type()) {
-            _collection_slots.push_back(slot);
-            _has_varlen_slots = true;
-        } else {
-            _no_string_slots.push_back(slot);
         }
     }
-}
-
-std::vector<SlotDescriptor*> TupleDescriptor::slots_ordered_by_idx() const {
-    std::vector<SlotDescriptor*> sorted_slots(slots().size());
-    for (SlotDescriptor* slot : slots()) {
-        sorted_slots[slot->_slot_idx] = slot;
-    }
-    return sorted_slots;
 }
 
 void TupleDescriptor::to_protobuf(PTupleDescriptor* ptuple) const {
@@ -364,7 +346,6 @@ void TupleDescriptor::to_protobuf(PTupleDescriptor* ptuple) const {
     ptuple->set_id(_id);
     // Useless not set
     ptuple->set_byte_size(0);
-    ptuple->set_num_null_bytes(_num_null_bytes);
     ptuple->set_table_id(-1);
     ptuple->set_num_null_slots(_num_null_slots);
 }
@@ -407,7 +388,6 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
         _tuple_desc_map.push_back(tupleDesc);
         DCHECK(_tuple_desc_map.back() != nullptr);
     }
-    _num_null_bytes = (_num_null_slots + 7) / 8;
 
     init_tuple_idx_map();
     init_has_varlen_slots();

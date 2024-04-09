@@ -368,46 +368,10 @@ public:
     int64_t byte_size() const { return _byte_size; }
     int num_materialized_slots() const { return _num_materialized_slots; }
     int num_null_slots() const { return _num_null_slots; }
-    int num_null_bytes() const { return _num_null_bytes; }
     const std::vector<SlotDescriptor*>& slots() const { return _slots; }
-    const std::vector<SlotDescriptor*>& string_slots() const { return _string_slots; }
-    const std::vector<SlotDescriptor*>& no_string_slots() const { return _no_string_slots; }
-    const std::vector<SlotDescriptor*>& collection_slots() const { return _collection_slots; }
 
-    bool has_varlen_slots() const {
-        { return _has_varlen_slots; }
-    }
+    bool has_varlen_slots() const { return _has_varlen_slots; }
     const TableDescriptor* table_desc() const { return _table_desc; }
-
-    static bool is_var_length(const std::vector<TupleDescriptor*>& descs) {
-        for (auto desc : descs) {
-            if (desc->string_slots().size() > 0) {
-                return true;
-            }
-            if (desc->collection_slots().size() > 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    bool has_hll_slot() const {
-        for (auto slot : _slots) {
-            if (slot->type().is_hll_type()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    bool has_bitmap_slot() const {
-        for (auto slot : _slots) {
-            if (slot->type().is_bitmap_type()) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     TupleId id() const { return _id; }
 
@@ -427,14 +391,8 @@ private:
     TableDescriptor* _table_desc = nullptr;
     int64_t _byte_size;
     int _num_null_slots;
-    int _num_null_bytes;
     int _num_materialized_slots;
-    std::vector<SlotDescriptor*> _slots;        // contains all slots
-    std::vector<SlotDescriptor*> _string_slots; // contains only materialized string slots
-    // contains only materialized slots except string slots
-    std::vector<SlotDescriptor*> _no_string_slots;
-    // _collection_slots
-    std::vector<SlotDescriptor*> _collection_slots;
+    std::vector<SlotDescriptor*> _slots; // contains all slots
 
     // Provide quick way to check if there are variable length slots.
     // True if _string_slots or _collection_slots have entries.
@@ -447,9 +405,6 @@ private:
     void operator=(const TupleDescriptor&) = delete;
 
     void add_slot(SlotDescriptor* slot);
-
-    /// Returns slots in their physical order.
-    std::vector<SlotDescriptor*> slots_ordered_by_idx() const;
 };
 
 class DescriptorTbl {
@@ -517,13 +472,12 @@ public:
         _num_materialized_slots = 0;
         _num_null_slots = 0;
         _num_slots = 0;
-        std::vector<TupleDescriptor*>::const_iterator it = desc._tuple_desc_map.begin();
+        auto it = desc._tuple_desc_map.begin();
         for (; it != desc._tuple_desc_map.end(); ++it) {
             _num_materialized_slots += (*it)->num_materialized_slots();
             _num_null_slots += (*it)->num_null_slots();
             _num_slots += (*it)->slots().size();
         }
-        _num_null_bytes = (_num_null_slots + 7) / 8;
     }
 
     RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable);
@@ -541,8 +495,6 @@ public:
     int num_materialized_slots() const { return _num_materialized_slots; }
 
     int num_null_slots() const { return _num_null_slots; }
-
-    int num_null_bytes() const { return _num_null_bytes; }
 
     int num_slots() const { return _num_slots; }
 
@@ -599,7 +551,6 @@ private:
 
     int _num_materialized_slots;
     int _num_null_slots;
-    int _num_null_bytes;
     int _num_slots;
 };
 

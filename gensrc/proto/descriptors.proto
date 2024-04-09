@@ -44,7 +44,7 @@ message PSlotDescriptor {
 message PTupleDescriptor {
     required int32 id = 1;
     required int32 byte_size = 2;
-    required int32 num_null_bytes = 3;
+    required int32 num_null_bytes = 3; // deprecated
     optional int64 table_id = 4;
     optional int32 num_null_slots = 5;
 };
