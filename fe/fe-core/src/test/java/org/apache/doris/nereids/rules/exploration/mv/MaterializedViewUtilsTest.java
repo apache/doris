@@ -194,7 +194,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "    ) ENGINE=OLAP\n"
                 + "    DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )\n"
                 + "    COMMENT 'OLAP'\n"
-                + "    AUTO PARTITION BY range date_trunc(`l_shipdate`, 'day') ()\n"
+                + "    AUTO PARTITION BY range (date_trunc(`l_shipdate`, 'day')) ()\n"
                 + "    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 3\n"
                 + "    PROPERTIES (\n"
                 + "       \"replication_num\" = \"1\"\n"
