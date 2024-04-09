@@ -20,8 +20,6 @@
 
 #include "vec/exec/skewed_partition_rebalancer.h"
 
-#include <glog/logging.h>
-
 #include <cmath>
 #include <list>
 
@@ -30,7 +28,7 @@ namespace doris::vectorized {
 SkewedPartitionRebalancer::SkewedPartitionRebalancer(
         int partition_count, int task_count, int task_bucket_count,
         long min_partition_data_processed_rebalance_threshold,
-        long min_data_processed_rebalance_threshold, const std::vector<std::string>* task_addresses)
+        long min_data_processed_rebalance_threshold)
         : _partition_count(partition_count),
           _task_count(task_count),
           _task_bucket_count(task_bucket_count),
@@ -47,40 +45,13 @@ SkewedPartitionRebalancer::SkewedPartitionRebalancer(
           _partition_data_size_since_last_rebalance_per_task(partition_count, 0),
           _estimated_task_bucket_data_size_since_last_rebalance(task_count * task_bucket_count, 0),
           _partition_assignments(partition_count) {
-    if (task_addresses != nullptr) {
-        CHECK(task_addresses->size() == task_count);
-        _task_addresses = *task_addresses;
-        for (int i = 0; i < _task_addresses.size(); ++i) {
-            auto it = _assigned_address_to_task_buckets_num.find(_task_addresses[i]);
-            if (it == _assigned_address_to_task_buckets_num.end()) {
-                _assigned_address_to_task_buckets_num.insert({_task_addresses[i], 0});
-            }
-        }
-    } else {
-        _assigned_address_to_task_buckets_num.insert({TASK_BUCKET_ADDRESS_NOT_SET, 0});
-    }
-
     std::vector<int> task_bucket_ids(task_count, 0);
 
     for (int partition = 0; partition < partition_count; partition++) {
         int task_id = partition % task_count;
         int bucket_id = task_bucket_ids[task_id]++ % task_bucket_count;
-        TaskBucket task_bucket(
-                task_id, bucket_id, task_bucket_count,
-                (_task_addresses.empty()) ? TASK_BUCKET_ADDRESS_NOT_SET : _task_addresses[task_id]);
+        TaskBucket task_bucket(task_id, bucket_id, task_bucket_count);
         _partition_assignments[partition].emplace_back(std::move(task_bucket));
-
-        for (int i = 0; i < _partition_assignments[partition].size(); ++i) {
-            auto it = _assigned_address_to_task_buckets_num.find(
-                    _partition_assignments[partition][i].task_address);
-            if (it != _assigned_address_to_task_buckets_num.end()) {
-                _assigned_address_to_task_buckets_num[_partition_assignments[partition][i]
-                                                              .task_address]++;
-            } else {
-                LOG(FATAL) << "__builtin_unreachable";
-                __builtin_unreachable();
-            }
-        }
     }
 }
 
@@ -169,7 +140,7 @@ void SkewedPartitionRebalancer::_rebalance_based_on_task_bucket_skewness(
             continue;
         }
 
-        std::multimap<std::string, SkewedPartitionRebalancer::TaskBucket> min_skewed_task_buckets =
+        std::vector<TaskBucket> min_skewed_task_buckets =
                 _find_skewed_min_task_buckets(max_task_bucket.value(), min_task_buckets);
         if (min_skewed_task_buckets.empty()) {
             break;
@@ -190,27 +161,10 @@ void SkewedPartitionRebalancer::_rebalance_based_on_task_bucket_skewness(
             int total_assigned_tasks = _partition_assignments[max_partition_value].size();
             if (_partition_data_size[max_partition_value] >=
                 (_min_partition_data_processed_rebalance_threshold * total_assigned_tasks)) {
-                bool found = false;
-                std::vector<std::pair<std::string, int>>
-                        sorted_assigned_address_to_task_buckets_num(
-                                _assigned_address_to_task_buckets_num.begin(),
-                                _assigned_address_to_task_buckets_num.end());
-
-                std::sort(sorted_assigned_address_to_task_buckets_num.begin(),
-                          sorted_assigned_address_to_task_buckets_num.end(),
-                          [](const auto& a, const auto& b) { return a.second < b.second; });
-                for (auto& pair : sorted_assigned_address_to_task_buckets_num) {
-                    auto range = min_skewed_task_buckets.equal_range(pair.first);
-                    for (auto it = range.first; it != range.second; ++it) {
-                        TaskBucket& task_bucket = it->second;
-                        if (_rebalance_partition(max_partition_value, task_bucket, max_task_buckets,
-                                                 min_task_buckets)) {
-                            scaled_partitions.push_back(max_partition_value);
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (found) {
+                for (const TaskBucket& min_task_bucket : min_skewed_task_buckets) {
+                    if (_rebalance_partition(max_partition_value, min_task_bucket, max_task_buckets,
+                                             min_task_buckets)) {
+                        scaled_partitions.push_back(max_partition_value);
                         break;
                     }
                 }
@@ -221,12 +175,12 @@ void SkewedPartitionRebalancer::_rebalance_based_on_task_bucket_skewness(
     }
 }
 
-std::multimap<std::string, SkewedPartitionRebalancer::TaskBucket>
+std::vector<SkewedPartitionRebalancer::TaskBucket>
 SkewedPartitionRebalancer::_find_skewed_min_task_buckets(
         const TaskBucket& max_task_bucket,
         const IndexedPriorityQueue<TaskBucket, IndexedPriorityQueuePriorityOrdering::LOW_TO_HIGH>&
                 min_task_buckets) {
-    std::multimap<std::string, SkewedPartitionRebalancer::TaskBucket> min_skewed_task_buckets;
+    std::vector<TaskBucket> min_skewed_task_buckets;
 
     for (const auto& min_task_bucket : min_task_buckets) {
         double skewness =
@@ -238,7 +192,7 @@ SkewedPartitionRebalancer::_find_skewed_min_task_buckets(
             break;
         }
         if (max_task_bucket.task_id != min_task_bucket.task_id) {
-            min_skewed_task_buckets.insert({min_task_bucket.task_address, min_task_bucket});
+            min_skewed_task_buckets.push_back(min_task_bucket);
         }
     }
     return min_skewed_task_buckets;
@@ -259,7 +213,6 @@ bool SkewedPartitionRebalancer::_rebalance_partition(
     }
 
     assignments.push_back(to_task_bucket);
-    _assigned_address_to_task_buckets_num[to_task_bucket.task_address]++;
 
     int new_task_count = assignments.size();
     int old_task_count = new_task_count - 1;
@@ -326,14 +279,10 @@ void SkewedPartitionRebalancer::_rebalance_partitions(long data_processed) {
     IndexedPriorityQueue<TaskBucket, IndexedPriorityQueuePriorityOrdering::LOW_TO_HIGH>
             min_task_buckets;
 
-    for (int task_id = 0; task_id < _task_count; task_id++) {
-        for (int bucket_id = 0; bucket_id < _task_bucket_count; bucket_id++) {
-            TaskBucket task_bucket1(task_id, bucket_id, _task_bucket_count,
-                                    (_task_addresses.empty()) ? TASK_BUCKET_ADDRESS_NOT_SET
-                                                              : _task_addresses[task_id]);
-            TaskBucket task_bucket2(task_id, bucket_id, _task_bucket_count,
-                                    (_task_addresses.empty()) ? TASK_BUCKET_ADDRESS_NOT_SET
-                                                              : _task_addresses[task_id]);
+    for (int taskId = 0; taskId < _task_count; taskId++) {
+        for (int bucketId = 0; bucketId < _task_bucket_count; bucketId++) {
+            TaskBucket task_bucket1(taskId, bucketId, _task_bucket_count);
+            TaskBucket task_bucket2(taskId, bucketId, _task_bucket_count);
             _estimated_task_bucket_data_size_since_last_rebalance[task_bucket1.id] =
                     _calculate_task_bucket_data_size_since_last_rebalance(
                             task_bucket_max_partitions[task_bucket1.id]);

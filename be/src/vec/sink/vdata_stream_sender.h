@@ -342,8 +342,6 @@ public:
 
     void set_receiver_eof(Status st) { _receiver_status = st; }
 
-    const TNetworkAddress& brpc_dest_addr() const { return _brpc_dest_addr; }
-
 protected:
     bool _recvr_is_valid() {
         if (_local_recvr && !_local_recvr->is_closed()) {

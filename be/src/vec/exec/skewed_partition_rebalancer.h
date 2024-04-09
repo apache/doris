@@ -49,7 +49,6 @@
 #include <iostream>
 #include <list>
 #include <optional>
-#include <utility>
 #include <vector>
 
 #include "util/indexed_priority_queue.hpp"
@@ -61,13 +60,9 @@ private:
     struct TaskBucket {
         int task_id;
         int id;
-        std::string task_address;
 
-        TaskBucket(int task_id_, int bucket_id_, int task_bucket_count_,
-                   const std::string& task_address_)
-                : task_id(task_id_),
-                  id(task_id_ * task_bucket_count_ + bucket_id_),
-                  task_address(task_address_) {}
+        TaskBucket(int task_id_, int bucket_id_, int task_bucket_count_)
+                : task_id(task_id_), id(task_id_ * task_bucket_count_ + bucket_id_) {}
 
         bool operator==(const TaskBucket& other) const { return id == other.id; }
 
@@ -79,8 +74,7 @@ private:
 public:
     SkewedPartitionRebalancer(int partition_count, int task_count, int task_bucket_count,
                               long min_partition_data_processed_rebalance_threshold,
-                              long min_data_processed_rebalance_threshold,
-                              const std::vector<std::string>* task_addresses = nullptr);
+                              long min_data_processed_rebalance_threshold);
 
     std::vector<std::list<int>> get_partition_assignments();
     int get_task_count();
@@ -102,7 +96,7 @@ private:
             std::vector<
                     IndexedPriorityQueue<int, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>>&
                     task_bucket_max_partitions);
-    std::multimap<std::string, SkewedPartitionRebalancer::TaskBucket> _find_skewed_min_task_buckets(
+    std::vector<TaskBucket> _find_skewed_min_task_buckets(
             const TaskBucket& max_task_bucket,
             const IndexedPriorityQueue<TaskBucket,
                                        IndexedPriorityQueuePriorityOrdering::LOW_TO_HIGH>&
@@ -119,14 +113,12 @@ private:
 
 private:
     static constexpr double TASK_BUCKET_SKEWNESS_THRESHOLD = 0.7;
-    static constexpr const char* TASK_BUCKET_ADDRESS_NOT_SET = "TASK_BUCKET_ADDRESS_NOT_SET";
 
     int _partition_count;
     int _task_count;
     int _task_bucket_count;
     long _min_partition_data_processed_rebalance_threshold;
     long _min_data_processed_rebalance_threshold;
-    std::vector<std::string> _task_addresses;
     std::vector<long> _partition_row_count;
     long _data_processed;
     long _data_processed_at_last_rebalance;
@@ -136,6 +128,5 @@ private:
     std::vector<long> _estimated_task_bucket_data_size_since_last_rebalance;
 
     std::vector<std::vector<TaskBucket>> _partition_assignments;
-    std::unordered_map<std::string, int> _assigned_address_to_task_buckets_num;
 };
 } // namespace doris::vectorized

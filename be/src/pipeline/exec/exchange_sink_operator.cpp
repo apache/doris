@@ -258,13 +258,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_partition_count));
         _partition_function.reset(new HashPartitionFunction(_partitioner.get()));
 
-        std::vector<std::string> task_addresses;
-        task_addresses.reserve(channels.size());
-        for (int i = 0; i < channels.size(); ++i) {
-            const TNetworkAddress& brpc_dest_addr = channels[i]->brpc_dest_addr();
-            task_addresses.emplace_back(
-                    fmt::format("{}:{}", brpc_dest_addr.hostname, brpc_dest_addr.port));
-        }
         scale_writer_partitioning_exchanger.reset(new vectorized::ScaleWriterPartitioningExchanger<
                                                   HashPartitionFunction>(
                 channels.size(), *_partition_function, _partition_count, channels.size(), 1,
@@ -279,8 +272,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                                 0
                         ? config::table_sink_partition_write_min_data_processed_rebalance_threshold
                         : config::table_sink_partition_write_min_data_processed_rebalance_threshold /
-                                  state->task_num(),
-                &task_addresses));
+                                  state->task_num()));
 
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));

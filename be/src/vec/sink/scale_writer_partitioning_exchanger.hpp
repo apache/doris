@@ -33,13 +33,12 @@ public:
     ScaleWriterPartitioningExchanger(int channel_size, PartitionFunction& partition_function,
                                      int partition_count, int task_count, int task_bucket_count,
                                      long min_partition_data_processed_rebalance_threshold,
-                                     long min_data_processed_rebalance_threshold,
-                                     const std::vector<string>* task_addresses)
+                                     long min_data_processed_rebalance_threshold)
             : _channel_size(channel_size),
               _partition_function(partition_function),
               _partition_rebalancer(partition_count, task_count, task_bucket_count,
                                     min_partition_data_processed_rebalance_threshold,
-                                    min_data_processed_rebalance_threshold, task_addresses),
+                                    min_data_processed_rebalance_threshold),
               _partition_row_counts(partition_count, 0),
               _partition_writer_ids(partition_count, -1),
               _partition_writer_indexes(partition_count, 0) {}
