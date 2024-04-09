@@ -435,10 +435,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertTrue(olapCtasErrPlan instanceof CreateTableCommand);
         ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 "Cannot create olap table out of internal catalog."
-                        + "Make sure 'engine' type is specified when use the catalog: hive",
+                        + " Make sure 'engine' type is specified when use the catalog: hive",
                 () -> ((CreateTableCommand) olapCtasErrPlan).run(connectContext, null));
 
-        String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap"
+        String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap ENGINE=olap"
                 + " PROPERTIES('replication_num' = '1')"
                 + " AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasOkPlan = createTablesAndReturnPlans(true, olapCtasOk).get(0);

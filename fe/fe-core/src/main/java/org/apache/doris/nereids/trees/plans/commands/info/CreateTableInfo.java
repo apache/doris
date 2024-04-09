@@ -200,7 +200,7 @@ public class CreateTableInfo {
                 ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
         }
-        paddingEngineName(ctx);
+        paddingEngineName(ctlName, ctx);
         checkEngineName();
 
         if (properties == null) {
@@ -542,7 +542,11 @@ public class CreateTableInfo {
         }
     }
 
-    private void paddingEngineName(ConnectContext ctx) {
+    private void paddingEngineName(String ctlName, ConnectContext ctx) {
+        if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName)) {
+            engineName = "olap";
+            return;
+        }
         if (Strings.isNullOrEmpty(engineName)) {
             if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
                 engineName = "hive";
@@ -560,11 +564,11 @@ public class CreateTableInfo {
      */
     public void validateCreateTableAsSelect(List<String> qualifierTableName, List<ColumnDefinition> columns,
                                             ConnectContext ctx) {
-        paddingEngineName(ctx);
+        String catalogName = qualifierTableName.get(0);
+        paddingEngineName(catalogName, ctx);
         this.columns = Utils.copyRequiredMutableList(columns);
         // bucket num is hard coded 10 to be consistent with legacy planner
         if (engineName.equals("olap") && this.distribution == null) {
-            String catalogName = qualifierTableName.get(0);
             if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 throw new AnalysisException("Cannot create olap table out of internal catalog."
                         + " Make sure 'engine' type is specified when use the catalog: " + catalogName);

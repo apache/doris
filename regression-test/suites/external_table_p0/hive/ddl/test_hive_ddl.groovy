@@ -512,6 +512,36 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             }
 
             test {
+                sql """ 
+                    CREATE TABLE all_part_types_tbl_${file_format}_err3(
+                      `col` INT COMMENT 'col',
+                      `pt1` STRING COMMENT 'pt1'
+                    )  ENGINE=hive 
+                    PARTITION BY LIST (pt1)
+                    (PARTITION pp VALUES IN ('2014-01-01'))
+                    PROPERTIES (
+                      'file_format'='${file_format}'
+                    ) 
+                    """
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = errCode = 2, detailMessage = Partition values expressions is not supported in hive catalog."
+            }
+
+            test {
+                sql """ 
+                    CREATE TABLE all_part_types_tbl_${file_format}_err3(
+                      `col` INT COMMENT 'col',
+                      `pt1` STRING COMMENT 'pt1'
+                    )  ENGINE=hive 
+                    PARTITION BY LIST (pt000)
+                    (PARTITION pp VALUES IN ('2014-01-01'))
+                    PROPERTIES (
+                      'file_format'='${file_format}'
+                    ) 
+                    """
+                exception "errCode = 2, detailMessage = partition key pt000 is not exists"
+            }
+
+            test {
                 sql """
                     CREATE TABLE all_part_types_tbl_${file_format}_err1(
                       `col` INT COMMENT 'col',

@@ -23,8 +23,10 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -187,7 +189,15 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             }
             List<String> partitionColNames = new ArrayList<>();
             if (stmt.getPartitionDesc() != null) {
-                partitionColNames.addAll(stmt.getPartitionDesc().getPartitionColNames());
+                PartitionDesc partitionDesc = stmt.getPartitionDesc();
+                if (partitionDesc.getType() == PartitionType.RANGE) {
+                    throw new UserException("Only support 'LIST' partition type in hive catalog.");
+                }
+                partitionColNames.addAll(partitionDesc.getPartitionColNames());
+                if (!partitionDesc.getSinglePartitionDescs().isEmpty()) {
+                    throw new UserException("Partition values expressions is not supported in hive catalog.");
+                }
+
             }
             String comment = stmt.getComment();
             Optional<String> location = Optional.ofNullable(props.getOrDefault(LOCATION_URI_KEY, null));
