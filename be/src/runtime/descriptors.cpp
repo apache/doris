@@ -307,27 +307,13 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
         : _id(tdesc.id),
           _num_materialized_slots(0),
           _has_varlen_slots(false),
-          _own_slots(own_slots) {
-    if (!tdesc.__isset.numNullSlots) {
-        //be compatible for existing tables with no nullptr value
-        _num_null_slots = 0;
-    } else {
-        _num_null_slots = tdesc.numNullSlots;
-    }
-}
+          _own_slots(own_slots) {}
 
 TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
         : _id(pdesc.id()),
           _num_materialized_slots(0),
           _has_varlen_slots(false),
-          _own_slots(own_slots) {
-    if (!pdesc.has_num_null_slots()) {
-        //be compatible for existing tables with no nullptr value
-        _num_null_slots = 0;
-    } else {
-        _num_null_slots = pdesc.num_null_slots();
-    }
-}
+          _own_slots(own_slots) {}
 
 void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     _slots.push_back(slot);
@@ -347,7 +333,7 @@ void TupleDescriptor::to_protobuf(PTupleDescriptor* ptuple) const {
     // Useless not set
     ptuple->set_byte_size(0);
     ptuple->set_table_id(-1);
-    ptuple->set_num_null_slots(_num_null_slots);
+    ptuple->set_num_null_bytes(0);
 }
 
 std::string TupleDescriptor::debug_string() const {
@@ -379,12 +365,10 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
             << row_tuples.size();
     DCHECK_GT(row_tuples.size(), 0);
     _num_materialized_slots = 0;
-    _num_null_slots = 0;
 
     for (int i = 0; i < row_tuples.size(); ++i) {
         TupleDescriptor* tupleDesc = desc_tbl.get_tuple_descriptor(row_tuples[i]);
         _num_materialized_slots += tupleDesc->num_materialized_slots();
-        _num_null_slots += tupleDesc->num_null_slots();
         _tuple_desc_map.push_back(tupleDesc);
         DCHECK(_tuple_desc_map.back() != nullptr);
     }
@@ -435,16 +419,6 @@ void RowDescriptor::init_has_varlen_slots() {
             break;
         }
     }
-}
-
-int RowDescriptor::get_row_size() const {
-    int size = 0;
-
-    for (int i = 0; i < _tuple_desc_map.size(); ++i) {
-        size += _tuple_desc_map[i]->byte_size();
-    }
-
-    return size;
 }
 
 int RowDescriptor::get_tuple_idx(TupleId id) const {

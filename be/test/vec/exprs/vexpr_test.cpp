@@ -128,7 +128,7 @@ static doris::TupleDescriptor* create_tuple_desc(
 
     TTupleDescriptor t_tuple_desc;
     t_tuple_desc.__set_byteSize(offset);
-    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
+    t_tuple_desc.__set_numNullBytes(0);
     doris::TupleDescriptor* tuple_desc =
             pool->add(new (std::nothrow) doris::TupleDescriptor(t_tuple_desc));
 

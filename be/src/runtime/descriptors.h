@@ -365,9 +365,7 @@ public:
             }
         }
     }
-    int64_t byte_size() const { return _byte_size; }
     int num_materialized_slots() const { return _num_materialized_slots; }
-    int num_null_slots() const { return _num_null_slots; }
     const std::vector<SlotDescriptor*>& slots() const { return _slots; }
 
     bool has_varlen_slots() const { return _has_varlen_slots; }
@@ -389,8 +387,6 @@ private:
 
     const TupleId _id;
     TableDescriptor* _table_desc = nullptr;
-    int64_t _byte_size;
-    int _num_null_slots;
     int _num_materialized_slots;
     std::vector<SlotDescriptor*> _slots; // contains all slots
 
@@ -470,12 +466,10 @@ public:
               _tuple_idx_map(desc._tuple_idx_map),
               _has_varlen_slots(desc._has_varlen_slots) {
         _num_materialized_slots = 0;
-        _num_null_slots = 0;
         _num_slots = 0;
         auto it = desc._tuple_desc_map.begin();
         for (; it != desc._tuple_desc_map.end(); ++it) {
             _num_materialized_slots += (*it)->num_materialized_slots();
-            _num_null_slots += (*it)->num_null_slots();
             _num_slots += (*it)->slots().size();
         }
     }
@@ -487,14 +481,7 @@ public:
     // dummy descriptor, needed for the JNI EvalPredicate() function
     RowDescriptor() = default;
 
-    // Returns total size in bytes.
-    // TODO: also take avg string lengths into account, ie, change this
-    // to GetAvgRowSize()
-    int get_row_size() const;
-
     int num_materialized_slots() const { return _num_materialized_slots; }
-
-    int num_null_slots() const { return _num_null_slots; }
 
     int num_slots() const { return _num_slots; }
 
@@ -550,7 +537,6 @@ private:
     bool _has_varlen_slots;
 
     int _num_materialized_slots;
-    int _num_null_slots;
     int _num_slots;
 };
 
