@@ -5213,9 +5213,9 @@ TEST(MetaServiceTest, AddObjInfoTest) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_OBJ_INFO);
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_instance_with_object_info",
+        sp->set_call_back("create_object_info_with_encrypt",
                           [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("create_instance_with_object_info::pred",
+        sp->set_call_back("create_object_info_with_encrypt::pred",
                           [](void* p) { *((bool*)p) = true; });
         sp->enable_processing();
 
@@ -5668,9 +5668,9 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         req.mutable_vault()->CopyFrom(vault);
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_instance_with_object_info",
+        sp->set_call_back("create_object_info_with_encrypt",
                           [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("create_instance_with_object_info::pred",
+        sp->set_call_back("create_object_info_with_encrypt::pred",
                           [](void* p) { *((bool*)p) = true; });
         sp->enable_processing();
         CreateInstanceResponse res;
@@ -5718,14 +5718,14 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         req.mutable_obj_info()->CopyFrom(obj_info);
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_instance_with_object_info", [](void* p) {
+        sp->set_call_back("create_object_info_with_encrypt", [](void* p) {
             std::tuple<int*, MetaServiceCode*, std::string*>& ret_tuple =
                     *reinterpret_cast<std::tuple<int*, MetaServiceCode*, std::string*>*>(p);
             *std::get<0>(ret_tuple) = 0;
             *std::get<1>(ret_tuple) = MetaServiceCode::OK;
             *std::get<2>(ret_tuple) = "";
         });
-        sp->set_call_back("create_instance_with_object_info::pred",
+        sp->set_call_back("create_object_info_with_encrypt::pred",
                           [](void* p) { *((bool*)p) = true; });
         sp->enable_processing();
         CreateInstanceResponse res;
