@@ -2655,14 +2655,17 @@ public class StmtExecutor {
     private void sendStmtPrepareOK() throws IOException {
         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
-        SelectStmt selectStmt = (SelectStmt) prepareStmt.getInnerStmt();
+        SelectStmt selectStmt = null;
+        if (prepareStmt.getInnerStmt() instanceof SelectStmt) {
+            selectStmt = (SelectStmt) prepareStmt.getInnerStmt();
+        }
         serializer.reset();
         // 0x00 OK
         serializer.writeInt1(0);
         // statement_id
         serializer.writeInt4(Integer.valueOf(prepareStmt.getName()));
         // num_columns
-        int numColumns = selectStmt.getResultExprs().size();
+        int numColumns = selectStmt != null ? selectStmt.getResultExprs().size() : 0;
         serializer.writeInt2(numColumns);
         // num_params
         int numParams = prepareStmt.getColLabelsOfPlaceHolders().size();
