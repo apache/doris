@@ -570,8 +570,13 @@ public class Load {
             for (SlotRef slot : slots) {
                 if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
-                            exprsByName.get(slot.getColumnName())));
+                    if (tbl.getColumn(slot.getColumnName()).getType()
+                            .equals(exprsByName.get(slot.getColumnName()).getType())) {
+                        smap.getRhs().add(exprsByName.get(slot.getColumnName()));
+                    } else {
+                        smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
+                                exprsByName.get(slot.getColumnName())));
+                    }
                 } else if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(
