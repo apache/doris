@@ -3886,15 +3886,31 @@ public:
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
+        auto& col_res_chars = col_res->get_chars();
+        auto& col_res_offsets = col_res->get_offsets();
+
         for (int i = 0; i < input_rows_count; ++i) {
             StringRef origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
             auto pos = col_pos[index_check_const(i, col_const[1])];
             auto len = col_len[index_check_const(i, col_const[2])];
             StringRef insert_str = col_insert->get_data_at(index_check_const(i, col_const[3]));
 
-            std::string result =
-                    insert(origin_str.to_string(), pos, len, insert_str.to_string_view());
-            col_res->insert_data(result.data(), result.length());
+            if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
+                is_origin) {
+                col_res->insert_data(origin_str.data, offset);
+            } else {
+                const auto old_size = col_res_chars.size();
+                col_res_chars.resize(old_size + offset);
+                // There are three stages here
+                // 1. copy origin_str with index 0 to pos - 2
+                // 2. copy all of insert_str.
+                // 3. copy origin_str from pos+len-1 to the end of the line.
+                memcpy(col_res_chars.data() + old_size, origin_str.data, pos - 1);
+                memcpy(col_res_chars.data() + old_size + pos - 1, insert_str.data, insert_str.size);
+                memcpy(col_res_chars.data() + old_size + pos - 1 + insert_str.size,
+                       origin_str.data + pos + len - 1, origin_str.size - pos - len + 1);
+                col_res_offsets.push_back(offset + old_size);
+            }
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -3902,18 +3918,17 @@ public:
     }
 
 private:
-    // The behaviour of this function is similar to the replace function
-    // std::string's replace(pos, size, new_str) function is just applicable to insert(orgin_str, pos, size, insert_str)
-    // so the replace function is called directly here.
-    static std::string insert(std::string str, int pos, int len, std::string_view insert_str) {
-        if (pos > str.size() || pos < 1) {
-            return str;
+    // get the new str size
+    static std::pair<bool, size_t> get_size(size_t& str_size, int& pos, int& len,
+                                            size_t& ins_size) {
+        if (pos > str_size || pos < 1) {
+            return {true, str_size};
         }
-        if (len < 0) {
-            len = str.size() - pos + 1;
+        if (len < 0 || pos + len - 1 >= str_size) {
+            len = str_size - pos + 1;
+            return {false, pos + ins_size - 1};
         }
-        str.replace(pos - 1, len, insert_str);
-        return str;
+        return {false, str_size - len + ins_size};
     }
 };
 } // namespace doris::vectorized
