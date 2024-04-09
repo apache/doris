@@ -96,32 +96,25 @@ TEST(DebugPointsTest, AddTest) {
               DebugPoints::instance()->get_debug_param_or_default<std::string>("dbug4", ""));
 }
 
-void demo_handler() {
+void demo_callback() {
     int a = 0;
 
-    DBUG_EXECUTE_IF("set_a", {
-        auto handler = std::any_cast<std::function<void(int&)>>(dp->handler);
-        handler(a);
-    });
-
-    DBUG_EXECUTE_IF("get_a", {
-        auto handler = std::any_cast<std::function<void(int)>>(dp->handler);
-        handler(a);
-    });
+    DBUG_EXECUTE_IF("set_a", DBUG_RUN_CALLBACK(&a));
+    DBUG_EXECUTE_IF("get_a", DBUG_RUN_CALLBACK(a));
 }
 
-TEST(DebugPointsTest, Handler) {
+TEST(DebugPointsTest, Callback) {
     config::enable_debug_points = true;
     DebugPoints::instance()->clear();
 
     int got_a = 0;
 
-    std::function<void(int&)> set_handler = [](int& a) { a = 1000; };
+    std::function<void(int*)> set_handler = [](int* a) { *a = 1000; };
     std::function<void(int)> get_handler = [&got_a](int a) { got_a = a; };
-    DebugPoints::instance()->add_with_handler("set_a", set_handler);
-    DebugPoints::instance()->add_with_handler("get_a", get_handler);
+    DebugPoints::instance()->add_with_callback("set_a", set_handler);
+    DebugPoints::instance()->add_with_callback("get_a", get_handler);
 
-    demo_handler();
+    demo_callback();
 
     EXPECT_EQ(1000, got_a);
 }
