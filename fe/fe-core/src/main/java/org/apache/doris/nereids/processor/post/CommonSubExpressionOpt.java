@@ -52,9 +52,11 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
     @Override
     public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
         project.child().accept(this, ctx);
-        List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
-                project.getInputSlots(), project.getProjects());
-        project.setMultiLayerProjects(multiLayers);
+        if (!project.hasPushedDownToProjectionFunctions()) {
+            List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
+                    project.getInputSlots(), project.getProjects());
+            project.setMultiLayerProjects(multiLayers);
+        }
         return project;
     }
 
@@ -66,15 +68,6 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
         for (Expression expr : projects) {
             expr.accept(collector, null);
         }
-        Map<Expression, Alias> commonExprToAliasMap = new HashMap<>();
-        collector.commonExprByDepth.values().stream().flatMap(expressions -> expressions.stream())
-                .forEach(expression -> {
-                    if (expression instanceof Alias) {
-                        commonExprToAliasMap.put(expression, (Alias) expression);
-                    } else {
-                        commonExprToAliasMap.put(expression, new Alias(expression));
-                    }
-                });
         Map<Expression, Alias> aliasMap = new HashMap<>();
         if (!collector.commonExprByDepth.isEmpty()) {
             for (int i = 1; i <= collector.commonExprByDepth.size(); i++) {
