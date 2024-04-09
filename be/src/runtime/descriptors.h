@@ -39,45 +39,16 @@
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
 
-namespace google {
-namespace protobuf {
+namespace google::protobuf {
 template <typename Element>
 class RepeatedField;
-} // namespace protobuf
-} // namespace google
+} // namespace google::protobuf
 
 namespace doris {
 
 class ObjectPool;
 class PTupleDescriptor;
 class PSlotDescriptor;
-
-// Location information for null indicator bit for particular slot.
-// For non-nullable slots, the byte_offset will be 0 and the bit_mask will be 0.
-// This allows us to do the NullIndicatorOffset operations (tuple + byte_offset &/|
-// bit_mask) regardless of whether the slot is nullable or not.
-// This is more efficient than branching to check if the slot is non-nullable.
-struct NullIndicatorOffset {
-    int byte_offset;
-    uint8_t bit_mask;  // to extract null indicator
-    int8_t bit_offset; // only used to serialize, from 1 to 8, invalid null value
-                       // bit_offset is -1.
-
-    NullIndicatorOffset(int byte_offset, int bit_offset_)
-            : byte_offset(byte_offset),
-              bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
-              bit_offset(bit_offset_) {
-        DCHECK_LE(bit_offset_, 8);
-    }
-
-    bool equals(const NullIndicatorOffset& o) const {
-        return this->byte_offset == o.byte_offset && this->bit_mask == o.bit_mask;
-    }
-
-    std::string debug_string() const;
-};
-
-std::ostream& operator<<(std::ostream& os, const NullIndicatorOffset& null_indicator);
 
 class SlotDescriptor {
 public:
@@ -91,7 +62,7 @@ public:
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
     bool is_materialized() const { return _is_materialized; }
-    bool is_nullable() const { return _null_indicator_offset.bit_mask != 0; }
+    bool is_nullable() const { return _is_nullable; }
 
     const std::string& col_name() const { return _col_name; }
     const std::string& col_name_lower_case() const { return _col_name_lower_case; }
@@ -129,7 +100,7 @@ private:
     const TypeDescriptor _type;
     const TupleId _parent;
     const int _col_pos;
-    const NullIndicatorOffset _null_indicator_offset;
+    bool _is_nullable;
     const std::string _col_name;
     const std::string _col_name_lower_case;
 
@@ -236,14 +207,14 @@ public:
     MaxComputeTableDescriptor(const TTableDescriptor& tdesc);
     ~MaxComputeTableDescriptor() override;
     std::string debug_string() const override;
-    const std::string region() const { return _region; }
-    const std::string project() const { return _project; }
-    const std::string table() const { return _table; }
-    const std::string odps_url() const { return _odps_url; }
-    const std::string tunnel_url() const { return _tunnel_url; }
-    const std::string access_key() const { return _access_key; }
-    const std::string secret_key() const { return _secret_key; }
-    const std::string public_access() const { return _public_access; }
+    std::string region() const { return _region; }
+    std::string project() const { return _project; }
+    std::string table() const { return _table; }
+    std::string odps_url() const { return _odps_url; }
+    std::string tunnel_url() const { return _tunnel_url; }
+    std::string access_key() const { return _access_key; }
+    std::string secret_key() const { return _secret_key; }
+    std::string public_access() const { return _public_access; }
 
 private:
     std::string _region;
@@ -278,13 +249,13 @@ class MySQLTableDescriptor : public TableDescriptor {
 public:
     MySQLTableDescriptor(const TTableDescriptor& tdesc);
     std::string debug_string() const override;
-    const std::string mysql_db() const { return _mysql_db; }
-    const std::string mysql_table() const { return _mysql_table; }
-    const std::string host() const { return _host; }
-    const std::string port() const { return _port; }
-    const std::string user() const { return _user; }
-    const std::string passwd() const { return _passwd; }
-    const std::string charset() const { return _charset; }
+    std::string mysql_db() const { return _mysql_db; }
+    std::string mysql_table() const { return _mysql_table; }
+    std::string host() const { return _host; }
+    std::string port() const { return _port; }
+    std::string user() const { return _user; }
+    std::string passwd() const { return _passwd; }
+    std::string charset() const { return _charset; }
 
 private:
     std::string _mysql_db;
@@ -300,13 +271,13 @@ class ODBCTableDescriptor : public TableDescriptor {
 public:
     ODBCTableDescriptor(const TTableDescriptor& tdesc);
     std::string debug_string() const override;
-    const std::string db() const { return _db; }
-    const std::string table() const { return _table; }
-    const std::string host() const { return _host; }
-    const std::string port() const { return _port; }
-    const std::string user() const { return _user; }
-    const std::string passwd() const { return _passwd; }
-    const std::string driver() const { return _driver; }
+    std::string db() const { return _db; }
+    std::string table() const { return _table; }
+    std::string host() const { return _host; }
+    std::string port() const { return _port; }
+    std::string user() const { return _user; }
+    std::string passwd() const { return _passwd; }
+    std::string driver() const { return _driver; }
     TOdbcTableType::type type() const { return _type; }
 
 private:
@@ -358,6 +329,9 @@ private:
 
 class TupleDescriptor {
 public:
+    TupleDescriptor(TupleDescriptor&&) = delete;
+    void operator=(const TupleDescriptor&) = delete;
+
     ~TupleDescriptor() {
         if (_own_slots) {
             for (SlotDescriptor* slot : _slots) {
@@ -397,8 +371,6 @@ private:
 
     TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slot = false);
     TupleDescriptor(const PTupleDescriptor& tdesc, bool own_slot = false);
-    TupleDescriptor(TupleDescriptor&&) = delete;
-    void operator=(const TupleDescriptor&) = delete;
 
     void add_slot(SlotDescriptor* slot);
 };
@@ -489,12 +461,6 @@ public:
 
     // Returns INVALID_IDX if id not part of this row.
     int get_tuple_idx(TupleId id) const;
-
-    // Return true if the Tuple of the given Tuple index is nullable.
-    bool tuple_is_nullable(int tuple_idx) const;
-
-    // Return true if any Tuple of the row is nullable.
-    bool is_any_tuple_nullable() const;
 
     // Return true if any Tuple has variable length slots.
     bool has_varlen_slots() const { return _has_varlen_slots; }
