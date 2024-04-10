@@ -31,6 +31,7 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "parquet_column_convert.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
@@ -44,7 +45,6 @@ namespace io {
 struct IOContext;
 } // namespace io
 namespace vectorized {
-class ColumnString;
 struct FieldSchema;
 } // namespace vectorized
 } // namespace doris

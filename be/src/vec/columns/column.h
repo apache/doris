@@ -77,14 +77,13 @@ private:
     /// If you want to copy column for modification, look at 'mutate' method.
     virtual MutablePtr clone() const = 0;
 
-protected:
+public:
     // 64bit offsets now only Array type used, so we make it protected
     // to avoid use IColumn::Offset64 directly.
     // please use ColumnArray::Offset64 instead if we need.
     using Offset64 = UInt64;
     using Offsets64 = PaddedPODArray<Offset64>;
 
-public:
     // 32bit offsets for string
     using Offset = UInt32;
     using Offsets = PaddedPODArray<Offset>;
@@ -99,6 +98,11 @@ public:
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
       */
     virtual Ptr convert_to_full_column_if_const() const { return get_ptr(); }
+
+    /** If column isn't constant, returns nullptr (or itself).
+    * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
+    */
+    virtual Ptr convert_to_full_column_if_overflow() { return get_ptr(); }
 
     /// If column isn't ColumnLowCardinality, return itself.
     /// If column is ColumnLowCardinality, transforms is to full column.
