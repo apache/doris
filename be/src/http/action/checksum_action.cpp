@@ -105,6 +105,7 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int32_t 
     Status res = Status::OK();
     uint32_t checksum;
     EngineChecksumTask engine_task(tablet_id, schema_hash, version, &checksum);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     res = engine_task.execute();
     if (!res.ok()) {
         LOG(WARNING) << "checksum failed. status: " << res << ", signature: " << tablet_id;
