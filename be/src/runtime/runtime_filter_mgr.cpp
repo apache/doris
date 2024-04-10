@@ -591,7 +591,8 @@ void RuntimeFilterMergeController::remove_entity(UniqueId query_id) {
 }
 
 RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* state) {
-    RuntimeFilterParamsContext* params = state->get_query_ctx()->obj_pool.add(new RuntimeFilterParamsContext());
+    RuntimeFilterParamsContext* params =
+            state->get_query_ctx()->obj_pool.add(new RuntimeFilterParamsContext());
     params->runtime_filter_wait_infinitely = state->runtime_filter_wait_infinitely();
     params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
     params->enable_pipeline_exec = state->enable_pipeline_exec();
