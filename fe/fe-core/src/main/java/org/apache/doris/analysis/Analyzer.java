@@ -183,6 +183,8 @@ public class Analyzer {
 
     private boolean isReplay = false;
 
+    private boolean isPrepareStmt = false;
+
     public void setIsSubquery() {
         isSubquery = true;
         isFirstScopeInSubquery = true;
@@ -2697,5 +2699,13 @@ public class Analyzer {
         for (SlotDescriptor slot : slots) {
             slot.setIsNullable(false);
         }
+    }
+
+    public void setPrepareStmt(boolean isPrepareStmt) {
+        this.isPrepareStmt = isPrepareStmt;
+    }
+
+    public boolean isPrepareStmt() {
+        return isPrepareStmt;
     }
 }

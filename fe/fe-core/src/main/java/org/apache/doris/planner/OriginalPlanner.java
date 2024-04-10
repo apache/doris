@@ -286,7 +286,7 @@ public class OriginalPlanner extends Planner {
                 OlapScanNode olapScanNode = (OlapScanNode) singleNodePlan;
                 olapScanNode.setDescTable(analyzer.getDescTbl());
                 olapScanNode.setPointQueryEqualPredicates(eqConjuncts);
-                if (analyzer.getPrepareStmt() != null) {
+                if (analyzer.getPrepareStmt() != null && analyzer.getPrepareStmt().isPointQuery()) {
                     // Cache them for later request better performance
                     analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
                     analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());

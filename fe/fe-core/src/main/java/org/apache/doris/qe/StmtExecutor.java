@@ -982,7 +982,8 @@ public class StmtExecutor {
             prepareStmt.analyze(analyzer);
             // Need analyze inner statement
             parsedStmt = prepareStmt.getInnerStmt();
-            if (prepareStmt.getPreparedType() == PrepareStmt.PreparedType.STATEMENT) {
+            if (prepareStmt.getPreparedType() == PrepareStmt.PreparedType.STATEMENT
+                    || !prepareStmt.isPointQuery()) {
                 // Skip analyze, do it lazy
                 return;
             }
