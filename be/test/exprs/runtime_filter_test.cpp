@@ -35,8 +35,7 @@ TTypeDesc create_type_desc(PrimitiveType type, int precision, int scale);
 class RuntimeFilterTest : public testing::Test {
 public:
     RuntimeFilterTest() {}
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
     virtual void TearDown() { _obj_pool.clear(); }
 
 private:
