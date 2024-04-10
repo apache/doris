@@ -63,7 +63,8 @@ public:
 
 private:
     SnapshotManager() : _snapshot_base_id(0) {
-        _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "SnapshotManager");
+        _mem_tracker =
+                MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "SnapshotManager");
     }
 
     Status _calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
