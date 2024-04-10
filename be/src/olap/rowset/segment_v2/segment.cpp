@@ -413,7 +413,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     // init by column path
     for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
         auto& column = _tablet_schema->column(ordinal);
-        if (!column.has_path_info() && !column.is_variant_type()) {
+        if (!column.has_path_info()) {
             continue;
         }
         auto path = column.has_path_info() ? *column.path_info_ptr()

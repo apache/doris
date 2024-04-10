@@ -31,13 +31,15 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
 [[nodiscard]] bool parse_schema_value(const ValueBuf& buf, doris::TabletSchemaCloudPB* schema);
 
 // Writes schema dictionary metadata to RowsetMetaCloudPB
-[[nodiscard]] std::pair<MetaServiceCode, std::string> write_schema_dict(
+void write_schema_dict(
+            MetaServiceCode& code, std::string& msg,
             const std::string& instance_id,
             Transaction* txn,
             RowsetMetaCloudPB* rowset_meta);
 
 // Read schema from dictionary metadata, modified to rowset_metas
-[[nodiscard]] std::pair<MetaServiceCode, std::string> read_schema_from_dict(
+void read_schema_from_dict(
+            MetaServiceCode& code, std::string& msg,
             const std::string& instance_id,
             int64_t index_id,
             Transaction* txn,

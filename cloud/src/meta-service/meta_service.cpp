@@ -1084,7 +1084,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         std::string schema_key = meta_schema_key(
                     {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
         if (rowset_meta.has_variant_type_in_schema()) {
-            std::tie(code, msg) = write_schema_dict(instance_id, txn.get(), &rowset_meta); 
+            write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
             if (code != MetaServiceCode::OK) return;
         }
         put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
@@ -1463,7 +1463,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     }
 
     if (need_read_schema_dict) {
-        std::tie(code, msg) = read_schema_from_dict(instance_id, idx.index_id(), txn.get(),
+        read_schema_from_dict(code, msg, instance_id, idx.index_id(), txn.get(),
                                                 response->mutable_rowset_meta());
         if (code != MetaServiceCode::OK) return;
     }
