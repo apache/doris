@@ -200,8 +200,11 @@ Status CloudCumulativeCompaction::execute_compact() {
 Status CloudCumulativeCompaction::modify_rowsets() {
     // calculate new cumulative point
     int64_t input_cumulative_point = cloud_tablet()->cumulative_layer_point();
-    int64_t new_cumulative_point = _engine.cumu_compaction_policy()->new_cumulative_point(
-            cloud_tablet(), _output_rowset, _last_delete_version, input_cumulative_point);
+    auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
+    int64_t new_cumulative_point =
+            _engine.cumu_compaction_policy(compaction_policy)
+                    ->new_cumulative_point(cloud_tablet(), _output_rowset, _last_delete_version,
+                                           input_cumulative_point);
     // commit compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -352,10 +355,12 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
     }
 
     size_t compaction_score = 0;
-    _engine.cumu_compaction_policy()->pick_input_rowsets(
-            cloud_tablet(), candidate_rowsets, config::cumulative_compaction_max_deltas,
-            config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
-            &compaction_score);
+    auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
+    _engine.cumu_compaction_policy(compaction_policy)
+            ->pick_input_rowsets(cloud_tablet(), candidate_rowsets,
+                                 config::cumulative_compaction_max_deltas,
+                                 config::cumulative_compaction_min_deltas, &_input_rowsets,
+                                 &_last_delete_version, &compaction_score);
 
     if (_input_rowsets.empty()) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");

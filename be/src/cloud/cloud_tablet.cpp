@@ -32,6 +32,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
@@ -409,6 +410,23 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
 }
 
 int64_t CloudTablet::get_cloud_base_compaction_score() const {
+    if (_tablet_meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
+        bool has_delete = false;
+        int64_t point = cumulative_layer_point();
+        for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
+            if (rs_meta->start_version() >= point) {
+                continue;
+            }
+            if (rs_meta->has_delete_predicate()) {
+                has_delete = true;
+                break;
+            }
+        }
+        if (!has_delete) {
+            return 0;
+        }
+    }
+
     return _approximate_num_rowsets.load(std::memory_order_relaxed) -
            _approximate_cumu_num_rowsets.load(std::memory_order_relaxed);
 }

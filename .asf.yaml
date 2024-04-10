@@ -55,7 +55,6 @@ github:
           - P1 Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - cloud_p1 (Doris Cloud Regression)
-          - Cloud UT (Doris Cloud UT)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
