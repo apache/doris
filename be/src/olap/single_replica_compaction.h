@@ -38,7 +38,6 @@ public:
     Status execute_compact() override;
 
 protected:
-    Status pick_rowsets_to_compact();
     std::string_view compaction_name() const override { return "single replica compaction"; }
     ReaderType compaction_type() const override {
         return (_compaction_type == CompactionType::CUMULATIVE_COMPACTION)
@@ -49,7 +48,7 @@ protected:
 private:
     Status _do_single_replica_compaction();
     Status _do_single_replica_compaction_impl();
-    bool _find_rowset_to_fetch(const std::vector<Version>& peer_versions, Version* peer_version);
+    bool _find_rowset_to_fetch(const std::vector<Version>& peer_versions, Version* proper_version);
     Status _get_rowset_verisons_from_peer(const TReplicaInfo& addr,
                                           std::vector<Version>* peer_versions);
     Status _fetch_rowset(const TReplicaInfo& addr, const std::string& token,
