@@ -635,8 +635,29 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         for (auto i = 0; i < cids_missing.size(); ++i) {
             const auto& column = _tablet_schema->column(cids_missing[i]);
             if (column.has_default_value()) {
-                const auto& default_value =
-                        _opts.rowset_ctx->partial_update_info->default_values[i];
+                std::string default_value;
+                if (UNLIKELY(_tablet_schema->column(cids_missing[i]).type() ==
+                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
+                             to_lower(_tablet_schema->column(cids_missing[i]).default_value())
+                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                     std::string::npos)) {
+                    DateV2Value<DateTimeV2ValueType> dtv;
+                    dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
+                                      _opts.rowset_ctx->partial_update_info->timezone);
+                    default_value = dtv.debug_string();
+                } else if (UNLIKELY(
+                                   _tablet_schema->column(cids_missing[i]).type() ==
+                                           FieldType::OLAP_FIELD_TYPE_DATEV2 &&
+                                   to_lower(_tablet_schema->column(cids_missing[i]).default_value())
+                                                   .find(to_lower("CURRENT_DATE")) !=
+                                           std::string::npos)) {
+                    DateV2Value<DateV2ValueType> dv;
+                    dv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
+                                     _opts.rowset_ctx->partial_update_info->timezone);
+                    default_value = dv.debug_string();
+                } else {
+                    default_value = _tablet_schema->column(cids_missing[i]).default_value();
+                }
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
                 old_value_block.get_by_position(i).type->from_string(
