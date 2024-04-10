@@ -1304,9 +1304,6 @@ void StorageEngine::do_remove_unused_remote_files() {
 }
 
 void StorageEngine::_cold_data_compaction_producer_callback() {
-    std::unordered_set<int64_t> tablet_submitted;
-    std::mutex tablet_submitted_mtx;
-
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::cold_data_compaction_interval_sec))) {
         if (config::disable_auto_compaction ||
@@ -1316,8 +1313,8 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
 
         std::unordered_set<int64_t> copied_tablet_submitted;
         {
-            std::lock_guard lock(tablet_submitted_mtx);
-            copied_tablet_submitted = tablet_submitted;
+            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+            copied_tablet_submitted = _cold_compaction_tablet_submitted;
         }
         int n = config::cold_data_compaction_thread_num - copied_tablet_submitted.size();
         if (n <= 0) {
@@ -1326,7 +1323,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         auto tablets = _tablet_manager->get_all_tablet([&copied_tablet_submitted](Tablet* t) {
             return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
                    t->tablet_state() == TABLET_RUNNING &&
-                   !copied_tablet_submitted.count(t->tablet_id()) &&
+                   !copied_tablet_submitted.contains(t->tablet_id()) &&
                    !t->tablet_meta()->tablet_schema()->disable_auto_compaction();
         });
         std::vector<std::pair<TabletSharedPtr, int64_t>> tablet_to_compact;
@@ -1351,7 +1348,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
             // else, need to follow
             {
                 std::lock_guard lock(_running_cooldown_mutex);
-                if (_running_cooldown_tablets.count(t->table_id())) {
+                if (_running_cooldown_tablets.contains(t->table_id())) {
                     // already in cooldown queue
                     continue;
                 }
@@ -1374,12 +1371,12 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                     [&, t = std::move(tablet), this]() {
                         auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
                         {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.insert(t->tablet_id());
+                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                            _cold_compaction_tablet_submitted.insert(t->tablet_id());
                         }
                         Defer defer {[&] {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
+                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                            _cold_compaction_tablet_submitted.erase(t->tablet_id());
                         }};
                         std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
                                                               std::try_to_lock);
@@ -1412,13 +1409,13 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                                                                               t = std::move(
                                                                                       tablet)]() {
                 {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.insert(t->tablet_id());
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.insert(t->tablet_id());
                 }
                 auto st = t->cooldown();
                 {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.erase(t->tablet_id());
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.erase(t->tablet_id());
                 }
                 if (!st.ok()) {
                     // The cooldown of the replica may be relatively slow
