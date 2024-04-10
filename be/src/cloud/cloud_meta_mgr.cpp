@@ -16,6 +16,7 @@
 // under the License.
 #include "cloud/cloud_meta_mgr.h"
 
+#include <bits/ranges_algo.h>
 #include <brpc/channel.h>
 #include <brpc/controller.h>
 #include <bthread/bthread.h>
@@ -825,17 +826,15 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
                                   });
     };
 
-    for (const auto& obj_store : resp.obj_info()) {
-        add_obj_store(obj_store);
-    }
-    for (const auto& vault : resp.storage_vault()) {
+    std::ranges::for_each(resp.obj_info(), add_obj_store);
+    std::ranges::for_each(resp.storage_vault(), [&](const auto& vault) {
         if (vault.has_hdfs_info()) {
             vault_infos->emplace_back(vault.id(), vault.hdfs_info());
         }
         if (vault.has_s3_obj()) {
             add_obj_store(vault.s3_obj());
         }
-    }
+    });
     return Status::OK();
 }
 
