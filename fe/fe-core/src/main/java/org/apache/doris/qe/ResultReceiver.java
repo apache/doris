@@ -42,8 +42,10 @@ import java.util.concurrent.TimeoutException;
 
 public class ResultReceiver {
     private static final Logger LOG = LogManager.getLogger(ResultReceiver.class);
-    private boolean isDone    = false;
-    private boolean isCancel  = false;
+    private boolean isDone = false;
+    // runStatus represents the running status of the ResultReceiver.
+    // If it is not "OK," it indicates cancel.
+    private Status runStatus = new Status();
     private long packetIdx = 0;
     private long timeoutTs = 0;
     private TNetworkAddress address;
@@ -55,6 +57,14 @@ public class ResultReceiver {
     public String cancelReason = "";
 
     int maxMsgSizeOfResultReceiver;
+
+    private void setRunStatus(Status status) {
+        runStatus.setStatus(status);
+    }
+
+    private boolean isCancel() {
+        return !runStatus.ok();
+    }
 
     public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
             int maxMsgSizeOfResultReceiver) {
@@ -72,15 +82,14 @@ public class ResultReceiver {
         }
         final RowBatch rowBatch = new RowBatch();
         try {
-            while (!isDone && !isCancel) {
+            while (!isDone && !isCancel()) {
                 InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()
                         .setFinstId(finstId)
                         .setRespInAttachment(false)
                         .build();
 
                 currentThread = Thread.currentThread();
-                fetchDataAsyncFuture
-                        = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
+                fetchDataAsyncFuture = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
                 InternalService.PFetchDataResult pResult = null;
 
                 while (pResult == null) {
@@ -92,7 +101,7 @@ public class ResultReceiver {
                         pResult = fetchDataAsyncFuture.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
                     } catch (CancellationException e) {
                         LOG.warn("Future of ResultReceiver of query {} is cancelled", DebugUtil.printId(this.queryId));
-                        if (!isCancel) {
+                        if (!isCancel()) {
                             LOG.warn("ResultReceiver is not set to cancelled state, this should not happen");
                         } else {
                             status.setStatus(new Status(TStatusCode.CANCELLED, this.cancelReason));
@@ -101,7 +110,7 @@ public class ResultReceiver {
                     } catch (TimeoutException e) {
                         LOG.warn("Query {} get result timeout, get result duration {} ms",
                                 DebugUtil.printId(this.queryId), (timeoutTs - currentTs) / 1000);
-                        isCancel = true;
+                        setRunStatus(Status.TIMEOUT);
                         status.setStatus(Status.TIMEOUT);
                         updateCancelReason("fetch data timeout");
                         return null;
@@ -109,7 +118,7 @@ public class ResultReceiver {
                         // continue to get result
                         LOG.warn("Future of ResultReceiver of query {} got interrupted Exception",
                                 DebugUtil.printId(this.queryId), e);
-                        if (isCancel) {
+                        if (isCancel()) {
                             status.setStatus(Status.CANCELLED);
                             return null;
                         }
@@ -148,7 +157,7 @@ public class ResultReceiver {
                     } catch (TException e) {
                         if (e.getMessage().contains("MaxMessageSize reached")) {
                             throw new TException(
-                                "MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
+                                    "MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
                         } else {
                             throw e;
                         }
@@ -181,8 +190,8 @@ public class ResultReceiver {
             }
         }
 
-        if (isCancel) {
-            status.setStatus(Status.CANCELLED);
+        if ((isCancel())) {
+            status.setStatus(runStatus);
         }
         return rowBatch;
     }
@@ -196,9 +205,13 @@ public class ResultReceiver {
         }
     }
 
-    public void cancel(String reason) {
-        isCancel = true;
-        updateCancelReason(reason);
+    public void cancel(Types.PPlanFragmentCancelReason reason) {
+        if (reason == Types.PPlanFragmentCancelReason.TIMEOUT) {
+            setRunStatus(Status.TIMEOUT);
+        } else {
+            setRunStatus(Status.CANCELLED);
+        }
+        updateCancelReason(reason.toString());
         synchronized (this) {
             if (currentThread != null) {
                 // TODO(cmy): we cannot interrupt this thread, or we may throw
