@@ -202,7 +202,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         } else {
             txnStatus = TransactionStatus.COMMITTED;
         }
-        LOG.info("lightman 0409 nereids insert");
         if (Config.isCloudMode()) {
             String clusterName = ctx.getCloudCluster();
             if (ctx.getSessionVariable().enableMultiClusterSyncLoad()

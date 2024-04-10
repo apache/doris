@@ -2463,7 +2463,6 @@ public class StmtExecutor {
                         tabletIdList.add(tabletId);
                     }
                 });
-                LOG.info("lightman 0409 warmup {} {}", backend.getId(), tabletIdList.size());
                 boolean ok = false;
                 TNetworkAddress address = null;
                 Client client = null;

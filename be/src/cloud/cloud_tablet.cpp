@@ -215,11 +215,9 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     ? 0
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
-                    LOG_INFO("lightman 0409 warmup rowset {} path {}",
                              rowset_meta->rowset_id().to_string(), rs->segment_file_path(seg_id));
                     io::FileCacheBlockDownloader::instance()->submit_download_task(
                             std::move(download_file_meta));
-                    LOG_INFO("lightman 0409 warmup rowset 111");
                 }
 #endif
             }

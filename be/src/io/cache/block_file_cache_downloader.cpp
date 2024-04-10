@@ -233,7 +233,6 @@ FileCacheBlockDownloader* FileCacheBlockDownloader::instance() {
 }
 
 void FileCacheBlockDownloader::submit_download_task(DownloadTask task) {
-    LOG_INFO("lightman 0409 submit_download_task1");
     if (!config::enable_file_cache) [[unlikely]] {
         LOG(INFO) << "Skip submit download file task because file cache is not enabled";
         return;
@@ -249,7 +248,6 @@ void FileCacheBlockDownloader::submit_download_task(DownloadTask task) {
             }
         }
     }
-    LOG_INFO("lightman 0409 submit_download_task2");
     {
         std::lock_guard lock(_mtx);
         if (_task_queue.size() == _max_size) {
@@ -286,7 +284,6 @@ void FileCacheBlockDownloader::polling_download_task() {
         if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() -
                                                              task.atime)
                     .count() < hot_interval) {
-            LOG_INFO("lightman 0409 polling_download_task");
             download_blocks(task);
         }
     }
@@ -363,7 +360,6 @@ void FileCacheBlockS3Downloader::download_file_cache_block(std::vector<FileCache
 }
 
 void FileCacheBlockS3Downloader::download_s3_file(S3FileMeta& meta) {
-    LOG_INFO("lightman 0409 download_s3_file");
     auto* s3_file_system = dynamic_cast<S3FileSystem*>(meta.file_system.get());
     DCHECK(s3_file_system != nullptr);
     auto client = s3_file_system->client_holder()->get();
@@ -393,7 +389,6 @@ void FileCacheBlockS3Downloader::download_s3_file(S3FileMeta& meta) {
         return std::make_unique<FileBlocksHolder>(std::move(h));
     };
     std::string key_name = s3_file_system->prefix() + '/' + meta.path.native();
-    LOG_INFO("lightman 0409 download_s3_file {}", key_name);
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::remove_prefix", &key_name);
     download_file(client, key_name, 0, file_size, s3_file_system->bucket(), std::move(alloc_holder),
                   std::move(meta.download_callback));
