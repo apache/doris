@@ -28,7 +28,19 @@ suite("test_create_policy_auth","p0,auth") {
             sql "CREATE ROW POLICY test_create_policy_auth ON test.table1 AS RESTRICTIVE TO test USING (c1 = 'a');"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("need (at least one of) the GRANT privilege"))
+            assertTrue(e.getMessage().contains("need (at least one of) the (Admin_priv,Grant_priv) privilege"))
+        }
+        try {
+            sql """
+                CREATE STORAGE POLICY testPolicy
+                PROPERTIES(
+                  "storage_resource" = "s3",
+                  "cooldown_datetime" = "2022-06-08 00:00:00"
+                );
+                """
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains("need (at least one of) the (Admin_priv) privilege"))
         }
     }
     try_sql("DROP USER ${user}")
