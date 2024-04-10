@@ -25,10 +25,12 @@ import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.common.FileUtils;
+import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -167,7 +169,9 @@ public final class HiveUtil {
         ImmutableMap.Builder<String, Partition> resultBuilder = ImmutableMap.builder();
         for (Map.Entry<String, List<String>> entry : partitionNameToPartitionValues.entrySet()) {
             Partition partition = partitionValuesToPartition.get(entry.getValue());
-            resultBuilder.put(entry.getKey(), partition);
+            if (partition != null) {
+                resultBuilder.put(entry.getKey(), partition);
+            }
         }
         return resultBuilder.build();
     }
@@ -266,5 +270,64 @@ public final class HiveUtil {
         database.setParameters(hiveDb.getProperties());
         database.setDescription(hiveDb.getComment());
         return database;
+    }
+
+    public static Map<String, String> updateStatisticsParameters(
+            Map<String, String> parameters,
+            HiveCommonStatistics statistics) {
+        HashMap<String, String> result = new HashMap<>(parameters);
+
+        result.put(StatsSetupConst.NUM_FILES, String.valueOf(statistics.getFileCount()));
+        result.put(StatsSetupConst.ROW_COUNT, String.valueOf(statistics.getRowCount()));
+        result.put(StatsSetupConst.TOTAL_SIZE, String.valueOf(statistics.getTotalFileBytes()));
+
+        // CDH 5.16 metastore ignores stats unless STATS_GENERATED_VIA_STATS_TASK is set
+        // https://github.com/cloudera/hive/blob/cdh5.16.2-release/metastore/src/java/org/apache/hadoop/hive/metastore/MetaStoreUtils.java#L227-L231
+        if (!parameters.containsKey("STATS_GENERATED_VIA_STATS_TASK")) {
+            result.put("STATS_GENERATED_VIA_STATS_TASK", "workaround for potential lack of HIVE-12730");
+        }
+
+        return result;
+    }
+
+    public static HivePartitionStatistics toHivePartitionStatistics(Map<String, String> params) {
+        long rowCount = Long.parseLong(params.getOrDefault(StatsSetupConst.ROW_COUNT, "-1"));
+        long totalSize = Long.parseLong(params.getOrDefault(StatsSetupConst.TOTAL_SIZE, "-1"));
+        long numFiles = Long.parseLong(params.getOrDefault(StatsSetupConst.NUM_FILES, "-1"));
+        return HivePartitionStatistics.fromCommonStatistics(rowCount, numFiles, totalSize);
+    }
+
+    public static Partition toMetastoreApiPartition(HivePartitionWithStatistics partitionWithStatistics) {
+        Partition partition =
+                toMetastoreApiPartition(partitionWithStatistics.getPartition());
+        partition.setParameters(updateStatisticsParameters(
+                partition.getParameters(), partitionWithStatistics.getStatistics().getCommonStatistics()));
+        return partition;
+    }
+
+    public static Partition toMetastoreApiPartition(HivePartition hivePartition) {
+        Partition result = new Partition();
+        result.setDbName(hivePartition.getDbName());
+        result.setTableName(hivePartition.getTblName());
+        result.setValues(hivePartition.getPartitionValues());
+        result.setSd(makeStorageDescriptorFromHivePartition(hivePartition));
+        result.setParameters(hivePartition.getParameters());
+        return result;
+    }
+
+    public static StorageDescriptor makeStorageDescriptorFromHivePartition(HivePartition partition) {
+        SerDeInfo serdeInfo = new SerDeInfo();
+        serdeInfo.setName(partition.getTblName());
+        serdeInfo.setSerializationLib(partition.getSerde());
+
+        StorageDescriptor sd = new StorageDescriptor();
+        sd.setLocation(Strings.emptyToNull(partition.getPath()));
+        sd.setCols(partition.getColumns());
+        sd.setSerdeInfo(serdeInfo);
+        sd.setInputFormat(partition.getInputFormat());
+        sd.setOutputFormat(partition.getOutputFormat());
+        sd.setParameters(ImmutableMap.of());
+
+        return sd;
     }
 }
