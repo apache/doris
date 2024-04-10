@@ -1735,6 +1735,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     auto status = check_migrate_request(engine, storage_medium_migrate_req, tablet, &dest_store);
     if (status.ok()) {
         EngineStorageMigrationTask engine_task(tablet, dest_store);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     }
     // fe should ignore this err
