@@ -114,7 +114,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
             return Pair.of(job.get(), JobPriority.MID);
         }
         job = fetchJobFromMap(manager.lowPriorityJobs);
-        return job.map(tableNameSetEntry -> Pair.of(tableNameSetEntry, JobPriority.LOW)).orElse(null);
+        return job.map(entry -> Pair.of(entry, JobPriority.LOW)).orElse(null);
     }
 
     protected Optional<Map.Entry<TableName, Set<Pair<String, String>>>> fetchJobFromMap(
@@ -183,7 +183,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
-        long rowCount = table.getRowCount();
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
             stringJoiner.add(pair.toString());
