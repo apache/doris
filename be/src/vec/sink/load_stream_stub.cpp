@@ -305,6 +305,9 @@ Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {
         //the query maybe cancel, so need check after wait 1s
         timeout_sec = timeout_sec - 1;
+        LOG(INFO) << "close waiting, " << *this << ", timeout_sec=" << timeout_sec
+                  << ", is_closed=" << _is_closed.load()
+                  << ", is_cancelled=" << state->get_query_ctx()->is_cancelled();
         int ret = _close_cv.wait_for(lock, 1000000);
         if (ret != 0 && timeout_sec <= 0) {
             return Status::InternalError(
