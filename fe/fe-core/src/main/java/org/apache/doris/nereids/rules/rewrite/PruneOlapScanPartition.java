@@ -36,7 +36,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +49,23 @@ import java.util.stream.Collectors;
  * MergeConsecutiveProjects and all predicate push down related rules.
  */
 public class PruneOlapScanPartition implements RewriteRuleFactory {
+
+    @Override
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalFilter(logicalOlapScan())
+                        .when(p -> !p.child().isPartitionPruned())
+                        .thenApply(ctx -> prunePartitions(ctx.cascadesContext, ctx.root.child(), ctx.root))
+                        .toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE),
+
+                logicalFilter(logicalProject(logicalOlapScan()))
+                        .when(p -> !p.child().child().isPartitionPruned())
+                        .when(p -> p.child().hasPushedDownToProjectionFunctions())
+                        .thenApply(ctx -> prunePartitions(ctx.cascadesContext, ctx.root.child().child(), ctx.root))
+                        .toRule(RuleType.OLAP_SCAN_WITH_PROJECT_PARTITION_PRUNE)
+        );
+    }
+
     private <T extends Plan> Plan prunePartitions(CascadesContext ctx,
                     LogicalOlapScan scan, LogicalFilter<T> originalFilter) {
         OlapTable table = scan.getTable();
@@ -59,20 +75,22 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         }
 
         List<Slot> output = scan.getOutput();
-        Map<String, Slot> scanOutput = Maps.newHashMapWithExpectedSize(output.size() * 2);
-        for (Slot slot : output) {
-            scanOutput.put(slot.getName().toLowerCase(), slot);
-        }
-
         PartitionInfo partitionInfo = table.getPartitionInfo();
         List<Column> partitionColumns = partitionInfo.getPartitionColumns();
         List<Slot> partitionSlots = new ArrayList<>(partitionColumns.size());
         for (Column column : partitionColumns) {
-            Slot slot = scanOutput.get(column.getName().toLowerCase());
-            if (slot == null) {
+            Slot partitionSlot = null;
+            // loop search is faster than build a map
+            for (Slot slot : output) {
+                if (slot.getName().equalsIgnoreCase(column.getName())) {
+                    partitionSlot = slot;
+                    break;
+                }
+            }
+            if (partitionSlot == null) {
                 return originalFilter;
             } else {
-                partitionSlots.add(slot);
+                partitionSlots.add(partitionSlot);
             }
         }
 
@@ -104,20 +122,5 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
             return new LogicalFilter<>(originalFilter.getConjuncts(), rewrittenProject);
         }
         return originalFilter.withChildren(ImmutableList.of(rewrittenScan));
-    }
-
-    @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                logicalFilter(logicalOlapScan()).when(p -> !p.child().isPartitionPruned()).thenApply(ctx -> {
-                    return prunePartitions(ctx.cascadesContext, ctx.root.child(), ctx.root);
-                }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE),
-
-                logicalFilter(logicalProject(logicalOlapScan()))
-                        .when(p -> !p.child().child().isPartitionPruned())
-                        .when(p -> p.child().hasPushedDownToProjectionFunctions()).thenApply(ctx -> {
-                            return prunePartitions(ctx.cascadesContext, ctx.root.child().child(), ctx.root);
-                        }).toRule(RuleType.OLAP_SCAN_WITH_PROJECT_PARTITION_PRUNE)
-        );
     }
 }

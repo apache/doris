@@ -45,7 +45,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
-public class SimplifyRangeTest {
+public class SimplifyRangeTest extends ExpressionRewrite {
 
     private static final NereidsParser PARSER = new NereidsParser();
     private ExpressionRuleExecutor executor;
@@ -59,7 +59,9 @@ public class SimplifyRangeTest {
 
     @Test
     public void testSimplify() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyRange.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+            bottomUp(SimplifyRange.INSTANCE)
+        ));
         assertRewrite("TA", "TA");
         assertRewrite("TA > 3 or TA > null", "TA > 3");
         assertRewrite("TA > 3 or TA < null", "TA > 3");
@@ -100,7 +102,7 @@ public class SimplifyRangeTest {
         assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
         assertRewrite("TA in (1,2,3) and TA > 10", "FALSE");
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
-        assertRewrite("TA in (1,2,3) and TA > 1", "((TA = 2) OR (TA = 3))");
+        assertRewrite("TA in (1,2,3) and TA > 1", "TA IN (2, 3)");
         assertRewrite("TA in (1,2,3) or TA >= 1", "TA >= 1");
         assertRewrite("TA in (1)", "TA in (1)");
         assertRewrite("TA in (1,2,3) and TA < 10", "TA in (1,2,3)");
@@ -147,7 +149,7 @@ public class SimplifyRangeTest {
         assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA + TC > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
         assertRewrite("TA + TC in (1,2,3) and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC in (1,2,3) and TA + TC >= 1", "TA + TC in (1,2,3)");
-        assertRewrite("TA + TC in (1,2,3) and TA + TC > 1", "((TA + TC = 2) OR (TA + TC = 3))");
+        assertRewrite("TA + TC in (1,2,3) and TA + TC > 1", "(TA + TC) IN (2, 3)");
         assertRewrite("TA + TC in (1,2,3) or TA + TC >= 1", "TA + TC >= 1");
         assertRewrite("TA + TC in (1)", "TA + TC in (1)");
         assertRewrite("TA + TC in (1,2,3) and TA + TC < 10", "TA + TC in (1,2,3)");
@@ -171,8 +173,10 @@ public class SimplifyRangeTest {
 
     @Test
     public void testSimplifyDate() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyRange.INSTANCE));
-        // assertRewrite("TA", "TA");
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+            bottomUp(SimplifyRange.INSTANCE)
+        ));
+        assertRewrite("TA", "TA");
         assertRewrite(
                 "(TA >= date '2024-01-01' and TA <= date '2024-01-03') or (TA > date '2024-01-05' and TA < date '2024-01-07')",
                 "(TA >= date '2024-01-01' and TA <= date '2024-01-03') or (TA > date '2024-01-05' and TA < date '2024-01-07')");
@@ -213,7 +217,7 @@ public class SimplifyRangeTest {
         assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA >= date '2024-01-01'",
                 "TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
         assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and TA > date '2024-01-01'",
-                "((TA = date '2024-01-02') OR (TA = date '2024-01-03'))");
+                "TA IN (date '2024-01-02', date '2024-01-03')");
         assertRewrite("TA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or TA >= date '2024-01-01'",
                 "TA >= date '2024-01-01'");
         assertRewrite("TA in (date '2024-01-01')", "TA in (date '2024-01-01')");
@@ -237,8 +241,10 @@ public class SimplifyRangeTest {
 
     @Test
     public void testSimplifyDateTime() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyRange.INSTANCE));
-        // assertRewrite("TA", "TA");
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+            bottomUp(SimplifyRange.INSTANCE)
+        ));
+        assertRewrite("TA", "TA");
         assertRewrite(
                 "(TA >= timestamp '2024-01-01 00:00:00' and TA <= timestamp '2024-01-03 00:00:00') or (TA > timestamp '2024-01-05 00:00:00' and TA < timestamp '2024-01-07 00:00:00')",
                 "(TA >= timestamp '2024-01-01 00:00:00' and TA <= timestamp '2024-01-03 00:00:00') or (TA > timestamp '2024-01-05 00:00:00' and TA < timestamp '2024-01-07 00:00:00')");
@@ -279,7 +285,7 @@ public class SimplifyRangeTest {
         assertRewrite("TA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 01:50:00',timestamp '2024-01-03 02:00:00') and TA >= timestamp '2024-01-01'",
                 "TA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 01:50:00',timestamp '2024-01-03 02:00:00')");
         assertRewrite("TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') and TA > timestamp '2024-01-01 02:10:00'",
-                "((TA = timestamp '2024-01-02 02:00:00') OR (TA = timestamp '2024-01-03 02:00:00'))");
+                "TA IN (timestamp '2024-01-02 02:00:00', timestamp '2024-01-03 02:00:00')");
         assertRewrite("TA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or TA >= timestamp '2024-01-01 01:00:00'",
                 "TA >= timestamp '2024-01-01 01:00:00'");
         assertRewrite("TA in (timestamp '2024-01-01 02:00:00')", "TA in (timestamp '2024-01-01 02:00:00')");
