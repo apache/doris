@@ -26,6 +26,7 @@ HIVE_SITE_CONF_hive_server2_thrift_bind_host=0.0.0.0
 HIVE_SITE_CONF_hive_server2_thrift_port=${HS_PORT}
 HIVE_SITE_CONF_hive_compactor_initiator_on=true
 HIVE_SITE_CONF_hive_compactor_worker_threads=2
+HIVE_SITE_CONF_metastore_storage_schema_reader_impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader
 
 CORE_CONF_hadoop_http_staticuser_user=root
 CORE_CONF_hadoop_proxyuser_hue_hosts=*
