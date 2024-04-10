@@ -625,7 +625,29 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         for (auto i = 0; i < missing_cids.size(); ++i) {
             const auto& column = _tablet_schema->column(missing_cids[i]);
             if (column.has_default_value()) {
-                auto default_value = _tablet_schema->column(missing_cids[i]).default_value();
+                std::string default_value;
+                if (UNLIKELY(_tablet_schema->column(missing_cids[i]).type() ==
+                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
+                             to_lower(_tablet_schema->column(missing_cids[i]).default_value())
+                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                     std::string::npos)) {
+                    DateV2Value<DateTimeV2ValueType> dtv;
+                    dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
+                                      _opts.rowset_ctx->partial_update_info->timezone);
+                    default_value = dtv.debug_string();
+                } else if (UNLIKELY(
+                                   _tablet_schema->column(missing_cids[i]).type() ==
+                                           FieldType::OLAP_FIELD_TYPE_DATEV2 &&
+                                   to_lower(_tablet_schema->column(missing_cids[i]).default_value())
+                                                   .find(to_lower("CURRENT_DATE")) !=
+                                           std::string::npos)) {
+                    DateV2Value<DateV2ValueType> dv;
+                    dv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
+                                     _opts.rowset_ctx->partial_update_info->timezone);
+                    default_value = dv.debug_string();
+                } else {
+                    default_value = _tablet_schema->column(missing_cids[i]).default_value();
+                }
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
                 RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
