@@ -309,7 +309,7 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     if (slot->is_materialized()) {
         ++_num_materialized_slots;
 
-        if (slot->type().is_string_type() || slot->type().is_complex_type()) {
+        if (slot->type().is_string_type() || slot->type().is_collection_type()) {
             _has_varlen_slots = true;
         }
     }
