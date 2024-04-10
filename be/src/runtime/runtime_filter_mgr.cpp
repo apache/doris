@@ -574,8 +574,7 @@ Status RuntimeFilterMergeController::acquire(
     std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
     auto iter = _filter_controller_map[shard].find(query_id);
     if (iter == _filter_controller_map[shard].end()) {
-        LOG(WARNING) << "not found entity, query-id:" << query_id.to_string();
-        return Status::InvalidArgument("not found entity");
+        return Status::InvalidArgument("not found entity, query-id:{}", query_id.to_string());
     }
     *handle = _filter_controller_map[shard][query_id].lock();
     if (*handle == nullptr) {

@@ -859,7 +859,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
                 params.local_params[0], params.query_id, params.query_options, &handler,
                 RuntimeFilterParamsContext::create(context->get_runtime_state())));
-        query_ctx->set_merge_controller_handler(handler);
+        if (handler) {
+            query_ctx->set_merge_controller_handler(handler);
+        }
 
         for (const auto& local_param : params.local_params) {
             const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
