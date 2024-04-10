@@ -25,10 +25,12 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
@@ -63,8 +65,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Iceberg utils
@@ -78,7 +78,6 @@ public class IcebergUtils {
         }
     };
     static long MILLIS_TO_NANO_TIME = 1000;
-    private static final Pattern PARTITION_REG = Pattern.compile("(\\w+)\\((\\d+)?,?(\\w+)\\)");
     // https://iceberg.apache.org/spec/#schemas-and-data-types
     // All time and timestamp values are stored with microsecond precision
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
@@ -415,57 +414,51 @@ public class IcebergUtils {
         return slotRef;
     }
 
-    // "partition"="c1;day(c1);bucket(4,c3)"
-    public static PartitionSpec solveIcebergPartitionSpec(Map<String, String> properties, Schema schema)
+    public static PartitionSpec solveIcebergPartitionSpec(PartitionDesc partitionDesc, Schema schema)
             throws UserException {
-        if (properties.containsKey("partition")) {
-            PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
-            String par = properties.get("partition").replaceAll(" ", "");
-            String[] pars = par.split(";");
-            for (String func : pars) {
-                if (func.contains("(")) {
-                    Matcher matcher = PARTITION_REG.matcher(func);
-                    if (matcher.matches()) {
-                        switch (matcher.group(1).toLowerCase()) {
-                            case "bucket":
-                                builder.bucket(matcher.group(3), Integer.parseInt(matcher.group(2)));
-                                break;
-                            case "year":
-                            case "years":
-                                builder.year(matcher.group(3));
-                                break;
-                            case "month":
-                            case "months":
-                                builder.month(matcher.group(3));
-                                break;
-                            case "date":
-                            case "day":
-                            case "days":
-                                builder.day(matcher.group(3));
-                                break;
-                            case "date_hour":
-                            case "hour":
-                            case "hours":
-                                builder.hour(matcher.group(3));
-                                break;
-                            case "truncate":
-                                builder.truncate(matcher.group(3), Integer.parseInt(matcher.group(2)));
-                                break;
-                            default:
-                                throw new UserException("unsupported partition for " + matcher.group(1));
-                        }
-                    } else {
-                        throw new UserException("failed to get partition info from " + func);
-                    }
-                } else {
-                    builder.identity(func);
-                }
-            }
-            properties.remove("partition");
-            return builder.build();
-        } else {
+        if (partitionDesc == null) {
             return PartitionSpec.unpartitioned();
         }
+
+        ArrayList<Expr> partitionExprs = partitionDesc.getPartitionExprs();
+        PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
+        for (Expr expr : partitionExprs) {
+            if (expr instanceof SlotRef) {
+                builder.identity(((SlotRef) expr).getColumnName());
+            } else if (expr instanceof FunctionCallExpr) {
+                String exprName = expr.getExprName();
+                List<Expr> params = ((FunctionCallExpr) expr).getParams().exprs();
+                switch (exprName.toLowerCase()) {
+                    case "bucket":
+                        builder.bucket(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        break;
+                    case "year":
+                    case "years":
+                        builder.year(params.get(0).getExprName());
+                        break;
+                    case "month":
+                    case "months":
+                        builder.month(params.get(0).getExprName());
+                        break;
+                    case "date":
+                    case "day":
+                    case "days":
+                        builder.day(params.get(0).getExprName());
+                        break;
+                    case "date_hour":
+                    case "hour":
+                    case "hours":
+                        builder.hour(params.get(0).getExprName());
+                        break;
+                    case "truncate":
+                        builder.truncate(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        break;
+                    default:
+                        throw new UserException("unsupported partition for " + exprName);
+                }
+            }
+        }
+        return builder.build();
     }
 
     private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
@@ -567,5 +560,4 @@ public class IcebergUtils {
         }
         return -1;
     }
-
 }
