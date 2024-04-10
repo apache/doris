@@ -177,9 +177,9 @@ public class LocalDfsFileSystem implements FileSystem {
     }
 
     @Override
-    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
-            FileStatus[] locatedFileStatusRemoteIterator = fs.listStatus(new Path(remotePath));
+            FileStatus[] locatedFileStatusRemoteIterator = fs.globStatus(new Path(remotePath));
             if (locatedFileStatusRemoteIterator == null) {
                 return Status.OK;
             }
