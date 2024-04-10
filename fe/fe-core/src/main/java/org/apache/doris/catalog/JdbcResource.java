@@ -357,6 +357,8 @@ public class JdbcResource extends Resource {
             newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "useUnicode", "false", "true");
             newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "rewriteBatchedStatements", "false", "true");
             newJdbcUrl = checkAndSetJdbcParam(dbType, newJdbcUrl, "characterEncoding", "utf-8");
+            newJdbcUrl = checkAndSetJdbcParam(dbType, newJdbcUrl, "connectionTimeZone", "LOCAL");
+            newJdbcUrl = checkAndSetJdbcParam(dbType, newJdbcUrl, "forceConnectionTimeZoneToSession", "true");
             if (dbType.equals(OCEANBASE)) {
                 // set useCursorFetch to true
                 newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "useCursorFetch", "false", "true");

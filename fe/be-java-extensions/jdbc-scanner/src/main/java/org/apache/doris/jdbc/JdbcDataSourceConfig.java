@@ -20,6 +20,8 @@ package org.apache.doris.jdbc;
 import org.apache.doris.thrift.TJdbcOperation;
 import org.apache.doris.thrift.TOdbcTableType;
 
+import java.util.TimeZone;
+
 public class JdbcDataSourceConfig {
     private Long catalogId;
     private String jdbcUrl;
@@ -30,6 +32,7 @@ public class JdbcDataSourceConfig {
     private int batchSize;
     private TJdbcOperation op;
     private TOdbcTableType tableType;
+    private String timeZone = TimeZone.getDefault().toString();
     private int connectionPoolMinSize = 1;
     private int connectionPoolMaxSize = 10;
     private int connectionPoolMaxWaitTime = 5000;
@@ -37,7 +40,7 @@ public class JdbcDataSourceConfig {
     private boolean connectionPoolKeepAlive = false;
 
     public String createCacheKey() {
-        return catalogId + jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass
+        return catalogId + jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass + timeZone
                 + connectionPoolMinSize + connectionPoolMaxSize + connectionPoolMaxLifeTime + connectionPoolMaxWaitTime
                 + connectionPoolKeepAlive;
     }
@@ -120,6 +123,15 @@ public class JdbcDataSourceConfig {
 
     public JdbcDataSourceConfig setTableType(TOdbcTableType tableType) {
         this.tableType = tableType;
+        return this;
+    }
+
+    public String getTimeZone() {
+        return timeZone;
+    }
+
+    public JdbcDataSourceConfig setTimeZone(String timeZone) {
+        this.timeZone = timeZone;
         return this;
     }
 

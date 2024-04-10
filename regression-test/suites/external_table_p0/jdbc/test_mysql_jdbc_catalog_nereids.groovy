@@ -51,6 +51,8 @@ suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,exte
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
 
+        sql """set time_zone = 'Asia/Shanghai';"""
+
         sql """create database if not exists ${internal_db_name}; """
 
         sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true");"""

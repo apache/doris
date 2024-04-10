@@ -73,7 +73,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -207,23 +209,27 @@ public class DefaultJdbcExecutor {
 
     public int read() throws UdfRuntimeException {
         try {
-            resultSet = ((PreparedStatement) stmt).executeQuery();
-            resultSetMetaData = resultSet.getMetaData();
-            int columnCount = resultSetMetaData.getColumnCount();
-            resultColumnTypeNames = new ArrayList<>(columnCount);
-            block = new ArrayList<>(columnCount);
-            if (isNebula()) {
-                for (int i = 0; i < columnCount; ++i) {
-                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+            final int[] columnCount = new int[1];
+            executeWithTimeZone(() -> {
+                resultSet = ((PreparedStatement) stmt).executeQuery();
+                resultSetMetaData = resultSet.getMetaData();
+                columnCount[0] = resultSetMetaData.getColumnCount();
+                resultColumnTypeNames = new ArrayList<>(columnCount[0]);
+                block = new ArrayList<>(columnCount[0]);
+                if (isNebula()) {
+                    for (int i = 0; i < columnCount[0]; ++i) {
+                        block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+                    }
+                } else {
+                    for (int i = 0; i < columnCount[0]; ++i) {
+                        resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                        block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+                    }
                 }
-            } else {
-                for (int i = 0; i < columnCount; ++i) {
-                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
-                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
-                }
-            }
-            return columnCount;
-        } catch (SQLException e) {
+                return null;
+            });
+            return columnCount[0];
+        } catch (Exception e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
     }
@@ -234,45 +240,47 @@ public class DefaultJdbcExecutor {
             if (outputTable != null) {
                 outputTable.close();
             }
+            executeWithTimeZone(() -> {
+                String isNullableString = outputParams.get("is_nullable");
+                String replaceString = outputParams.get("replace_string");
 
-            String isNullableString = outputParams.get("is_nullable");
-            String replaceString = outputParams.get("replace_string");
-
-            if (isNullableString == null || replaceString == null) {
-                throw new IllegalArgumentException(
-                        "Output parameters 'is_nullable' and 'replace_string' are required.");
-            }
-
-            String[] nullableList = isNullableString.split(",");
-            String[] replaceStringList = replaceString.split(",");
-            curBlockRows = 0;
-            int columnCount = resultSetMetaData.getColumnCount();
-
-            do {
-                for (int i = 0; i < columnCount; ++i) {
-                    boolean isBitmapOrHll =
-                            replaceStringList[i].equals("bitmap")
-                                    || replaceStringList[i].equals("hll");
-                    block.get(i)[curBlockRows] = getColumnValue(tableType, i, isBitmapOrHll);
+                if (isNullableString == null || replaceString == null) {
+                    throw new IllegalArgumentException(
+                            "Output parameters 'is_nullable' and 'replace_string' are required.");
                 }
-                curBlockRows++;
-            } while (curBlockRows < batchSize && resultSet.next());
 
-            outputTable = VectorTable.createWritableTable(outputParams, curBlockRows);
+                String[] nullableList = isNullableString.split(",");
+                String[] replaceStringList = replaceString.split(",");
+                curBlockRows = 0;
+                int columnCount = resultSetMetaData.getColumnCount();
 
-            for (int i = 0; i < columnCount; ++i) {
-                Object[] columnData = block.get(i);
-                ColumnType type = outputTable.getColumnType(i);
-                Class<?> clz = findNonNullClass(columnData, type);
-                Object[] newColumn = (Object[]) Array.newInstance(clz, curBlockRows);
-                System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
-                boolean isNullable = Boolean.parseBoolean(nullableList[i]);
-                outputTable.appendData(
-                        i,
-                        newColumn,
-                        getOutputConverter(type, clz, replaceStringList[i]),
-                        isNullable);
-            }
+                do {
+                    for (int i = 0; i < columnCount; ++i) {
+                        boolean isBitmapOrHll =
+                                replaceStringList[i].equals("bitmap")
+                                        || replaceStringList[i].equals("hll");
+                        block.get(i)[curBlockRows] = getColumnValue(tableType, i, isBitmapOrHll);
+                    }
+                    curBlockRows++;
+                } while (curBlockRows < batchSize && resultSet.next());
+
+                outputTable = VectorTable.createWritableTable(outputParams, curBlockRows);
+
+                for (int i = 0; i < columnCount; ++i) {
+                    Object[] columnData = block.get(i);
+                    ColumnType type = outputTable.getColumnType(i);
+                    Class<?> clz = findNonNullClass(columnData, type);
+                    Object[] newColumn = (Object[]) Array.newInstance(clz, curBlockRows);
+                    System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
+                    boolean isNullable = Boolean.parseBoolean(nullableList[i]);
+                    outputTable.appendData(
+                            i,
+                            newColumn,
+                            getOutputConverter(type, clz, replaceStringList[i]),
+                            isNullable);
+                }
+                return null;
+            });
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
             throw new UdfRuntimeException("jdbc get block address: ", e);
@@ -1125,6 +1133,16 @@ public class DefaultJdbcExecutor {
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
+        }
+    }
+
+    protected void executeWithTimeZone(Callable<Void> action) throws Exception {
+        TimeZone originalTimeZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone(config.getTimeZone()));
+            action.call();
+        } finally {
+            TimeZone.setDefault(originalTimeZone);
         }
     }
 }

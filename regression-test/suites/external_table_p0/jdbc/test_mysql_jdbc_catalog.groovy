@@ -64,6 +64,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String dt_null = "dt_null";
         String test_zd = "test_zd"
 
+        sql """set time_zone = 'Asia/Shanghai';"""
+
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
@@ -602,6 +604,23 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         );"""
 
         sql """drop catalog if exists mysql_refresh_property;"""
+
+        sql """drop catalog if exists mysql_test_time_zone;"""
+
+        sql """create catalog if not exists mysql_test_time_zone properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+        );"""
+
+        qt_timezone1 """select timestamp_value from mysql_test_time_zone.doris_test.ex_tb19;"""
+        sql """set time_zone = 'UTC';"""
+        qt_timezone2 """select timestamp_value from mysql_test_time_zone.doris_test.ex_tb19;"""
+        sql """set time_zone = 'Asia/Shanghai';"""
+        sql """drop catalog if exists mysql_test_time_zone;"""
     }
 }
 
