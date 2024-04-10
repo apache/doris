@@ -189,7 +189,12 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                             tbl.isInMemory(), true,
                             tbl.getName(), tbl.getTTLSeconds(),
                             tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                            tbl.getBaseSchemaVersion());
+                            tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
+                            tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                            tbl.getTimeSeriesCompactionFileCountThreshold(),
+                            tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                            tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                            tbl.getTimeSeriesCompactionLevelThreshold());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
