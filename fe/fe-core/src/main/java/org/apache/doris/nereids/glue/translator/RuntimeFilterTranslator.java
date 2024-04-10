@@ -24,7 +24,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -42,6 +41,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,21 +73,20 @@ public class RuntimeFilterTranslator {
     }
 
     private class RuntimeFilterExpressionTranslator extends ExpressionTranslator {
-        Map<ExprId, SlotRef> nereidsExprIdToSlotRef;
+        Map<Slot, Expr> slotExprMap;
 
-        RuntimeFilterExpressionTranslator(Map<ExprId, SlotRef> nereidsExprIdToSlotRef) {
-            this.nereidsExprIdToSlotRef = nereidsExprIdToSlotRef;
+        RuntimeFilterExpressionTranslator(Map<Slot, Expr> slotExprMap) {
+            this.slotExprMap = slotExprMap;
         }
 
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
-            slotReference = context.getRuntimeTranslator().get()
-                    .context.getCorrespondingOlapSlotReference(slotReference);
-            SlotRef slot = nereidsExprIdToSlotRef.get(slotReference.getExprId());
-            if (slot == null) {
+            Expr expr = slotExprMap.get(slotReference);
+            if (expr instanceof SlotRef) {
+                return expr;
+            } else {
                 throw new AnalysisException("cannot find SlotRef for " + slotReference);
             }
-            return slot;
         }
     }
 
@@ -122,8 +121,10 @@ public class RuntimeFilterTranslator {
             if (curTargetSlot.equals(curTargetExpression)) {
                 targetExpr = target;
             } else {
-                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(
-                        context.getExprIdToOlapScanNodeSlotRef());
+                // map nereids target slot to original planner slot
+                Map<Slot, Expr> slotMap = Maps.newHashMap();
+                slotMap.put(curTargetSlot, target);
+                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(slotMap);
                 targetExpr = curTargetExpression.accept(translator, ctx);
             }
 
