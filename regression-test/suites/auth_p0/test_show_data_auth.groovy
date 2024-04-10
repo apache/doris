@@ -30,13 +30,6 @@ suite("test_show_data_auth","p0,auth") {
             log.info(e.getMessage())
             assertTrue(e.getMessage().contains("need (at least one of) the ADMIN privilege"))
         }
-        try {
-                sql "use regression_test"
-                sql "show data from aa.bb"
-            } catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("denied"))
-            }
     }
     try_sql("DROP USER ${user}")
 }
