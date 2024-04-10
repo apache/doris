@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -82,9 +83,16 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
                 Set<Expression> exprsInDepth = CommonSubExpressionCollector
                         .getExpressionsFromDepthMap(i, collector.commonExprByDepth);
                 exprsInDepth.forEach(expr -> {
-                    Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
-                    Alias alias = new Alias(rewritten);
-                    aliasMap.put(expr, alias);
+                    if (!(expr instanceof WhenClause)) {
+                        // case whenClause1 whenClause2 END
+                        // whenClause should not be regarded as common-sub-expression, because
+                        // cse will be replaced by a slot, after rewrite the case clause becomes:
+                        // 'case slot whenClause2 END'
+                        // This is illegal.
+                        Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
+                        Alias alias = new Alias(rewritten);
+                        aliasMap.put(expr, alias);
+                    }
                 });
                 layer.addAll(aliasMap.values());
                 multiLayers.add(layer);
