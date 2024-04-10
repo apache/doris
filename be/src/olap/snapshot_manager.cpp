@@ -80,7 +80,7 @@ SnapshotManager* SnapshotManager::instance() {
 
 Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
                                       bool* allow_incremental_clone) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
@@ -106,7 +106,7 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
     // Otherwise, it is considered an illegal request and returns an error result.
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
         std::string abs_path;
@@ -127,7 +127,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t partition_id,
         int32_t schema_hash) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
     bool exists = true;
