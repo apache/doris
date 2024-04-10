@@ -475,6 +475,12 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int64 ttl_seconds = 4;
     optional int64 group_commit_interval_ms = 5;
     optional int64 group_commit_data_bytes = 6;
+    optional string compaction_policy = 7;
+    optional int64 time_series_compaction_goal_size_mbytes = 8;
+    optional int64 time_series_compaction_file_count_threshold = 9;
+    optional int64 time_series_compaction_time_threshold_seconds = 10;
+    optional int64 time_series_compaction_empty_rowsets_threshold = 11;
+    optional int64 time_series_compaction_level_threshold = 12;
 }
 
 message TabletCompactionJobPB {
