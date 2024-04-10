@@ -206,8 +206,8 @@ class TimeToStringConverter : public ColumnTypeConverter {
         auto& string_col = static_cast<ColumnString&>(*to_col.get());
         char buf[50];
         for (int i = 0; i < rows; ++i) {
-            char* end = (reinterpret_cast<const SrcCppType&>(src_data[i])).to_string(buf);
-            string_col.insert_data(buf, end - buf);
+            int len = (reinterpret_cast<const SrcCppType&>(src_data[i])).to_buffer(buf);
+            string_col.insert_data(buf, len);
         }
 
         return Status::OK();
