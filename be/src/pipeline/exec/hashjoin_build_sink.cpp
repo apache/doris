@@ -74,23 +74,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         }
     }
     _shared_state->join_op_variants = p._join_op_variants;
-    return Status::OK();
-}
-
-Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
-
-    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
-
-    _shared_state->is_null_safe_eq_join = p._is_null_safe_eq_join;
-    _shared_state->store_null_in_hash_table = p._store_null_in_hash_table;
-    _build_expr_ctxs.resize(p._build_expr_ctxs.size());
-    for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._build_expr_ctxs[i]->clone(state, _build_expr_ctxs[i]));
-    }
-    _shared_state->build_exprs_size = _build_expr_ctxs.size();
     if (p._is_broadcast_join) {
         profile()->add_info_string("BroadcastJoin", "true");
         if (state->enable_share_hash_table_for_broadcast_join()) {
@@ -110,6 +93,23 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
                                                           _dependency->shared_from_this(),
                                                           _finish_dependency->shared_from_this());
     }
+    return Status::OK();
+}
+
+Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+
+    _shared_state->is_null_safe_eq_join = p._is_null_safe_eq_join;
+    _shared_state->store_null_in_hash_table = p._store_null_in_hash_table;
+    _build_expr_ctxs.resize(p._build_expr_ctxs.size());
+    for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._build_expr_ctxs[i]->clone(state, _build_expr_ctxs[i]));
+    }
+    _shared_state->build_exprs_size = _build_expr_ctxs.size();
     // Hash Table Init
     _hash_table_init(state);
     _runtime_filters.resize(p._runtime_filter_descs.size());

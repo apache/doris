@@ -146,11 +146,11 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
+    RETURN_IF_ERROR(_acquire_runtime_filter(true));
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
     }
-    RETURN_IF_ERROR(_acquire_runtime_filter(true));
     RETURN_IF_ERROR(_process_conjuncts());
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
