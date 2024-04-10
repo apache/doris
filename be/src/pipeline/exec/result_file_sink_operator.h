@@ -85,7 +85,6 @@ private:
     RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
 
     int _sender_id;
-    PlanNodeId _dest_node_id;
 };
 
 class ResultFileSinkOperatorX final : public DataSinkOperatorX<ResultFileSinkLocalState> {
