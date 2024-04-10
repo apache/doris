@@ -217,10 +217,8 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
 
 bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& peer_versions,
                                                     Version* proper_version) {
-    //  get local versions
-    std::vector<Version> local_versions = _tablet->get_all_versions();
-    std::sort(local_versions.begin(), local_versions.end(),
-              [](const Version& left, const Version& right) { return left.first < right.first; });
+    //  already sorted
+    std::vector<Version> local_versions = tablet()->get_all_local_versions();
     for (const auto& v : local_versions) {
         VLOG_CRITICAL << _tablet->tablet_id() << " tablet local version: " << v.first << " - "
                       << v.second;
