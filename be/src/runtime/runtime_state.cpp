@@ -49,41 +49,6 @@
 namespace doris {
 using namespace ErrorCode;
 
-// for ut only
-RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
-                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env,
-                           const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
-        : _profile("Fragment " + print_id(fragment_instance_id)),
-          _load_channel_profile("<unnamed>"),
-          _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
-          _unreported_error_idx(0),
-          _is_cancelled(false),
-          _per_fragment_instance_idx(0),
-          _num_rows_load_total(0),
-          _num_rows_load_filtered(0),
-          _num_rows_load_unselected(0),
-          _num_print_error_rows(0),
-          _num_bytes_load_total(0),
-          _num_finished_scan_range(0),
-          _load_job_id(-1),
-          _normal_row_number(0),
-          _error_row_number(0),
-          _error_log_file(nullptr) {
-    Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
-    DCHECK(status.ok());
-    _query_mem_tracker = query_mem_tracker;
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-    _runtime_filter_mgr.reset(new RuntimeFilterMgr(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), _query_mem_tracker));
-}
-
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env, QueryContext* ctx,
@@ -121,9 +86,11 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     }
 #endif
     DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            fragment_exec_params.query_id, RuntimeFilterParamsContext::create(this),
-            _query_mem_tracker);
+    if (ctx) {
+        _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+                fragment_exec_params.query_id, RuntimeFilterParamsContext::create(this),
+                _query_mem_tracker);
+    }
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);

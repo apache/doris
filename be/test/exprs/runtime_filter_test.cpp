@@ -36,10 +36,6 @@ class RuntimeFilterTest : public testing::Test {
 public:
     RuntimeFilterTest() {}
     virtual void SetUp() {
-        ExecEnv* exec_env = ExecEnv::GetInstance();
-        exec_env = nullptr;
-        _runtime_stat = RuntimeState::create_unique(_fragment_id, _query_options, _query_globals,
-                                                    exec_env, nullptr);
     }
     virtual void TearDown() { _obj_pool.clear(); }
 
