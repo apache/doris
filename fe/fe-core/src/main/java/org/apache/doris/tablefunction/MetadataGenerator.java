@@ -112,7 +112,9 @@ public class MetadataGenerator {
             LOG.debug("getMetadataTable() start.");
         }
         if (!request.isSetMetadaTableParams() || !request.getMetadaTableParams().isSetMetadataType()) {
-            LOG.warn("Metadata table params is not set.");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Metadata table params is not set.");
+            }
             return errorResult("Metadata table params is not set. ");
         }
         TFetchSchemaTableDataResult result;
@@ -658,7 +660,9 @@ public class MetadataGenerator {
             LOG.debug("mtmvMetadataResult() start");
         }
         if (!params.isSetMaterializedViewsMetadataParams()) {
-            LOG.warn("MaterializedViews metadata params is not set.");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MaterializedViews metadata params is not set.");
+            }
             return errorResult("MaterializedViews metadata params is not set.");
         }
 
