@@ -79,10 +79,8 @@ private:
 
     Status _create_file_writer(const std::string& file_name);
     Status _create_next_file_writer();
-    Status _create_success_file();
     // get next export file name
     Status _get_next_file_name(std::string* file_name);
-    Status _get_success_file_name(std::string* file_name);
     void _get_file_url(std::string* file_url);
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.

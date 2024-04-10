@@ -675,6 +675,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             WorkloadGroupPtr workload_group_ptr =
                     _exec_env->workload_group_mgr()->get_task_group_by_id(tg_id);
             if (workload_group_ptr != nullptr) {
+                RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
                 RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
@@ -1056,7 +1057,7 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
         }
     }
 
-    query_ctx->cancel(true, msg, Status::Cancelled(msg));
+    query_ctx->cancel(msg, Status::Cancelled(msg));
     {
         std::lock_guard<std::mutex> state_lock(_lock);
         _query_ctx_map.erase(query_id);
@@ -1115,36 +1116,6 @@ void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id
         LOG(WARNING) << "Could not find the query id:" << print_id(query_id)
                      << " fragment id:" << fragment_id << " to cancel";
     }
-}
-
-bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
-    std::lock_guard<std::mutex> lock(_lock);
-    auto ctx = _query_ctx_map.find(query_id);
-
-    if (ctx != _query_ctx_map.end()) {
-        const bool is_pipeline_version = ctx->second->enable_pipeline_exec();
-        const bool is_pipeline_x = ctx->second->enable_pipeline_x_exec();
-        if (is_pipeline_x) {
-            return ctx->second->is_cancelled();
-        } else {
-            for (auto itr : ctx->second->fragment_instance_ids) {
-                if (is_pipeline_version) {
-                    auto pipeline_ctx_iter = _pipeline_map.find(itr);
-                    if (pipeline_ctx_iter != _pipeline_map.end() && pipeline_ctx_iter->second) {
-                        return pipeline_ctx_iter->second->is_canceled();
-                    }
-                } else {
-                    auto fragment_instance_itr = _fragment_instance_map.find(itr);
-                    if (fragment_instance_itr != _fragment_instance_map.end() &&
-                        fragment_instance_itr->second) {
-                        return fragment_instance_itr->second->is_canceled();
-                    }
-                }
-            }
-        }
-    }
-
-    return true;
 }
 
 void FragmentMgr::cancel_worker() {
@@ -1418,76 +1389,110 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
     int64_t start_apply = MonotonicMillis();
 
+    std::shared_ptr<PlanFragmentExecutor> fragment_executor;
+    std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
+    QueryThreadContext query_thread_context;
+
+    RuntimeFilterMgr* runtime_filter_mgr = nullptr;
+    ObjectPool* pool = nullptr;
+
     const auto& fragment_instance_ids = request->fragment_instance_ids();
-    if (!fragment_instance_ids.empty()) {
-        UniqueId fragment_instance_id = fragment_instance_ids[0];
-        TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
+    {
+        std::unique_lock<std::mutex> lock(_lock);
+        for (UniqueId fragment_instance_id : fragment_instance_ids) {
+            TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
 
-        std::shared_ptr<PlanFragmentExecutor> fragment_executor;
-        std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
-        QueryThreadContext query_thread_context;
+            if (is_pipeline) {
+                auto iter = _pipeline_map.find(tfragment_instance_id);
+                if (iter == _pipeline_map.end()) {
+                    continue;
+                }
+                pip_context = iter->second;
 
-        RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-        ObjectPool* pool = nullptr;
-        if (is_pipeline) {
-            std::unique_lock<std::mutex> lock(_lock);
-            auto iter = _pipeline_map.find(tfragment_instance_id);
-            if (iter == _pipeline_map.end()) {
-                VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
-                return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
+                DCHECK(pip_context != nullptr);
+                runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
+                pool = &pip_context->get_query_ctx()->obj_pool;
+                query_thread_context = {pip_context->get_query_ctx()->query_id(),
+                                        pip_context->get_query_ctx()->query_mem_tracker};
+            } else {
+                auto iter = _fragment_instance_map.find(tfragment_instance_id);
+                if (iter == _fragment_instance_map.end()) {
+                    continue;
+                }
+                fragment_executor = iter->second;
+
+                DCHECK(fragment_executor != nullptr);
+                runtime_filter_mgr = fragment_executor->get_query_ctx()->runtime_filter_mgr();
+                pool = &fragment_executor->get_query_ctx()->obj_pool;
+                query_thread_context = {fragment_executor->get_query_ctx()->query_id(),
+                                        fragment_executor->get_query_ctx()->query_mem_tracker};
             }
-            pip_context = iter->second;
-
-            DCHECK(pip_context != nullptr);
-            runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-            pool = &pip_context->get_query_ctx()->obj_pool;
-            query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                    pip_context->get_query_ctx()->query_mem_tracker};
-        } else {
-            std::unique_lock<std::mutex> lock(_lock);
-            auto iter = _fragment_instance_map.find(tfragment_instance_id);
-            if (iter == _fragment_instance_map.end()) {
-                VLOG_CRITICAL << "unknown.... fragment instance id:"
-                              << print_id(tfragment_instance_id);
-                return Status::InvalidArgument("fragment instance id: {}",
-                                               print_id(tfragment_instance_id));
-            }
-            fragment_executor = iter->second;
-
-            DCHECK(fragment_executor != nullptr);
-            runtime_filter_mgr = fragment_executor->get_query_ctx()->runtime_filter_mgr();
-            pool = &fragment_executor->get_query_ctx()->obj_pool;
-            query_thread_context = {fragment_executor->get_query_ctx()->query_id(),
-                                    fragment_executor->get_query_ctx()->query_mem_tracker};
-        }
-
-        SCOPED_ATTACH_TASK(query_thread_context);
-
-        // 1. get the target filters
-        std::vector<IRuntimeFilter*> filters;
-        RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
-
-        // 2. create the filter wrapper to replace or ignore the target filters
-        if (request->has_in_filter() && request->in_filter().has_ignored_msg()) {
-            const auto& in_filter = request->in_filter();
-
-            std::ranges::for_each(filters, [&in_filter](auto& filter) {
-                filter->set_ignored(in_filter.ignored_msg());
-                filter->signal();
-            });
-        } else if (!filters.empty()) {
-            UpdateRuntimeFilterParamsV2 params {request, attach_data, pool,
-                                                filters[0]->column_type()};
-            RuntimePredicateWrapper* filter_wrapper = nullptr;
-            RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
-
-            std::ranges::for_each(filters, [&](auto& filter) {
-                filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
-            });
+            break;
         }
     }
 
+    if (runtime_filter_mgr == nullptr) {
+        // all instance finished
+        return Status::OK();
+    }
+
+    SCOPED_ATTACH_TASK(query_thread_context);
+    // 1. get the target filters
+    std::vector<IRuntimeFilter*> filters;
+    RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
+
+    // 2. create the filter wrapper to replace or ignore the target filters
+    if (!filters.empty()) {
+        UpdateRuntimeFilterParamsV2 params {request, attach_data, pool, filters[0]->column_type()};
+        RuntimePredicateWrapper* filter_wrapper = nullptr;
+        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
+
+        std::ranges::for_each(filters, [&](auto& filter) {
+            filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
+        });
+    }
+
     return Status::OK();
+}
+
+Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
+    UniqueId queryid = request->query_id();
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
+
+    std::shared_ptr<QueryContext> query_ctx;
+    {
+        TUniqueId query_id;
+        query_id.__set_hi(queryid.hi);
+        query_id.__set_lo(queryid.lo);
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _query_ctx_map.find(query_id);
+        if (iter == _query_ctx_map.end()) {
+            return Status::InvalidArgument("query-id: {}", queryid.to_string());
+        }
+
+        query_ctx = iter->second;
+    }
+    auto merge_status = filter_controller->send_filter_size(request);
+    return merge_status;
+}
+
+Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
+    UniqueId queryid = request->query_id();
+    std::shared_ptr<QueryContext> query_ctx;
+    {
+        TUniqueId query_id;
+        query_id.__set_hi(queryid.hi);
+        query_id.__set_lo(queryid.lo);
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _query_ctx_map.find(query_id);
+        if (iter == _query_ctx_map.end()) {
+            return Status::InvalidArgument("query-id: {}", queryid.to_string());
+        }
+
+        query_ctx = iter->second;
+    }
+    return query_ctx->runtime_filter_mgr()->sync_filter_size(request);
 }
 
 Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
@@ -1514,7 +1519,6 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     }
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
     auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
-    DCHECK(merge_status.ok());
     return merge_status;
 }
 

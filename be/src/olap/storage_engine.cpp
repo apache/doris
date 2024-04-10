@@ -75,7 +75,6 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
@@ -670,6 +669,10 @@ void StorageEngine::stop() {
     }
     if (_cold_data_compaction_thread_pool) {
         _cold_data_compaction_thread_pool->shutdown();
+    }
+
+    if (_cooldown_thread_pool) {
+        _cooldown_thread_pool->shutdown();
     }
 
     _memtable_flush_executor.reset(nullptr);

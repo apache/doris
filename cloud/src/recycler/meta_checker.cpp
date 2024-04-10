@@ -171,7 +171,7 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 int num_row = mysql_num_rows(result);
                 for (int i = 0; i < num_row; ++i) {
                     MYSQL_ROW row = mysql_fetch_row(result);
-                    TabletInfo tablet_info = { 0 };
+                    TabletInfo tablet_info = {0};
                     tablet_info.tablet_id = atoll(row[0]);
                     tablet_info.schema_version = atoll(row[4]);
                     tablets.push_back(std::move(tablet_info));
@@ -197,7 +197,7 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 tablet_info.partition_id = atoll(row[6]);
                 tablet_info.index_id = atoll(row[7]);
 
-                PartitionInfo partition_info = { 0 };
+                PartitionInfo partition_info = {0};
                 partition_info.db_id = atoll(row[4]);
                 partition_info.table_id = atoll(row[5]);
                 partition_info.partition_id = atoll(row[6]);
@@ -354,7 +354,7 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
         int64_t db_id = elem.second.db_id;
         int64_t table_id = elem.second.table_id;
         int64_t partition_id = elem.second.partition_id;
-        std::string ver_key = version_key({instance_id_, db_id, table_id, partition_id});
+        std::string ver_key = partition_version_key({instance_id_, db_id, table_id, partition_id});
         std::string ver_val;
         err = txn->get(ver_key, &ver_val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {

@@ -210,9 +210,8 @@ suite("test_outfile") {
                     (100, "aa"), (111, "bb"), (123, "cc"), (222, "dd");"""
         sql "set enable_parallel_outfile = true;"
         sql """select * from select_into_file into outfile "file://${outFilePath}/";"""
-        // TODO: parallel outfile is not compatible with success_file_name. remove this case temporary
-        // sql "set enable_parallel_outfile = true;"
-        // sql """select * from select_into_file into outfile "file://${outFilePath}/" properties("success_file_name" = "SUCCESS");"""
+
+        sql """select * from select_into_file into outfile "file://${outFilePath}/" properties("success_file_name" = "SUCCESS");"""
     } finally {
         try_sql("DROP TABLE IF EXISTS select_into_file")
         File path = new File(outFilePath)

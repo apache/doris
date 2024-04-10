@@ -522,7 +522,7 @@ for_range_stmt :        // FOR (Integer range) statement
      ;
 
 label_stmt :
-       LABEL_PL
+       IDENTIFIER COLON
      | LT LT IDENTIFIER GT GT
      ;
 

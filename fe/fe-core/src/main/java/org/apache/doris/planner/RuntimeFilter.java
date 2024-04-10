@@ -239,6 +239,10 @@ public final class RuntimeFilter {
                 tFilter.setNullAware(false);
             }
         }
+        tFilter.setSyncFilterSize(
+                ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
+                        && ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
+                        && ConnectContext.get().getSessionVariable().enableSyncRuntimeFilterSize());
         return tFilter;
     }
 
@@ -685,7 +689,7 @@ public final class RuntimeFilter {
         if (node instanceof HashJoinNode) {
             setIsBroadcast(((HashJoinNode) node).getDistributionMode() == HashJoinNode.DistributionMode.BROADCAST);
         } else {
-            setIsBroadcast(false);
+            setIsBroadcast(true);
         }
         if (LOG.isTraceEnabled()) {
             LOG.trace("Runtime filter: " + debugString());

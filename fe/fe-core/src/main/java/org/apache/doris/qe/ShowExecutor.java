@@ -92,6 +92,7 @@ import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowStorageVaultStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
@@ -137,6 +138,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -145,6 +147,8 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -199,6 +203,9 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.qe.help.HelpModule;
+import org.apache.doris.qe.help.HelpTopic;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -260,6 +267,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -453,6 +461,8 @@ public class ShowExecutor {
             handleShowConvertLSC();
         } else if (stmt instanceof ShowClusterStmt) {
             handleShowCluster();
+        } else if (stmt instanceof ShowStorageVaultStmt) {
+            handleShowStorageVault();
         } else {
             handleEmtpy();
         }
@@ -1042,7 +1052,11 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
 
         StringBuilder sb = new StringBuilder();
-        CatalogIf catalog = ctx.getCurrentCatalog();
+        String catalogName = showStmt.getCtl();
+        if (Strings.isNullOrEmpty(catalogName)) {
+            catalogName = Env.getCurrentEnv().getCurrentCatalog().getName();
+        }
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
         if (catalog instanceof HMSExternalCatalog) {
             String simpleDBName = ClusterNamespace.getNameFromFullName(showStmt.getDb());
             org.apache.hadoop.hive.metastore.api.Database db = ((HMSExternalCatalog) catalog).getClient()
@@ -3051,6 +3065,24 @@ public class ShowExecutor {
             }
         } finally {
             columnIdFlusher.readUnlock();
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowStorageVault() throws AnalysisException {
+        ShowStorageVaultStmt showStmt = (ShowStorageVaultStmt) stmt;
+        List<List<String>> rows;
+        try {
+            Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+            rows = Stream.concat(
+                    resp.getObjInfoList().stream()
+                            .map(StorageVault::convertToShowStorageVaultProperties),
+                    resp.getStorageVaultList().stream()
+                            .map(StorageVault::convertToShowStorageVaultProperties))
+                    .collect(Collectors.toList());
+        } catch (RpcException e) {
+            throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }

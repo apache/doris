@@ -125,9 +125,12 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Config.enable_nereids_load) {
+            ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
             throw new AnalysisException("Fallback to legacy planner temporary.");
         }
-        this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile);
+        this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile,
+                ctx.getSessionVariable().profileLevel,
+                ctx.getSessionVariable().getEnablePipelineXEngine());
         profile.getSummaryProfile().setQueryBeginTime();
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),

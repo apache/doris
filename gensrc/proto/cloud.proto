@@ -67,7 +67,7 @@ message InstanceInfoPB {
     optional int64 ctime = 5;
     optional int64 mtime = 6;
     repeated ClusterPB clusters = 7;
-    repeated ObjectStoreInfoPB obj_info = 8;
+    repeated ObjectStoreInfoPB obj_info = 8; // Only legacy obj info would be store in this fields, other objs would be lied in vaults.
     repeated StagePB stages = 9;
     optional Status status = 10;
     optional RamUserPB ram_user = 11;
@@ -76,6 +76,9 @@ message InstanceInfoPB {
 
     repeated string resource_ids = 100;
     repeated string storage_vault_names = 101;
+    optional string default_storage_vault_id = 102;
+    optional string default_storage_vault_name = 103;
+    optional bool enable_storage_vault = 104;
 }
 
 message StagePB {
@@ -188,12 +191,15 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional string name = 16;
 }
 
+// The legacy OObjectStoreInfoPBbjectStoreInfoPB is stored in instnaceinfopb
 message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
+    reserved 4; // reserved for S3.
 }
 
 message HdfsBuildConf {
@@ -469,6 +475,12 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int64 ttl_seconds = 4;
     optional int64 group_commit_interval_ms = 5;
     optional int64 group_commit_data_bytes = 6;
+    optional string compaction_policy = 7;
+    optional int64 time_series_compaction_goal_size_mbytes = 8;
+    optional int64 time_series_compaction_file_count_threshold = 9;
+    optional int64 time_series_compaction_time_threshold_seconds = 10;
+    optional int64 time_series_compaction_empty_rowsets_threshold = 11;
+    optional int64 time_series_compaction_level_threshold = 12;
 }
 
 message TabletCompactionJobPB {
@@ -631,6 +643,7 @@ message CommitTxnRequest {
     optional TxnCommitAttachmentPB commit_attachment = 5;
     // merge-on-write table ids
     repeated int64 mow_table_ids = 6;
+    repeated int64 base_tablet_ids= 7; // all tablet from base tables (excluding mv)
 }
 
 // corresponding to TabletStats in meta_service.h and FrontendServiceImpl.java
@@ -748,6 +761,9 @@ message AlterObjStoreInfoRequest {
 
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
+        ADD_BUILT_IN_VAULT = 102;
+
+        SET_DEFAULT_VAULT = 200;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
@@ -785,6 +801,7 @@ message CreateTabletsRequest {
 message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
+    optional string storage_vault_name = 3;
 }
 
 message UpdateTabletRequest {
@@ -857,7 +874,7 @@ message IndexRequest {
     optional int64 table_id = 3;
     optional int64 expiration = 4;
     optional int64 db_id = 5;
-    optional bool is_new_table = 6;
+    optional bool is_new_table = 6; // For table version
 }
 
 message IndexResponse {
@@ -982,6 +999,7 @@ message GetClusterStatusResponse {
 message GetClusterResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ClusterPB cluster = 2;
+    optional bool enable_storage_vault = 3;
 }
 
 message GetTabletStatsRequest {
@@ -1187,6 +1205,7 @@ enum MetaServiceCode {
     KV_TXN_STORE_GET_RETRYABLE = 1008;
     KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
     KV_TXN_STORE_CREATE_RETRYABLE = 1010;
+    KV_TXN_TOO_OLD = 1011;
 
     //Doris error
     TXN_GEN_ID_ERR = 2001;

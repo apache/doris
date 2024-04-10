@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -33,12 +33,18 @@ import java.util.List;
 /**
  * SimplifyInPredicate
  */
-public class SimplifyInPredicate extends AbstractExpressionRewriteRule {
-
+public class SimplifyInPredicate implements ExpressionPatternRuleFactory {
     public static final SimplifyInPredicate INSTANCE = new SimplifyInPredicate();
 
     @Override
-    public Expression visitInPredicate(InPredicate expr, ExpressionRewriteContext context) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(InPredicate.class).then(SimplifyInPredicate::simplify)
+        );
+    }
+
+    /** simplify */
+    public static Expression simplify(InPredicate expr) {
         if (expr.children().size() > 1) {
             if (expr.getCompareExpr() instanceof Cast) {
                 Cast cast = (Cast) expr.getCompareExpr();
@@ -58,7 +64,7 @@ public class SimplifyInPredicate extends AbstractExpressionRewriteRule {
                     DateTimeV2Type compareType = (DateTimeV2Type) cast.child().getDataType();
                     if (literals.stream().allMatch(literal -> literal instanceof DateTimeV2Literal
                             && canLosslessConvertToLowScaleLiteral(
-                                    (DateTimeV2Literal) literal, compareType.getScale()))) {
+                            (DateTimeV2Literal) literal, compareType.getScale()))) {
                         ImmutableList.Builder<Expression> children = ImmutableList.builder();
                         children.add(cast.child());
                         literals.forEach(l -> children.add(new DateTimeV2Literal(compareType,
@@ -86,7 +92,7 @@ public class SimplifyInPredicate extends AbstractExpressionRewriteRule {
                 | literal.getMicroSecond()) == 0L;
     }
 
-    private DateV2Literal convertToDateV2Literal(DateTimeV2Literal literal) {
+    private static DateV2Literal convertToDateV2Literal(DateTimeV2Literal literal) {
         return new DateV2Literal(literal.getYear(), literal.getMonth(), literal.getDay());
     }
 

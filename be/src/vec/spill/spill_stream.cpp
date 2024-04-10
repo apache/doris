@@ -46,6 +46,16 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
             ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool(data_dir->path());
 }
 
+SpillStream::~SpillStream() {
+    bool exists = false;
+    auto status = io::global_local_filesystem()->exists(spill_dir_, &exists);
+    if (status.ok() && exists) {
+        auto gc_dir = fmt::format("{}/{}/{}", get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+                                  std::filesystem::path(spill_dir_).filename().string());
+        (void)io::global_local_filesystem()->rename(spill_dir_, gc_dir);
+    }
+}
+
 Status SpillStream::prepare() {
     writer_ = std::make_unique<SpillWriter>(stream_id_, batch_rows_, data_dir_, spill_dir_);
 
@@ -68,8 +78,14 @@ void SpillStream::close() {
         read_promise_.reset();
     }
 
-    (void)writer_->close();
-    (void)reader_->close();
+    if (writer_) {
+        (void)writer_->close();
+        writer_.reset();
+    }
+    if (reader_) {
+        (void)reader_->close();
+        reader_.reset();
+    }
 }
 
 const std::string& SpillStream::get_spill_root_dir() const {
@@ -89,6 +105,7 @@ void SpillStream::end_spill(const Status& status) {
 
 Status SpillStream::wait_spill() {
     if (spill_promise_) {
+        SCOPED_TIMER(write_wait_io_timer_);
         auto status = spill_future_.get();
         spill_promise_.reset();
         return status;
@@ -96,17 +113,20 @@ Status SpillStream::wait_spill() {
     return Status::OK();
 }
 
-Status SpillStream::spill_block(const Block& block, bool eof) {
+Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eof) {
     size_t written_bytes = 0;
-    RETURN_IF_ERROR(writer_->write(block, written_bytes));
+    RETURN_IF_ERROR(writer_->write(state, block, written_bytes));
     if (eof) {
-        return writer_->close();
+        RETURN_IF_ERROR(writer_->close());
+        writer_.reset();
     }
     return Status::OK();
 }
 
 Status SpillStream::spill_eof() {
-    return writer_->close();
+    RETURN_IF_ERROR(writer_->close());
+    writer_.reset();
+    return Status::OK();
 }
 
 Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
@@ -132,7 +152,10 @@ Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
         return status;
     }
 
-    status = read_future_.get();
+    {
+        SCOPED_TIMER(read_wait_io_timer_);
+        status = read_future_.get();
+    }
     read_promise_.reset();
     return status;
 }

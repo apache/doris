@@ -568,6 +568,9 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
 DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
 
+// Sleep time in milliseconds between refresh iterations of workload group memory statistics
+DEFINE_mInt64(wg_mem_refresh_interval_ms, "50");
+
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
 
@@ -797,6 +800,11 @@ DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
+// The default delete bitmap cache is set to 100MB,
+// which can be insufficient and cause performance issues when the amount of user data is large.
+// To mitigate the problem of an inadequate cache,
+// we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "0.5%");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
@@ -1188,6 +1196,11 @@ DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
+
+DEFINE_Bool(enable_index_compaction, "false");
+
+// enable injection point in regression-test
+DEFINE_mBool(enable_injection_point, "false");
 
 // clang-format off
 #ifdef BE_TEST

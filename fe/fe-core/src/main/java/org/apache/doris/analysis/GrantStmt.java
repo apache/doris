@@ -307,6 +307,10 @@ public class GrantStmt extends DdlStmt {
                 return Env.getCurrentEnv().getAccessManager()
                         .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
                                 ResourceTypeEnum.CLUSTER);
+            } else if (resourcePattern.isStageResource()) {
+                return Env.getCurrentEnv().getAccessManager()
+                        .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
+                                ResourceTypeEnum.STAGE);
             }
         }
         return true;
