@@ -479,6 +479,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(policyRow.get(4)))); // priority
             trow.addToColumnValue(new TCell().setBoolVal(Boolean.valueOf(policyRow.get(5)))); // enabled
             trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(policyRow.get(6)))); // version
+            trow.addToColumnValue(new TCell().setStringVal(policyRow.get(7))); // workload group id
             dataBatch.add(trow);
         }
 

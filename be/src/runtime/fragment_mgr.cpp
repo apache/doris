@@ -1607,6 +1607,8 @@ void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_i
             WorkloadQueryInfo workload_query_info;
             workload_query_info.query_id = print_id(q.first);
             workload_query_info.tquery_id = q.first;
+            workload_query_info.wg_id =
+                    q.second->workload_group() == nullptr ? -1 : q.second->workload_group()->id();
             query_info_list->push_back(workload_query_info);
         }
     }

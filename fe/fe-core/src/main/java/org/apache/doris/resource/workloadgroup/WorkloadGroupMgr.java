@@ -392,6 +392,17 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             throw new DdlException("workload group " + workloadGroupName + " is set for user " + ret.second);
         }
 
+        // A group with related policies should not be deleted.
+        Long wgId = getWorkloadGroupIdByName(workloadGroupName);
+        if (wgId != null) {
+            boolean groupHasPolicy = Env.getCurrentEnv().getWorkloadSchedPolicyMgr()
+                    .checkWhetherGroupHasPolicy(wgId.longValue());
+            if (groupHasPolicy) {
+                throw new DdlException(
+                        "workload group " + workloadGroupName + " can't be dropped, because it has related policy");
+            }
+        }
+
         writeLock();
         try {
             if (!nameToWorkloadGroup.containsKey(workloadGroupName)) {
@@ -479,6 +490,19 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 return null;
             }
             return wg.getId();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<Long, String> getIdToNameMap() {
+        Map<Long, String> ret = Maps.newHashMap();
+        readLock();
+        try {
+            for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
+                ret.put(entry.getKey(), entry.getValue().getName());
+            }
+            return ret;
         } finally {
             readUnlock();
         }

@@ -304,6 +304,7 @@ struct TWorkloadSchedPolicy {
     5: optional bool enabled
     6: optional list<TWorkloadCondition> condition_list
     7: optional list<TWorkloadAction> action_list
+    8: optional list<i64> wg_id_list
 }
 
 struct TopicInfo {
