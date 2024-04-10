@@ -1298,7 +1298,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             return Status::OK();
         } else if (column_mapping->ref_column >= 0) {
             const auto& column_new = new_tablet_schema->column(i);
-            auto column_old = base_tablet_schema->column(column_mapping->ref_column);
+           const auto& column_old = base_tablet_schema->column(column_mapping->ref_column);
             // index changed
             if (column_new.is_bf_column() != column_old.is_bf_column() ||
                 column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
