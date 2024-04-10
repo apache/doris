@@ -73,7 +73,7 @@ public enum ErrorCode {
     ERR_USER_LIMIT_REACHED(1226, new byte[]{'4', '2', '0', '0', '0'}, "User '%s' has exceeded the '%s' resource "
             + "(current value: %d)"),
     ERR_SPECIFIC_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
-            + "one of) the %s privilege(s) for this operation"),
+            + "one of) the (%s) privilege(s) for this operation"),
     ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR(1227, new byte[] {'4', '2', '0', '0', '0'}, "Access denied; you need all "
             + " %s privilege(s) for this operation"),
     ERR_LOCAL_VARIABLE(1228, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a SESSION variable and can't be "
