@@ -18,17 +18,28 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -113,79 +124,150 @@ public class PartitionExprUtil {
         return null;
     }
 
-    public static Map<String, AddPartitionClause> getAddPartitionClauseFromPartitionValues(OlapTable olapTable,
-            ArrayList<List<TNullableStringLiteral>> partitionValues, PartitionInfo partitionInfo)
-            throws AnalysisException {
+    public static Map<String, AddPartitionClause> getAddPartitionClauseFromPartitionValues(Database db,
+                                                  OlapTable olapTable,
+                                                  ArrayList<List<TNullableStringLiteral>> partitionValues,
+                                                  PartitionInfo partitionInfo
+    ) throws AnalysisException {
         Map<String, AddPartitionClause> result = Maps.newHashMap();
-        ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
-        PartitionType partitionType = partitionInfo.getType();
-        List<Column> partitionColumn = partitionInfo.getPartitionColumns();
-        boolean hasStringType = partitionColumn.stream().anyMatch(column -> column.getType().isStringType());
-        FunctionIntervalInfo intervalInfo = getFunctionIntervalInfo(partitionExprs, partitionType);
-        Set<String> filterPartitionValues = new HashSet<String>();
+        if (olapTable.getTableProperty() != null
+                && olapTable.getTableProperty().getDynamicPartitionProperty() != null
+                && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
+            if (rangePartitionInfo.getPartitionColumns().size() != 1) {
+                // currently only support partition with single column.
+                throw new AnalysisException("Currently only support partition with single column.");
+            }
+            Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
+            String partitionFormat;
+            try {
+                partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
+            } catch (Exception e) {
+                LOG.info("dynamic add partition failed: {}, db: {}, table: {}", e.getMessage(),
+                        db.getFullName(), olapTable.getId());
+                throw new AnalysisException("dynamic add partition failed", e.getCause());
+            }
+            TableProperty tableProperty = olapTable.getTableProperty();
+            DynamicPartitionProperty dynamicPartitionProperty = tableProperty.getDynamicPartitionProperty();
 
-        for (List<TNullableStringLiteral> partitionValueList : partitionValues) {
-            PartitionKeyDesc partitionKeyDesc = null;
-            String partitionName = "p";
-            ArrayList<String> curPartitionValues = new ArrayList<>();
-            for (TNullableStringLiteral tStringLiteral : partitionValueList) {
-                if (tStringLiteral.is_null) {
-                    if (partitionType == PartitionType.RANGE) {
-                        throw new AnalysisException("Can't create partition for NULL Range");
-                    }
-                    curPartitionValues.add(null);
-                } else {
-                    curPartitionValues.add(tStringLiteral.value);
+            String partitionValue = partitionValues.get(0).get(0).getValue();
+            ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
+            ZonedDateTime now = DynamicPartitionUtil.getPartitionZonedDateTime(partitionFormat, zoneId, partitionValue);
+            Integer idx = DynamicPartitionUtil.getIdx(olapTable);
+            for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
+                Range<PartitionKey> addPartitionKeyRanges;
+                try {
+                    addPartitionKeyRanges = DynamicPartitionUtil.getAddPartitionKeyRange(dynamicPartitionProperty, now,
+                        idx, partitionFormat, partitionColumn);
+                } catch (AnalysisException | IllegalArgumentException e) {
+                    // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
+                    // IllegalArgumentException: lb is greater than ub
+                    LOG.warn("Error in gen addPartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
+                            db.getFullName(), olapTable.getName());
+                    continue;
                 }
+                boolean isPartitionExists = false;
+                for (PartitionItem partitionItem : rangePartitionInfo.getIdToItem(false).values()) {
+                    // only support single column partition now
+                    try {
+                        RangeUtils.checkRangeIntersect(partitionItem.getItems(), addPartitionKeyRanges);
+                    } catch (Exception e) {
+                        isPartitionExists = true;
+                        if (addPartitionKeyRanges.equals(partitionItem.getItems())) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("partition range {} exist in table {}, clear fail msg",
+                                        addPartitionKeyRanges, olapTable.getName());
+                            }
+                        } else {
+                            LOG.info("dynamic add partition failed: {}, db: {}, table: {}",
+                                    e.getMessage(), db.getFullName(), olapTable.getName());
+                        }
+                        break;
+                    }
+                }
+                if (isPartitionExists) {
+                    continue;
+                }
+                // add partition according to partition desc and distribution desc
+                AddPartitionClause addPartitionClause = DynamicPartitionUtil.getOneAddPartitionClause(olapTable,
+                        dynamicPartitionProperty, now, idx, partitionFormat, true);
+                String partitionName = addPartitionClause.getSingeRangePartitionDesc().getPartitionName();
+                result.put(partitionName, addPartitionClause);
             }
-            // Concatenate each string with its length. X means null
-            String filterStr = curPartitionValues.stream()
-                    .map(s -> (s == null) ? "X" : (s + s.length()))
-                    .reduce("", (s1, s2) -> s1 + s2);
-            if (filterPartitionValues.contains(filterStr)) {
-                continue;
-            }
-            filterPartitionValues.add(filterStr);
-            if (partitionType == PartitionType.RANGE) {
-                String beginTime = curPartitionValues.get(0); // have check range type size must be 1
-                Type partitionColumnType = partitionColumn.get(0).getType();
-                DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
-                partitionName += String.format(DATETIME_NAME_FORMATTER,
+
+
+        } else {
+            ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
+            PartitionType partitionType = partitionInfo.getType();
+            List<Column> partitionColumn = partitionInfo.getPartitionColumns();
+            boolean hasStringType = partitionColumn.stream().anyMatch(column -> column.getType().isStringType());
+            FunctionIntervalInfo intervalInfo = getFunctionIntervalInfo(partitionExprs, partitionType);
+            Set<String> filterPartitionValues = new HashSet<String>();
+
+            for (List<TNullableStringLiteral> partitionValueList : partitionValues) {
+                PartitionKeyDesc partitionKeyDesc = null;
+                String partitionName = "p";
+                ArrayList<String> curPartitionValues = new ArrayList<>();
+                for (TNullableStringLiteral tStringLiteral : partitionValueList) {
+                    if (tStringLiteral.is_null) {
+                        if (partitionType == PartitionType.RANGE) {
+                            throw new AnalysisException("Can't create partition for NULL Range");
+                        }
+                        curPartitionValues.add(null);
+                    } else {
+                        curPartitionValues.add(tStringLiteral.value);
+                    }
+                }
+                // Concatenate each string with its length. X means null
+                String filterStr = curPartitionValues.stream()
+                        .map(s -> (s == null) ? "X" : (s + s.length()))
+                        .reduce("", (s1, s2) -> s1 + s2);
+                if (filterPartitionValues.contains(filterStr)) {
+                    continue;
+                }
+                filterPartitionValues.add(filterStr);
+                if (partitionType == PartitionType.RANGE) {
+                    String beginTime = curPartitionValues.get(0); // have check range type size must be 1
+                    Type partitionColumnType = partitionColumn.get(0).getType();
+                    DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
+                    partitionName += String.format(DATETIME_NAME_FORMATTER,
                         beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
                         beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond());
-                DateLiteral endDateTime = getRangeEnd(beginDateTime, intervalInfo);
-                partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
-            } else if (partitionType == PartitionType.LIST) {
-                List<List<PartitionValue>> listValues = new ArrayList<>();
-                List<PartitionValue> inValues = new ArrayList<>();
-                for (String value : curPartitionValues) {
-                    if (value == null) {
-                        inValues.add(new PartitionValue("", true));
-                    } else {
-                        inValues.add(new PartitionValue(value));
+                    DateLiteral endDateTime = getRangeEnd(beginDateTime, intervalInfo);
+                    partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
+                } else if (partitionType == PartitionType.LIST) {
+                    List<List<PartitionValue>> listValues = new ArrayList<>();
+                    List<PartitionValue> inValues = new ArrayList<>();
+                    for (String value : curPartitionValues) {
+                        if (value == null) {
+                            inValues.add(new PartitionValue("", true));
+                        } else {
+                            inValues.add(new PartitionValue(value));
+                        }
                     }
-                }
-                listValues.add(inValues);
-                partitionKeyDesc = PartitionKeyDesc.createIn(listValues);
-                partitionName += getFormatPartitionValue(filterStr);
-                if (hasStringType) {
-                    if (partitionName.length() > 50) {
-                        throw new AnalysisException("Partition name's length is over limit of 50. abort to create.");
+                    listValues.add(inValues);
+                    partitionKeyDesc = PartitionKeyDesc.createIn(listValues);
+                    partitionName += getFormatPartitionValue(filterStr);
+                    if (hasStringType) {
+                        if (partitionName.length() > 50) {
+                            throw new AnalysisException("Partition name's length is over limit of 50."
+                                + "abort to create.");
+                        }
                     }
+                } else {
+                    throw new AnalysisException("now only support range and list partition");
                 }
-            } else {
-                throw new AnalysisException("now only support range and list partition");
+
+                Map<String, String> partitionProperties = Maps.newHashMap();
+                DistributionDesc distributionDesc = olapTable.getDefaultDistributionInfo().toDistributionDesc();
+
+                SinglePartitionDesc singleRangePartitionDesc = new SinglePartitionDesc(true, partitionName,
+                        partitionKeyDesc, partitionProperties);
+
+                AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
+                        distributionDesc, partitionProperties, false);
+                result.put(partitionName, addPartitionClause);
             }
-
-            Map<String, String> partitionProperties = Maps.newHashMap();
-            DistributionDesc distributionDesc = olapTable.getDefaultDistributionInfo().toDistributionDesc();
-
-            SinglePartitionDesc singleRangePartitionDesc = new SinglePartitionDesc(true, partitionName,
-                    partitionKeyDesc, partitionProperties);
-
-            AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
-                    distributionDesc, partitionProperties, false);
-            result.put(partitionName, addPartitionClause);
         }
         return result;
     }
