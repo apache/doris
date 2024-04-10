@@ -42,6 +42,8 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.PartitionTableInfo;
@@ -76,7 +78,7 @@ public class CreateTableInfo {
     private List<ColumnDefinition> columns;
     private final List<IndexDefinition> indexes;
     private final List<String> ctasColumns;
-    private final String engineName;
+    private String engineName;
     private KeysType keysType;
     private List<String> keys;
     private final String comment;
@@ -190,13 +192,22 @@ public class CreateTableInfo {
             throw new AnalysisException("table should contain at least one column");
         }
 
+        // analyze catalog name
+        if (Strings.isNullOrEmpty(ctlName)) {
+            if (ctx.getCurrentCatalog() != null) {
+                ctlName = ctx.getCurrentCatalog().getName();
+            } else {
+                ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+            }
+        }
+        paddingEngineName(ctlName, ctx);
         checkEngineName();
 
         if (properties == null) {
             properties = Maps.newHashMap();
         }
 
-        if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
+        if (engineName.equalsIgnoreCase("olap")) {
             if (distribution == null) {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
@@ -209,12 +220,10 @@ public class CreateTableInfo {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        // analyze catalog name
-        if (Strings.isNullOrEmpty(ctlName)) {
-            if (ctx.getCurrentCatalog() != null) {
-                ctlName = ctx.getCurrentCatalog().getName();
-            } else {
-                ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        if (engineName.equals("olap")) {
+            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                throw new AnalysisException("Cannot create olap table out of internal catalog."
+                    + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
             }
         }
 
@@ -533,18 +542,34 @@ public class CreateTableInfo {
         }
     }
 
+    private void paddingEngineName(String ctlName, ConnectContext ctx) {
+        if (Strings.isNullOrEmpty(engineName)) {
+            if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName)) {
+                engineName = "olap";
+            } else if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
+                engineName = "hive";
+            } else if (ctx.getCurrentCatalog() instanceof IcebergExternalCatalog) {
+                engineName = "iceberg";
+            } else {
+                // set to olap by default
+                engineName = "olap";
+            }
+        }
+    }
+
     /**
      * validate ctas definition
      */
     public void validateCreateTableAsSelect(List<String> qualifierTableName, List<ColumnDefinition> columns,
                                             ConnectContext ctx) {
+        String catalogName = qualifierTableName.get(0);
+        paddingEngineName(catalogName, ctx);
         this.columns = Utils.copyRequiredMutableList(columns);
         // bucket num is hard coded 10 to be consistent with legacy planner
         if (engineName.equals("olap") && this.distribution == null) {
-            String catalogName = qualifierTableName.get(0);
             if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 throw new AnalysisException("Cannot create olap table out of internal catalog."
-                        + "Make sure 'engine' type is specified when use the catalog: " + catalogName);
+                        + " Make sure 'engine' type is specified when use the catalog: " + catalogName);
             }
             this.distribution = new DistributionDescriptor(true, false, 10,
                     Lists.newArrayList(columns.get(0).getName()));

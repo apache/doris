@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public class HmsCommitTest {
@@ -107,23 +108,18 @@ public class HmsCommitTest {
         List<String> partitionKeys = new ArrayList<>();
         partitionKeys.add("c3");
         String fileFormat = "orc";
-        HashMap<String, String> params = new HashMap<String, String>() {{
-                put("location_uri", dbLocation + tbWithPartition);
-            }};
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
-                dbName, tbWithPartition, columns, partitionKeys,
-                params, fileFormat);
+                dbName, tbWithPartition, Optional.of(dbLocation + tbWithPartition),
+                columns, partitionKeys,
+                new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata, true);
 
         // create table for tbWithoutPartition
-        HashMap<String, String> params2 = new HashMap<String, String>() {{
-                put("location_uri", dbLocation + tbWithPartition);
-            }};
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
-                    dbName, tbWithoutPartition, columns, new ArrayList<>(),
-                    params2, fileFormat);
+                    dbName, tbWithoutPartition, Optional.of(dbLocation + tbWithPartition),
+                    columns, new ArrayList<>(),
+                    new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata2, true);
-
     }
 
     @After
