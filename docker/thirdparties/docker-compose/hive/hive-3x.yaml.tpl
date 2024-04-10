@@ -19,86 +19,84 @@
 version: "3.8"
 
 services:
-  ${CONTAINER_UID}hadoop3-namenode:
+  namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
     environment:
       - CLUSTER_NAME=test
     env_file:
       - ./hadoop-hive.env
     container_name: ${CONTAINER_UID}hadoop3-namenode
-    expose:
-      - "${NAMENODE_HTTP_PORT}"
-      - "${FS_PORT}"
+    ports:
+      - "${FS_PORT}:8020"
     healthcheck:
-      test: [ "CMD", "curl", "http://localhost:${NAMENODE_HTTP_PORT}/" ]
+      test: [ "CMD", "curl", "http://localhost:9870/" ]
       interval: 5s
       timeout: 120s
       retries: 120
-    network_mode: "host"
 
-  ${CONTAINER_UID}hadoop3-datanode:
+  datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     env_file:
       - ./hadoop-hive.env
     environment:
-      SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT}"
+      SERVICE_PRECONDITION: "namenode:9870"
     container_name: ${CONTAINER_UID}hadoop3-datanode
-    expose:
-      - "${DATANODE_HTTP_PORT}"
     healthcheck:
-      test: [ "CMD", "curl", "http://localhost:${DATANODE_HTTP_PORT}" ]
+      test: [ "CMD", "curl", "http://localhost:9864" ]
       interval: 5s
       timeout: 60s
       retries: 120
-    network_mode: "host"
 
-  ${CONTAINER_UID}hive-server:
+  hive-server:
     image: lishizhen/hive:3.1.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     environment:
-      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${externalEnvIp}:${PG_PORT}/metastore"
-      SERVICE_PRECONDITION: "${externalEnvIp}:${HMS_PORT}"
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
+      SERVICE_PRECONDITION: "hive-metastore:9083"
     container_name: ${CONTAINER_UID}hive3-server
-    expose:
-      - "${HS_PORT}"
+    ports:
+      - "${HS_PORT}:10000"
     depends_on:
-      - ${CONTAINER_UID}hadoop3-datanode
-      - ${CONTAINER_UID}hadoop3-namenode
+      - datanode
+      - namenode
     healthcheck:
-      test: beeline -u "jdbc:hive2://127.0.0.1:${HS_PORT}/default" -n health_check -e "show databases;"
+      test: beeline -u "jdbc:hive2://127.0.0.1:10000/default" -n health_check -e "show databases;"
       interval: 10s
       timeout: 120s
       retries: 120
-    network_mode: "host"
 
 
-  ${CONTAINER_UID}hive3-metastore:
+  hive-metastore:
     image: lishizhen/hive:3.1.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     # command: /opt/hive/bin/hive --service metastore
     environment:
-      SERVICE_PRECONDITION: "${externalEnvIp}:${NAMENODE_HTTP_PORT} ${externalEnvIp}:${DATANODE_HTTP_PORT} ${externalEnvIp}:${PG_PORT}"
+      SERVICE_PRECONDITION: "namenode:9870 datanode:9864 hive-metastore-postgresql:5432"
     container_name: ${CONTAINER_UID}hive3-metastore
-    expose:
-      - "${HMS_PORT}"
+    ports:
+      - "${HMS_PORT}:9083"
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
-      - ${CONTAINER_UID}hive3-metastore-postgresql
-    network_mode: "host"
+      - hive-metastore-postgresql
 
-  ${CONTAINER_UID}hive3-metastore-postgresql:
+  hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:3.1.0
-    restart: always
     container_name: ${CONTAINER_UID}hive3-metastore-postgresql
     ports:
-      - ${PG_PORT}:5432
+      - "${PG_PORT}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 60s
       retries: 120
-    network_mode: "bridge"
+
+# solve HiveServer2 connect error:
+# java.net.URISyntaxException Illegal character in hostname :thrift://${CONTAINER_UID}hive3_default:9083
+
+networks:
+  default:
+    name: ${CONTAINER_UID}hive3-default

@@ -315,12 +315,10 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-    # generate hive-3x.yaml and hadoop-hive.env
-    export externalEnvIp=${IP_HOST}
+    # generate hive-3x.yaml
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
     envsubst < "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl > "${ROOT}"/docker-compose/hive/hive-2x.yaml
-    envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl > "${ROOT}"/docker-compose/hive/hadoop-hive.env
     sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
@@ -341,12 +339,10 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-    # generate hive-3x.yaml and hadoop-hive.env
-    export externalEnvIp=${IP_HOST}
+    # generate hive-3x.yaml
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     envsubst < "${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl > "${ROOT}"/docker-compose/hive/hive-3x.yaml
-    envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl > "${ROOT}"/docker-compose/hive/hadoop-hive.env
     sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
