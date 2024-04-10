@@ -18,12 +18,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -72,6 +75,19 @@ public class BaseViewStmt extends DdlStmt {
 
     public String getInlineViewDef() {
         return inlineViewDef;
+    }
+
+    protected void checkQueryAuth() throws UserException {
+        for (int i = 0; i < viewDefStmt.getBaseTblResultExprs().size(); ++i) {
+            SlotRef expr = (SlotRef) viewDefStmt.getBaseTblResultExprs().get(i);
+            TableName queryTableName = expr.getTableName();
+            String queryColumnName = expr.getColumnName();
+            // check privilege
+            Env.getCurrentEnv().getAccessManager()
+                    .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), queryTableName.getCtl(),
+                            queryTableName.getDb(), queryTableName.getTbl(), Sets.newHashSet(queryColumnName),
+                            PrivPredicate.SELECT);
+        }
     }
 
     /**
