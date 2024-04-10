@@ -75,7 +75,7 @@ public class ShowTableStmtTest {
                 null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW VIEWS FROM internal.testDb", stmt.toString());
-        Assert.assertEquals("testDb", stmt.getDb());
+        Assert.assertEquals("testCluster:testDb", stmt.getDb());
         Assert.assertEquals(TableType.VIEW, stmt.getType());
         Assert.assertFalse(stmt.isVerbose());
         Assert.assertEquals(1, stmt.getMetaData().getColumnCount());
