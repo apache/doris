@@ -161,7 +161,7 @@ public:
                          const std::map<std::string, std::string>& params) {
         auto debug_point = std::make_shared<DebugPoint>();
         debug_point->params = params;
-        add(debug_point);
+        add(name, debug_point);
     }
     template <typename T>
     void add_with_value(const std::string& name, const T& value) {
@@ -172,7 +172,7 @@ public:
     void add_with_callback(const std::string& name, std::function<void(ARGS...)> callback) {
         auto debug_point = std::make_shared<DebugPoint>();
         debug_point->callback = callback;
-        add(debug_point);
+        add(name, debug_point);
     }
 
     static DebugPoints* instance();
