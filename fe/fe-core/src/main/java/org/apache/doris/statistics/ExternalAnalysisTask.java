@@ -256,9 +256,6 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             }
             target = columnSize * tableSample.getSampleValue();
         }
-        if (sizeToRead > LIMIT_SIZE && sizeToRead > target * LIMIT_FACTOR) {
-            return true;
-        }
-        return false;
+        return sizeToRead > LIMIT_SIZE && sizeToRead > target * LIMIT_FACTOR;
     }
 }

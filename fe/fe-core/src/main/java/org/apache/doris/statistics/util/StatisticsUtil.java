@@ -1020,7 +1020,7 @@ public class StatisticsUtil {
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
-        int waitRowCountReportedTime = 90;
+        int waitRowCountReportedTime = 75;
         if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
             return false;
         }

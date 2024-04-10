@@ -236,8 +236,9 @@ public class AnalysisManager implements Writable {
     @VisibleForTesting
     protected AnalysisInfo buildAndAssignJob(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(stmt);
-        if (jobInfo.jobColumns.isEmpty()) {
+        if (jobInfo.jobColumns == null || jobInfo.jobColumns.isEmpty()) {
             // No statistics need to be collected or updated
+            LOG.info("Job columns are empty, skip analyze table {}", stmt.getTblName().toString());
             return null;
         }
         // Only OlapTable and Hive HMSExternalTable support sample analyze.
@@ -371,8 +372,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setColName(stringJoiner.toString());
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
-        long rowCount = table.getRowCount();
-        infoBuilder.setRowCount(rowCount);
+        infoBuilder.setRowCount(StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount());
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
         infoBuilder.setPriority(JobPriority.MANUAL);
