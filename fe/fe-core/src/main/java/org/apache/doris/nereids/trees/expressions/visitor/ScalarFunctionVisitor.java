@@ -316,6 +316,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
@@ -1985,6 +1986,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUpper(Upper upper, C context) {
         return visitScalarFunction(upper, context);
+    }
+
+    default R visitQuote(Quote quote, C context) {
+        return visitScalarFunction(quote, context);
     }
 
     default R visitUser(User user, C context) {
