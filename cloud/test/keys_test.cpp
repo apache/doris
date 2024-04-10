@@ -1052,5 +1052,5 @@ TEST(KeysTest, MetaSchemaPBDictionaryTest) {
     EXPECT_EQ("meta", decoded_prefix);
     EXPECT_EQ("tablet_schema_pb_dict", decoded_meta_prefix);
     EXPECT_EQ(instance_id, decoded_instance_id);
-    EXPECT_EQ(index_id, decoded_index_id); 
+    EXPECT_EQ(index_id, decoded_index_id);
 }

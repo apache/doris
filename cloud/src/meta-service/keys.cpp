@@ -306,9 +306,9 @@ void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::
 }
 
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out) {
-    encode_prefix(in, out);                                  // 0x01 "meta" ${instance_id}
+    encode_prefix(in, out);                           // 0x01 "meta" ${instance_id}
     encode_bytes(META_KEY_SCHEMA_PB_DICTIONARY, out); // "tablet_schema_pb_dict"
-    encode_int64(std::get<1>(in), out);                      // index_id
+    encode_int64(std::get<1>(in), out);               // index_id
 }
 
 //==============================================================================
