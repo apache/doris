@@ -173,15 +173,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
-            // check the column used in query is in mv or not
-            if (!checkColumnUsedValid(queryStructInfo, viewStructInfo, queryToViewSlotMapping)) {
-                materializationContext.recordFailReason(queryStructInfo,
-                        "The columns used by query are not in view",
-                        () -> String.format("query struct info is %s, view struct info is %s",
-                                queryStructInfo.getTopPlan().treeString(),
-                                viewStructInfo.getTopPlan().treeString()));
-                continue;
-            }
             LogicalCompatibilityContext compatibilityContext = LogicalCompatibilityContext.from(
                     queryToViewTableMapping, queryToViewSlotMapping, queryStructInfo, viewStructInfo);
             ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
@@ -259,26 +250,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             rewriteResults.add(finalRewrittenPlan);
         }
         return rewriteResults;
-    }
-
-    /**
-     * Check the column used by query is in materialized view output or not
-     */
-    protected boolean checkColumnUsedValid(StructInfo queryInfo, StructInfo mvInfo,
-            SlotMapping queryToViewSlotMapping) {
-        Set<ExprId> queryUsedSlotSetViewBased = ExpressionUtils.shuttleExpressionWithLineage(
-                        queryInfo.getTopPlan().getOutput(), queryInfo.getTopPlan(), queryInfo.getTableBitSet()).stream()
-                .flatMap(expr -> ExpressionUtils.replace(expr, queryToViewSlotMapping.toSlotReferenceMap())
-                        .collectToSet(each -> each instanceof Slot).stream())
-                .map(each -> ((Slot) each).getExprId())
-                .collect(Collectors.toSet());
-
-        Set<ExprId> viewUsedSlotSet = ExpressionUtils.shuttleExpressionWithLineage(mvInfo.getTopPlan().getOutput(),
-                        mvInfo.getTopPlan(), mvInfo.getTableBitSet()).stream()
-                .flatMap(expr -> expr.collectToSet(each -> each instanceof Slot).stream())
-                .map(each -> ((Slot) each).getExprId())
-                .collect(Collectors.toSet());
-        return viewUsedSlotSet.containsAll(queryUsedSlotSetViewBased);
     }
 
     /**
