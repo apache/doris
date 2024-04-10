@@ -17,15 +17,15 @@
 
 import org.junit.Assert;
 
-suite("test_show_tablets_belong_auth","p0,auth") {
-    String user = 'test_show_tablets_belong_auth_user'
+suite("test_show_transaction_auth","p0,auth") {
+    String user = 'test_show_transaction_auth_user'
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
-            sql "SHOW TABLETS BELONG 27028"
+            sql "SHOW TRANSACTION WHERE ID=4005;"
         } catch (Exception e) {
             log.info(e.getMessage())
             assertTrue(e.getMessage().contains("need (at least one of) the ADMIN privilege"))
