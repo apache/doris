@@ -236,6 +236,8 @@ public:
         get_offsets()[self_row] = get_offsets()[self_row - 1];
     }
 
+    void replace(const Field& f, size_t self_row) override;
+
     void clear() override {
         data->clear();
         offsets->clear();

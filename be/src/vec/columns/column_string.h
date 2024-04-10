@@ -578,6 +578,29 @@ public:
         }
     }
 
+    void replace(const Field& f, size_t self_row) override {
+        StringRef data;
+        if (f.get_type() == Field::Types::JSONB) {
+            // Handle JsonbField
+            const auto& real_field = vectorized::get<const JsonbField&>(f);
+            data = StringRef(real_field.get_value(), real_field.get_size());
+        } else {
+            data.data = vectorized::get<const String&>(f).data();
+            data.size = vectorized::get<const String&>(f).size();
+        }
+        if (!self_row) {
+            // self_row == 0 means we first call replace_column_data() with batch column data. so we
+            // should clean last batch column data.
+            chars.clear();
+            offsets[self_row] = data.size;
+        } else {
+            offsets[self_row] = offsets[self_row - 1] + data.size;
+            check_chars_length(offsets[self_row], self_row);
+        }
+
+        chars.insert(data.data, data.data + data.size);
+    }
+
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;

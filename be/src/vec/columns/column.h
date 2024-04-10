@@ -673,6 +673,10 @@ public:
 
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
+    virtual void replace(const Field& f, size_t self_row) {
+        LOG(FATAL) << "Method replace is not supported for " << get_name();
+    }
+
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
 

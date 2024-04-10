@@ -735,6 +735,7 @@ void ColumnObject::get(size_t n, Field& res) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize();
     }
+    res = VariantMap();
     auto& map = res.get<VariantMap&>();
     for (const auto& entry : subcolumns) {
         auto it = map.try_emplace(entry->path.get_path()).first;
@@ -1511,6 +1512,80 @@ Status ColumnObject::sanitize() const {
 
     VLOG_DEBUG << "sanitized " << debug_string();
     return Status::OK();
+}
+
+void ColumnObject::Subcolumn::replace(Field field, int row_num) {
+    finalize();
+    Field new_field;
+    if (!field.is_null()) {
+        convert_field_to_type(field, *least_common_type.get(), &new_field);
+        data.back()->replace(new_field, row_num);
+    } else {
+        data.back()->replace(Null(), row_num);
+    }
+}
+
+void ColumnObject::replace_column_data(const IColumn& col, size_t row, size_t self_row) {
+    DCHECK(size() > self_row);
+    DCHECK(col.size() > row);
+#ifndef NDEBUG
+    check_consistency();
+#endif
+    Field var_filed = VariantMap();
+    col.get(row, var_filed);
+    const auto& object = var_filed.get<const VariantMap&>();
+    phmap::flat_hash_set<std::string> inserted;
+    size_t old_size = size();
+    for (const auto& [key_str, value] : object) {
+        PathInData key;
+        if (!key_str.empty()) {
+            key = PathInData(key_str);
+        }
+        if (value.is_null()) {
+            // ignore nulls
+            continue;
+        }
+        inserted.insert(key_str);
+        if (!has_subcolumn(key)) {
+            auto most_common_type = std::make_shared<MostCommonType>();
+            auto type = is_nullable ? make_nullable(most_common_type) : most_common_type;
+            auto column = type->create_column();
+            column->resize(old_size);
+            bool succ = add_sub_column(key, std::move(column), type);
+            if (!succ) {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Failed to add sub column {}", key.get_path());
+            }
+        }
+        auto* subcolumn = get_subcolumn(key);
+        if (!subcolumn) {
+            doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                             fmt::format("Failed to find sub column {}", key.get_path()));
+        }
+        subcolumn->replace(value, self_row);
+    }
+    for (auto& entry : subcolumns) {
+        if (!inserted.contains(entry->path.get_path())) {
+            entry->data.replace(Null(), self_row);
+        }
+    }
+
+#ifndef NDEBUG
+    check_consistency();
+#endif
+}
+
+void ColumnObject::replace_column_data_default(size_t self_row) {
+#ifndef NDEBUG
+    check_consistency();
+#endif
+    if (!is_finalized()) {
+        finalize();
+    }
+    Field null;
+    for (auto& entry : subcolumns) {
+        entry->data.data[0]->replace(null, self_row);
+    }
 }
 
 } // namespace doris::vectorized
