@@ -26,15 +26,15 @@ suite("load") {
     sql """
         CREATE STORAGE VAULT IF NOT EXISTS ssb_sf1_p2_s3
         PROPERTIES (
-        "type"="s3",
+        "type"="S3",
         "s3.endpoint"="${getS3Endpoint()}",
-        "s3.region" = ${getS3Region()}"",
-        "s3.ak" = "${getS3AK()}",
-        "s3.sk" = "${getS3SK()}",
+        "s3.region" = "${getS3Region()}",
+        "s3.access_key" = "${getS3AK()}",
+        "s3.secret_key" = "${getS3SK()}",
         "s3.root.path" = "ssb_sf1_p2_s3",
-        "s3.bucket" = "${getS3Bucket()}",
-        "s3.external_endpoint" = "${getS3ExternalEndpoint()}",
-        "s3.provider" = "${getS3Provider()}"
+        "s3.bucket" = "${getS3BucketName()}",
+        "s3.external_endpoint" = "",
+        "provider" = "${getS3Provider()}"
         );
     """
 
