@@ -2,6 +2,18 @@
 -- !select_default --
 47	Lychee	Lychee	Plum	Banana	Lychee	Lychee	Cherry	Pineapple	Banana	Watermelon	Mango	Apple	Apple	Peach	Raspberry	Grapes	Raspberry	Raspberry	Kiwi	Orange	Apple	Plum	Blueberry	Strawberry	Orange	Raspberry	Strawberry	Lemon	Orange	Blueberry	Apple	Peach	Banana	Kiwi	Orange	Banana	Strawberry	Lemon	Mango	Orange	Peach	Avocado	Pineapple	Kiwi	Lemon	Grapes	Strawberry	Grapes	Lychee
 
--- !select_default --
-47	Lychee	Lychee	Plum	Banana	Lychee	Lychee	Cherry	Pineapple	Banana	Watermelon	Mango	Apple	Apple	Peach	Raspberry	Grapes	Raspberry	Raspberry	Kiwi	Orange	Apple	Plum	Blueberry	Strawberry	Orange	Raspberry	Strawberry	Lemon	Orange	Blueberry	Apple	Peach	Banana	Kiwi	Orange	Banana	Strawberry	Lemon	Mango	Orange	Peach	Avocado	Pineapple	Kiwi	Lemon	Grapes	Strawberry	Grapes	Lychee	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+-- !select_default2 --
+47	Lychee	Lychee	Plum	Banana	Lychee	Lychee	Cherry	Pineapple	Banana	Watermelon	Mango	Apple	Apple	Peach	Raspberry	Grapes	Raspberry	Raspberry	Kiwi	Orange	Apple	Plum	Blueberry	Strawberry	Orange	Raspberry	Strawberry	Lemon	Orange	Blueberry	Apple	Peach	Banana	Kiwi	Orange	Banana	Strawberry	Lemon	Mango	Orange	Peach	Avocado	Pineapple	Kiwi	Lemon	Grapes	Strawberry	Grapes	Lychee	Lychee	Lychee	Plum	Banana	Lychee	Lychee	Cherry	Pineapple	Banana	Watermelon	Mango	Apple	Apple	Peach	Raspberry	Grapes	Raspberry	Raspberry	Kiwi	Orange	Apple	Plum	Blueberry	Strawberry	Orange	Raspberry	Strawberry	Lemon	Orange	Blueberry	Apple	Peach	Banana	Kiwi	Orange	Banana	Strawberry	Lemon	Mango	Orange	Peach	Avocado	Pineapple	Kiwi	Lemon	Grapes	Strawberry	Grapes	Lychee
+
+-- !checksum1 --
+965ee9b1a48efb40d283e1f86cf65c28
+
+-- !checksum2 --
+4152d298b5175ec4790ded477e1d19a1
+
+-- !checksum3 --
+86d7f35a16beb7f0b255476fd4bb793a
+
+-- !checksum4 --
+522460c0794813d38be675715b728c40
 
