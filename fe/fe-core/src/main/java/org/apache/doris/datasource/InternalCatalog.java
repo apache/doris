@@ -1823,11 +1823,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         long versionTime = olapTable.getVisibleVersionTime();
         // Only update table version if drop a non-empty partition
         if (partition != null && partition.hasData()) {
+            versionTime = System.currentTimeMillis();
             if (Config.isNotCloudMode()) {
                 version = olapTable.getNextVersion();
+                olapTable.updateVisibleVersionAndTime(version, versionTime);
             }
-            versionTime = System.currentTimeMillis();
-            olapTable.updateVisibleVersionAndTime(version, versionTime);
         }
 
         // log
