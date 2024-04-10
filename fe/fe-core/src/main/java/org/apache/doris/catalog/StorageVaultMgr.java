@@ -164,12 +164,14 @@ public class StorageVaultMgr {
 
     public void createS3Vault(StorageVault vault) throws DdlException {
         S3StorageVault s3StorageVault = (S3StorageVault) vault;
-        Cloud.ObjectStoreInfoPB.Builder objBuilder = S3Properties.getObjStoreInfoPB(vault.getCopiedProperties());
-        objBuilder.setName(s3StorageVault.getName());
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
                 = Cloud.AlterObjStoreInfoRequest.newBuilder();
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_VAULT);
-        requestBuilder.setObj(objBuilder.build());
+        Cloud.ObjectStoreInfoPB.Builder objBuilder = S3Properties.getObjStoreInfoPB(vault.getCopiedProperties());
+        Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
+        alterObjVaultBuilder.setName(s3StorageVault.getName());
+        alterObjVaultBuilder.setS3Obj(objBuilder.build());
+        requestBuilder.setVault(alterObjVaultBuilder.build());
         try {
             Cloud.AlterObjStoreInfoResponse response =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());

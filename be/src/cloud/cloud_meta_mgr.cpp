@@ -811,7 +811,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         return s;
     }
 
-    for (const auto& obj_store : resp.obj_info()) {
+    auto add_obj_store = [&vault_infos](const auto& obj_store) {
         vault_infos->emplace_back(obj_store.id(),
                                   S3Conf {
                                           .bucket = obj_store.bucket(),
@@ -823,10 +823,17 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
                                           .sse_enabled = obj_store.sse_enabled(),
                                           .provider = obj_store.provider(),
                                   });
+    };
+
+    for (const auto& obj_store : resp.obj_info()) {
+        add_obj_store(obj_store);
     }
     for (const auto& vault : resp.storage_vault()) {
         if (vault.has_hdfs_info()) {
             vault_infos->emplace_back(vault.id(), vault.hdfs_info());
+        }
+        if (vault.has_s3_obj()) {
+            add_obj_store(vault.s3_obj());
         }
     }
     return Status::OK();

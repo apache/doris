@@ -174,28 +174,23 @@ public abstract class StorageVault {
                 .addColumn(new Column("Propeties", ScalarType.createVarchar(65535)))
                 .build();
 
-    public static List<String> convertToShowStorageVaultProperties(Cloud.ObjectStoreInfoPB info) {
-        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
-        builder.mergeFrom(info);
-        List<String> row = new ArrayList<>();
-        row.add(info.getName());
-        row.add(info.getId());
-        TextFormat.Printer printer = TextFormat.printer();
-        builder.clearId();
-        builder.clearName();
-        builder.setSk("xxxxxxx");
-        row.add(printer.shortDebugString(builder));
-        return row;
-    }
-
     public static List<String> convertToShowStorageVaultProperties(Cloud.StorageVaultPB vault) {
         List<String> row = new ArrayList<>();
         row.add(vault.getName());
         row.add(vault.getId());
-        Cloud.HdfsVaultInfo.Builder builder = Cloud.HdfsVaultInfo.newBuilder();
-        builder.mergeFrom(vault.getHdfsInfo());
         TextFormat.Printer printer = TextFormat.printer();
-        row.add(printer.shortDebugString(builder));
+        if (vault.hasHdfsInfo()) {
+            Cloud.HdfsVaultInfo.Builder builder = Cloud.HdfsVaultInfo.newBuilder();
+            builder.mergeFrom(vault.getHdfsInfo());
+            row.add(printer.shortDebugString(builder));
+        }
+        if (vault.hasS3Obj()) {
+            Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
+            builder.mergeFrom(vault.getS3Obj());
+            builder.clearId();
+            builder.setSk("xxxxxxx");
+            row.add(printer.shortDebugString(builder));
+        }
         return row;
     }
 }

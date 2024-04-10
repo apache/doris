@@ -38,8 +38,8 @@ suite("load") {
         );
     """
 
-    // sleep 2 seconds to wait for BE sync the vault info from MS
-    sleep(2000)
+    // sleep 3 minutes to wait for BE sync the vault info from MS
+    sleep(180000)
 
     // ssb_sf1_p1 is writted to test unique key table merge correctly.
     // It creates unique key table and sets bucket num to 1 in order to make sure that

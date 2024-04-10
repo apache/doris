@@ -528,7 +528,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
-        if (!request->has_obj() && (!request->has_vault() || request->vault().has_s3_obj())) {
+        if (!request->has_obj() && (!request->has_vault() || !request->vault().has_s3_obj())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
             return;
@@ -746,9 +746,9 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         } else if (request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT) {
             StorageVaultPB vault;
             vault.set_id(last_item.id());
-            vault.set_name(last_item.name());
-            *instance.mutable_resource_ids()->Add() = last_item.id();
-            *instance.mutable_storage_vault_names()->Add() = last_item.name();
+            vault.set_name(request->vault().name());
+            *instance.mutable_resource_ids()->Add() = vault.id();
+            *instance.mutable_storage_vault_names()->Add() = vault.name();
             vault.mutable_s3_obj()->MergeFrom(last_item);
             auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
             txn->put(vault_key, vault.SerializeAsString());
