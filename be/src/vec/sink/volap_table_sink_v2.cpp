@@ -44,8 +44,8 @@ VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_de
 VOlapTableSinkV2::~VOlapTableSinkV2() = default;
 
 Status VOlapTableSinkV2::init(const TDataSink& t_sink) {
-    RETURN_IF_ERROR(AsyncWriterSink::init(t_sink));
     RETURN_IF_ERROR(_writer->init_properties(_pool));
+    RETURN_IF_ERROR(AsyncWriterSink::init(t_sink));
     return Status::OK();
 }
 

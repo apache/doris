@@ -28,9 +28,9 @@ OperatorPtr OlapTableSinkV2OperatorBuilder::build_operator() {
 Status OlapTableSinkV2LocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<Parent>();
     RETURN_IF_ERROR(_writer->init_properties(p._pool));
+    RETURN_IF_ERROR(Base::open(state));
     return Status::OK();
 }
 
