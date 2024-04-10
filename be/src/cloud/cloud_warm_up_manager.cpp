@@ -76,37 +76,34 @@ void CloudWarmUpManager::handle_jobs() {
                 continue;
             }
             std::shared_ptr<bthread::CountdownEvent> wait =
-                    std::make_shared<bthread::CountdownEvent>();
-            auto callback = [=](Status st) {
-                if (!st) {
-                    LOG_WARNING("Warm up error ").error(st);
-                }
-                wait->signal();
-            };
+                    std::make_shared<bthread::CountdownEvent>(0);
             auto tablet_meta = tablet->tablet_meta();
             auto rs_metas = tablet_meta->snapshot_rs_metas();
             for (auto& [_, rs] : rs_metas) {
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
                     io::S3FileMeta download_file_meta;
-                    download_file_meta.file_size = 0;
                     download_file_meta.file_system = rs->fs();
                     std::string seg_path = BetaRowset::remote_segment_path(rs->tablet_id(),
                                                                            rs->rowset_id(), seg_id);
                     download_file_meta.path = seg_path;
-                    // download_file_meta.expiration_time =
-                    //         tablet_meta->ttl_seconds() == 0
-                    //                 ? 0
-                    //                 : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
+                    download_file_meta.expiration_time =
+                            tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
+                                    ? 0
+                                    : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
                     if (download_file_meta.expiration_time <= UnixSeconds()) {
                         download_file_meta.expiration_time = 0;
                     }
-                    download_file_meta.download_callback = callback;
+                    download_file_meta.download_callback = [=](Status st) {
+                        if (!st) {
+                            LOG_WARNING("Warm up error ").error(st);
+                        }
+                        wait->signal();
+                    };
                     wait->add_count();
                     io::FileCacheBlockDownloader::instance()->submit_download_task(
                             std::move(download_file_meta));
                 }
             }
-            // TODO(liuchangliang): flow control
             if (!wait->wait()) {
                 LOG_WARNING("Warm up tablet {} take a long time", tablet_meta->tablet_id());
             }

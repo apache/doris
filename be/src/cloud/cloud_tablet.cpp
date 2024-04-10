@@ -215,7 +215,6 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     ? 0
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
-                             rowset_meta->rowset_id().to_string(), rs->segment_file_path(seg_id));
                     io::FileCacheBlockDownloader::instance()->submit_download_task(
                             std::move(download_file_meta));
                 }
