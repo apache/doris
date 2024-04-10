@@ -3214,7 +3214,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         Map<String, AddPartitionClause> addPartitionClauseMap;
         try {
-            addPartitionClauseMap = PartitionExprUtil.getAddPartitionClauseFromPartitionValues(olapTable,
+            addPartitionClauseMap = PartitionExprUtil.getAddPartitionClauseFromPartitionValues(db, olapTable,
                     partitionValues, partitionInfo);
         } catch (AnalysisException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
