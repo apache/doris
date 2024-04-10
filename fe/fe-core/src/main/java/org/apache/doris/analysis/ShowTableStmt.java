@@ -136,7 +136,7 @@ public class ShowTableStmt extends ShowStmt {
         }
         if (type != null) {
             BinaryPredicate viewFilter = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                    new SlotRef(tablesTableName, "ENGINE"), new StringLiteral(type.toEngineName()));
+                    new SlotRef(TABLE_NAME, "ENGINE"), new StringLiteral(type.toEngineName()));
             where = CompoundPredicate.createConjunction(viewFilter, where);
         }
         where = where.substitute(aliasMap);
