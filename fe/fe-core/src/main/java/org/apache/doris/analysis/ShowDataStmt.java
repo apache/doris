@@ -123,11 +123,6 @@ public class ShowDataStmt extends ShowStmt {
             Util.prohibitExternalCatalog(analyzer.getDefaultCatalog(), this.getClass().getSimpleName());
         }
 
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
 
         // order by
@@ -427,7 +422,11 @@ public class ShowDataStmt extends ShowStmt {
         return toSql();
     }
 
-    private void getAllDbStats() {
+    private void getAllDbStats() throws AnalysisException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
         List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
         if (dbNames == null || dbNames.isEmpty()) {
             return;
