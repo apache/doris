@@ -394,15 +394,17 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     MYSQL* conn;
     conn = mysql_init(nullptr);
     if (!conn) {
-        msg = "mysql init failed";
-        LOG(WARNING) << msg;
+        msg = "mysql init failed ";
+        LOG(WARNING) << msg << mysql_error(conn) << " host " << host << " port " << port << " user "
+                     << user << " password " << password << " instance_id " << instance_id;
         return;
     }
     conn = mysql_real_connect(conn, host.c_str(), user.c_str(), password.c_str(), "", stol(port),
                               nullptr, 0);
     if (!conn) {
-        msg = "mysql init failed";
-        LOG(WARNING) << msg;
+        msg = "mysql init failed ";
+        LOG(WARNING) << msg << mysql_error(conn) << " host " << host << " port " << port << " user "
+                     << user << " password " << password << " instance_id " << instance_id;
         return;
     }
     LOG(INFO) << "mysql conn succ ";
