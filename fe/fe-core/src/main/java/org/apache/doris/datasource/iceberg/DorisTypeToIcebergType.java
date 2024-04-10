@@ -102,27 +102,19 @@ public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
         PrimitiveType primitiveType = atomic.getPrimitiveType();
         if (primitiveType.equals(PrimitiveType.BOOLEAN)) {
             return Types.BooleanType.get();
-        } else if (primitiveType.equals(PrimitiveType.TINYINT)
-                || primitiveType.equals(PrimitiveType.SMALLINT)
-                || primitiveType.equals(PrimitiveType.INT)) {
+        } else if (primitiveType.equals(PrimitiveType.INT)) {
             return Types.IntegerType.get();
-        } else if (primitiveType.equals(PrimitiveType.BIGINT)
-                || primitiveType.equals(PrimitiveType.LARGEINT)) {
+        } else if (primitiveType.equals(PrimitiveType.BIGINT)) {
             return Types.LongType.get();
         } else if (primitiveType.equals(PrimitiveType.FLOAT)) {
             return Types.FloatType.get();
         } else if (primitiveType.equals(PrimitiveType.DOUBLE)) {
             return Types.DoubleType.get();
-        } else if (primitiveType.equals(PrimitiveType.CHAR)
-                || primitiveType.equals(PrimitiveType.VARCHAR)
-                || primitiveType.equals(PrimitiveType.STRING)) {
+        } else if (primitiveType.equals(PrimitiveType.STRING)) {
             return Types.StringType.get();
         } else if (primitiveType.equals(PrimitiveType.DATE)
                 || primitiveType.equals(PrimitiveType.DATEV2)) {
             return Types.DateType.get();
-        } else if (primitiveType.equals(PrimitiveType.TIME)
-                || primitiveType.equals(PrimitiveType.TIMEV2)) {
-            return Types.TimeType.get();
         } else if (primitiveType.equals(PrimitiveType.DECIMALV2)
                 || primitiveType.isDecimalV3Type()) {
             return Types.DecimalType.of(
