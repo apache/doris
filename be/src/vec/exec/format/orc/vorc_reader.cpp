@@ -299,8 +299,8 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
     RETURN_IF_ERROR(_create_file_reader());
     auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        col_names->emplace_back(_get_field_name_lower_case(&root_type, i));
-        col_types->emplace_back(_convert_to_doris_type(root_type.getSubtype(i)));
+        col_names->emplace_back(get_field_name_lower_case(&root_type, i));
+        col_types->emplace_back(convert_to_doris_type(root_type.getSubtype(i)));
     }
     return Status::OK();
 }
@@ -368,7 +368,7 @@ void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& 
     bool hive1_orc = true;
     for (int i = 0; i < type.getSubtypeCount(); ++i) {
         orc_cols.emplace_back(type.getFieldName(i));
-        auto filed_name_lower_case = _get_field_name_lower_case(&type, i);
+        auto filed_name_lower_case = get_field_name_lower_case(&type, i);
         if (hive1_orc) {
             hive1_orc = _is_hive1_col_name(filed_name_lower_case);
         }
@@ -532,6 +532,14 @@ std::vector<OrcPredicate> value_range_to_predicate(
         std::vector<orc::TypeKind>* unsupported_pushdown_types) {
     std::vector<OrcPredicate> predicates;
 
+    PrimitiveType src_type = OrcReader::convert_to_doris_type(type).type;
+    if (src_type != primitive_type) {
+        if (!(is_string_type(src_type) && is_string_type(primitive_type))) {
+            // not support schema change
+            return predicates;
+        }
+    }
+
     if (unsupported_pushdown_types != nullptr) {
         for (vector<orc::TypeKind>::iterator it = unsupported_pushdown_types->begin();
              it != unsupported_pushdown_types->end(); ++it) {
@@ -670,7 +678,7 @@ bool OrcReader::_init_search_argument(
     auto& root_type = _reader->getType();
     std::unordered_map<std::string, const orc::Type*> type_map;
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        type_map.emplace(_get_field_name_lower_case(&root_type, i), root_type.getSubtype(i));
+        type_map.emplace(get_field_name_lower_case(&root_type, i), root_type.getSubtype(i));
     }
     for (auto& col_name : _lazy_read_ctx.all_read_columns) {
         auto iter = colname_to_value_range->find(col_name);
@@ -872,7 +880,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         if (_is_hive1_orc) {
             name = _removed_acid_file_col_name_to_schema_col[type.getFieldName(i)];
         } else {
-            name = _get_field_name_lower_case(&type, i);
+            name = get_field_name_lower_case(&type, i);
         }
         _colname_to_idx[name] = idx++;
         const orc::Type* sub_type = type.getSubtype(i);
@@ -982,7 +990,7 @@ void OrcReader::_init_file_description() {
     }
 }
 
-TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
+TypeDescriptor OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     switch (orc_type->getKind()) {
     case orc::TypeKind::BOOLEAN:
         return TypeDescriptor(PrimitiveType::TYPE_BOOLEAN);
@@ -1017,20 +1025,20 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {
         TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
-        list_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(0)));
+        list_type.add_sub_type(convert_to_doris_type(orc_type->getSubtype(0)));
         return list_type;
     }
     case orc::TypeKind::MAP: {
         TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
-        map_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(0)));
-        map_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(1)));
+        map_type.add_sub_type(convert_to_doris_type(orc_type->getSubtype(0)));
+        map_type.add_sub_type(convert_to_doris_type(orc_type->getSubtype(1)));
         return map_type;
     }
     case orc::TypeKind::STRUCT: {
         TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
         for (int i = 0; i < orc_type->getSubtypeCount(); ++i) {
-            struct_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(i)),
-                                     _get_field_name_lower_case(orc_type, i));
+            struct_type.add_sub_type(convert_to_doris_type(orc_type->getSubtype(i)),
+                                     get_field_name_lower_case(orc_type, i));
         }
         return struct_type;
     }
@@ -1043,8 +1051,8 @@ Status OrcReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
                               std::unordered_set<std::string>* missing_cols) {
     auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        name_to_type->emplace(_get_field_name_lower_case(&root_type, i),
-                              _convert_to_doris_type(root_type.getSubtype(i)));
+        name_to_type->emplace(get_field_name_lower_case(&root_type, i),
+                              convert_to_doris_type(root_type.getSubtype(i)));
     }
     for (auto& col : _missing_cols) {
         missing_cols->insert(col);
@@ -1276,36 +1284,11 @@ Status OrcReader::_fill_doris_array_offsets(const std::string& col_name,
 }
 
 template <bool is_filter>
-Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
-                                              const ColumnPtr& doris_column,
-                                              const DataTypePtr& data_type,
-                                              const orc::Type* orc_column_type,
-                                              orc::ColumnVectorBatch* cvb, size_t num_values) {
-    MutableColumnPtr data_column;
-    if (doris_column->is_nullable()) {
-        SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
-        data_column = nullable_column->get_nested_column_ptr();
-        NullMap& map_data_column = nullable_column->get_null_map_data();
-        auto origin_size = map_data_column.size();
-        map_data_column.resize(origin_size + num_values);
-        if (cvb->hasNulls) {
-            auto* cvb_nulls = reinterpret_cast<uint8_t*>(cvb->notNull.data());
-            for (int i = 0; i < num_values; ++i) {
-                map_data_column[origin_size + i] = !cvb_nulls[i];
-            }
-        } else {
-            memset(map_data_column.data() + origin_size, 0, num_values);
-        }
-    } else {
-        if (cvb->hasNulls) {
-            return Status::InternalError("Not nullable column {} has null values in orc file",
-                                         col_name);
-        }
-        data_column = doris_column->assume_mutable();
-    }
-
+Status OrcReader::_fill_doris_data_column(const std::string& col_name,
+                                          MutableColumnPtr& data_column,
+                                          const DataTypePtr& data_type,
+                                          const orc::Type* orc_column_type,
+                                          orc::ColumnVectorBatch* cvb, size_t num_values) {
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
 #define DISPATCH(FlatType, CppType, OrcColumnType) \
@@ -1360,8 +1343,9 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get())
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
+        std::string element_name = col_name + ".element";
         return _orc_column_to_doris_column<is_filter>(
-                col_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
+                element_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
     }
     case TypeIndex::Map: {
@@ -1382,12 +1366,14 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                         ->get_value_type());
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
-        const ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
-        const ColumnPtr& doris_value_column = doris_map.get_values_ptr();
-        RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(col_name, doris_key_column,
+        ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
+        ColumnPtr& doris_value_column = doris_map.get_values_ptr();
+        std::string key_col_name = col_name + ".key";
+        std::string value_col_name = col_name + ".value";
+        RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(key_col_name, doris_key_column,
                                                                doris_key_type, orc_key_type,
                                                                orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<is_filter>(col_name, doris_value_column,
+        return _orc_column_to_doris_column<is_filter>(value_col_name, doris_value_column,
                                                       doris_value_type, orc_value_type,
                                                       orc_map->elements.get(), element_size);
     }
@@ -1399,18 +1385,45 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         }
         auto* orc_struct = dynamic_cast<orc::StructVectorBatch*>(cvb);
         auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
-        if (orc_struct->fields.size() != doris_struct.tuple_size()) {
-            return Status::InternalError("Wrong number of struct fields for column '{}'", col_name);
-        }
+        std::map<int, int> read_fields;
+        std::set<int> missing_fields;
         const DataTypeStruct* doris_struct_type =
                 reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
-            orc::ColumnVectorBatch* orc_field = orc_struct->fields[i];
-            const orc::Type* orc_type = orc_column_type->getSubtype(i);
-            const ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
-            const DataTypePtr& doris_type = doris_struct_type->get_element(i);
+            bool is_missing_col = true;
+            for (int j = 0; j < orc_column_type->getSubtypeCount(); ++j) {
+                if (boost::iequals(doris_struct_type->get_name_by_position(i),
+                                   orc_column_type->getFieldName(j))) {
+                    read_fields[i] = j;
+                    is_missing_col = false;
+                    break;
+                }
+            }
+            if (is_missing_col) {
+                missing_fields.insert(i);
+            }
+        }
+
+        for (int missing_field : missing_fields) {
+            ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
+            if (!doris_field->is_nullable()) {
+                return Status::InternalError(
+                        "Child field of '{}' is not nullable, but is missing in orc file",
+                        col_name);
+            }
+            reinterpret_cast<ColumnNullable*>(doris_field->assume_mutable().get())
+                    ->insert_null_elements(num_values);
+        }
+
+        for (auto read_field : read_fields) {
+            orc::ColumnVectorBatch* orc_field = orc_struct->fields[read_field.second];
+            const orc::Type* orc_type = orc_column_type->getSubtype(read_field.second);
+            std::string field_name =
+                    col_name + "." + orc_column_type->getFieldName(read_field.second);
+            ColumnPtr& doris_field = doris_struct.get_column_ptr(read_field.first);
+            const DataTypePtr& doris_type = doris_struct_type->get_element(read_field.first);
             RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(
-                    col_name, doris_field, doris_type, orc_type, orc_field, num_values));
+                    field_name, doris_field, doris_type, orc_type, orc_field, num_values));
         }
         return Status::OK();
     }
@@ -1420,7 +1433,67 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     return Status::InternalError("Unsupported type for column '{}'", col_name);
 }
 
-std::string OrcReader::_get_field_name_lower_case(const orc::Type* orc_type, int pos) {
+template <bool is_filter>
+Status OrcReader::_orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
+                                              const DataTypePtr& data_type,
+                                              const orc::Type* orc_column_type,
+                                              orc::ColumnVectorBatch* cvb, size_t num_values) {
+    TypeDescriptor src_type = convert_to_doris_type(orc_column_type);
+    for (const std::pair<std::string, int>& dict_col : _dict_filter_cols) {
+        if (col_name == dict_col.first) {
+            src_type = TypeDescriptor(PrimitiveType::TYPE_INT);
+            break;
+        }
+    }
+    if (!_converters.contains(col_name)) {
+        std::unique_ptr<converter::ColumnTypeConverter> converter =
+                converter::ColumnTypeConverter::get_converter(src_type, data_type);
+        if (!converter->support()) {
+            return Status::InternalError(
+                    "The column type of '{}' has changed and is not supported: ", col_name,
+                    converter->get_error_msg());
+        }
+        // reuse the cached converter
+        _converters[col_name] = std::move(converter);
+    }
+    converter::ColumnTypeConverter* converter = _converters[col_name].get();
+    ColumnPtr resolved_column = converter->get_column(src_type, doris_column, data_type);
+    const DataTypePtr& resolved_type = converter->get_type();
+
+    MutableColumnPtr data_column;
+    if (resolved_column->is_nullable()) {
+        SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
+        auto* nullable_column =
+                reinterpret_cast<ColumnNullable*>(resolved_column->assume_mutable().get());
+        data_column = nullable_column->get_nested_column_ptr();
+        NullMap& map_data_column = nullable_column->get_null_map_data();
+        auto origin_size = map_data_column.size();
+        map_data_column.resize(origin_size + num_values);
+        if (cvb->hasNulls) {
+            auto* cvb_nulls = reinterpret_cast<uint8_t*>(cvb->notNull.data());
+            for (int i = 0; i < num_values; ++i) {
+                map_data_column[origin_size + i] = !cvb_nulls[i];
+            }
+        } else {
+            memset(map_data_column.data() + origin_size, 0, num_values);
+        }
+    } else {
+        if (cvb->hasNulls) {
+            return Status::InternalError("Not nullable column {} has null values in orc file",
+                                         col_name);
+        }
+        data_column = resolved_column->assume_mutable();
+    }
+
+    RETURN_IF_ERROR(_fill_doris_data_column<is_filter>(col_name, data_column,
+                                                       remove_nullable(resolved_type),
+                                                       orc_column_type, cvb, num_values));
+    // resolve schema change
+    auto converted_column = doris_column->assume_mutable();
+    return converter->convert(resolved_column, converted_column);
+}
+
+std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int pos) {
     std::string name = orc_type->getFieldName(pos);
     transform(name.begin(), name.end(), name.begin(), ::tolower);
     return name;
