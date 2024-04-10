@@ -198,7 +198,7 @@ public class OlapScanNode extends ScanNode {
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
 
-    boolean isFromPrepareStmt = false;
+    boolean isFromPrepareStmtPointQuery = false;
     // For point query
     private Map<SlotRef, Expr> pointQueryEqualPredicats;
     private DescriptorTable descTable;
@@ -560,8 +560,8 @@ public class OlapScanNode extends ScanNode {
 
         filterDeletedRows(analyzer);
         // lazy evaluation, since stmt is a prepared statment
-        isFromPrepareStmt = analyzer.getPrepareStmt() != null;
-        if (!isFromPrepareStmt) {
+        isFromPrepareStmtPointQuery = analyzer.getPrepareStmt() != null && analyzer.getPrepareStmt().isPointQuery();
+        if (!isFromPrepareStmtPointQuery) {
             if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
                 partitionsInfo = olapTable.getPartitionInfo();
                 analyzerPartitionExpr(analyzer, partitionsInfo);
@@ -627,7 +627,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         // prepare stmt evaluate lazily in Coordinator execute
-        if (!isFromPrepareStmt) {
+        if (!isFromPrepareStmtPointQuery) {
             try {
                 createScanRangeLocations();
             } catch (AnalysisException e) {
@@ -1144,8 +1144,8 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    public boolean isFromPrepareStmt() {
-        return this.isFromPrepareStmt;
+    public boolean isFromPrepareStmtPointQuery() {
+        return this.isFromPrepareStmtPointQuery;
     }
 
     public void setPointQueryEqualPredicates(Map<SlotRef, Expr> predicates) {

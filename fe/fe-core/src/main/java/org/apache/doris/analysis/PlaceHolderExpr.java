@@ -39,7 +39,8 @@ public class PlaceHolderExpr extends LiteralExpr {
     int mysqlTypeCode = -1;
 
     public PlaceHolderExpr() {
-
+        this.lExpr = new StringLiteral("");
+        this.type = Type.STRING;
     }
 
     public void setTypeCode(int mysqlTypeCode) {
@@ -48,10 +49,12 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     protected PlaceHolderExpr(LiteralExpr literal) {
         this.lExpr = literal;
+        this.type = literal.getType();
     }
 
     protected PlaceHolderExpr(PlaceHolderExpr other) {
         this.lExpr = other.lExpr;
+        this.type = other.getType();
     }
 
     public void setLiteral(LiteralExpr literal) {

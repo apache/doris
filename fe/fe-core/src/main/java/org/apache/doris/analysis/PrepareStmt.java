@@ -164,12 +164,14 @@ public class PrepareStmt extends StatementBase {
         if (inner instanceof SelectStmt) {
             // Use tmpAnalyzer since selectStmt will be reAnalyzed
             Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
+            tmpAnalyzer.setPrepareStmt(true);
             SelectStmt selectStmt = (SelectStmt) inner;
             inner.analyze(tmpAnalyzer);
             isPointQuery = selectStmt.checkAndSetPointQuery();
             if (isPointQuery) {
                 tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
                 schemaVersion = tbl.getBaseSchemaVersion();
+                analyzer.setPrepareStmt(true);
             }
             // reset will be reAnalyzed
             selectStmt.reset();
