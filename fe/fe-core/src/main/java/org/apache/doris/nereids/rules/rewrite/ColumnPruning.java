@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -139,6 +141,15 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             // (slot a, which in the context.requiredSlots) and the used slots currently(slot b) to child plan.
             return pruneChildren(plan, context.requiredSlots);
         }
+    }
+
+    @Override
+    public Plan visitLogicalOlapScan(LogicalOlapScan scan, PruneContext context) {
+        LogicalProperties origLogicalProperties = scan.getLogicalProperties();
+        LogicalProperties logicalProperties = new LogicalProperties(
+                () -> context.requiredSlots.stream().toList(),
+                () -> origLogicalProperties.getFunctionalDependencies());
+        return scan.withLogicalProperties(logicalProperties);
     }
 
     // union can not prune children by the common logic, we must override visit method to write special code.

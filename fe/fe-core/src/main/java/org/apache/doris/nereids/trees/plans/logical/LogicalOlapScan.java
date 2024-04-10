@@ -310,6 +310,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, projectPulledUp);
     }
 
+    public LogicalOlapScan withLogicalProperties(LogicalProperties logicalProperties) {
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                getGroupExpression(), Optional.of(logicalProperties),
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName, tableSample, directMvScan, projectPulledUp);
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapScan(this, context);
