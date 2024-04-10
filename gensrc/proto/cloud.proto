@@ -194,7 +194,7 @@ message ObjectStoreInfoPB {
     optional string name = 16;
 }
 
-// The legacy OObjectStoreInfoPBbjectStoreInfoPB is stored in instnaceinfopb
+// The legacy ObjectStoreInfoPB is stored in InstanceInfoPB
 message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
