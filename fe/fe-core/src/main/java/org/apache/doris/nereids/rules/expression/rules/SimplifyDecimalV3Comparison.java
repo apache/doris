@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -26,8 +26,10 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * if we have a column with decimalv3 type and set enable_decimal_conversion = false.
@@ -37,14 +39,20 @@ import java.math.BigDecimal;
  * and the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
  * this rule simplify it from cast(col1 as decimalv3(27, 9)) > 0.6 to col1 > 0.6
  */
-public class SimplifyDecimalV3Comparison extends AbstractExpressionRewriteRule {
-
+public class SimplifyDecimalV3Comparison implements ExpressionPatternRuleFactory {
     public static SimplifyDecimalV3Comparison INSTANCE = new SimplifyDecimalV3Comparison();
 
     @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
-        Expression left = rewrite(cp.left(), context);
-        Expression right = rewrite(cp.right(), context);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(ComparisonPredicate.class).then(SimplifyDecimalV3Comparison::simplify)
+        );
+    }
+
+    /** simplify */
+    public static Expression simplify(ComparisonPredicate cp) {
+        Expression left = cp.left();
+        Expression right = cp.right();
 
         if (left.getDataType() instanceof DecimalV3Type
                 && left instanceof Cast
@@ -60,7 +68,7 @@ public class SimplifyDecimalV3Comparison extends AbstractExpressionRewriteRule {
         }
     }
 
-    private Expression doProcess(ComparisonPredicate cp, Cast left, DecimalV3Literal right) {
+    private static Expression doProcess(ComparisonPredicate cp, Cast left, DecimalV3Literal right) {
         BigDecimal trailingZerosValue = right.getValue().stripTrailingZeros();
         int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
         int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(trailingZerosValue);
