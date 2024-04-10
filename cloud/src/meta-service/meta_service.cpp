@@ -697,6 +697,23 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
             tablet_meta.set_group_commit_interval_ms(tablet_meta_info.group_commit_interval_ms());
         } else if (tablet_meta_info.has_group_commit_data_bytes()) {
             tablet_meta.set_group_commit_data_bytes(tablet_meta_info.group_commit_data_bytes());
+        } else if (tablet_meta_info.has_compaction_policy()) {
+            tablet_meta.set_compaction_policy(tablet_meta_info.compaction_policy());
+        } else if (tablet_meta_info.has_time_series_compaction_goal_size_mbytes()) {
+            tablet_meta.set_time_series_compaction_goal_size_mbytes(
+                    tablet_meta_info.time_series_compaction_goal_size_mbytes());
+        } else if (tablet_meta_info.has_time_series_compaction_file_count_threshold()) {
+            tablet_meta.set_time_series_compaction_file_count_threshold(
+                    tablet_meta_info.time_series_compaction_file_count_threshold());
+        } else if (tablet_meta_info.has_time_series_compaction_time_threshold_seconds()) {
+            tablet_meta.set_time_series_compaction_time_threshold_seconds(
+                    tablet_meta_info.time_series_compaction_time_threshold_seconds());
+        } else if (tablet_meta_info.has_time_series_compaction_empty_rowsets_threshold()) {
+            tablet_meta.set_time_series_compaction_empty_rowsets_threshold(
+                    tablet_meta_info.time_series_compaction_empty_rowsets_threshold());
+        } else if (tablet_meta_info.has_time_series_compaction_level_threshold()) {
+            tablet_meta.set_time_series_compaction_level_threshold(
+                    tablet_meta_info.time_series_compaction_level_threshold());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();
