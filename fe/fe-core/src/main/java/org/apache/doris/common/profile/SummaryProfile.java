@@ -92,13 +92,13 @@ public class SummaryProfile {
     public static final String FRAGMENT_RPC_COUNT = "Fragment RPC Count";
     public static final String TRANSACTION_COMMIT_TIME = "Transaction Commit Time";
     public static final String FILESYSTEM_OPT_TIME = "FileSystem Operator Time";
-    public static final String FILESYSTEM_OPT_RENAME_FILE_CNT = "Rename File Cnt";
-    public static final String FILESYSTEM_OPT_RENAME_DIR_CNT = "Rename Dir Cnt";
-    public static final String FILESYSTEM_OPT_DELETE_DIR_CNT = "Delete Dir Cnt";
+    public static final String FILESYSTEM_OPT_RENAME_FILE_CNT = "Rename File Count";
+    public static final String FILESYSTEM_OPT_RENAME_DIR_CNT = "Rename Dir Count";
+    public static final String FILESYSTEM_OPT_DELETE_DIR_CNT = "Delete Dir Count";
     public static final String HMS_ADD_PARTITION_TIME = "HMS Add Partition Time";
-    public static final String HMS_ADD_PARTITION_CNT = "HMS Add Partition Cnt";
+    public static final String HMS_ADD_PARTITION_CNT = "HMS Add Partition Count";
     public static final String HMS_UPDATE_PARTITION_TIME = "HMS Update Partition Time";
-    public static final String HMS_UPDATE_PARTITION_CNT = "HMS Update Partition Cnt";
+    public static final String HMS_UPDATE_PARTITION_CNT = "HMS Update Partition Count";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
