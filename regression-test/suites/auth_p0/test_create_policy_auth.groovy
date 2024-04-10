@@ -25,8 +25,7 @@ suite("test_create_policy_auth","p0,auth") {
     sql """grant select_priv on regression_test to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
-            sql "CREATE ROW POLICY test_row_policy_1 ON test.table1
-                 AS RESTRICTIVE TO test USING (c1 = 'a');"
+            sql "CREATE ROW POLICY test_create_policy_auth ON test.table1 AS RESTRICTIVE TO test USING (c1 = 'a');"
         } catch (Exception e) {
             log.info(e.getMessage())
             assertTrue(e.getMessage().contains("need (at least one of) the GRANT privilege"))
