@@ -85,7 +85,7 @@ public class HiveTableMetadata implements TableMetadata {
     }
 
     public String getComment() {
-        return comment;
+        return comment == null ? "" : comment;
     }
 
     @Override

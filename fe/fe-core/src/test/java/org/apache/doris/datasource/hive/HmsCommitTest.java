@@ -120,7 +120,6 @@ public class HmsCommitTest {
                     columns, new ArrayList<>(),
                     new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata2, true);
-
     }
 
     @After

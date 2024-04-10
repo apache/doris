@@ -23,11 +23,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.common.StatsSetupConst;
@@ -64,6 +66,8 @@ import java.util.stream.Collectors;
 public final class HiveUtil {
 
     public static final String COMPRESSION_KEY = "compression";
+    public static final Set<String> SUPPORTED_ORC_COMPRESSIONS = ImmutableSet.of("plain", "zlib", "snappy", "zstd");
+    public static final Set<String> SUPPORTED_PARQUET_COMPRESSIONS = ImmutableSet.of("plain", "snappy", "zstd");
 
     private HiveUtil() {
     }
@@ -215,11 +219,18 @@ public final class HiveUtil {
 
     private static void setCompressType(HiveTableMetadata hiveTable, Map<String, String> props) {
         String fileFormat = hiveTable.getFileFormat();
+        String compression = props.get(COMPRESSION_KEY);
         // on HMS, default orc compression type is zlib and default parquet compression type is snappy.
         if (fileFormat.equalsIgnoreCase("parquet")) {
-            props.putIfAbsent("parquet.compression", props.getOrDefault(COMPRESSION_KEY, "snappy"));
+            if (StringUtils.isNotEmpty(compression) && !SUPPORTED_PARQUET_COMPRESSIONS.contains(compression)) {
+                throw new AnalysisException("Unsupported parquet compression type " + compression);
+            }
+            props.putIfAbsent("parquet.compression", StringUtils.isEmpty(compression) ? "snappy" : compression);
         } else if (fileFormat.equalsIgnoreCase("orc")) {
-            props.putIfAbsent("orc.compress", props.getOrDefault(COMPRESSION_KEY, "zlib"));
+            if (StringUtils.isNotEmpty(compression) && !SUPPORTED_ORC_COMPRESSIONS.contains(compression)) {
+                throw new AnalysisException("Unsupported orc compression type " + compression);
+            }
+            props.putIfAbsent("orc.compress", StringUtils.isEmpty(compression) ? "zlib" : compression);
         } else {
             throw new IllegalArgumentException("Compression is not supported on " + fileFormat);
         }

@@ -1056,7 +1056,7 @@ public class ShowExecutor {
         if (Strings.isNullOrEmpty(catalogName)) {
             catalogName = Env.getCurrentEnv().getCurrentCatalog().getName();
         }
-        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
         if (catalog instanceof HMSExternalCatalog) {
             String simpleDBName = ClusterNamespace.getNameFromFullName(showStmt.getDb());
             org.apache.hadoop.hive.metastore.api.Database db = ((HMSExternalCatalog) catalog).getClient()
