@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSTransaction;
@@ -54,6 +55,7 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
     private TransactionStatus txnStatus = TransactionStatus.ABORTED;
     private final TransactionManager transactionManager;
     private final String catalogName;
+    private Optional<SummaryProfile> summaryProfile = Optional.empty();
 
     /**
      * constructor
@@ -64,6 +66,10 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         super(ctx, table, labelName, planner, insertCtx);
         catalogName = table.getCatalog().getName();
         transactionManager = table.getCatalog().getTransactionManager();
+
+        if (ConnectContext.get().getExecutor() != null) {
+            summaryProfile = Optional.of(ConnectContext.get().getExecutor().getSummaryProfile());
+        }
     }
 
     public long getTxnId() {
@@ -103,13 +109,9 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
             String dbName = ((HMSExternalTable) table).getDbName();
             String tbName = table.getName();
             transaction.finishInsertTable(dbName, tbName);
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setTransactionBeginTime(TransactionType.HMS);
-            }
+            summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(TransactionType.HMS));
             transactionManager.commit(txnId);
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setTransactionEndTime();
-            }
+            summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
             Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(
                     dbName,
