@@ -149,11 +149,7 @@ public class Index implements Writable {
     }
 
     public boolean isLightIndexChangeSupported() {
-        if (indexType == IndexDef.IndexType.INVERTED) {
-            return true;
-        } else {
-            return false;
-        }
+        return indexType == IndexDef.IndexType.INVERTED;
     }
 
     public String getComment() {
