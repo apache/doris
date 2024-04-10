@@ -1051,7 +1051,11 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
 
         StringBuilder sb = new StringBuilder();
-        CatalogIf catalog = ctx.getCurrentCatalog();
+        String catalogName = showStmt.getCtl();
+        if (Strings.isNullOrEmpty(catalogName)) {
+            catalogName = Env.getCurrentEnv().getCurrentCatalog().getName();
+        }
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
         if (catalog instanceof HMSExternalCatalog) {
             String simpleDBName = ClusterNamespace.getNameFromFullName(showStmt.getDb());
             org.apache.hadoop.hive.metastore.api.Database db = ((HMSExternalCatalog) catalog).getClient()

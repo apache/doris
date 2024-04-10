@@ -23,17 +23,20 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -53,6 +56,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -60,6 +64,10 @@ import java.util.stream.Collectors;
  * Hive util for create or query hive table.
  */
 public final class HiveUtil {
+
+    public static final String COMPRESSION_KEY = "compression";
+    public static final Set<String> SUPPORTED_ORC_COMPRESSIONS = ImmutableSet.of("plain", "zlib", "snappy", "zstd");
+    public static final Set<String> SUPPORTED_PARQUET_COMPRESSIONS = ImmutableSet.of("plain", "snappy", "zstd");
 
     private HiveUtil() {
     }
@@ -187,12 +195,11 @@ public final class HiveUtil {
         table.setCreateTime(createTime);
         table.setLastAccessTime(createTime);
         // table.setRetention(0);
-        String location = hiveTable.getProperties().get(HiveMetadataOps.LOCATION_URI_KEY);
         Set<String> partitionSet = new HashSet<>(hiveTable.getPartitionKeys());
         Pair<List<FieldSchema>, List<FieldSchema>> hiveSchema = toHiveSchema(hiveTable.getColumns(), partitionSet);
 
         table.setSd(toHiveStorageDesc(hiveSchema.first, hiveTable.getBucketCols(), hiveTable.getNumBuckets(),
-                hiveTable.getFileFormat(), location));
+                hiveTable.getFileFormat(), hiveTable.getLocation()));
         table.setPartitionKeys(hiveSchema.second);
 
         // table.setViewOriginalText(hiveTable.getViewSql());
@@ -200,18 +207,44 @@ public final class HiveUtil {
         table.setTableType("MANAGED_TABLE");
         Map<String, String> props = new HashMap<>(hiveTable.getProperties());
         props.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
+        setCompressType(hiveTable, props);
+        // set hive table comment by table properties
+        props.put("comment", hiveTable.getComment());
         table.setParameters(props);
+        if (props.containsKey("owner")) {
+            table.setOwner(props.get("owner"));
+        }
         return table;
     }
 
+    private static void setCompressType(HiveTableMetadata hiveTable, Map<String, String> props) {
+        String fileFormat = hiveTable.getFileFormat();
+        String compression = props.get(COMPRESSION_KEY);
+        // on HMS, default orc compression type is zlib and default parquet compression type is snappy.
+        if (fileFormat.equalsIgnoreCase("parquet")) {
+            if (StringUtils.isNotEmpty(compression) && !SUPPORTED_PARQUET_COMPRESSIONS.contains(compression)) {
+                throw new AnalysisException("Unsupported parquet compression type " + compression);
+            }
+            props.putIfAbsent("parquet.compression", StringUtils.isEmpty(compression) ? "snappy" : compression);
+        } else if (fileFormat.equalsIgnoreCase("orc")) {
+            if (StringUtils.isNotEmpty(compression) && !SUPPORTED_ORC_COMPRESSIONS.contains(compression)) {
+                throw new AnalysisException("Unsupported orc compression type " + compression);
+            }
+            props.putIfAbsent("orc.compress", StringUtils.isEmpty(compression) ? "zlib" : compression);
+        } else {
+            throw new IllegalArgumentException("Compression is not supported on " + fileFormat);
+        }
+        // remove if exists
+        props.remove(COMPRESSION_KEY);
+    }
+
     private static StorageDescriptor toHiveStorageDesc(List<FieldSchema> columns,
-            List<String> bucketCols, int numBuckets, String fileFormat, String location) {
+            List<String> bucketCols, int numBuckets, String fileFormat, Optional<String> location) {
         StorageDescriptor sd = new StorageDescriptor();
         sd.setCols(columns);
         setFileFormat(fileFormat, sd);
-        if (StringUtils.isNotEmpty(location)) {
-            sd.setLocation(location);
-        }
+        location.ifPresent(sd::setLocation);
+
         sd.setBucketCols(bucketCols);
         sd.setNumBuckets(numBuckets);
         Map<String, String> parameters = new HashMap<>();
@@ -267,8 +300,13 @@ public final class HiveUtil {
         if (StringUtils.isNotEmpty(hiveDb.getLocationUri())) {
             database.setLocationUri(hiveDb.getLocationUri());
         }
-        database.setParameters(hiveDb.getProperties());
+        Map<String, String> props = hiveDb.getProperties();
+        database.setParameters(props);
         database.setDescription(hiveDb.getComment());
+        if (props.containsKey("owner")) {
+            database.setOwnerName(props.get("owner"));
+            database.setOwnerType(PrincipalType.USER);
+        }
         return database;
     }
 

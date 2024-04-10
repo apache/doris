@@ -2440,7 +2440,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.UNIQUE() != null) {
             keysType = KeysType.UNIQUE_KEYS;
         }
-        String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
+        // when engineName is null, get engineName from current catalog later
+        String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : null;
         int bucketNum = FeConstants.default_bucket_num;
         if (ctx.INTEGER_VALUE() != null) {
             bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());

@@ -40,19 +40,28 @@ public class ShowCreateDbStmt extends ShowStmt {
                     .addColumn(new Column("Create Database", ScalarType.createVarchar(30)))
                     .build();
 
+    private String ctl;
     private String db;
 
-    public ShowCreateDbStmt(String db) {
-        this.db = db;
+    public ShowCreateDbStmt(DbName db) {
+        this.ctl = db.getCtl();
+        this.db = db.getDb();
     }
 
     public String getDb() {
         return db;
     }
 
+    public String getCtl() {
+        return ctl;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        if (Strings.isNullOrEmpty(ctl)) {
+            ctl = Env.getCurrentEnv().getCurrentCatalog().getName();
+        }
         if (Strings.isNullOrEmpty(db)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, db);
         }

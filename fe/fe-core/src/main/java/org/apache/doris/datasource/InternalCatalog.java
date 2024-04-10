@@ -1169,8 +1169,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             createEsTable(db, stmt);
             return;
         } else if (engineName.equalsIgnoreCase("hive")) {
-            createHiveTable(db, stmt);
-            return;
+            // should use hive catalog to create external hive table
+            throw new UserException("Cannot create hive table in internal catalog, should switch to hive catalog.");
         } else if (engineName.equalsIgnoreCase("jdbc")) {
             createJdbcTable(db, stmt);
             return;

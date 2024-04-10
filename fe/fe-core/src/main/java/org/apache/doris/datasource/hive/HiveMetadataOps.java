@@ -23,8 +23,10 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -48,11 +50,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
 public class HiveMetadataOps implements ExternalMetadataOps {
-    public static final String LOCATION_URI_KEY = "location_uri";
+    public static final String LOCATION_URI_KEY = "location";
     public static final String FILE_FORMAT_KEY = "file_format";
     public static final Set<String> DORIS_HIVE_KEYS = ImmutableSet.of(FILE_FORMAT_KEY, LOCATION_URI_KEY);
     private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
@@ -125,6 +128,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             if (properties.containsKey(LOCATION_URI_KEY)) {
                 catalogDatabase.setLocationUri(properties.get(LOCATION_URI_KEY));
             }
+            // remove it when set
             properties.remove(LOCATION_URI_KEY);
             catalogDatabase.setProperties(properties);
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
@@ -185,8 +189,18 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             }
             List<String> partitionColNames = new ArrayList<>();
             if (stmt.getPartitionDesc() != null) {
-                partitionColNames.addAll(stmt.getPartitionDesc().getPartitionColNames());
+                PartitionDesc partitionDesc = stmt.getPartitionDesc();
+                if (partitionDesc.getType() == PartitionType.RANGE) {
+                    throw new UserException("Only support 'LIST' partition type in hive catalog.");
+                }
+                partitionColNames.addAll(partitionDesc.getPartitionColNames());
+                if (!partitionDesc.getSinglePartitionDescs().isEmpty()) {
+                    throw new UserException("Partition values expressions is not supported in hive catalog.");
+                }
+
             }
+            String comment = stmt.getComment();
+            Optional<String> location = Optional.ofNullable(props.getOrDefault(LOCATION_URI_KEY, null));
             HiveTableMetadata hiveTableMeta;
             DistributionDesc bucketInfo = stmt.getDistributionDesc();
             if (bucketInfo != null) {
@@ -194,12 +208,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                     if (bucketInfo instanceof HashDistributionDesc) {
                         hiveTableMeta = HiveTableMetadata.of(dbName,
                                 tblName,
+                                location,
                                 stmt.getColumns(),
                                 partitionColNames,
                                 ((HashDistributionDesc) bucketInfo).getDistributionColumnNames(),
                                 bucketInfo.getBuckets(),
                                 ddlProps,
-                                fileFormat);
+                                fileFormat,
+                                comment);
                     } else {
                         throw new UserException("External hive table only supports hash bucketing");
                     }
@@ -210,10 +226,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             } else {
                 hiveTableMeta = HiveTableMetadata.of(dbName,
                         tblName,
+                        location,
                         stmt.getColumns(),
                         partitionColNames,
                         ddlProps,
-                        fileFormat);
+                        fileFormat,
+                        comment);
             }
             client.createTable(hiveTableMeta, stmt.isSetIfNotExists());
             db.setUnInitialized(true);
