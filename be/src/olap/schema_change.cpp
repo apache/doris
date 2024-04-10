@@ -692,6 +692,11 @@ Status VLocalSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowse
 }
 
 Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
+    DBUG_EXECUTE_IF("SchemaChangeJob.process_alter_tablet.alter_fail",
+                    {return Status::InternalError(
+                            "inject alter tablet failed. base_tablet={}, new_tablet={}",
+                            request.base_tablet_id, request.new_tablet_id)});
+
     if (!request.__isset.desc_tbl) {
         return Status::Error<INVALID_ARGUMENT>(
                 "desc_tbl is not set. Maybe the FE version is not equal to the BE "
