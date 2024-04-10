@@ -382,6 +382,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
@@ -2014,6 +2015,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitInttoUuid(InttoUuid inttoUuid, C context) {
         return visitScalarFunction(inttoUuid, context);
+    }
+
+    default R visitStrcmp(Strcmp strcmp, C context) {
+        return visitScalarFunction(strcmp, context);
     }
 
     default R visitVersion(Version version, C context) {
