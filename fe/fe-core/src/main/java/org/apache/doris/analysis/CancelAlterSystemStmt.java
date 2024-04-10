@@ -51,7 +51,7 @@ public class CancelAlterSystemStmt extends CancelStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    "NODE");
+                    PrivPredicate.OPERATOR.getPrivs().toString());
         }
         for (String param : params) {
             if (!param.contains(":")) {

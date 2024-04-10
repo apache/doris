@@ -28,7 +28,7 @@ suite("test_show_transaction_auth","p0,auth") {
             sql "SHOW TRANSACTION WHERE ID=4005;"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("need (at least one of) the ADMIN privilege"))
+            assertTrue(e.getMessage().contains("Admin_priv"))
         }
     }
     try_sql("DROP USER ${user}")

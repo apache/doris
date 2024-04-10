@@ -40,7 +40,7 @@ public class SetLdapPassVar extends SetVar {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    "ADMIN");
+                    PrivPredicate.ADMIN.getPrivs().toString());
         }
         if (!passVar.isPlain()) {
             throw new AnalysisException("Only support set ldap password with plain text");

@@ -28,7 +28,7 @@ suite("test_show_tablets_belong_auth","p0,auth") {
             sql "SHOW TABLETS BELONG 27028"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("need (at least one of) the ADMIN privilege"))
+            assertTrue(e.getMessage().contains("Admin_priv"))
         }
     }
     try_sql("DROP USER ${user}")

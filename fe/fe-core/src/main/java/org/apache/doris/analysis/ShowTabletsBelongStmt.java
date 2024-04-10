@@ -61,7 +61,8 @@ public class ShowTabletsBelongStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
         }
         if (tabletIds == null || tabletIds.isEmpty()) {
             throw new UserException("Please supply at least one tablet id");

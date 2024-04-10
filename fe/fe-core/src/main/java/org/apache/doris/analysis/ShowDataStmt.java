@@ -425,7 +425,8 @@ public class ShowDataStmt extends ShowStmt {
     private void getAllDbStats() throws AnalysisException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
         }
         List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
         if (dbNames == null || dbNames.isEmpty()) {

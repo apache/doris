@@ -28,7 +28,7 @@ suite("test_create_policy_auth","p0,auth") {
             sql "CREATE ROW POLICY test_create_policy_auth ON test.table1 AS RESTRICTIVE TO test USING (c1 = 'a');"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("need (at least one of) the (Admin_priv,Grant_priv) privilege"))
+            assertTrue(e.getMessage().contains("Admin_priv,Grant_priv"))
         }
         try {
             sql """
@@ -40,7 +40,7 @@ suite("test_create_policy_auth","p0,auth") {
                 """
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("need (at least one of) the (Admin_priv) privilege"))
+            assertTrue(e.getMessage().contains("Admin_priv"))
         }
     }
     try_sql("DROP USER ${user}")

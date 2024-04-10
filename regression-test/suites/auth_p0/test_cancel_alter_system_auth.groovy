@@ -28,7 +28,7 @@ suite("test_cancel_alter_system_auth","p0,auth") {
             sql "CANCEL DECOMMISSION BACKEND 'id1';"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("need (at least one of) the NODE privilege"))
+            assertTrue(e.getMessage().contains("Node_priv"))
         }
     }
     try_sql("DROP USER ${user}")
