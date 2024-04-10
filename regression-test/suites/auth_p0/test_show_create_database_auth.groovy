@@ -28,7 +28,7 @@ suite("test_show_create_database_auth","p0,auth") {
             sql "SHOW CREATE DATABASE db_name"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Select_priv,Load_priv,Alter_priv,Create_priv,Show_view_priv,Drop_priv"))
+            assertTrue(e.getMessage().contains("Admin_priv,Select_priv,Load_priv,Alter_priv,Create_priv,Drop_priv,Show_view_priv"))
         }
     }
     try_sql("DROP USER ${user}")
