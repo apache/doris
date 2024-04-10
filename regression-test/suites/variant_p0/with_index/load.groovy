@@ -76,9 +76,8 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
                           drop index idx
                   """
     logger.info("drop index " + "${table_name}" +  "; result: " + drop_result)
-    def timeout = 60000
     wait_for_latest_op_on_table_finish(table_name, timeout)
-    show_result = sql "show index from ${table_name}"
+    def show_result = sql "show index from ${table_name}"
     assertEquals(show_result.size(), 0)
     qt_sql_inv4 """select v["a1"] from ${table_name} where cast(v['a1'] as int) = 0"""
     qt_sql_inv5 """select * from ${table_name} order by k"""
