@@ -215,6 +215,18 @@ TEST(function_string_test, function_string_length_test) {
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
+TEST(function_string_test, function_string_quote_test) {
+    std::string func_name = "quote";
+    InputTypeSet input_types = {TypeIndex::String};
+    DataSet data_set = {{{std::string("hello")}, std::string(R"('hello')")},
+                        {{std::string("hello\t\n\nworld")}, std::string("'hello\t\n\nworld'")},
+                        {{std::string("HELLO,!^%")}, std::string("'HELLO,!^%'")},
+                        {{std::string("MYtestStr\\t\\n")}, std::string("'MYtestStr\\t\\n'")},
+                        {{std::string("")}, std::string("''")},
+                        {{Null()}, Null()}};
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
 TEST(function_string_test, function_append_trailing_char_if_absent_test) {
     std::string func_name = "append_trailing_char_if_absent";
 

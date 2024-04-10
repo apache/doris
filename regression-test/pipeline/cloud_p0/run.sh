@@ -43,6 +43,7 @@ echo "#### Run cloud_p0 test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 exit_flag=0
+need_collect_log=false
 
 # shellcheck disable=SC2317
 run() {
@@ -70,6 +71,7 @@ run() {
         -actionParallel 2; then
         echo
     else
+        bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export need_collect_log=true"
         # regression 测试跑完后输出的汇总信息，Test 1961 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
         # 如果 test_suites>0 && failed_suites<=3  && fatal_scripts=0，就把返回状态码改为正常的0，让teamcity根据跑case的情况去判断成功还是失败
         # 这样预期能够快速 mute 不稳定的 case
@@ -93,9 +95,11 @@ export -f run
 timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-180}))m
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
+# shellcheck source=/dev/null
+source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 
 echo "#### 5. check if need backup doris logs"
-if [[ ${exit_flag} != "0" ]]; then
+if [[ ${exit_flag} != "0" ]] || ${need_collect_log}; then
     check_if_need_gcore "${exit_flag}"
     if core_file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
         reporting_build_problem "coredump"

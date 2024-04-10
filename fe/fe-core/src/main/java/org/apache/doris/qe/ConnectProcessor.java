@@ -106,6 +106,10 @@ public abstract class ConnectProcessor {
         return ctx;
     }
 
+    public boolean isHandleQueryInFe() {
+        return executor.isHandleQueryInFe();
+    }
+
     // change current database of this session.
     protected void handleInitDb(String fullDbName) {
         String catalogName = null;

@@ -476,7 +476,7 @@ Status Compaction::do_inverted_index_compaction() {
 
     if (!_allow_delete_in_cumu_compaction) {
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
-            _stats.merged_rows != missed_rows.size()) {
+            _stats.merged_rows != missed_rows.size() && _tablet->tablet_state() == TABLET_RUNNING) {
             std::string err_msg = fmt::format(
                     "cumulative compaction: the merged rows({}) is not equal to missed "
                     "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
@@ -863,6 +863,7 @@ Status CompactionMixin::modify_rowsets() {
         if (!_allow_delete_in_cumu_compaction) {
             missed_rows_size = missed_rows.size();
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                _tablet->tablet_state() == TABLET_RUNNING &&
                 _stats.merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "

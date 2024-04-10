@@ -1616,7 +1616,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.getTabletType(),
                     storagePolicy, idGeneratorBuffer,
                     binlogConfig, dataProperty.isStorageMediumSpecified(), null);
-            afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, false);
             // TODO cluster key ids
 
             // check again
@@ -1712,6 +1711,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
                             isTempPartition, partitionInfo.getIsMutable(partitionId));
                 }
+
+                afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, false);
                 Env.getCurrentEnv().getEditLog().logAddPartition(info);
 
                 LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
