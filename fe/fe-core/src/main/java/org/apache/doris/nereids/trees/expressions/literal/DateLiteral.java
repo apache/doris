@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.StandardDateFormat;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.temporal.ChronoField;
@@ -158,7 +159,9 @@ public class DateLiteral extends Literal {
 
     static String normalize(String s) {
         // merge consecutive space
-        s = s.replaceAll(" +", " ");
+        if (s.contains("  ")) {
+            s = s.replaceAll(" +", " ");
+        }
 
         StringBuilder sb = new StringBuilder();
 
@@ -261,6 +264,14 @@ public class DateLiteral extends Literal {
     }
 
     protected static TemporalAccessor parse(String s) {
+        // fast parse '2022-01-01'
+        if (s.length() == 10 && s.charAt(4) == '-' && s.charAt(7) == '-') {
+            TemporalAccessor date = fastParseDate(s);
+            if (date != null) {
+                return date;
+            }
+        }
+
         String originalString = s;
         try {
             TemporalAccessor dateTime;
@@ -476,5 +487,31 @@ public class DateLiteral extends Literal {
         } else {
             return toEndOfTheDay();
         }
+    }
+
+    private static TemporalAccessor fastParseDate(String date) {
+        Integer year = readNextInt(date, 0, 4);
+        Integer month = readNextInt(date, 5, 2);
+        Integer day = readNextInt(date, 8, 2);
+        if (year != null && month != null && day != null) {
+            return LocalDate.of(year, month, day);
+        } else {
+            return null;
+        }
+    }
+
+    private static Integer readNextInt(String str, int offset, int readLength) {
+        int value = 0;
+        int realReadLength = 0;
+        for (int i = offset; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if ('0' <= c && c <= '9') {
+                realReadLength++;
+                value = value * 10 + (c - '0');
+            } else {
+                break;
+            }
+        }
+        return readLength == realReadLength ? value : null;
     }
 }

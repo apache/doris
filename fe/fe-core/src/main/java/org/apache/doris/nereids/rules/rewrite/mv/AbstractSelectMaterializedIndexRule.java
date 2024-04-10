@@ -372,7 +372,12 @@ public abstract class AbstractSelectMaterializedIndexRule {
     }
 
     protected static boolean preAggEnabledByHint(LogicalOlapScan olapScan) {
-        return olapScan.getHints().stream().anyMatch("PREAGGOPEN"::equalsIgnoreCase);
+        for (String hint : olapScan.getHints()) {
+            if ("PREAGGOPEN".equalsIgnoreCase(hint)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static String normalizeName(String name) {
@@ -385,11 +390,11 @@ public abstract class AbstractSelectMaterializedIndexRule {
     }
 
     protected SlotContext generateBaseScanExprToMvExpr(LogicalOlapScan mvPlan) {
+        if (mvPlan.getSelectedIndexId() == mvPlan.getTable().getBaseIndexId()) {
+            return SlotContext.EMPTY;
+        }
         Map<Slot, Slot> baseSlotToMvSlot = new HashMap<>();
         Map<String, Slot> mvNameToMvSlot = new HashMap<>();
-        if (mvPlan.getSelectedIndexId() == mvPlan.getTable().getBaseIndexId()) {
-            return new SlotContext(baseSlotToMvSlot, mvNameToMvSlot, new TreeSet<Expression>());
-        }
         for (Slot mvSlot : mvPlan.getOutputByIndex(mvPlan.getSelectedIndexId())) {
             boolean isPushed = false;
             for (Slot baseSlot : mvPlan.getOutput()) {
@@ -428,6 +433,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
     /** SlotContext */
     protected static class SlotContext {
+        public static final SlotContext EMPTY
+                = new SlotContext(ImmutableMap.of(), ImmutableMap.of(), ImmutableSet.of());
 
         // base index Slot to selected mv Slot
         public final Map<Slot, Slot> baseSlotToMvSlot;
