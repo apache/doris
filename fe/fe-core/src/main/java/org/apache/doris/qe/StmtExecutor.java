@@ -274,6 +274,8 @@ public class StmtExecutor {
     private String mysqlLoadId;
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
+    // Handle selects that fe can do without be
+    private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
 
@@ -503,6 +505,10 @@ public class StmtExecutor {
      */
     public StatementBase getParsedStmt() {
         return parsedStmt;
+    }
+
+    public boolean isHandleQueryInFe() {
+        return isHandleQueryInFe;
     }
 
     // query with a random sql
@@ -1711,6 +1717,7 @@ public class StmtExecutor {
             Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get());
+                isHandleQueryInFe = true;
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
