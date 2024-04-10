@@ -78,7 +78,7 @@ public class StorageVaultMgr {
         Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
         Cloud.StorageVaultPB.Builder vaultBuilder = Cloud.StorageVaultPB.newBuilder();
         vaultBuilder.setName(stmt.getStorageVaultName());
-        builder.setHdfs(vaultBuilder.build());
+        builder.setVault(vaultBuilder.build());
         builder.setOp(Operation.SET_DEFAULT_VAULT);
         String vaultId;
         LOG.info("try to set vault {} as default vault", stmt.getStorageVaultName());
@@ -132,7 +132,7 @@ public class StorageVaultMgr {
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
                 = Cloud.AlterObjStoreInfoRequest.newBuilder();
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
-        requestBuilder.setHdfs(alterHdfsInfoBuilder.build());
+        requestBuilder.setVault(alterHdfsInfoBuilder.build());
         try {
             Cloud.AlterObjStoreInfoResponse response =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());

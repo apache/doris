@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -89,7 +90,7 @@ public abstract class StorageVault {
         this.ifNotExists = ifNotExists;
     }
 
-    public static StorageVault fromStmt(CreateStorageVaultStmt stmt) throws DdlException {
+    public static StorageVault fromStmt(CreateStorageVaultStmt stmt) throws DdlException, UserException {
         return getStorageVaultInstance(stmt);
     }
 
@@ -113,7 +114,8 @@ public abstract class StorageVault {
      * @return
      * @throws DdlException
      */
-    private static StorageVault getStorageVaultInstance(CreateStorageVaultStmt stmt) throws DdlException {
+    private static StorageVault
+            getStorageVaultInstance(CreateStorageVaultStmt stmt) throws DdlException, UserException {
         StorageVaultType type = stmt.getStorageVaultType();
         String name = stmt.getStorageVaultName();
         boolean ifNotExists = stmt.isIfNotExists();
@@ -126,6 +128,7 @@ public abstract class StorageVault {
             case S3:
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
+                resourceStmt.analyzeResourceType();
                 vault = new S3StorageVault(name, ifNotExists, resourceStmt);
                 break;
             default:
