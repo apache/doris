@@ -27,7 +27,7 @@ suite("test_admin_copy_tablet_auth","p0,auth") {
             sql "ADMIN COPY TABLET 10010 PROPERTIES('backend_id' = '10001');"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("admin"))
+            assertTrue(e.getMessage().contains("need (at least one of) the ADMIN privilege"))
         }
     }
     try_sql("DROP USER ${user}")
