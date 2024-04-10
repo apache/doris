@@ -1817,9 +1817,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
             }
         }
-        long version = olapTable.getNextVersion();
+
+        long version = -1L;
         long versionTime = System.currentTimeMillis();
-        olapTable.updateVisibleVersionAndTime(version, versionTime);
+        // table version in cloud mode should already updated
+        if (Config.isCloudMode()) {
+            version = olapTable.getVisibleVersion();
+        } else {
+            version = olapTable.getNextVersion();
+            olapTable.updateVisibleVersionAndTime(version, versionTime);
+        }
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
                 clause.isForceDrop(), recycleTime, version, versionTime);

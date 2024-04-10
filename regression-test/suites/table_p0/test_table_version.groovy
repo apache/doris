@@ -49,10 +49,24 @@ suite("test_table_version") {
     assertEquals(2, visibleVersion);
 
     sql """
+        insert into ${tableNameNum} values(1,"2017-02-15",1);
+        """
+    visibleVersion = getTableVersion(dbId,tableNameNum);
+    assertEquals(3, visibleVersion);
+
+    // drop an empty partition will not add table version
+    sql """
         alter table ${tableNameNum} drop partition p201703_all force;
         """
     visibleVersion = getTableVersion(dbId,tableNameNum);
     assertEquals(3, visibleVersion);
+
+    // drop an non-empty partition will add table version
+    sql """
+        alter table ${tableNameNum} drop partition p201702_2000 force;
+        """
+    visibleVersion = getTableVersion(dbId,tableNameNum);
+    assertEquals(4, visibleVersion);
 
     sql """
         ALTER TABLE ${tableNameNum} ADD TEMPORARY PARTITION p201702_2000_1 VALUES [('2017-02-01'), ('2017-03-01'));
