@@ -603,8 +603,8 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     if (request->has_db_id()) {
         bool need_update_table_version = false;
         for (auto part_id : request->partition_ids()) {
-            std::string partition_ver_key = partition_version_key(
-                    {instance_id, request->db_id(), request->table_id(), part_id});
+            std::string partition_ver_key = partition_version_key({
+                instance_id, request->db_id(), request->table_id(), part_id});
             std::string ver_val_str;
             err = txn->get(partition_ver_key, &ver_val_str);
             if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
