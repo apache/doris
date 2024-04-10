@@ -70,7 +70,7 @@ services:
   hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-metastore.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     # command: /opt/hive/bin/hive --service metastore
     environment:

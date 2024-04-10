@@ -70,7 +70,7 @@ services:
   hive-metastore:
     image: lishizhen/hive:3.1.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-metastore.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     # command: /opt/hive/bin/hive --service metastore
     environment:
