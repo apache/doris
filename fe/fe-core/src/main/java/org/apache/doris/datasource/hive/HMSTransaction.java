@@ -70,7 +70,7 @@ public class HMSTransaction implements Transaction {
     private final FileSystem fs;
     private String dbName;
     private String tbName;
-    private SummaryProfile summaryProfile = null;
+    private Optional<SummaryProfile> summaryProfile = Optional.empty();
 
     private final Map<DatabaseTableName, Action<TableAndMore>> tableActions = new HashMap<>();
     private final Map<DatabaseTableName, Map<List<String>, Action<PartitionAndMore>>>
@@ -84,7 +84,7 @@ public class HMSTransaction implements Transaction {
         this.fs = hiveOps.getFs();
 
         if (ConnectContext.get().getExecutor() != null) {
-            summaryProfile = ConnectContext.get().getExecutor().getSummaryProfile();
+            summaryProfile = Optional.of(ConnectContext.get().getExecutor().getSummaryProfile());
         }
     }
 
@@ -1257,40 +1257,34 @@ public class HMSTransaction implements Transaction {
 
 
         private void waitForAsyncFileSystemTasks() {
-            if (summaryProfile != null) {
-                summaryProfile.setTempStartTime();
-            }
+            summaryProfile.ifPresent(SummaryProfile::setTempStartTime);
 
             for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
                 MoreFutures.getFutureValue(future, RuntimeException.class);
             }
 
-            if (summaryProfile != null) {
-                summaryProfile.freshFilesystemOptTime();
-            }
+            summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
         }
 
         private void doAddPartitionsTask() {
 
-            if (summaryProfile != null) {
-                summaryProfile.setTempStartTime();
-                summaryProfile.addHmsAddPartitionCnt(addPartitionsTask.getPartitions().size());
-            }
+            summaryProfile.ifPresent(profile -> {
+                profile.setTempStartTime();
+                profile.addHmsAddPartitionCnt(addPartitionsTask.getPartitions().size());
+            });
 
             if (!addPartitionsTask.isEmpty()) {
                 addPartitionsTask.run(hiveOps);
             }
 
-            if (summaryProfile != null) {
-                summaryProfile.setHmsAddPartitionTime();
-            }
+            summaryProfile.ifPresent(SummaryProfile::setHmsAddPartitionTime);
         }
 
         private void doUpdateStatisticsTasks() {
-            if (summaryProfile != null) {
-                summaryProfile.setTempStartTime();
-                summaryProfile.addHmsUpdatePartitionCnt(updateStatisticsTasks.size());
-            }
+            summaryProfile.ifPresent(profile -> {
+                profile.setTempStartTime();
+                profile.addHmsUpdatePartitionCnt(updateStatisticsTasks.size());
+            });
 
             ImmutableList.Builder<CompletableFuture<?>> updateStatsFutures = ImmutableList.builder();
             List<String> failedTaskDescriptions = new ArrayList<>();
@@ -1320,9 +1314,7 @@ public class HMSTransaction implements Transaction {
                 throw exception;
             }
 
-            if (summaryProfile != null) {
-                summaryProfile.setHmsUpdatePartitionTime();
-            }
+            summaryProfile.ifPresent(SummaryProfile::setHmsUpdatePartitionTime);
         }
 
         public void doNothing() {
@@ -1350,30 +1342,26 @@ public class HMSTransaction implements Transaction {
     public Status wrapperRenameDirWithProfileSummary(String origFilePath,
                                                      String destFilePath,
                                                      Runnable runWhenPathNotExist) {
-        if (summaryProfile != null) {
-            summaryProfile.setTempStartTime();
-            summaryProfile.incRenameDirCnt();
-        }
+        summaryProfile.ifPresent(profile -> {
+            profile.setTempStartTime();
+            profile.incRenameDirCnt();
+        });
 
         Status status = fs.renameDir(origFilePath, destFilePath, runWhenPathNotExist);
 
-        if (summaryProfile != null) {
-            summaryProfile.freshFilesystemOptTime();
-        }
+        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
         return status;
     }
 
     public Status wrapperDeleteWithProfileSummary(String remotePath) {
-        if (summaryProfile != null) {
-            summaryProfile.setTempStartTime();
-            summaryProfile.incDeleteDirRecursiveCnt();
-        }
+        summaryProfile.ifPresent(profile -> {
+            profile.setTempStartTime();
+            profile.incDeleteDirRecursiveCnt();
+        });
 
         Status status = fs.delete(remotePath);
 
-        if (summaryProfile != null) {
-            summaryProfile.freshFilesystemOptTime();
-        }
+        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
         return status;
     }
 
@@ -1384,9 +1372,7 @@ public class HMSTransaction implements Transaction {
                                                      String destFilePath,
                                                      List<String> fileNames) {
         fs.asyncRename(executor, renameFileFutures, cancelled, origFilePath, destFilePath, fileNames);
-        if (summaryProfile != null) {
-            summaryProfile.addRenameFileCnt(fileNames.size());
-        }
+        summaryProfile.ifPresent(profile -> profile.addRenameFileCnt(fileNames.size()));
     }
 
     public void wrapperAsyncRenameDirWithProfileSummary(Executor executor,
@@ -1396,8 +1382,6 @@ public class HMSTransaction implements Transaction {
                                                         String destFilePath,
                                                         Runnable runWhenPathNotExist) {
         fs.asyncRenameDir(executor, renameFileFutures, cancelled, origFilePath, destFilePath, runWhenPathNotExist);
-        if (summaryProfile != null) {
-            summaryProfile.incRenameDirCnt();
-        }
+        summaryProfile.ifPresent(SummaryProfile::incRenameDirCnt);
     }
 }
