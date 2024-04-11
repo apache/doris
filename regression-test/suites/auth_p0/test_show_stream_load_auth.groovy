@@ -39,7 +39,7 @@ suite("test_show_stream_load_auth","p0,auth") {
     streamLoad {
         table "${tableName}"
 
-        set 'column_separator', '\t'
+        set 'column_separator', ','
         set 'columns', 'k1, k2'
         set 'label', label
         set 'strict_mode', 'true'
