@@ -32,8 +32,18 @@ suite("test_create_view_auth","p0,auth") {
             sql "create view ${dbName}.v1 as select * from ${dbName}.t1;"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Create_priv"))
+            assertTrue(e.getMessage().contains("Admin_priv,Create_priv"))
         }
     }
+    sql """grant create_priv on ${dbName}.v1 to ${user}"""
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        try {
+            sql "create view ${dbName}.v1 as select * from ${dbName}.t1;"
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains("Admin_priv,Create_priv"))
+        }
+    }
+    sql """drop database if exists ${dbName}"""
     try_sql("DROP USER ${user}")
 }
