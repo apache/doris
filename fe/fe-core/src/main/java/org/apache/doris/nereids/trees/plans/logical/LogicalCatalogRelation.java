@@ -39,11 +39,11 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -57,7 +57,7 @@ import java.util.function.Supplier;
 public abstract class LogicalCatalogRelation extends LogicalRelation implements CatalogRelation {
 
     protected final TableIf table;
-    // [catalogName, databaseName, tableName]
+    // [catalogName, databaseName]
     protected final ImmutableList<String> qualifier;
 
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
@@ -82,13 +82,20 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public DatabaseIf getDatabase() throws AnalysisException {
         Preconditions.checkArgument(!qualifier.isEmpty(), "qualifier can not be empty");
         try {
-            CatalogIf catalog = qualifier.size() == 3
-                    ? Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(qualifier.get(0),
-                        s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."))
-                    : Env.getCurrentEnv().getCurrentCatalog();
-            return catalog.getDbOrException(qualifier.size() == 3 ? qualifier.get(1) : qualifier.get(0),
-                    s -> new Exception("Database [" + qualifier.get(1) + "] does not exist in catalog ["
-                        + qualifier.get(0) + "]."));
+            int len = qualifier.size();
+            if (2 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(qualifier.get(0));
+                return catalog.getDbOrAnalysisException(qualifier.get(1));
+            } else if (1 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCurrentCatalog();
+                return catalog.getDbOrAnalysisException(qualifier.get(0));
+            } else if (0 == len) {
+                CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCurrentCatalog();
+                ConnectContext ctx = ConnectContext.get();
+                return catalog.getDb(ctx.getDatabase()).get();
+            }
+            return null;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -110,9 +117,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
-        if (qualifier.size() == 3) {
-            return qualifier;
-        }
         return Utils.qualifiedNameParts(qualifier, table.getName());
     }
 
@@ -120,9 +124,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
-        if (qualifier.size() == 3) {
-            return StringUtils.join(qualifier, ".");
-        }
         return Utils.qualifiedName(qualifier, table.getName());
     }
 
