@@ -1116,7 +1116,6 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
             have_failure_rowset = true;
-            _local_storage_engine.add_unused_rowset(new_rowset);
             res = Status::OK();
         } else if (!res) {
             LOG(WARNING) << "failed to register new version. "
