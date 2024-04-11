@@ -37,9 +37,10 @@ public class SetDefaultStorageVaultStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.isCloudMode()) {
+        if (Config.isNotCloudMode()) {
             throw new AnalysisException("Storage Vault is only supported for cloud mode");
         }
+        // In legacy cloud mode, some s3 back-ended storage does need to use storage vault.
         if (!((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
             throw new AnalysisException("Your cloud instance doesn't support storage vault");
         }
