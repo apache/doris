@@ -50,7 +50,7 @@ services:
   hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-metastore.env
     environment:
       HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
       SERVICE_PRECONDITION: "hive-metastore:9083"
