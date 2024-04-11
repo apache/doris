@@ -85,9 +85,13 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     @Override
     public String toString() {
+        StringBuilder cse = new StringBuilder();
+        for (int i = 0; i < multiLayerProjects.size(); i++) {
+            List<NamedExpression> layer = multiLayerProjects.get(i);
+            cse.append("l").append(i).append("(").append(layer).append(")");
+        }
         return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdWithPrefix(),
-                "stats", statistics, "projects", projects
-
+                "stats", statistics, "projects", projects, "multi_proj", cse.toString()
         );
     }
 
