@@ -207,6 +207,10 @@ public:
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnArray>(res, selector);
     }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        return append_data_by_selector_impl<ColumnArray>(res, selector, begin, end);
+    }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(offsets);

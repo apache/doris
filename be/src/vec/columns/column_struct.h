@@ -130,6 +130,10 @@ public:
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
     }
+    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector, size_t begin,
+                                 size_t end) const override {
+        return append_data_by_selector_impl<ColumnStruct>(res, selector, begin, end);
+    }
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         const auto& r = assert_cast<const ColumnStruct&>(rhs);
