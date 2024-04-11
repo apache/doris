@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_join_with_cast_array", "query,p0") {
-
     sql "drop table if exists dwd_channel_account_consume_history_reconciliation"
     sql """ CREATE TABLE `dwd_channel_account_consume_history_reconciliation` (
       `date` date NOT NULL,
@@ -100,7 +99,7 @@ suite("test_join_with_cast_array", "query,p0") {
     "binlog.max_bytes" = "9223372036854775807",
     "binlog.max_history_nums" = "9223372036854775807",
     "enable_single_replica_compaction" = "false"
-    );
+    );"""
 
     sql "drop table if exists tb_media"
     sql """ CREATE TABLE `tb_media` (
@@ -183,7 +182,7 @@ suite("test_join_with_cast_array", "query,p0") {
             set 'column_separator', '\t'
             table "${tableName}"
             time 10000
-            file '${tableName}.csv'
+            file "${tableName}"+'.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
@@ -191,7 +190,7 @@ suite("test_join_with_cast_array", "query,p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(${tblRows}, json.NumberTotalRows)
+                assertEquals(tblRows, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
             }
         }
@@ -203,7 +202,9 @@ suite("test_join_with_cast_array", "query,p0") {
     stream_load_by_name("tb_reconciliation_detail", 200)
     stream_load_by_name("tb_reconciliation_media_order", 200)
 
-    qt_order_sql """
+    sql """ set enable_nereids_planner=true; """
+    sql """ set enable_fallback_to_original_planner=false;"""
+    order_qt_sql """
     SELECT temp_l.media_id
     FROM   (SELECT `business_line`,
                    Concat_ws(',', Collect_set(media_id))                     AS

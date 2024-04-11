@@ -951,6 +951,9 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
+            if (column->size() == 0) {
+                return Status::InternalError("here should not be empty column in build block");
+            }
             assert_cast<ColumnNullable*>(column->assume_mutable().get())
                     ->get_null_map_column()
                     .get_data()
