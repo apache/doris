@@ -143,9 +143,6 @@ public class PartitionTableInfo {
             throw new AnalysisException(
                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
-        if (isAutoPartition && partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && column.isNullable()) {
-            throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
-        }
     }
 
     /**
@@ -241,17 +238,19 @@ public class PartitionTableInfo {
             }
 
             try {
-                ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
-                // here we have already extracted partitionColumns
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
-                        partitionDesc = new RangePartitionDesc(exprs, partitionColumns, partitionDescs);
+                        partitionDesc = new RangePartitionDesc(
+                            convertToLegacyAutoPartitionExprs(partitionList),
+                            partitionColumns, partitionDescs);
                     } else {
                         partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
                     }
                 } else {
                     if (isAutoPartition) {
-                        partitionDesc = new ListPartitionDesc(exprs, partitionColumns, partitionDescs);
+                        partitionDesc = new ListPartitionDesc(
+                            convertToLegacyAutoPartitionExprs(partitionList),
+                            partitionColumns, partitionDescs);
                     } else {
                         partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
                     }
@@ -289,21 +288,5 @@ public class PartitionTableInfo {
                 throw new AnalysisException("unsupported argument " + child.toString());
             }
         }).collect(Collectors.toList());
-    }
-
-    /**
-     *  Get column names and put in partitionColumns
-     */
-    public void extractPartitionColumns() throws AnalysisException {
-        if (partitionList == null) {
-            return;
-        }
-        ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
-        try {
-            partitionColumns = PartitionDesc.getColNamesFromExpr(exprs,
-                    partitionType.equalsIgnoreCase(PartitionType.LIST.name()), isAutoPartition);
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
     }
 }

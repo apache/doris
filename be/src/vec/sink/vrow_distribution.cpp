@@ -29,7 +29,6 @@
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -332,10 +331,7 @@ Status VRowDistribution::generate_rows_distribution(
         for (int i = 0; i < func_size; ++i) {
             int result_idx = -1;
             RETURN_IF_ERROR(part_funcs[i]->execute(part_ctxs[i].get(), block.get(), &result_idx));
-
-            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data(0, 1);
-            DCHECK(result_idx != -1);
-
+            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             partition_cols_idx.push_back(result_idx);
         }
 

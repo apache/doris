@@ -102,9 +102,7 @@ public class PartitionDesc {
     // 1. partition by list (column) : now support one slotRef
     // 2. partition by range(column/function(column)) : support slotRef and some
     // special function eg: date_trunc, date_floor/ceil
-    // not only for auto partition. maybe we should check for project partitiion also
-    public static List<String> getColNamesFromExpr(ArrayList<Expr> exprs, boolean isListPartition,
-            boolean isAutoPartition)
+    public static List<String> getColNamesFromExpr(ArrayList<Expr> exprs, boolean isListPartition)
             throws AnalysisException {
         List<String> colNames = new ArrayList<>();
         for (Expr expr : exprs) {
@@ -130,7 +128,7 @@ public class PartitionDesc {
                                     + expr.toSql());
                 }
             } else if (expr instanceof SlotRef) {
-                if (isAutoPartition && !colNames.isEmpty() && !isListPartition) {
+                if (!colNames.isEmpty() && !isListPartition) {
                     throw new AnalysisException(
                             "auto create partition only support one slotRef in expr of RANGE partition. "
                                     + expr.toSql());
@@ -209,9 +207,6 @@ public class PartitionDesc {
                             && columnDef.isAllowNull()) {
                         throw new AnalysisException(
                                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
-                    }
-                    if (this instanceof RangePartitionDesc && isAutoCreatePartitions && columnDef.isAllowNull()) {
-                        throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
                     }
                     if (this instanceof RangePartitionDesc && partitionExprs != null) {
                         if (partitionExprs.get(0) instanceof FunctionCallExpr) {
