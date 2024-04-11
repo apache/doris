@@ -66,11 +66,6 @@ class RuntimeState {
     ENABLE_FACTORY_CREATOR(RuntimeState);
 
 public:
-    // for ut only
-    RuntimeState(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env,
-                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
-
     RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx,
