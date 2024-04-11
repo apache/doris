@@ -93,6 +93,12 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                                                           _dependency->shared_from_this(),
                                                           _finish_dependency->shared_from_this());
     }
+    _runtime_filters.resize(p._runtime_filter_descs.size());
+    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(
+                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i],
+                _build_expr_ctxs.size() == 1));
+    }
     return Status::OK();
 }
 
@@ -112,12 +118,6 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     _shared_state->build_exprs_size = _build_expr_ctxs.size();
     // Hash Table Init
     _hash_table_init(state);
-    _runtime_filters.resize(p._runtime_filter_descs.size());
-    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(
-                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i],
-                _build_expr_ctxs.size() == 1));
-    }
 
     _runtime_filter_slots =
             std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, runtime_filters());

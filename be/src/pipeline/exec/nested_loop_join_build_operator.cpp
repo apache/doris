@@ -30,16 +30,12 @@ NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOpe
         : JoinBuildSinkLocalState<NestedLoopJoinSharedState, NestedLoopJoinBuildSinkLocalState>(
                   parent, state) {}
 
-Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state,info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
-    _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
-    for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
-    }
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->register_producer_runtime_filter(
@@ -49,6 +45,18 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
                     "runtime filter({}) on NestedLoopJoin should be set to is_broadcast_join",
                     _runtime_filters[i]->get_name());
         }
+    }
+    return Status::OK();
+}
+
+Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
+    _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
+    for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
     }
     return Status::OK();
 }
