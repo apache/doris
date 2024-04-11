@@ -32,6 +32,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
@@ -105,7 +106,8 @@ public class LoadingTaskPlanner {
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.userInfo = userInfo;
         if (Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
+                .checkDbPriv(userInfo, InternalCatalog.INTERNAL_CATALOG_NAME,
+                        Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
                         PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
