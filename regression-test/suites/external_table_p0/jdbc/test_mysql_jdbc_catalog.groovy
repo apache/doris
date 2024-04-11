@@ -601,7 +601,25 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "metadata_refresh_interval_sec" = "5"
         );"""
 
-        sql """drop catalog if exists mysql_refresh_property;"""
+        sql """drop catalog if exists mysql_rename1;"""
+
+        sql """create catalog if not exists mysql_rename1 properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+        );"""
+
+        qt_sql """select count(*) from mysql_rename1.doris_test.ex_tb1;"""
+
+        sql """alter catalog mysql_rename1 rename mysql_rename2"""
+
+        qt_sql """select count(*) from mysql_rename2.doris_test.ex_tb1;"""
+
+        sql """drop catalog if exists mysql_rename2;"""
+
     }
 }
 
