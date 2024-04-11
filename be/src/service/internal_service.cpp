@@ -1203,10 +1203,10 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
     }
 }
 
-void PInternalService::send_filter_size(::google::protobuf::RpcController* controller,
-                                        const ::doris::PSendFilterSizeRequest* request,
-                                        ::doris::PSendFilterSizeResponse* response,
-                                        ::google::protobuf::Closure* done) {
+void PInternalServiceImpl::send_filter_size(::google::protobuf::RpcController* controller,
+                                            const ::doris::PSendFilterSizeRequest* request,
+                                            ::doris::PSendFilterSizeResponse* response,
+                                            ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = _exec_env->fragment_mgr()->send_filter_size(request);
@@ -1218,10 +1218,10 @@ void PInternalService::send_filter_size(::google::protobuf::RpcController* contr
     }
 }
 
-void PInternalService::sync_filter_size(::google::protobuf::RpcController* controller,
-                                        const ::doris::PSyncFilterSizeRequest* request,
-                                        ::doris::PSyncFilterSizeResponse* response,
-                                        ::google::protobuf::Closure* done) {
+void PInternalServiceImpl::sync_filter_size(::google::protobuf::RpcController* controller,
+                                            const ::doris::PSyncFilterSizeRequest* request,
+                                            ::doris::PSyncFilterSizeResponse* response,
+                                            ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
