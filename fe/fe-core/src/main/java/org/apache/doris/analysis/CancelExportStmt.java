@@ -147,9 +147,8 @@ public class CancelExportStmt extends DdlStmt {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
                         PrivPredicate.SELECT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), dbName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                    PrivPredicate.SELECT.getPrivs().toString(), dbName);
         }
 
         if (null == whereClause) {
