@@ -961,6 +961,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         sc_params.enable_unique_key_merge_on_write =
                 _new_tablet->enable_unique_key_merge_on_write();
         res = _convert_historical_rowsets(sc_params, &real_alter_version);
+        DCHECK_GE(real_alter_version, request.alter_version);
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
             _tablet_ids_in_converting.erase(_new_tablet->tablet_id());
@@ -1086,6 +1087,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
     auto sc_procedure = _get_sc_procedure(changer, sc_sorting, sc_directly);
 
     // c.Convert historical data
+    bool have_failure_rowset = false;
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
         // set status for monitor
         // As long as there is a new_table as running, ref table is set as running
@@ -1131,6 +1133,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
                          << "tablet=" << _new_tablet->tablet_id() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             _local_storage_engine.add_unused_rowset(new_rowset);
+            have_failure_rowset = true;
             res = Status::OK();
         } else if (!res) {
             LOG(WARNING) << "failed to register new version. "
@@ -1144,7 +1147,9 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
                         << ", version=" << rs_reader->version().first << "-"
                         << rs_reader->version().second;
         }
-        *real_alter_version = rs_reader->version().second;
+        if (!have_failure_rowset) {
+            *real_alter_version = rs_reader->version().second;
+        }
 
         VLOG_TRACE << "succeed to convert a history version."
                    << " version=" << rs_reader->version().first << "-"
