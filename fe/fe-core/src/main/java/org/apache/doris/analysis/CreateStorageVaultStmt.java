@@ -19,7 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -72,6 +74,12 @@ public class CreateStorageVaultStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException("Storage Vault is only supported for cloud mode");
+        }
+        if (!((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            throw new AnalysisException("Your cloud instance doesn't support storage vault");
+        }
         super.analyze(analyzer);
 
         // check auth
