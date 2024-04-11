@@ -347,7 +347,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName,
                                                       String labelValue,
                                                       boolean accurateMatch,
-                                                      JobState jobState) throws AnalysisException {
+                                                      JobState jobState, String catalogName) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<>();
         if (!Env.getCurrentEnv().getLabelProcessor().existJobs(dbId)) {
             return loadJobInfos;
@@ -367,15 +367,17 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                     // check auth
                     if (tableNames.isEmpty()) {
                         // forward compatibility
-                        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
-                                PrivPredicate.LOAD)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkDbPriv(ConnectContext.get(), catalogName, dbName,
+                                        PrivPredicate.LOAD)) {
                             continue;
                         }
                     } else {
                         boolean auth = true;
                         for (String tblName : tableNames) {
-                            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                                    tblName, PrivPredicate.LOAD)) {
+                            if (!Env.getCurrentEnv().getAccessManager()
+                                    .checkTblPriv(ConnectContext.get(), catalogName, dbName,
+                                            tblName, PrivPredicate.LOAD)) {
                                 auth = false;
                                 break;
                             }

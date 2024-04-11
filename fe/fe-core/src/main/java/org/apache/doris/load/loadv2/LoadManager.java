@@ -618,15 +618,17 @@ public class LoadManager implements Writable {
                     // check auth
                     if (tableNames.isEmpty()) {
                         // forward compatibility
-                        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
-                                PrivPredicate.LOAD)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkDbPriv(ConnectContext.get(), loadJob.getDb().getCatalog().getName(), dbName,
+                                        PrivPredicate.LOAD)) {
                             continue;
                         }
                     } else {
                         boolean auth = true;
                         for (String tblName : tableNames) {
-                            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                                    tblName, PrivPredicate.LOAD)) {
+                            if (!Env.getCurrentEnv().getAccessManager()
+                                    .checkTblPriv(ConnectContext.get(), loadJob.getDb().getCatalog().getName(), dbName,
+                                            tblName, PrivPredicate.LOAD)) {
                                 auth = false;
                                 break;
                             }
