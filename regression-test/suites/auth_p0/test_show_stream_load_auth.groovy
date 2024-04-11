@@ -37,20 +37,21 @@ suite("test_show_stream_load_auth","p0,auth") {
     """
 
     streamLoad {
-        table "${tableName}"
+        table "${tableName1}"
 
         set 'column_separator', ','
         set 'columns', 'k1, k2'
         set 'label', label
         set 'strict_mode', 'true'
 
-        file 'test_strict_mode.csv'
+        file 'test_strict_mode1.csv'
         time 10000 // limit inflight 10s
     }
 
-    sql "sync"
     Thread.sleep(30000);
-    String aa = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
-    log.info(aa)
+    String res = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
+    assertTrue(res.contains(${label}))
+
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }
