@@ -53,6 +53,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
@@ -2052,6 +2053,13 @@ void PInternalService::get_wal_queue_size(google::protobuf::RpcController* contr
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
     }
+}
+
+void PInternalServiceImpl::alter_vault_sync(google::protobuf::RpcController* controller,
+                                            const doris::PAlterVaultSyncRequest* request,
+                                            PAlterVaultSyncResponse* response,
+                                            google::protobuf::Closure* done) {
+    _engine.to_cloud().sync_storage_vault();
 }
 
 } // namespace doris

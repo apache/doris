@@ -300,6 +300,11 @@ public:
                                     PFetchRemoteSchemaResponse* response,
                                     google::protobuf::Closure* done) override;
 
+    void alter_vault_sync(google::protobuf::RpcController* controller,
+                       const doris::PAlterVaultSyncRequest* request,
+                       PAlterVaultSyncResponse* response,
+                       google::protobuf::Closure* done) override;
+
 private:
     void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,

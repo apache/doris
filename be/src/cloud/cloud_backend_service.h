@@ -35,9 +35,6 @@ public:
 
     // TODO(plat1ko): cloud backend functions
 
-    void alter_sync_vault(TAlterSyncVaultResponse& _return,
-                          const TAlterSyncVaultRequest& request) override;
-
 private:
     [[maybe_unused]] CloudStorageEngine& _engine;
 };

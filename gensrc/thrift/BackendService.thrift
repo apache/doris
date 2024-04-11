@@ -319,12 +319,6 @@ struct TPublishTopicResult {
     1: required Status.TStatus status
 }
 
-struct TAlterSyncVaultRequest {
-}
-
-struct TAlterSyncVaultResponse {
-}
-
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -393,6 +387,4 @@ service BackendService {
     TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
-
-    TAlterSyncVaultResponse alter_sync_vault(1:TAlterSyncVaultRequest request);
 }
