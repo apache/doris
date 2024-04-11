@@ -124,8 +124,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         UnboundRelation relation = optRelation.get();
         PhysicalFilter<?> filter = optFilter.get();
 
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), scan.getDatabase().getFullName(),
-                scan.getTable().getName(), PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), scan.getDatabase().getCatalog().getName(),
+                        scan.getDatabase().getFullName(),
+                        scan.getTable().getName(), PrivPredicate.LOAD)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     scan.getDatabase().getFullName() + ": " + scan.getTable().getName());

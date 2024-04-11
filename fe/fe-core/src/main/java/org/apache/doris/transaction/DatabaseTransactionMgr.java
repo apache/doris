@@ -48,6 +48,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
@@ -1835,8 +1836,10 @@ public class DatabaseTransactionMgr {
                 for (Long tblId : tblIds) {
                     Table tbl = db.getTableNullable(tblId);
                     if (tbl != null) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                tbl.getName(), PrivPredicate.SHOW)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                        db.getFullName(),
+                                        tbl.getName(), PrivPredicate.SHOW)) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                                     "SHOW TRANSACTION",
                                     ConnectContext.get().getQualifiedUser(),
