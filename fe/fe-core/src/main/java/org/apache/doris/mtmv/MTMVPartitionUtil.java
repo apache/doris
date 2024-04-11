@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
@@ -355,15 +356,23 @@ public class MTMVPartitionUtil {
      * @param partitionId
      */
     private static void dropPartition(MTMV mtmv, Long partitionId) throws AnalysisException, DdlException {
-        if (!mtmv.writeLockIfExist()) {
-            return;
+        if (Config.isCloudMode()) {
+            mtmv.commitLock();
+        } else {
+            if (!mtmv.writeLockIfExist()) {
+                return;
+            }
         }
         try {
             Partition partition = mtmv.getPartitionOrAnalysisException(partitionId);
             DropPartitionClause dropPartitionClause = new DropPartitionClause(false, partition.getName(), false, false);
             Env.getCurrentEnv().dropPartition((Database) mtmv.getDatabase(), mtmv, dropPartitionClause);
         } finally {
-            mtmv.writeUnlock();
+            if (Config.isCloudMode()) {
+                mtmv.commitUnlock();
+            } else {
+                mtmv.writeUnlock();
+            }
         }
 
     }

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
@@ -115,8 +116,12 @@ public class InsertOverwriteUtil {
      */
     public static boolean dropPartitions(OlapTable olapTable, List<String> tempPartitionNames) {
         try {
-            if (!olapTable.writeLockIfExist()) {
-                return true;
+            if (Config.isCloudMode()) {
+                olapTable.commitLock();
+            } else {
+                if (!olapTable.writeLockIfExist()) {
+                    return true;
+                }
             }
             for (String partitionName : tempPartitionNames) {
                 if (olapTable.getPartition(partitionName, true) == null) {
@@ -131,7 +136,11 @@ public class InsertOverwriteUtil {
             LOG.info("drop partition failed for [{}]", olapTable.getName(), e);
             return false;
         } finally {
-            olapTable.writeUnlock();
+            if (Config.isCloudMode()) {
+                olapTable.commitUnlock();
+            } else {
+                olapTable.writeUnlock();
+            }
         }
         return true;
     }

@@ -564,8 +564,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
 
             for (DropPartitionClause dropPartitionClause : dropPartitionClauses) {
-                if (!olapTable.writeLockIfExist()) {
-                    continue;
+                if (Config.isCloudMode()) {
+                    olapTable.commitLock();
+                } else {
+                    if (!olapTable.writeLockIfExist()) {
+                        continue;
+                    }
                 }
                 try {
                     Env.getCurrentEnv().dropPartition(db, olapTable, dropPartitionClause);
@@ -573,7 +577,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 } catch (Exception e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
                 } finally {
-                    olapTable.writeUnlock();
+                    if (Config.isCloudMode()) {
+                        olapTable.commitUnlock();
+                    } else {
+                        olapTable.writeUnlock();
+                    }
                 }
             }
 

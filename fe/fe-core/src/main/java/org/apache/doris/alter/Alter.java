@@ -212,7 +212,11 @@ public class Alter {
         } else if (currentAlterOps.hasPartitionOp()) {
             Preconditions.checkState(!alterClauses.isEmpty());
             for (AlterClause alterClause : alterClauses) {
-                olapTable.writeLockOrDdlException();
+                if (Config.isCloudMode()) {
+                    olapTable.commitLock();
+                } else {
+                    olapTable.writeLockOrDdlException();
+                }
                 try {
                     if (alterClause instanceof DropPartitionClause) {
                         if (!((DropPartitionClause) alterClause).isTempPartition()) {
@@ -257,7 +261,11 @@ public class Alter {
                         throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
                     }
                 } finally {
-                    olapTable.writeUnlock();
+                    if (Config.isCloudMode()) {
+                        olapTable.commitUnlock();
+                    } else {
+                        olapTable.writeUnlock();
+                    }
                 }
             }
         } else if (currentAlterOps.hasRenameOp()) {
