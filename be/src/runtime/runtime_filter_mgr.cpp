@@ -574,8 +574,7 @@ Status RuntimeFilterMergeController::acquire(
     std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
     auto iter = _filter_controller_map[shard].find(query_id);
     if (iter == _filter_controller_map[shard].end()) {
-        LOG(WARNING) << "not found entity, query-id:" << query_id.to_string();
-        return Status::InvalidArgument("not found entity");
+        return Status::InvalidArgument("not found entity, query-id:{}", query_id.to_string());
     }
     *handle = _filter_controller_map[shard][query_id].lock();
     if (*handle == nullptr) {
@@ -591,7 +590,8 @@ void RuntimeFilterMergeController::remove_entity(UniqueId query_id) {
 }
 
 RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* state) {
-    RuntimeFilterParamsContext* params = state->obj_pool()->add(new RuntimeFilterParamsContext());
+    RuntimeFilterParamsContext* params =
+            state->get_query_ctx()->obj_pool.add(new RuntimeFilterParamsContext());
     params->runtime_filter_wait_infinitely = state->runtime_filter_wait_infinitely();
     params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
     params->enable_pipeline_exec = state->enable_pipeline_exec();
