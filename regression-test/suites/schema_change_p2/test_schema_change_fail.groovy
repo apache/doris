@@ -31,21 +31,6 @@ suite('test_schema_change_fail', 'nonConcurrent') {
     }
 
     def tbl = 'test_schema_change_fail'
-    sql "DROP TABLE IF EXISTS ${tbl} FORCE"
-    sql """
-        CREATE TABLE ${tbl}
-        (
-            `a` TINYINT NULL,
-            `b` TINYINT NULL
-        )
-        DISTRIBUTED BY HASH(`a`) BUCKETS 1
-        PROPERTIES
-        (
-            'replication_num' = '${backends.size()}'
-        )
-    """
-
-    sql "INSERT INTO ${tbl} VALUES (1, 2), (3, 4)"
 
     def beId = backends[0].BackendId.toLong()
     def beHost = backends[0].Host
@@ -66,6 +51,22 @@ suite('test_schema_change_fail', 'nonConcurrent') {
     def followFe = frontends.stream().filter(fe -> !fe.IsMaster.toBoolean()).findFirst().orElse(null)
     def followFeUrl =  String.format('jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false',
         followFe.Host, followFe.QueryPort)
+
+    sql "DROP TABLE IF EXISTS ${tbl} FORCE"
+    sql """
+        CREATE TABLE ${tbl}
+        (
+            `a` TINYINT NULL,
+            `b` TINYINT NULL
+        )
+        DISTRIBUTED BY HASH(`a`) BUCKETS 1
+        PROPERTIES
+        (
+            'replication_num' = '${backends.size()}'
+        )
+    """
+
+    sql "INSERT INTO ${tbl} VALUES (1, 2), (3, 4)"
 
     try {
         DebugPoint.enableDebugPoint(beHost, beHttpPort, NodeType.BE, injectName)
