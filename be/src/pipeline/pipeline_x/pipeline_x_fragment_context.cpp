@@ -131,7 +131,6 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
-    std::lock_guard<std::mutex> l(_cancel_lock);
     LOG_INFO("PipelineXFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
@@ -140,25 +139,24 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     if (reason == PPlanFragmentCancelReason::TIMEOUT) {
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
-        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
-            _is_report_on_cancel = false;
-        } else {
-            for (auto& id : _fragment_instance_ids) {
-                LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
-            }
+    _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
+    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+        _is_report_on_cancel = false;
+    } else {
+        for (auto& id : _fragment_instance_ids) {
+            LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
         }
-        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
-        // For stream load the fragment's query_id == load id, it is set in FE.
-        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
-        if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(msg);
-        }
-
-        // Cancel the result queue manager used by spark doris connector
-        // TODO pipeline incomp
-        // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     }
+    // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+    // For stream load the fragment's query_id == load id, it is set in FE.
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+    if (stream_load_ctx != nullptr) {
+        stream_load_ctx->pipe->cancel(msg);
+    }
+
+    // Cancel the result queue manager used by spark doris connector
+    // TODO pipeline incomp
+    // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
             task->clear_blocking_state();
@@ -993,13 +991,20 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
+        if (tnode.agg_node.grouping_exprs.empty() &&
+            descs.get_tuple_descriptor(tnode.agg_node.output_tuple_id)->slots().empty()) {
+            return Status::InternalError("Illegal aggregate node " + std::to_string(tnode.node_id) +
+                                         ": group by and output is empty");
+        }
         if (tnode.agg_node.aggregate_functions.empty() && !_runtime_state->enable_agg_spill() &&
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
-            request.query_options.enable_distinct_streaming_aggregation) {
+            request.query_options.enable_distinct_streaming_aggregation &&
+            !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
-                   tnode.agg_node.use_streaming_preaggregation) {
+                   tnode.agg_node.use_streaming_preaggregation &&
+                   !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new StreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else {
@@ -1035,9 +1040,22 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                                        tnode.hash_join_node.is_broadcast_join;
         const auto enable_join_spill = _runtime_state->enable_join_spill();
         if (enable_join_spill && !is_broadcast_join) {
+            auto tnode_ = tnode;
+            /// TODO: support rf in partitioned hash join
+            tnode_.runtime_filters.clear();
             const uint32_t partition_count = 32;
-            op.reset(new PartitionedHashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs,
-                                                           partition_count));
+            auto inner_probe_operator =
+                    std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
+            auto inner_sink_operator = std::make_shared<HashJoinBuildSinkOperatorX>(
+                    pool, 0, tnode_, descs, _need_local_merge);
+
+            RETURN_IF_ERROR(inner_probe_operator->init(tnode_, _runtime_state.get()));
+            RETURN_IF_ERROR(inner_sink_operator->init(tnode_, _runtime_state.get()));
+
+            auto probe_operator = std::make_shared<PartitionedHashJoinProbeOperatorX>(
+                    pool, tnode_, next_operator_id(), descs, partition_count);
+            probe_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
+            op = std::move(probe_operator);
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
             const auto downstream_pipeline_id = cur_pipe->id();
@@ -1047,13 +1065,14 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
-            DataSinkOperatorXPtr sink;
-            sink.reset(new PartitionedHashJoinSinkOperatorX(pool, next_sink_operator_id(), tnode,
-                                                            descs, _need_local_merge,
-                                                            partition_count));
+            auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
+                    pool, next_sink_operator_id(), tnode_, descs, _need_local_merge,
+                    partition_count);
+            sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
+            DataSinkOperatorXPtr sink = std::move(sink_operator);
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
-            RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
+            RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode_, _runtime_state.get()));
 
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
@@ -1092,8 +1111,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(
-                new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        sink.reset(new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                        _need_local_merge));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1327,11 +1346,11 @@ void PipelineXFragmentContext::close_if_prepare_failed(Status st) {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             DCHECK(!t->is_pending_finish());
-            WARN_IF_ERROR(t->close(Status::OK()), "close_if_prepare_failed failed: ");
+            WARN_IF_ERROR(t->close(st), "close_if_prepare_failed failed: ");
             close_a_pipeline();
         }
     }
-    _query_ctx->cancel(true, st.to_string(), st, _fragment_id);
+    _query_ctx->cancel(st.to_string(), st, _fragment_id);
 }
 
 void PipelineXFragmentContext::_close_fragment_instance() {

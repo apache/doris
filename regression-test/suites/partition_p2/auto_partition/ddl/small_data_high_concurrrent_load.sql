@@ -4,7 +4,7 @@ CREATE TABLE `small_data_high_concurrent_load_range`(
   `col3` decimal(9, 3),
   `col4` date
 ) duplicate KEY(`col1`)
-AUTO PARTITION BY range date_trunc(`col1`, 'day')
+auto partition by range (date_trunc(`col1`, 'day'))
 (
 )
 DISTRIBUTED BY HASH(`col1`) BUCKETS 10

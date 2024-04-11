@@ -1052,7 +1052,7 @@ under the License.
                         <configuration>
                             <proc>only</proc>
                             <compilerArgs>
-                                <arg>-AplanPath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
+                                <arg>-Apath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
                             </compilerArgs>
                             <includes>
                                 <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessPoint.java</include>

@@ -78,7 +78,6 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
                               : config::doris_scanner_thread_pool_thread_num /
                                         (_local_state ? num_parallel_instances
                                                       : state->query_parallel_instance_num());
-    _max_thread_num *= num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
     // 1. Calculate max concurrency
@@ -328,8 +327,8 @@ void ScannerContext::_try_to_scale_up() {
 
         bool is_scale_up = false;
         // calculate the number of scanners that can be scheduled
-        int num_add = std::min(_num_running_scanners * SCALE_UP_RATIO,
-                               _max_thread_num * MAX_SCALE_UP_RATIO - _num_running_scanners);
+        int num_add = int(std::min(_num_running_scanners * SCALE_UP_RATIO,
+                                   _max_thread_num * MAX_SCALE_UP_RATIO - _num_running_scanners));
         if (_estimated_block_size > 0) {
             int most_add =
                     (_max_bytes_in_queue - _free_blocks_memory_usage) / _estimated_block_size;

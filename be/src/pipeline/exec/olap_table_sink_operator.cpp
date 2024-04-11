@@ -29,15 +29,6 @@ OperatorPtr OlapTableSinkOperatorBuilder::build_operator() {
     return std::make_shared<OlapTableSinkOperator>(this, _sink);
 }
 
-Status OlapTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    auto& p = _parent->cast<Parent>();
-    RETURN_IF_ERROR(_writer->init_properties(p._pool));
-    return Status::OK();
-}
-
 Status OlapTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (Base::_closed) {
         return Status::OK();

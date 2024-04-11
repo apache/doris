@@ -39,6 +39,8 @@ import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TSchemaTableName;
+import org.apache.doris.thrift.TShowUserRequest;
+import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -99,7 +101,7 @@ public class FrontendServiceImplTest {
                 + "    city_code VARCHAR(100)\n"
                 + ")\n"
                 + "DUPLICATE KEY(event_day, site_id, city_code)\n"
-                + "AUTO PARTITION BY range date_trunc( event_day,'day') (\n"
+                + "AUTO PARTITION BY range (date_trunc( event_day,'day')) (\n"
                 + "\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
@@ -219,5 +221,13 @@ public class FrontendServiceImplTest {
         result = impl.fetchSchemaTableData(request);
         Assert.assertEquals(result.getStatus().getStatusCode(), TStatusCode.OK);
         Assert.assertEquals(result.getDataBatchSize(), 1);
+    }
+
+    @Test
+    public void testShowUser() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TShowUserRequest request = new TShowUserRequest();
+        TShowUserResult result = impl.showUser(request);
+        System.out.println(result);
     }
 }

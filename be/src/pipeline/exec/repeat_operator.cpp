@@ -47,10 +47,10 @@ RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
           _child_block(vectorized::Block::create_unique()),
           _repeat_id_idx(0) {}
 
-Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
+Status RepeatLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<Parent>();
     _expr_ctxs.resize(p._expr_ctxs.size());
     for (size_t i = 0; i < _expr_ctxs.size(); i++) {

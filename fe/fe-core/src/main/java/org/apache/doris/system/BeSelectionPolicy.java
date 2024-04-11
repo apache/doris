@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
  */
 public class BeSelectionPolicy {
     private static final Logger LOG = LogManager.getLogger(BeSelectionPolicy.class);
+
     public boolean needScheduleAvailable = false;
     public boolean needQueryAvailable = false;
     public boolean needLoadAvailable = false;

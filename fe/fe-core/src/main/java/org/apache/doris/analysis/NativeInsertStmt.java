@@ -1333,4 +1333,9 @@ public class NativeInsertStmt extends InsertStmt {
             slotDesc.setIsNullable(col.isAllowNull());
         }
     }
+
+    public boolean containTargetColumnName(String columnName) {
+        return targetColumnNames != null && targetColumnNames.stream()
+                .anyMatch(col -> col.equalsIgnoreCase(columnName));
+    }
 }

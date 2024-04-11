@@ -30,6 +30,8 @@
 namespace doris {
 
 class DelayReleaseToken : public Runnable {
+    ENABLE_FACTORY_CREATOR(DelayReleaseToken);
+
 public:
     DelayReleaseToken(std::unique_ptr<ThreadPoolToken>&& token) { token_ = std::move(token); }
     ~DelayReleaseToken() override = default;
@@ -121,8 +123,12 @@ QueryContext::~QueryContext() {
     // And also thread token need shutdown, it may take some time, may cause the thread that
     // release the token hang, the thread maybe a pipeline task scheduler thread.
     if (_thread_token) {
-        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+        Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                DelayReleaseToken::create_shared(std::move(_thread_token)));
+        if (!submit_st.ok()) {
+            LOG(WARNING) << "Failed to release query context thread token, query_id "
+                         << print_id(_query_id) << ", error status " << submit_st;
+        }
     }
 
     //TODO: check if pipeline and tracing both enabled
@@ -170,12 +176,15 @@ void QueryContext::set_execution_dependency_ready() {
     _execution_dependency->set_ready();
 }
 
-bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragment_id) {
-    if (_is_cancelled) {
-        return false;
-    }
+void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
+    // we must get this wrong status once query ctx's `_is_cancelled` = true.
     set_exec_status(new_status);
-    _is_cancelled.store(v);
+    // Just for CAS need a left value
+    bool false_cancel = false;
+    if (!_is_cancelled.compare_exchange_strong(false_cancel, true)) {
+        return;
+    }
+    DCHECK(!false_cancel && _is_cancelled);
 
     set_ready_to_execute(true);
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
@@ -188,12 +197,13 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
             ctx_to_cancel.push_back(f_context);
         }
     }
+    // Must not add lock here. There maybe dead lock because it will call fragment
+    // ctx cancel and fragment ctx will call query ctx cancel.
     for (auto& f_context : ctx_to_cancel) {
         if (auto pipeline_ctx = f_context.lock()) {
             pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
         }
     }
-    return true;
 }
 
 void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
@@ -287,7 +297,6 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     _workload_group = tg;
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
-    RETURN_IF_ERROR(_workload_group->add_query(_query_id));
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                          &_non_pipe_thread_pool, &_remote_scan_task_scheduler);

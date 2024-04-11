@@ -405,4 +405,23 @@ public class MTMV extends OlapTable {
         }
     }
 
+    @Override
+    public String toString() {
+        return "MTMV{"
+                + ", refreshInfo=" + refreshInfo
+                + ", querySql='" + querySql + '\''
+                + ", status=" + status
+                + ", envInfo=" + envInfo
+                + ", jobInfo=" + jobInfo
+                + ", mvProperties=" + mvProperties
+                + ", relation=" + relation
+                + ", mvPartitionInfo=" + mvPartitionInfo
+                + ", refreshSnapshot=" + refreshSnapshot
+                + ", cache=" + cache
+                + ", id=" + id
+                + ", name='" + name + '\''
+                + ", qualifiedDbName='" + qualifiedDbName + '\''
+                + ", comment='" + comment + '\''
+                + '}';
+    }
 }
