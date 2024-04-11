@@ -29,7 +29,7 @@ suite("test_create_view_auth","p0,auth") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """create database ${dbName}"""
     sql """
-        CREATE TABLE IF NOT EXISTS `${dbName}.${tableName}` (
+        CREATE TABLE IF NOT EXISTS ${dbName}.`${tableName}` (
             id BIGINT,
             username VARCHAR(20)
         )
