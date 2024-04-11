@@ -37,7 +37,7 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
     RETURN_IF_ERROR(Base::init(state, info));
 
     SCOPED_TIMER(Base::exec_time_counter());
-    SCOPED_TIMER(Base::_init_timer);
+    SCOPED_TIMER(Base::_open_timer);
 
     _init_counters();
 

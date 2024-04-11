@@ -96,23 +96,15 @@ Status UnionSinkOperator::close(RuntimeState* state) {
 Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_init_timer);
-    auto& p = _parent->cast<Parent>();
-    _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
-    return Status::OK();
-}
-
-Status UnionSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<Parent>();
     _child_expr.resize(p._child_expr.size());
+    _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
     for (size_t i = 0; i < p._child_expr.size(); i++) {
         RETURN_IF_ERROR(p._child_expr[i]->clone(state, _child_expr[i]));
     }
     return Status::OK();
-}
+};
 
 UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
                                        const TPlanNode& tnode, const DescriptorTbl& descs)

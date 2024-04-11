@@ -26,8 +26,6 @@ namespace doris::pipeline {
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::pipeline::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::init(state, info));
-    SCOPED_TIMER(Base::exec_time_counter());
-    SCOPED_TIMER(Base::_init_timer);
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->partitioned_build_blocks.resize(p._partition_count);
     _shared_state->spilled_streams.resize(p._partition_count);
@@ -46,8 +44,6 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
 }
 
 Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(Base::exec_time_counter());
-    SCOPED_TIMER(Base::_open_timer);
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::open(state));
     return _partitioner->open(state);
 }
