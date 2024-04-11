@@ -61,8 +61,7 @@ TEST(TEST_VEXPR, ABSTEST) {
     doris::vectorized::VExprContextSPtr context;
     static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
 
-    doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
-                                     doris::TQueryGlobals(), nullptr, nullptr);
+    doris::RuntimeState runtime_stat;
     runtime_stat.set_desc_tbl(desc_tbl);
     auto state = doris::Status::OK();
     state = context->prepare(&runtime_stat, row_desc);
@@ -153,8 +152,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     doris::vectorized::VExprContextSPtr context;
     static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
 
-    doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
-                                     doris::TQueryGlobals(), nullptr, nullptr);
+    doris::RuntimeState runtime_stat;
     DescriptorTbl desc_tbl;
     desc_tbl._slot_desc_map[0] = tuple_desc->slots()[0];
     runtime_stat.set_desc_tbl(&desc_tbl);
