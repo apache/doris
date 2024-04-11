@@ -15,13 +15,77 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
+
 suite('test_schema_change_fail', 'nonConcurrent') {
-    def backends = sql_return_maparray("show backends")
-    def frontends = sql_return_maparray("show frontends")
-    if (frontends.size() < 2 || backends.size() < 3) {
+    if (isCloudMode()) {
         return
     }
 
-    setFeConfigTemporary([]) {
+    def frontends = sql_return_maparray('show frontends')
+    def backends = sql_return_maparray('show backends')
+    def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
+    if (frontends.size() < 2 || backends.size() < 3 || forceReplicaNum == 1) {
+        return
+    }
+
+    def tbl = 'test_schema_change_fail'
+    sql "DROP TABLE IF EXISTS ${tbl} FORCE"
+    sql """
+        CREATE TABLE ${tbl}
+        (
+            `a` TINYINT NULL,
+            `b` TINYINT NULL
+        )
+        DISTRIBUTED BY HASH(`a`) BUCKETS 1
+        PROPERTIES
+        (
+            'replication_num' = '${backends.size()}'
+        )
+    """
+
+    sql "INSERT INTO ${tbl} VALUES (1, 2), (3, 4)"
+
+    def beId = backends[0].BackendId.toLong()
+    def beHost = backends[0].Host
+    def beHttpPort = backends[0].HttpPort.toInteger()
+    def injectName = 'SchemaChangeJob.process_alter_tablet.alter_fail'
+
+    def checkReplicaBad = { ->
+        def tabletId = sql_return_maparray("SHOW TABLETS FROM ${tbl}")[0].TabletId.toLong()
+        def replicas = sql_return_maparray(sql_return_maparray("SHOW TABLET ${tabletId}").DetailCmd)
+        assertEquals(backends.size(), replicas.size())
+        for (def replica : replicas) {
+            if (replica.BackendId.toInteger() == beId) {
+                assertEquals(true, replica.IsBad.toBoolean())
+            }
+        }
+    }
+
+    def followFe = frontends.stream().filter(fe -> !fe.IsMaster.toBoolean()).findFirst().orElse(null)
+    def followFeUrl =  String.format('jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false',
+        followFe.Host, followFe.QueryPort)
+
+    try {
+        DebugPoint.enableDebugPoint(beHost, beHttpPort, NodeType.BE, injectName)
+        setFeConfig('disable_tablet_scheduler', true)
+
+        sleep(1000)
+        sql "ALTER TABLE ${tbl} MODIFY COLUMN b DOUBLE NOT NULL DEFAULT '100.0'"
+        sleep(5 * 1000)
+
+        def jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = '${tbl}'"
+        assertEquals(1, jobs.size())
+        assertEquals('FINISHED', jobs[0].State)
+
+        checkReplicaBad()
+        connect('root', '', followFeUrl) {
+            checkReplicaBad()
+        }
+    } finally {
+        DebugPoint.disableDebugPoint(beHost, beHttpPort, NodeType.BE, injectName)
+        setFeConfig('disable_tablet_scheduler', false)
+        sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     }
 }
