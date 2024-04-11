@@ -198,13 +198,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             Plan rewrittenPlan;
             Plan mvScan = materializationContext.getMvScanPlan();
-            Plan originalPlan = queryStructInfo.getTopPlan();
+            Plan topPlan = queryStructInfo.getTopPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
             } else {
                 // Try to rewrite compensate predicates by using mv scan
                 List<Expression> rewriteCompensatePredicates = rewriteExpression(compensatePredicates.toList(),
-                        originalPlan, materializationContext.getMvExprToMvScanExprMapping(),
+                        topPlan, materializationContext.getMvExprToMvScanExprMapping(),
                         viewToQuerySlotMapping, true, queryStructInfo.getTableBitSet());
                 if (rewriteCompensatePredicates.isEmpty()) {
                     materializationContext.recordFailReason(queryStructInfo,
@@ -223,13 +223,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (rewrittenPlan == null) {
                 continue;
             }
-            final Plan finalRewrittenPlan = rewriteByRules(cascadesContext, rewrittenPlan, originalPlan);
-            if (!isOutputValid(originalPlan, finalRewrittenPlan)) {
+            final Plan finalRewrittenPlan = rewriteByRules(cascadesContext, rewrittenPlan, topPlan);
+            if (!isOutputValid(topPlan, finalRewrittenPlan)) {
                 materializationContext.recordFailReason(queryStructInfo,
                         "RewrittenPlan output logical properties is different with target group",
                         () -> String.format("planOutput logical"
                                         + " properties = %s,\n groupOutput logical properties = %s",
-                                finalRewrittenPlan.getLogicalProperties(), originalPlan.getLogicalProperties()));
+                                finalRewrittenPlan.getLogicalProperties(), topPlan.getLogicalProperties()));
                 continue;
             }
             // check the partitions used by rewritten plan is valid or not
