@@ -69,5 +69,16 @@ suite("push_count_into_union_all") {
         select count(distinct a+1) c1 from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
         union all select a,b from mal_test_push_count where a=1 ) t"""
 
+    qt_union_all_child_alias """
+        select c1,count(c1)  from (select a as c1,b as c2 from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100
+        union all select a,b from mal_test_push_count where a=1 ) t group by c1 order by 1,2;"""
 
+    qt_union_all_child_alias_shape """
+        explain shape plan
+        select c1,count(c1)  from (select a as c1,b as c2 from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100
+        union all select a,b from mal_test_push_count where a=1 ) t group by c1;"""
+
+    qt_union_all_child_expr """
+        select c1,count(c1)  from (select a+1 as c1,b as c2 from mal_test_push_count where a>1 union all select a+100,b from mal_test_push_count where a<100
+        union all select abs(a),b from mal_test_push_count where a=1 ) t group by c1 order by 1,2;"""
 }

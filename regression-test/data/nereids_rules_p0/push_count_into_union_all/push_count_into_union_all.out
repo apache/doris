@@ -147,3 +147,51 @@ PhysicalResultSink
 ------------------------filter((mal_test_push_count.a = 1))
 --------------------------PhysicalOlapScan[mal_test_push_count]
 
+-- !union_all_child_alias --
+1	10
+2	2
+3	6
+4	2
+5	10
+7	2
+
+-- !union_all_child_alias_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------filter((mal_test_push_count.a > 1))
+----------------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------filter((mal_test_push_count.a < 100))
+----------------------PhysicalOlapScan[mal_test_push_count]
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------filter((mal_test_push_count.a = 1))
+----------------------PhysicalOlapScan[mal_test_push_count]
+
+-- !union_all_child_expr --
+1	5
+3	1
+4	3
+5	1
+6	5
+8	1
+101	5
+102	1
+103	3
+104	1
+105	5
+107	1
+
