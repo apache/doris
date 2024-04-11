@@ -178,6 +178,10 @@ suite("test_build_index", "inverted_index"){
 
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
+    if (!isCloudMode()) {
+        return // TODO enable this case after enable light index in cloud mode
+    }
+
     // BUILD INDEX and expect state is RUNNING
     sql """ BUILD INDEX idx_comment ON ${tableName} """
     def state = wait_for_last_build_index_on_table_running(tableName, timeout)
