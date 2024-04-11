@@ -23,7 +23,7 @@ suite("test_create_view_auth","p0,auth") {
     String dbName = 'test_create_view_auth_db'
     String tableName = 'test_create_view_auth_table'
     try_sql("DROP USER ${user}")
-    sql """drop table if exists ${dbName}.${tableName}"""
+    try_sql """drop table if exists ${dbName}.${tableName}"""
     sql """drop database if exists ${dbName}"""
 
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
