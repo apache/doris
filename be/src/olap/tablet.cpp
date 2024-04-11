@@ -177,30 +177,6 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
 
 } // namespace
 
-struct WriteCooldownMetaExecutors {
-    WriteCooldownMetaExecutors(size_t executor_nums = 5);
-
-    static WriteCooldownMetaExecutors* get_instance() {
-        static WriteCooldownMetaExecutors instance;
-        return &instance;
-    }
-
-    void submit(TabletSharedPtr tablet);
-    size_t _get_executor_pos(int64_t tablet_id) const {
-        return std::hash<int64_t>()(tablet_id) % _executor_nums;
-    };
-    // Each executor is a mpsc to ensure uploads of the same tablet meta are not concurrent
-    // FIXME(AlexYue): Use mpsc instead of `ThreadPool` with 1 thread
-    // We use PriorityThreadPool since it would call status inside it's `shutdown` function.
-    // Consider one situation where the StackTraceCache's singleton is detructed before
-    // this WriteCooldownMetaExecutors's singleton, then invoking the status would also call
-    // StackTraceCache which would then result in heap use after free like #23834
-    std::vector<std::unique_ptr<PriorityThreadPool>> _executors;
-    std::unordered_set<int64_t> _pending_tablets;
-    std::mutex _latch;
-    size_t _executor_nums;
-};
-
 WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
         : _executor_nums(executor_nums) {
     for (size_t i = 0; i < _executor_nums; i++) {
@@ -211,6 +187,14 @@ WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
                                   .set_max_queue_size(std::numeric_limits<int>::max())
                                   .build(&pool));
         _executors.emplace_back(std::move(pool));
+    }
+}
+
+void WriteCooldownMetaExecutors::stop() {
+    for (auto& pool_ptr : _executors) {
+        if (pool_ptr) {
+            pool_ptr->shutdown();
+        }
     }
 }
 
@@ -2217,7 +2201,7 @@ Status check_version_continuity(const std::vector<RowsetMetaSharedPtr>& rs_metas
 // It's guaranteed the write cooldown meta task would be invoked at the end unless BE crashes
 // one tablet would at most have one async task to be done
 void Tablet::async_write_cooldown_meta(TabletSharedPtr tablet) {
-    WriteCooldownMetaExecutors::get_instance()->submit(std::move(tablet));
+    ExecEnv::GetInstance()->write_cooldown_meta_executors()->submit(std::move(tablet));
 }
 
 bool Tablet::update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {

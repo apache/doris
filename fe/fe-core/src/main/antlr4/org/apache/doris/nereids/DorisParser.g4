@@ -124,9 +124,9 @@ constraint
 partitionSpec
     : TEMPORARY? (PARTITION | PARTITIONS) partitions=identifierList
     | TEMPORARY? PARTITION partition=errorCapturingIdentifier
-    // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
-    // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
-    // | PARTITIONS WITH RECENT
+	| (PARTITION | PARTITIONS) LEFT_PAREN ASTERISK RIGHT_PAREN // for auto detect partition in overwriting
+	// TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
+	// | PARTITIONS WITH RECENT
     ;
 
 partitionTable

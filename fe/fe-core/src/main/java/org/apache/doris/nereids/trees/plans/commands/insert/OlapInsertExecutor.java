@@ -100,7 +100,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         OlapTableSink olapTableSink = (OlapTableSink) sink;
         PhysicalOlapTableSink physicalOlapTableSink = (PhysicalOlapTableSink) physicalSink;
         OlapInsertCommandContext olapInsertCtx = (OlapInsertCommandContext) insertCtx.orElse(
-                new OlapInsertCommandContext());
+                new OlapInsertCommandContext(true));
 
         boolean isStrictMode = ctx.getSessionVariable().getEnableInsertStrict()
                 && physicalOlapTableSink.isPartialUpdate()
@@ -113,9 +113,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     ctx.getSessionVariable().getSendBatchParallelism(),
                     false,
                     isStrictMode);
+            // complete and set commands both modify thrift struct
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
             if (!olapInsertCtx.isAllowAutoPartition()) {
                 olapTableSink.setAutoPartition(false);
+            }
+            if (olapInsertCtx.isAutoDetectOverwrite()) {
+                olapTableSink.setAutoDetectOverwite(true);
+                olapTableSink.setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
             }
             // update
 
