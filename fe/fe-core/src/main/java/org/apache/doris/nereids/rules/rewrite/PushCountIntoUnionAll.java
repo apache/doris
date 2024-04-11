@@ -43,7 +43,23 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** PushCountIntoUnionAll */
+/**
+ * LogicalAggregate  (groupByExpr=[c1#13], outputExpr=[c1#13, count(c1#13) AS `count(c1)`#15])
+ *  +--LogicalUnion (outputs=[c1#13], regularChildrenOutputs=[[c1#9], [a#4], [a#7]])
+ *    |--child1 (output = [[c1#9]])
+ *    |--child2 (output = [[a#4]])
+ *    +--child3 (output = [[a#7]])
+ * transform to:
+ * LogicalAggregate (groupByExpr=[c1#13], outputExpr=[c1#13, sum0(count(c1)#19) AS `count(c1)`#15])
+ *  +--LogicalUnion (outputs=[c1#13, count(c1)#19], regularChildrenOutputs=[[c1#9, count(c1)#16],
+ *   [a#4, count(a)#17], [a#7, count(a)#18]])
+ *    |--LogicalAggregate (groupByExpr=[c1#9], outputExpr=[c1#9, count(c1#9) AS `count(c1)`#16])
+ *    |  +--child1
+ *    |--LogicalAggregate (groupByExpr=[a#4], outputExpr=[a#4, count(a#4) AS `count(a)`#17])
+ *    |  +--child2
+ *    +--LogicalAggregate (groupByExpr=[a#7], outputExpr=[a#7, count(a#7) AS `count(a)`#18]]
+ *      +--child3
+ */
 public class PushCountIntoUnionAll extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
