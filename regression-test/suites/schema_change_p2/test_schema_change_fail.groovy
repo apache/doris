@@ -42,27 +42,29 @@ suite('test_schema_change_fail', 'nonConcurrent') {
         def replicas = sql_return_maparray(sql_return_maparray("SHOW TABLET ${tabletId}").DetailCmd)
         assertEquals(backends.size(), replicas.size())
         for (def replica : replicas) {
-            if (replica.BackendId.toInteger() == beId) {
+            if (replica.BackendId.toLong() == beId) {
                 assertEquals(true, replica.IsBad.toBoolean())
             }
         }
     }
 
     def followFe = frontends.stream().filter(fe -> !fe.IsMaster.toBoolean()).findFirst().orElse(null)
-    def followFeUrl =  String.format('jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false',
-        followFe.Host, followFe.QueryPort)
+    def followFeUrl =  "jdbc:mysql://${followFe.Host}:${followFe.QueryPort}/?useLocalSessionState=false&allowLoadLocalInfile=false"
+    followFeUrl = context.config.buildUrlWithDb(followFeUrl, context.dbName)
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     sql """
         CREATE TABLE ${tbl}
         (
-            `a` TINYINT NULL,
+            `a` TINYINT NOT NULL,
             `b` TINYINT NULL
         )
+        UNIQUE KEY (`a`)
         DISTRIBUTED BY HASH(`a`) BUCKETS 1
         PROPERTIES
         (
-            'replication_num' = '${backends.size()}'
+            'replication_num' = '${backends.size()}',
+            'light_schema_change' = 'false'
         )
     """
 
@@ -73,10 +75,10 @@ suite('test_schema_change_fail', 'nonConcurrent') {
         setFeConfig('disable_tablet_scheduler', true)
 
         sleep(1000)
-        sql "ALTER TABLE ${tbl} MODIFY COLUMN b DOUBLE NOT NULL DEFAULT '100.0'"
+        sql "ALTER TABLE ${tbl} MODIFY COLUMN b DOUBLE"
         sleep(5 * 1000)
 
-        def jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = '${tbl}'"
+        def jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = '${tbl}' ORDER BY CreateTime DESC LIMIT 1"
         assertEquals(1, jobs.size())
         assertEquals('FINISHED', jobs[0].State)
 
