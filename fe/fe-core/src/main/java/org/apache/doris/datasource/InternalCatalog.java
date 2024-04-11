@@ -1795,10 +1795,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // drop
         long recycleTime = 0;
+
+        Partition partition = null;
         if (isTempPartition) {
-            olapTable.dropTempPartition(partitionName, true);
+            partition = olapTable.dropTempPartition(partitionName, true);
         } else {
-            Partition partition = null;
             if (!clause.isForceDrop()) {
                 partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
@@ -1812,14 +1813,23 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
             }
-            olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop());
+            partition = olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop());
             if (!clause.isForceDrop() && partition != null) {
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
             }
         }
-        long version = olapTable.getNextVersion();
-        long versionTime = System.currentTimeMillis();
-        olapTable.updateVisibleVersionAndTime(version, versionTime);
+
+        long version = olapTable.getVisibleVersion();
+        long versionTime = olapTable.getVisibleVersionTime();
+        // Only update table version if drop a non-empty partition
+        if (partition != null && partition.hasData()) {
+            versionTime = System.currentTimeMillis();
+            if (Config.isNotCloudMode()) {
+                version = olapTable.getNextVersion();
+                olapTable.updateVisibleVersionAndTime(version, versionTime);
+            }
+        }
+
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
                 clause.isForceDrop(), recycleTime, version, versionTime);
