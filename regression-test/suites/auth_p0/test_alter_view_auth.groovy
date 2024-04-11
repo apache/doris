@@ -22,8 +22,10 @@ suite("test_alter_view_auth","p0,auth") {
     String pwd = 'C123_567p'
     String dbName = 'test_alter_view_auth_db'
     String tableName = 'test_alter_view_auth_table'
+    String viewName = 'test_alter_view_auth_view'
     try_sql("DROP USER ${user}")
     try_sql """drop table if exists ${dbName}.${tableName}"""
+    try_sql """drop view if exists ${dbName}.${viewName}"""
     sql """drop database if exists ${dbName}"""
 
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
@@ -39,9 +41,10 @@ suite("test_alter_view_auth","p0,auth") {
         );
         """
     sql """grant select_priv on regression_test to ${user}"""
+    sql """create view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
-            sql "alter view ${dbName}.v1 as select * from ${dbName}.t1;"
+            sql "alter view ${dbName}.v1 as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
             log.info(e.getMessage())
             assertTrue(e.getMessage().contains("Admin_priv,Alter_priv"))
@@ -57,6 +60,7 @@ suite("test_alter_view_auth","p0,auth") {
         }
     }
     try_sql """drop table if exists ${dbName}.${tableName}"""
+    try_sql """drop view if exists ${dbName}.${viewName}"""
     sql """drop database if exists ${dbName}"""
     try_sql("DROP USER ${user}")
 }
