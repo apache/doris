@@ -446,9 +446,6 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
             _rpc_channel_is_idle[id] = true;
             _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
         }
-        if (_broadcast_dependency) {
-            _broadcast_dependency->set_always_ready();
-        }
     }
 }
 
@@ -466,6 +463,9 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     if (!_rpc_channel_is_idle[id]) {
         _rpc_channel_is_idle[id] = true;
         _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
+    }
+    if (_broadcast_dependency) {
+        _broadcast_dependency->set_always_ready();
     }
 }
 
