@@ -132,9 +132,8 @@ public class ExportMgr {
             if (Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
                             PrivPredicate.SELECT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "SELECT",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(), dbName);
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), dbName);
             }
         } else {
             String tableName = matchExportJobs.get(0).getTableName().getTbl();
@@ -142,9 +141,8 @@ public class ExportMgr {
                     .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
                             tableName,
                             PrivPredicate.SELECT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(), dbName + ":" + tableName);
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), tableName);
             }
         }
 
