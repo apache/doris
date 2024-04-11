@@ -16,7 +16,7 @@
 // under the License.
 
 /*
-The suite tests inter and derive join type with full mtmv and left sql.
+mtmv is full join, and query is left join
  */
 suite("right_join_infer_and_derive") {
 
@@ -145,70 +145,75 @@ suite("right_join_infer_and_derive") {
     def mv_name_1 = "mv_right"
     def mtmv_stmt_list = [mtmv_full_join_stmt]
 
-    def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_right.o_orderkey 
+    def query_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_right.o_orderkey 
         from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem_right where l_shipdate = '2023-10-17') t
         right join orders_right 
         on t.l_orderkey = orders_right.o_orderkey"""
-    def mv_stmt_1 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey
+    def query_stmt_1 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey
         from lineitem_right  
         right join (select o_orderdate,o_orderkey from orders_right where o_orderdate = '2023-10-17' ) t 
         on lineitem_right.l_orderkey = t.o_orderkey"""
-    def mv_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from lineitem_right  
         right join orders_right 
         on lineitem_right.l_orderkey = orders_right.o_orderkey 
         where l_shipdate = '2023-10-17'"""
-    def mv_stmt_3 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_3 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from lineitem_right  
         right join orders_right 
         on lineitem_right.l_orderkey = orders_right.o_orderkey 
         where o_orderdate = '2023-10-17'"""
-    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from lineitem_right  
         right join orders_right 
         on lineitem_right.l_orderkey = orders_right.o_orderkey 
         where o_orderkey = 1"""
-    def mv_stmt_5 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_5 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from lineitem_right  
         right join orders_right 
         on lineitem_right.l_orderkey = orders_right.o_orderkey 
         where l_suppkey = 2"""
-    def mv_stmt_6 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_right.o_orderkey 
+    def query_stmt_6 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders_right.o_orderkey 
         from orders_right 
         right join  (select l_shipdate, l_orderkey, l_partkey, l_suppkey  from lineitem_right  where l_shipdate = '2023-10-17') t 
         on t.l_orderkey = orders_right.o_orderkey"""
-    def mv_stmt_7 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey 
+    def query_stmt_7 = """select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey 
         from (select o_orderdate, o_orderkey from orders_right where o_orderdate = '2023-10-17' ) t 
         right join lineitem_right   
         on lineitem_right.l_orderkey = t.o_orderkey"""
-    def mv_stmt_8 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_8 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from orders_right  
         right join lineitem_right  
         on lineitem_right.l_orderkey = orders_right.o_orderkey 
         where l_shipdate = '2023-10-17' """
-    def mv_stmt_9 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_9 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from orders_right 
         right join lineitem_right  
         on lineitem_right.l_orderkey = orders_right.o_orderkey 
         where o_orderdate = '2023-10-17'  """
-    def mv_stmt_10 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_10 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from orders_right  
         right join lineitem_right  
         on lineitem_right.l_orderkey = orders_right.o_orderkey
         where o_orderkey = 1"""
-    def mv_stmt_11 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_11 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from orders_right  
         right join lineitem_right  
         on lineitem_right.l_orderkey = orders_right.o_orderkey
         where l_suppkey = 2"""
-    def mv_stmt_12 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+    def query_stmt_12 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
         from orders_right  
         right join lineitem_right  
         on lineitem_right.l_orderkey = orders_right.o_orderkey
         where l_suppkey = 2 and o_orderdate = '2023-10-17'"""
+    def query_stmt_13 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, orders_right.o_orderkey 
+        from lineitem_right
+        right join orders_right  
+        on lineitem_right.l_orderkey = orders_right.o_orderkey
+        where l_suppkey = 2 and o_orderdate = '2023-10-17'"""
 
-    def mv_list = [mv_stmt_0, mv_stmt_1, mv_stmt_2, mv_stmt_3, mv_stmt_4, mv_stmt_5,
-                   mv_stmt_6, mv_stmt_7, mv_stmt_8, mv_stmt_9, mv_stmt_10, mv_stmt_11, mv_stmt_12]
+    def query_list = [query_stmt_0, query_stmt_1, query_stmt_2, query_stmt_3, query_stmt_4, query_stmt_5,
+                      query_stmt_6, query_stmt_7, query_stmt_8, query_stmt_9, query_stmt_10, query_stmt_11, query_stmt_12, query_stmt_13]
     def order_stmt = " order by 1, 2, 3, 4, 5"
     for (int mtmv_it = 0; mtmv_it < mtmv_stmt_list.size(); mtmv_it++) {
         logger.info("mtmv_it:" + mtmv_it)
@@ -216,19 +221,19 @@ suite("right_join_infer_and_derive") {
         def job_name_1 = getJobName(db, mv_name_1)
         waitingMTMVTaskFinished(job_name_1)
         if (mtmv_it == 0) {
-            for (int i = 0; i < mv_list.size(); i++) {
+            for (int i = 0; i < query_list.size(); i++) {
                 logger.info("i: " + i)
                 if (i in [0, 2, 5, 7, 9, 10]) {
                     explain {
-                        sql("${mv_list[i]}")
+                        sql("${query_list[i]}")
                         notContains "${mv_name_1}(${mv_name_1})"
                     }
                 } else {
                     explain {
-                        sql("${mv_list[i]}")
+                        sql("${query_list[i]}")
                         contains "${mv_name_1}(${mv_name_1})"
                     }
-                    compare_res(mv_list[i] + order_stmt)
+                    compare_res(query_list[i] + order_stmt)
                 }
             }
         }
