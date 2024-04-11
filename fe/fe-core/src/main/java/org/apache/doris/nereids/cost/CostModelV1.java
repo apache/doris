@@ -61,6 +61,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
     static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
+
+    // Add a tiny cost to simplify the execution plan for multiphase plan.
+    // For example, when rowCount is 0, sort(global) -> sort(local) and sort(local) have the same cost.
+    // Adding a tiny cost helps choose sort(local) in this case, resulting in a more optimal execution plan.
+    static final double TINY_PHASE_COST = 1e-3;
     private final int beNumber;
     private final int parallelInstance;
 
@@ -163,7 +168,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             // Now we do more like two-phase sort, so penalise one-phase sort
             rowCount *= 100;
         }
-        return CostV1.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
+        return CostV1.of(context.getSessionVariable(), childRowCount + TINY_PHASE_COST, rowCount, childRowCount);
     }
 
     @Override
@@ -178,7 +183,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             // Now we do more like two-phase sort, so penalise one-phase sort
             rowCount *= 100;
         }
-        return CostV1.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
+        return CostV1.of(context.getSessionVariable(), childRowCount + TINY_PHASE_COST, rowCount, childRowCount);
     }
 
     @Override
@@ -245,11 +250,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
         Statistics inputStatistics = context.getChildStatistics(0);
         if (aggregate.getAggPhase().isLocal()) {
-            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount() / beNumber,
+            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount() / beNumber + TINY_PHASE_COST,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             // global
-            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount(),
+            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount() + TINY_PHASE_COST,
                     inputStatistics.getRowCount(), 0);
         }
     }
