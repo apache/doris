@@ -46,7 +46,7 @@ suite("test_vertical_compaction_agg_state") {
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
                 user_id                         VARCHAR,
-                agg_user_id                     agg_state collect_set(string)
+                agg_user_id                     agg_state<collect_set(string)> generic
                 )ENGINE=OLAP
         AGGREGATE  KEY(`user_id`)
         COMMENT 'OLAP'

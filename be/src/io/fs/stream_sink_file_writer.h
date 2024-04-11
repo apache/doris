@@ -33,10 +33,10 @@ struct RowsetId;
 struct SegmentStatistics;
 
 namespace io {
-class StreamSinkFileWriter : public FileWriter {
+class StreamSinkFileWriter final : public FileWriter {
 public:
-    StreamSinkFileWriter(std::vector<std::shared_ptr<LoadStreamStub>>& streams)
-            : _streams(streams) {}
+    StreamSinkFileWriter(std::vector<std::shared_ptr<LoadStreamStub>> streams)
+            : _streams(std::move(streams)) {}
 
     void init(PUniqueId load_id, int64_t partition_id, int64_t index_id, int64_t tablet_id,
               int32_t segment_id);
@@ -47,10 +47,17 @@ public:
 
     Status close() override;
 
-private:
-    template <bool eos>
-    Status _flush();
+    size_t bytes_appended() const override { return _bytes_appended; }
 
+    bool closed() const override { return _closed; }
+
+    // FIXME(plat1ko): Maybe it's an inappropriate abstraction?
+    const Path& path() const override {
+        static Path dummy;
+        return dummy;
+    }
+
+private:
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
     PUniqueId _load_id;
@@ -58,6 +65,8 @@ private:
     int64_t _index_id;
     int64_t _tablet_id;
     int32_t _segment_id;
+    bool _closed = false;
+    size_t _bytes_appended = 0;
 };
 
 } // namespace io

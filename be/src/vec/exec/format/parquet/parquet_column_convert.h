@@ -318,12 +318,13 @@ public:
         auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
-            ParquetInt96 x = ParquetInt96_data[i];
-            auto& num = data[start_idx + i];
-            auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
-            int64_t micros = x.to_timestamp_micros();
-            value.from_unixtime(micros / 1000000, *_convert_params->ctz);
-            value.set_microsecond(micros % 1000000);
+            ParquetInt96 src_cell_data = ParquetInt96_data[i];
+            auto& dst_value =
+                    reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[start_idx + i]);
+
+            int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
+            dst_value.from_unixtime(timestamp_with_micros / 1000000, *_convert_params->ctz);
+            dst_value.set_microsecond(timestamp_with_micros % 1000000);
         }
         return Status::OK();
     }

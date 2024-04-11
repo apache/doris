@@ -83,15 +83,15 @@ Status JdbcConnector::close(Status /*unused*/) {
     if (_is_in_transaction) {
         RETURN_IF_ERROR(abort_trans());
     }
-    JNIEnv* env;
+    JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
     env->DeleteGlobalRef(_executor_factory_clazz);
     env->DeleteGlobalRef(_executor_clazz);
     DELETE_BASIC_JAVA_CLAZZ_REF(object)
     DELETE_BASIC_JAVA_CLAZZ_REF(string)
     DELETE_BASIC_JAVA_CLAZZ_REF(list)
 #undef DELETE_BASIC_JAVA_CLAZZ_REF
-    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteGlobalRef(_executor_obj);
     return Status::OK();

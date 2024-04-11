@@ -84,11 +84,22 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return RuleType.NORMALIZE_REPEAT.build(
             logicalRepeat(any()).when(LogicalRepeat::canBindVirtualSlot).then(repeat -> {
                 checkRepeatLegality(repeat);
+                repeat = removeDuplicateColumns(repeat);
                 // add virtual slot, LogicalAggregate and LogicalProject for normalize
                 LogicalAggregate<Plan> agg = normalizeRepeat(repeat);
                 return dealSlotAppearBothInAggFuncAndGroupingSets(agg);
             })
         );
+    }
+
+    private LogicalRepeat<Plan> removeDuplicateColumns(LogicalRepeat<Plan> repeat) {
+        List<List<Expression>> groupingSets = repeat.getGroupingSets();
+        ImmutableList.Builder<List<Expression>> builder = ImmutableList.builder();
+        for (List<Expression> sets : groupingSets) {
+            List<Expression> newList = ImmutableList.copyOf(ImmutableSet.copyOf(sets));
+            builder.add(newList);
+        }
+        return repeat.withGroupSets(builder.build());
     }
 
     private void checkRepeatLegality(LogicalRepeat<Plan> repeat) {

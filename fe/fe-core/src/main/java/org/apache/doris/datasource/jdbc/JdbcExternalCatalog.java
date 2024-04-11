@@ -22,6 +22,8 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -85,10 +87,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
-
-        Map<String, String> propertiesWithoutCheckSum = Maps.newHashMap(catalogProperty.getProperties());
-        propertiesWithoutCheckSum.remove(JdbcResource.CHECK_SUM);
-        JdbcResource.validateProperties(propertiesWithoutCheckSum);
+        Map<String, String> propertiesIncludeRequired = Maps.newHashMap(catalogProperty.getProperties());
+        propertiesIncludeRequired.remove(JdbcResource.CHECK_SUM);
+        propertiesIncludeRequired.remove(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+        JdbcResource.validateProperties(propertiesIncludeRequired);
 
         JdbcResource.checkBooleanProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, getOnlySpecifiedDatabase());
         JdbcResource.checkBooleanProperty(JdbcResource.LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
@@ -212,7 +214,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public boolean isTestConnection() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.TEST_CONNECTION, "false"));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.TEST_CONNECTION, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.TEST_CONNECTION)));
     }
 
     @Override
@@ -295,6 +298,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     private void testJdbcConnection(boolean isReplay) throws DdlException {
+        if (FeConstants.runningUnitTest) {
+            // skip test connection in unit test
+            return;
+        }
         if (!isReplay) {
             if (isTestConnection()) {
                 try {
@@ -302,8 +309,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                     testFeToJdbcConnection();
                     testBeToJdbcConnection();
                 } finally {
-                    jdbcClient.closeClient();
-                    jdbcClient = null;
+                    if (jdbcClient != null) {
+                        jdbcClient.closeClient();
+                        jdbcClient = null;
+                    }
                 }
             }
         }

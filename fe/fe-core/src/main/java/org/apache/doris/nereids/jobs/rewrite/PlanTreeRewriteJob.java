@@ -28,6 +28,8 @@ import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 /** PlanTreeRewriteJob */
@@ -43,7 +45,7 @@ public abstract class PlanTreeRewriteJob extends Job {
 
         boolean showPlanProcess = cascadesContext.showPlanProcess();
         for (Rule rule : rules) {
-            if (disableRules.contains(rule.getRuleType().type())) {
+            if (disableRules.get(rule.getRuleType().type())) {
                 continue;
             }
             Pattern<Plan> pattern = (Pattern<Plan>) rule.getPattern();
@@ -76,26 +78,51 @@ public abstract class PlanTreeRewriteJob extends Job {
         return new RewriteResult(false, plan);
     }
 
-    protected final Plan linkChildrenAndParent(Plan plan, RewriteJobContext rewriteJobContext) {
-        Plan newPlan = linkChildren(plan, rewriteJobContext.childrenContext);
-        rewriteJobContext.setResult(newPlan);
-        return newPlan;
-    }
-
-    protected final Plan linkChildren(Plan plan, RewriteJobContext[] childrenContext) {
-        boolean changed = false;
-        Plan[] newChildren = new Plan[childrenContext.length];
-        for (int i = 0; i < childrenContext.length; ++i) {
-            Plan result = childrenContext[i].result;
-            Plan oldChild = plan.child(i);
-            if (result != null && result != oldChild) {
-                newChildren[i] = result;
-                changed = true;
-            } else {
-                newChildren[i] = oldChild;
+    protected static Plan linkChildren(Plan plan, RewriteJobContext[] childrenContext) {
+        List<Plan> children = plan.children();
+        // loop unrolling
+        switch (children.size()) {
+            case 0: {
+                return plan;
+            }
+            case 1: {
+                RewriteJobContext child = childrenContext[0];
+                Plan firstResult = child == null ? plan.child(0) : child.result;
+                return firstResult == null || firstResult == children.get(0)
+                        ? plan : plan.withChildren(ImmutableList.of(firstResult));
+            }
+            case 2: {
+                RewriteJobContext left = childrenContext[0];
+                Plan firstResult = left == null ? plan.child(0) : left.result;
+                RewriteJobContext right = childrenContext[1];
+                Plan secondResult = right == null ? plan.child(1) : right.result;
+                Plan firstOrigin = children.get(0);
+                Plan secondOrigin = children.get(1);
+                boolean firstChanged = firstResult != null && firstResult != firstOrigin;
+                boolean secondChanged = secondResult != null && secondResult != secondOrigin;
+                if (firstChanged || secondChanged) {
+                    ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(2);
+                    newChildren.add(firstChanged ? firstResult : firstOrigin);
+                    newChildren.add(secondChanged ? secondResult : secondOrigin);
+                    return plan.withChildren(newChildren.build());
+                } else {
+                    return plan;
+                }
+            }
+            default: {
+                boolean anyChanged = false;
+                int i = 0;
+                Plan[] newChildren = new Plan[childrenContext.length];
+                for (Plan oldChild : children) {
+                    Plan result = childrenContext[i].result;
+                    boolean changed = result != null && result != oldChild;
+                    newChildren[i] = changed ? result : oldChild;
+                    anyChanged |= changed;
+                    i++;
+                }
+                return anyChanged ? plan.withChildren(newChildren) : plan;
             }
         }
-        return changed ? plan.withChildren(newChildren) : plan;
     }
 
     private String getCurrentPlanTreeString() {

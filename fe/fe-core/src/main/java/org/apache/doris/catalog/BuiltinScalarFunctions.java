@@ -200,6 +200,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.InttoUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
@@ -419,6 +420,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
@@ -629,6 +631,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Initcap.class, "initcap"),
             scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
+            scalar(InttoUuid.class, "int_to_uuid"),
             scalar(Ipv4NumToString.class, "ipv4_num_to_string", "inet_ntoa"),
             scalar(Ipv4StringToNum.class, "ipv4_string_to_num"),
             scalar(Ipv4StringToNumOrDefault.class, "ipv4_string_to_num_or_default"),
@@ -874,6 +877,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),
             scalar(UuidNumeric.class, "uuid_numeric"),
+            scalar(UuidtoInt.class, "uuid_to_int"),
             scalar(Version.class, "version"),
             scalar(Week.class, "week"),
             scalar(WeekCeil.class, "week_ceil"),

@@ -28,7 +28,7 @@
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
 #include "pipeline/pipeline_x/dependency.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -153,6 +153,8 @@ public:
         }
         return false;
     }
+
+    static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
 
 private:
     Dependency* _write_blocked_dependency() {

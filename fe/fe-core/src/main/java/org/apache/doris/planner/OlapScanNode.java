@@ -894,12 +894,15 @@ public class OlapScanNode extends ScanNode {
                         LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
                                 replica.getId());
                     }
-                    errs.add("replica " + replica.getId() + "'s backend " + replica.getBackendId()
-                            + " does not exist or not alive");
-                    errs.add(" or you may not have permission to access the current cluster");
-                    if (ConnectContext.get() != null && Config.isCloudMode()) {
-                        errs.add("clusterName=" + ConnectContext.get().getCloudCluster());
+                    String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
+                            + " does not exist or not alive";
+                    if (Config.isCloudMode()) {
+                        err += ", or you may not have permission to access the current cluster";
+                        if (ConnectContext.get() != null) {
+                            err += " clusterName=" + ConnectContext.get().getCloudCluster();
+                        }
                     }
+                    errs.add(err);
                     continue;
                 }
                 if (!backend.isMixNode()) {
@@ -1527,7 +1530,11 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
-        msg.olap_scan_node.setTableName(olapTable.getName());
+        String tableName = olapTable.getName();
+        if (selectedIndexId != -1) {
+            tableName = tableName + "(" + getSelectedIndexName() + ")";
+        }
+        msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);

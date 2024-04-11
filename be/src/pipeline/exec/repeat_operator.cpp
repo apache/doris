@@ -158,6 +158,17 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
 
     const auto rows = child_block->rows();
     // Fill grouping ID to block
+    RETURN_IF_ERROR(add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
+
+    DCHECK_EQ(cur_col, column_size);
+
+    return Status::OK();
+}
+
+Status RepeatLocalState::add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
+                                                vectorized::MutableColumns& columns,
+                                                int repeat_id_idx) {
+    auto& p = _parent->cast<RepeatOperatorX>();
     for (auto slot_idx = 0; slot_idx < p._grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, p._output_tuple_desc->slots().size());
         const SlotDescriptor* _virtual_slot_desc = p._output_tuple_desc->slots()[cur_col];
@@ -166,14 +177,10 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
         int64_t val = p._grouping_list[slot_idx][repeat_id_idx];
         auto* column_ptr = columns[cur_col].get();
         DCHECK(!p._output_slots[cur_col]->is_nullable());
-
         auto* col = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column_ptr);
         col->insert_raw_integers(val, rows);
         cur_col++;
     }
-
-    DCHECK_EQ(cur_col, column_size);
-
     return Status::OK();
 }
 
@@ -183,8 +190,6 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
     auto& _intermediate_block = local_state._intermediate_block;
     auto& _expr_ctxs = local_state._expr_ctxs;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
-    DCHECK(!_expr_ctxs.empty());
-
     if (input_block->rows() > 0) {
         _intermediate_block = vectorized::Block::create_unique();
 
@@ -229,6 +234,18 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
             _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
             _repeat_id_idx = 0;
         }
+    } else if (local_state._expr_ctxs.empty()) {
+        auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+                                                                                  _output_slots);
+        auto rows = _child_block.rows();
+        auto& columns = m_block.mutable_columns();
+
+        for (int repeat_id_idx = 0; repeat_id_idx < _repeat_id_list.size(); repeat_id_idx++) {
+            std::size_t cur_col = 0;
+            RETURN_IF_ERROR(
+                    local_state.add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
+        }
+        _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
     }
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
                                                            output_block->columns()));

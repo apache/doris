@@ -34,11 +34,12 @@ namespace doris {
 
 CloudSizeBasedCumulativeCompactionPolicy::CloudSizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
-        int64_t compaction_min_size)
+        int64_t compaction_min_size, int64_t promotion_version_count)
         : _promotion_size(promotion_size),
           _promotion_ratio(promotion_ratio),
           _promotion_min_size(promotion_min_size),
-          _compaction_min_size(compaction_min_size) {}
+          _compaction_min_size(compaction_min_size),
+          _promotion_version_count(promotion_version_count) {}
 
 int64_t CloudSizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
     if (size < 1024) return 0;
@@ -182,7 +183,7 @@ int CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 }
 
 int64_t CloudSizeBasedCumulativeCompactionPolicy::cloud_promotion_size(CloudTablet* t) const {
-    int64_t promotion_size = t->base_size() * _promotion_ratio;
+    int64_t promotion_size = int64_t(t->base_size() * _promotion_ratio);
     // promotion_size is between _size_based_promotion_size and _size_based_promotion_min_size
     return promotion_size > _promotion_size       ? _promotion_size
            : promotion_size < _promotion_min_size ? _promotion_min_size
@@ -194,11 +195,20 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point(
         int64_t last_cumulative_point) {
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("new_cumulative_point", int64_t(0), output_rowset.get(),
                                            last_cumulative_point);
+    // for MoW table, if there's too many versions, the delete bitmap will grow to
+    // a very big size, which may cause the tablet meta too big and the `save_meta`
+    // operation too slow.
+    // if the rowset should not promotion according to it's disk size, we should also
+    // consider it's version count here.
+    bool satisfy_promotion_version = tablet->enable_unique_key_merge_on_write() &&
+                                     output_rowset->end_version() - output_rowset->start_version() >
+                                             _promotion_version_count;
     // if rowsets have delete version, move to the last directly.
     // if rowsets have no delete version, check output_rowset total disk size satisfies promotion size.
     return output_rowset->start_version() == last_cumulative_point &&
                            (last_delete_version.first != -1 ||
-                            output_rowset->data_disk_size() >= cloud_promotion_size(tablet))
+                            output_rowset->data_disk_size() >= cloud_promotion_size(tablet) ||
+                            satisfy_promotion_version)
                    ? output_rowset->end_version() + 1
                    : last_cumulative_point;
 }

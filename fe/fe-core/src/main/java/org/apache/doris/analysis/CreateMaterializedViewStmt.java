@@ -276,6 +276,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         + "Error column: " + selectListItemExpr.toSql());
             }
 
+            if (!isReplay && selectListItemExpr.hasAutoInc()) {
+                throw new AnalysisException("The materialized view can not involved auto increment column");
+            }
+
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
@@ -549,7 +553,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 type = Type.BIGINT;
                 break;
             default:
-                mvAggregateType = AggregateType.GENERIC_AGGREGATION;
+                mvAggregateType = AggregateType.GENERIC;
                 if (functionCallExpr.getParams().isDistinct() || functionCallExpr.getParams().isStar()) {
                     throw new AnalysisException(
                             "The Materialized-View's generic aggregation not support star or distinct");

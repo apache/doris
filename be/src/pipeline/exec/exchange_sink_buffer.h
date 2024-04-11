@@ -270,7 +270,6 @@ private:
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    static constexpr int QUEUE_CAPACITY_FACTOR = 64;
     std::shared_ptr<Dependency> _queue_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
     std::atomic<bool> _should_stop {false};

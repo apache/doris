@@ -44,7 +44,7 @@ class VRuntimeFilterWrapper final : public VExpr {
     ENABLE_FACTORY_CREATOR(VRuntimeFilterWrapper);
 
 public:
-    VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl);
+    VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl, bool null_aware = false);
     ~VRuntimeFilterWrapper() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
@@ -91,6 +91,7 @@ private:
     bool _has_calculate_filter = false;
 
     std::string _expr_name;
+    bool _null_aware;
 };
 
 using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;

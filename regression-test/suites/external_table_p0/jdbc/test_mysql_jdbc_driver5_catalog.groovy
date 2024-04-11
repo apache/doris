@@ -28,7 +28,7 @@ suite("test_mysql_jdbc_driver5_catalog", "p0,external,mysql,external_docker,exte
         String pwd = '123456';
         def tokens = context.config.jdbcUrl.split('/')
         def url = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
-        String catalog_name = "mysql_jdbc_catalog";
+        String catalog_name = "mysql_jdbc5_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
@@ -79,6 +79,7 @@ suite("test_mysql_jdbc_driver5_catalog", "p0,external,mysql,external_docker,exte
             "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.jdbc.Driver"
         );"""
+        order_qt_show_db """ show databases from ${catalog_name}; """
 
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """

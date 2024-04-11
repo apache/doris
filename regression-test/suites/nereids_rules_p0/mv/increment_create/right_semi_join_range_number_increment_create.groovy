@@ -95,7 +95,7 @@ suite("right_semi_join_range_number_increment_create") {
     (3, 1, 'o', 99.5, 'a', null, 1, 'yy', '2023-10-22'),
     (1, 3, 'k', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
     (2, 1, 'k', 109.2, 'c','d',2, null, '2023-10-18'),
-    (3, 2, 'o', 99.5, 'a', 'b', 1, 'yy', 'null'),
+    (3, 2, 'o', 99.5, 'a', 'b', 1, 'yy', null),
     (4, 5, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-19'); 
     """
 
@@ -106,7 +106,7 @@ suite("right_semi_join_range_number_increment_create") {
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
     (1, 2, 3, null, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (2, 3, 2, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
-    (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', 'null'),
+    (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', null),
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
@@ -133,7 +133,7 @@ suite("right_semi_join_range_number_increment_create") {
         """
     }
     def refresh_mv = {
-        sql """refresh MATERIALIZED VIEW ${mv_name}"""
+        sql """refresh MATERIALIZED VIEW ${mv_name} AUTO"""
     }
     def delete_mv = {
         sql """DROP MATERIALIZED VIEW ${mv_name};"""

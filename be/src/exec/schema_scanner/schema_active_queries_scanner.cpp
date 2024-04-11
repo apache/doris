@@ -29,11 +29,14 @@ namespace doris {
 std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"QUERY_START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUERY_TIME_MS", TYPE_BIGINT, sizeof(int64_t), true},
         {"WORKLOAD_GROUP_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATABASE", TYPE_VARCHAR, sizeof(StringRef), true},
         {"FRONTEND_INSTANCE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"QUEUE_START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"QUEUE_END_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"QUERY_STATUS", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SQL", TYPE_STRING, sizeof(StringRef), true}};
 
 SchemaActiveQueriesScanner::SchemaActiveQueriesScanner()
@@ -50,20 +53,17 @@ Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
 Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
 
-    TQueriesMetadataParams tqueries_meta_params;
-    tqueries_meta_params.__set_relay_to_other_fe(true);
-
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::QUERIES);
-    metadata_table_params.__set_queries_metadata_params(tqueries_meta_params);
+    TSchemaTableRequestParams schema_table_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
-        metadata_table_params.__isset.columns_name = true;
-        metadata_table_params.columns_name.emplace_back(_s_tbls_columns[i].name);
+        schema_table_params.__isset.columns_name = true;
+        schema_table_params.columns_name.emplace_back(_s_tbls_columns[i].name);
     }
+    schema_table_params.replay_to_other_fe = true;
+    schema_table_params.__isset.replay_to_other_fe = true;
 
     TFetchSchemaTableDataRequest request;
-    request.__set_schema_table_name(TSchemaTableName::SCHEMA_TABLE);
-    request.__set_metada_table_params(metadata_table_params);
+    request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);
+    request.__set_schema_table_params(schema_table_params);
 
     TFetchSchemaTableDataResult result;
 
@@ -130,6 +130,9 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
         insert_string_value(4, row.column_value[4].stringVal, _active_query_block.get());
         insert_string_value(5, row.column_value[5].stringVal, _active_query_block.get());
         insert_string_value(6, row.column_value[6].stringVal, _active_query_block.get());
+        insert_string_value(7, row.column_value[7].stringVal, _active_query_block.get());
+        insert_string_value(8, row.column_value[8].stringVal, _active_query_block.get());
+        insert_string_value(9, row.column_value[9].stringVal, _active_query_block.get());
     }
     return Status::OK();
 }

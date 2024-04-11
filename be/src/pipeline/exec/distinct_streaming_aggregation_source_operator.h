@@ -60,7 +60,6 @@ public:
     Status pull_data(RuntimeState* state, vectorized::Block* output_block, bool* eos);
 
 private:
-    int64_t rows_have_returned = 0;
     std::shared_ptr<DataQueue> _data_queue;
 };
 

@@ -77,7 +77,7 @@ public class RelationUtil {
     /**
      * get database and table
      */
-    public static Pair<DatabaseIf, TableIf> getDbAndTable(List<String> qualifierName, Env env) {
+    public static Pair<DatabaseIf<?>, TableIf> getDbAndTable(List<String> qualifierName, Env env) {
         String catalogName = qualifierName.get(0);
         String dbName = qualifierName.get(1);
         String tableName = qualifierName.get(2);

@@ -21,12 +21,14 @@
 #include <brpc/closure_guard.h>
 #include <brpc/controller.h>
 #include <bthread/bthread.h>
+#include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <google/protobuf/util/json_util.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/schema.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -203,13 +205,19 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         cloud_unique_id = request->cloud_unique_id();
     }
 
+    bool is_table_version = false;
+    if (request->has_is_table_version()) {
+        is_table_version = request->is_table_version();
+    }
+
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
     int64_t table_id = request->has_table_id() ? request->table_id() : -1;
     int64_t partition_id = request->has_partition_id() ? request->partition_id() : -1;
-    if (db_id == -1 || table_id == -1 || partition_id == -1) {
+    if (db_id == -1 || table_id == -1 || (!is_table_version && partition_id == -1)) {
         msg = "params error, db_id=" + std::to_string(db_id) +
               " table_id=" + std::to_string(table_id) +
-              " partition_id=" + std::to_string(partition_id);
+              " partition_id=" + std::to_string(partition_id) +
+              " is_table_version=" + std::to_string(is_table_version);
         code = MetaServiceCode::INVALID_ARGUMENT;
         LOG(WARNING) << msg;
         return;
@@ -223,9 +231,12 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         return;
     }
     RPC_RATE_LIMIT(get_version)
-    VersionKeyInfo ver_key_info {instance_id, db_id, table_id, partition_id};
     std::string ver_key;
-    version_key(ver_key_info, &ver_key);
+    if (is_table_version) {
+        table_version_key({instance_id, db_id, table_id}, &ver_key);
+    } else {
+        partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
+    }
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -236,17 +247,22 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
     }
 
     std::string ver_val;
-    VersionPB version_pb;
     // 0 for success get a key, 1 for key not found, negative for error
     err = txn->get(ver_key, &ver_val);
     VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
     if (err == TxnErrorCode::TXN_OK) {
-        if (!version_pb.ParseFromString(ver_val)) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = "malformed version value";
-            return;
+        if (is_table_version) {
+            int64_t version = *reinterpret_cast<const int64_t*>(ver_val.data());
+            response->set_version(version);
+        } else {
+            VersionPB version_pb;
+            if (!version_pb.ParseFromString(ver_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "malformed version value";
+                return;
+            }
+            response->set_version(version_pb.version());
         }
-        response->set_version(version_pb.version());
         { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -269,12 +285,18 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         cloud_unique_id = request->cloud_unique_id();
     }
 
+    bool is_table_version = false;
+    if (request->has_is_table_version()) {
+        is_table_version = request->is_table_version();
+    }
+
     if (request->db_ids_size() == 0 || request->table_ids_size() == 0 ||
-        request->table_ids_size() != request->partition_ids_size() ||
-        request->db_ids_size() != request->partition_ids_size()) {
+        (!is_table_version && request->table_ids_size() != request->partition_ids_size()) ||
+        (!is_table_version && request->db_ids_size() != request->partition_ids_size())) {
         msg = "param error, num db_ids=" + std::to_string(request->db_ids_size()) +
               " num table_ids=" + std::to_string(request->table_ids_size()) +
-              " num partition_ids=" + std::to_string(request->partition_ids_size());
+              " num partition_ids=" + std::to_string(request->partition_ids_size()) +
+              " is_table_version=" + std::to_string(request->is_table_version());
         code = MetaServiceCode::INVALID_ARGUMENT;
         LOG(WARNING) << msg;
         return;
@@ -307,7 +329,12 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             int64_t db_id = request->db_ids(i);
             int64_t table_id = request->table_ids(i);
             int64_t partition_id = request->partition_ids(i);
-            std::string ver_key = version_key({instance_id, db_id, table_id, partition_id});
+            std::string ver_key;
+            if (is_table_version) {
+                table_version_key({instance_id, db_id, table_id}, &ver_key);
+            } else {
+                partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
+            }
 
             // TODO(walter) support batch get.
             std::string ver_val;
@@ -315,13 +342,18 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             TEST_SYNC_POINT_CALLBACK("batch_get_version_err", &err);
             VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
             if (err == TxnErrorCode::TXN_OK) {
-                VersionPB version_pb;
-                if (!version_pb.ParseFromString(ver_val)) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = "malformed version value";
-                    break;
+                if (is_table_version) {
+                    int64_t version = *reinterpret_cast<const int64_t*>(ver_val.data());
+                    response->add_versions(version);
+                } else {
+                    VersionPB version_pb;
+                    if (!version_pb.ParseFromString(ver_val)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        msg = "malformed version value";
+                        break;
+                    }
+                    response->add_versions(version_pb.version());
                 }
-                response->add_versions(version_pb.version());
             } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
                 // return -1 if the target version is not exists.
                 response->add_versions(-1);
@@ -430,7 +462,7 @@ void internal_create_tablet(MetaServiceCode& code, std::string& msg,
         return;
     }
     txn->put(key, val);
-    LOG(INFO) << "xxx put tablet_key=" << hex(key);
+    LOG(INFO) << "xxx put tablet_key=" << hex(key) << " tablet id " << tablet_id;
 
     // Index tablet_id -> table_id, index_id, partition_id
     std::string key1;
@@ -497,6 +529,66 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         return;
     }
     RPC_RATE_LIMIT(create_tablets)
+    for (; request->has_storage_vault_name();) {
+        InstanceInfoPB instance;
+        std::unique_ptr<Transaction> txn0;
+        TxnErrorCode err = txn_kv_->create_txn(&txn0);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to create txn");
+            return;
+        }
+
+        std::shared_ptr<Transaction> txn(txn0.release());
+        auto [c0, m0] = resource_mgr_->get_instance(txn, instance_id, &instance);
+        if (c0 != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get instance, info={}", m0);
+            return;
+        }
+
+        std::string_view name = request->storage_vault_name();
+
+        // Try to use the default vault name if user doesn't specify the vault name
+        // for correspoding table
+        if (name.empty()) {
+            if (!instance.has_default_storage_vault_name()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format("You must supply at least one default vault");
+                return;
+            }
+            name = instance.default_storage_vault_name();
+        }
+
+        auto vault_name = std::find_if(
+                instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+                [&](const auto& candidate_name) { return candidate_name == name; });
+        if (vault_name != instance.storage_vault_names().end()) {
+            auto idx = vault_name - instance.storage_vault_names().begin();
+            response->set_storage_vault_id(instance.resource_ids().at(idx));
+            response->set_storage_vault_name(*vault_name);
+            break;
+        }
+
+        // The S3 vault would be stored inside the instance.obj_info
+        auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
+                                   [&](const ObjectStoreInfoPB& obj) {
+                                       if (!obj.has_vault_name()) {
+                                           return false;
+                                       }
+                                       return obj.vault_name() == name;
+                                   });
+
+        if (s3_obj != instance.obj_info().end()) {
+            response->set_storage_vault_id(s3_obj->id());
+            response->set_storage_vault_name(s3_obj->vault_name());
+            break;
+        }
+
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("failed to get vault id, vault name={}", name);
+        return;
+    }
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
     for (auto& tablet_meta : request->tablet_metas()) {
@@ -600,7 +692,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         } else if (tablet_meta_info.has_group_commit_interval_ms()) {
             tablet_meta.set_group_commit_interval_ms(tablet_meta_info.group_commit_interval_ms());
         } else if (tablet_meta_info.has_group_commit_data_bytes()) {
-            tablet_meta.set_group_commit_data_bytes(tablet_meta_info.has_group_commit_data_bytes());
+            tablet_meta.set_group_commit_data_bytes(tablet_meta_info.group_commit_data_bytes());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();
@@ -977,8 +1069,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         std::string schema_key;
         if (rowset_meta.has_variant_type_in_schema()) {
             // encodes schema in a seperate kv, since variant schema is volatile
-            schema_key = meta_rowset_schema_key({instance_id,
-                    rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+            schema_key = meta_rowset_schema_key(
+                    {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
         } else {
             schema_key = meta_schema_key(
                     {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});

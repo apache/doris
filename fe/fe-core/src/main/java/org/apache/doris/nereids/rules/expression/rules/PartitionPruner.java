@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -81,14 +82,19 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 && ((Cast) right).child().getDataType().isDateType()) {
             DateTimeLiteral dt = (DateTimeLiteral) left;
             Cast cast = (Cast) right;
-            return cp.withChildren(new DateLiteral(dt.getYear(), dt.getMonth(), dt.getDay()), cast.child());
+            return cp.withChildren(
+                    ImmutableList.of(new DateLiteral(dt.getYear(), dt.getMonth(), dt.getDay()), cast.child())
+            );
         } else if (right instanceof DateTimeLiteral && ((DateTimeLiteral) right).isMidnight()
                 && left instanceof Cast
                 && ((Cast) left).child() instanceof SlotReference
                 && ((Cast) left).child().getDataType().isDateType()) {
             DateTimeLiteral dt = (DateTimeLiteral) right;
             Cast cast = (Cast) left;
-            return cp.withChildren(cast.child(), new DateLiteral(dt.getYear(), dt.getMonth(), dt.getDay()));
+            return cp.withChildren(ImmutableList.of(
+                    cast.child(),
+                    new DateLiteral(dt.getYear(), dt.getMonth(), dt.getDay()))
+            );
         } else {
             return cp;
         }
@@ -98,7 +104,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public List<Long> prune() {
         Builder<Long> scanPartitionIds = ImmutableList.builder();
         for (OnePartitionEvaluator partition : partitions) {
-            if (!canPrune(partition)) {
+            if (!canBePrunedOut(partition)) {
                 scanPartitionIds.add(partition.getPartitionId());
             }
         }
@@ -115,13 +121,18 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
 
+        int expandThreshold = cascadesContext.getAndCacheSessionVariable(
+                "partitionPruningExpandThreshold",
+                10, sessionVariable -> sessionVariable.partitionPruningExpandThreshold);
+
         List<OnePartitionEvaluator> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
         for (Entry<Long, PartitionItem> kv : idToPartitions.entrySet()) {
             evaluators.add(toPartitionEvaluator(
-                    kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, partitionTableType));
+                    kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, expandThreshold));
         }
 
-        partitionPredicate = OrToIn.INSTANCE.rewrite(partitionPredicate, null);
+        partitionPredicate = OrToIn.INSTANCE.rewriteTree(
+                partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
         //TODO: we keep default partition because it's too hard to prune it, we return false in canPrune().
         return partitionPruner.prune();
@@ -131,26 +142,31 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
      * convert partition item to partition evaluator
      */
     public static final OnePartitionEvaluator toPartitionEvaluator(long id, PartitionItem partitionItem,
-            List<Slot> partitionSlots, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
+            List<Slot> partitionSlots, CascadesContext cascadesContext, int expandThreshold) {
         if (partitionItem instanceof ListPartitionItem) {
             return new OneListPartitionEvaluator(
                     id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
         } else if (partitionItem instanceof RangePartitionItem) {
             return new OneRangePartitionEvaluator(
-                    id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext);
+                    id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext, expandThreshold);
         } else {
             return new UnknownPartitionEvaluator(id, partitionItem);
         }
     }
 
-    private boolean canPrune(OnePartitionEvaluator evaluator) {
+    /**
+     * return true if partition is not qualified. that is, can be pruned out.
+     */
+    private boolean canBePrunedOut(OnePartitionEvaluator evaluator) {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
         for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
+            // evaluate wether there's possible for this partition to accept this predicate
             Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
             if (!result.equals(BooleanLiteral.FALSE) && !(result instanceof NullLiteral)) {
                 return false;
             }
         }
+        // only have false result: Can be pruned out. have other exprs: CanNot be pruned out
         return true;
     }
 }

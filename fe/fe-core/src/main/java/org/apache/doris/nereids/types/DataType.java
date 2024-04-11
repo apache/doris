@@ -297,6 +297,9 @@ public abstract class DataType {
             case "ipv6":
                 dataType = IPv6Type.INSTANCE;
                 break;
+            case "variant":
+                dataType = VariantType.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -617,7 +620,7 @@ public abstract class DataType {
     }
 
     public boolean isOnlyMetricType() {
-        return isObjectType() || isComplexType() || isJsonType();
+        return isObjectType() || isComplexType() || isJsonType() || isVariantType();
     }
 
     public boolean isObjectType() {

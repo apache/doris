@@ -78,12 +78,22 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_HLL:
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_DATEV2:
-    case TYPE_DATETIMEV2:
     case TYPE_STRING:
     case TYPE_JSONB:
     case TYPE_OBJECT:
         *result = arrow::utf8();
+        break;
+    case TYPE_DATEV2:
+        *result = std::make_shared<arrow::Date32Type>();
+        break;
+    case TYPE_DATETIMEV2:
+        if (type.scale > 3) {
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO);
+        } else if (type.scale > 0) {
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI);
+        } else {
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND);
+        }
         break;
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);

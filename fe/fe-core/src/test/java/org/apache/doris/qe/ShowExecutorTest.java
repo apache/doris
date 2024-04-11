@@ -55,6 +55,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
@@ -321,6 +322,16 @@ public class ShowExecutorTest {
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("testTbl", resultSet.getString(0));
+        Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
+    public void testShowViews() throws AnalysisException {
+        ShowTableStmt stmt = new ShowTableStmt("testDb", null, false, TableType.VIEW,
+                null, null);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+
         Assert.assertFalse(resultSet.next());
     }
 

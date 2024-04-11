@@ -26,6 +26,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -66,6 +67,13 @@ public:
         return _calc_tablet_delete_bitmap_task_thread_pool;
     }
 
+    io::FileSystemSPtr get_fs_by_vault_id(const std::string& vault_id) const {
+        if (vault_id.empty()) {
+            return latest_fs();
+        }
+        return get_filesystem(vault_id);
+    }
+
     io::FileSystemSPtr latest_fs() const {
         std::lock_guard lock(_latest_fs_mtx);
         return _latest_fs;
@@ -94,7 +102,7 @@ private:
     void _compaction_tasks_producer_callback();
     std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type,
                                                                   bool check_score);
-    void _adjust_compaction_thread_num();
+    Status _adjust_compaction_thread_num();
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);

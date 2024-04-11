@@ -48,12 +48,6 @@ suite("test_array_functions_with_where") {
     qt_select "SELECT k1, array(k1, 'abc') FROM ${tableName} WHERE k1 is not null ORDER BY k1, size(k2)"
     qt_select "SELECT k1, array(null, k1) FROM ${tableName} WHERE k1 is not null ORDER BY k1, size(k2)"
 
-    test {
-        sql "select k1, size(k2) FROM ${tableName} WHERE k2 = []"
-        // check exception message contains
-        exception "Array type dose not support operand"
-    }
-
     tableName = "tbl_test_array_functions_with_where2"
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """ 

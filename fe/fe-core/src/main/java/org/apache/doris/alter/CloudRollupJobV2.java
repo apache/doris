@@ -62,7 +62,9 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         job.write(dos);
         ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
         DataInputStream dis = new DataInputStream(bais);
-        return CloudRollupJobV2.read(dis);
+        CloudRollupJobV2 ret = (CloudRollupJobV2) CloudRollupJobV2.read(dis);
+        ret.partitionIdToRollupIndex = job.partitionIdToRollupIndex;
+        return ret;
     }
 
     private CloudRollupJobV2() {}
@@ -92,7 +94,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         rollupIndexList.add(rollupIndexId);
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                .commitMaterializedIndex(tableId, rollupIndexList);
+                .commitMaterializedIndex(dbId, tableId, rollupIndexList, false);
         } catch (Exception e) {
             LOG.warn("commitMaterializedIndex Exception:{}", e);
             throw new AlterCancelException(e.getMessage());
@@ -110,7 +112,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         while (true) {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .dropMaterializedIndex(tableId, rollupIndexList);
+                    .dropMaterializedIndex(tableId, rollupIndexList, false);
                 break;
             } catch (Exception e) {
                 LOG.warn("tryTimes:{}, onCancel exception:", tryTimes, e);

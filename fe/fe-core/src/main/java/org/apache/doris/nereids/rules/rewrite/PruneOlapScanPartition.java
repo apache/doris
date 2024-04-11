@@ -21,18 +21,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Maps;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,59 +48,79 @@ import java.util.stream.Collectors;
  * Used to prune partition of olap scan, should execute after SwapProjectAndFilter, MergeConsecutiveFilters,
  * MergeConsecutiveProjects and all predicate push down related rules.
  */
-public class PruneOlapScanPartition extends OneRewriteRuleFactory {
+public class PruneOlapScanPartition implements RewriteRuleFactory {
 
     @Override
-    public Rule build() {
-        return logicalFilter(logicalOlapScan()).when(p -> !p.child().isPartitionPruned()).thenApply(ctx -> {
-            LogicalFilter<LogicalOlapScan> filter = ctx.root;
-            LogicalOlapScan scan = filter.child();
-            OlapTable table = scan.getTable();
-            Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
-            if (partitionColumnNameSet.isEmpty()) {
-                return filter;
-            }
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalFilter(logicalOlapScan())
+                        .when(p -> !p.child().isPartitionPruned())
+                        .thenApply(ctx -> prunePartitions(ctx.cascadesContext, ctx.root.child(), ctx.root))
+                        .toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE),
 
-            List<Slot> output = scan.getOutput();
-            Map<String, Slot> scanOutput = Maps.newHashMapWithExpectedSize(output.size() * 2);
+                logicalFilter(logicalProject(logicalOlapScan()))
+                        .when(p -> !p.child().child().isPartitionPruned())
+                        .when(p -> p.child().hasPushedDownToProjectionFunctions())
+                        .thenApply(ctx -> prunePartitions(ctx.cascadesContext, ctx.root.child().child(), ctx.root))
+                        .toRule(RuleType.OLAP_SCAN_WITH_PROJECT_PARTITION_PRUNE)
+        );
+    }
+
+    private <T extends Plan> Plan prunePartitions(CascadesContext ctx,
+                    LogicalOlapScan scan, LogicalFilter<T> originalFilter) {
+        OlapTable table = scan.getTable();
+        Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
+        if (partitionColumnNameSet.isEmpty()) {
+            return originalFilter;
+        }
+
+        List<Slot> output = scan.getOutput();
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        List<Slot> partitionSlots = new ArrayList<>(partitionColumns.size());
+        for (Column column : partitionColumns) {
+            Slot partitionSlot = null;
+            // loop search is faster than build a map
             for (Slot slot : output) {
-                scanOutput.put(slot.getName().toLowerCase(), slot);
-            }
-
-            PartitionInfo partitionInfo = table.getPartitionInfo();
-            List<Column> partitionColumns = partitionInfo.getPartitionColumns();
-            List<Slot> partitionSlots = new ArrayList<>(partitionColumns.size());
-            for (Column column : partitionColumns) {
-                Slot slot = scanOutput.get(column.getName().toLowerCase());
-                if (slot == null) {
-                    return filter;
-                } else {
-                    partitionSlots.add(slot);
+                if (slot.getName().equalsIgnoreCase(column.getName())) {
+                    partitionSlot = slot;
+                    break;
                 }
             }
-
-            List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
-
-            Map<Long, PartitionItem> idToPartitions;
-            if (manuallySpecifiedPartitions.isEmpty()) {
-                idToPartitions = partitionInfo.getIdToItem(false);
+            if (partitionSlot == null) {
+                return originalFilter;
             } else {
-                Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
-                idToPartitions = allPartitions.keySet().stream()
-                        .filter(id -> manuallySpecifiedPartitions.contains(id))
-                        .collect(Collectors.toMap(Function.identity(), id -> allPartitions.get(id)));
+                partitionSlots.add(partitionSlot);
             }
-            List<Long> prunedPartitions = PartitionPruner.prune(
-                    partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
-                    PartitionTableType.OLAP);
+        }
 
-            if (prunedPartitions.isEmpty()) {
-                return new LogicalEmptyRelation(
-                        ConnectContext.get().getStatementContext().getNextRelationId(),
-                        filter.getOutput());
-            }
-            LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(prunedPartitions);
-            return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
-        }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
+        List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
+
+        Map<Long, PartitionItem> idToPartitions;
+        if (manuallySpecifiedPartitions.isEmpty()) {
+            idToPartitions = partitionInfo.getIdToItem(false);
+        } else {
+            Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
+            idToPartitions = allPartitions.keySet().stream()
+                    .filter(id -> manuallySpecifiedPartitions.contains(id))
+                    .collect(Collectors.toMap(Function.identity(), id -> allPartitions.get(id)));
+        }
+        List<Long> prunedPartitions = PartitionPruner.prune(
+                partitionSlots, originalFilter.getPredicate(), idToPartitions, ctx,
+                PartitionTableType.OLAP);
+        if (prunedPartitions.isEmpty()) {
+            return new LogicalEmptyRelation(
+                    ConnectContext.get().getStatementContext().getNextRelationId(),
+                    originalFilter.getOutput());
+        }
+
+        LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(prunedPartitions);
+        if (originalFilter.child() instanceof LogicalProject) {
+            LogicalProject<LogicalOlapScan> rewrittenProject
+                        = (LogicalProject<LogicalOlapScan>) originalFilter.child()
+                                    .withChildren(ImmutableList.of(rewrittenScan));
+            return new LogicalFilter<>(originalFilter.getConjuncts(), rewrittenProject);
+        }
+        return originalFilter.withChildren(ImmutableList.of(rewrittenScan));
     }
 }

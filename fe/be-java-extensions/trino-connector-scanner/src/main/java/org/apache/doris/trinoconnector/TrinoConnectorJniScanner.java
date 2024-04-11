@@ -19,7 +19,6 @@ package org.apache.doris.trinoconnector;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheKey;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheValue;
@@ -58,11 +57,11 @@ import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.security.Identity;
+import io.trino.spi.type.TimeZoneKey;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.split.RecordPageSourceProvider;
 import io.trino.sql.planner.OptimizerConfig;
-import io.trino.testing.TestingSession;
 import io.trino.type.InternalTypeManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,6 +69,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -127,7 +127,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
         catalogNameString = params.get("catalog_name");
         super.batchSize = batchSize;
         super.fields = params.get("required_fields").split(",");
-        super.predicates = new ScanPredicate[0];
 
         connectorSplitString = params.get("trino_connector_split");
         connectorTableHandleString = params.get("trino_connector_table_handle");
@@ -154,6 +153,10 @@ public class TrinoConnectorJniScanner extends JniScanner {
         this.objectMapperProvider = generateObjectMapperProvider();
         initTrinoTableMetadata();
         parseRequiredTypes();
+
+        source = pageSourceProvider.createPageSource(connectorTransactionHandle,
+                session.toConnectorSession(catalogHandle),
+                connectorSplit, connectorTableHandle, columns, dynamicFilter);
     }
 
     @Override
@@ -163,24 +166,16 @@ public class TrinoConnectorJniScanner extends JniScanner {
     @Override
     protected int getNext() throws IOException {
         int rows = 0;
-        if (connectorSplit == null) {
-            return 0;
-        }
-        if (source == null) {
-            // TODO(ftw): This line takes a lot time
-            source = pageSourceProvider.createPageSource(connectorTransactionHandle,
-                    session.toConnectorSession(catalogHandle),
-                    connectorSplit, connectorTableHandle, columns, dynamicFilter);
+        if (connectorSplit == null || source == null) {
+            return rows;
         }
 
-        // TODO(ftw): Page is up to 8192 rows, it is best to make 4064 rows
-        Page page;
         try {
-            while (true) {
-                page = source.getNextPage();
+            while (!source.isFinished()) {
+                Page page = source.getNextPage();
                 if (page == null) {
                     // used for RecordPageSource
-                    // because RecordPageSource will null even if source is not isFinished.
+                    // because RecordPageSource will be null even if source is not isFinished.
                     if (!source.isFinished()) {
                         continue;
                     } else {
@@ -355,7 +350,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
                 .setSource("test")
                 .setCatalog("catalog")
                 .setSchema("schema")
-                .setTimeZoneKey(TestingSession.DEFAULT_TIME_ZONE_KEY)
+                .setTimeZoneKey(TimeZoneKey.getTimeZoneKey(ZoneId.systemDefault().toString()))
                 .setLocale(Locale.ENGLISH)
                 .setClientCapabilities(Arrays.stream(ClientCapabilities.values()).map(Enum::name)
                         .collect(ImmutableSet.toImmutableSet()))

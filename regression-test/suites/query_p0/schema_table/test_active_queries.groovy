@@ -17,24 +17,24 @@
 
 suite("test_active_queries") {
     def thread1 = new Thread({
-        while(true) {
+        for (int i = 0; i <= 300; i++) {
             // non-pipeline
             sql "set experimental_enable_pipeline_engine=false"
             sql "set experimental_enable_pipeline_x_engine=false"
             sql "select * from information_schema.active_queries"
-            sql "select QUERY_ID,START_TIME,QUERY_TIME_MS,WORKLOAD_GROUP_ID,SQL from information_schema.active_queries"
+            sql "select QUERY_ID,QUERY_START_TIME,QUERY_TIME_MS,WORKLOAD_GROUP_ID,SQL,QUERY_STATUS from information_schema.active_queries"
 
             // pipeline
             sql "set experimental_enable_pipeline_engine=true"
             sql "set experimental_enable_pipeline_x_engine=false"
             sql "select * from information_schema.active_queries"
-            sql "select QUERY_ID,START_TIME,QUERY_TIME_MS,WORKLOAD_GROUP_ID,SQL from information_schema.active_queries"
+            sql "select QUERY_ID,QUERY_START_TIME,QUERY_TIME_MS,WORKLOAD_GROUP_ID,SQL,QUERY_STATUS from information_schema.active_queries"
 
             // pipelinex
             sql "set experimental_enable_pipeline_engine=true"
             sql "set experimental_enable_pipeline_x_engine=true"
             sql "select * from information_schema.active_queries"
-            sql "select QUERY_ID,START_TIME,QUERY_TIME_MS,WORKLOAD_GROUP_ID,SQL from information_schema.active_queries"
+            sql "select QUERY_ID,QUERY_START_TIME,QUERY_TIME_MS,WORKLOAD_GROUP_ID,SQL,QUERY_STATUS from information_schema.active_queries"
             Thread.sleep(1000)
         }
     })

@@ -41,6 +41,10 @@ class Config {
     public String jdbcPassword
     public String defaultDb
 
+    public String ccrDownstreamUrl
+    public String ccrDownstreamUser
+    public String ccrDownstreamPassword
+
     public String feSourceThriftAddress
     public String feTargetThriftAddress
     public String feSyncerUser
@@ -107,6 +111,7 @@ class Config {
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
+    public String caseNamePrefix
     public boolean isSmokeTest
     public String multiClusterBes
     public String metaServiceToken
@@ -133,6 +138,7 @@ class Config {
     Config() {}
 
     Config(
+            String caseNamePrefix,
             String defaultDb, 
             String jdbcUrl, 
             String jdbcUser,
@@ -184,6 +190,7 @@ class Config {
             String clusterDir, 
             String kafkaBrokerList, 
             String cloudVersion) {
+        this.caseNamePrefix = caseNamePrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -439,12 +446,14 @@ class Config {
         config.randomOrder = cmd.hasOption(randomOrderOpt)
         config.stopWhenFail = cmd.hasOption(stopWhenFailOpt)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
+        config.caseNamePrefix = cmd.getOptionValue(caseNamePrefixOpt, config.caseNamePrefix)
         config.dryRun = cmd.hasOption(dryRunOpt)
         config.isSmokeTest = cmd.hasOption(isSmokeTestOpt)
 
         log.info("randomOrder is ${config.randomOrder}".toString())
         log.info("stopWhenFail is ${config.stopWhenFail}".toString())
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
+        log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
 
         Properties props = cmd.getOptionProperties("conf")
@@ -458,6 +467,7 @@ class Config {
 
     static Config fromConfigObject(ConfigObject obj) {
         def config = new Config(
+            configToString(obj.caseNamePrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
             configToString(obj.jdbcUser),
@@ -511,6 +521,9 @@ class Config {
             configToString(obj.cloudVersion)
         )
 
+        config.ccrDownstreamUrl = configToString(obj.ccrDownstreamUrl)
+        config.ccrDownstreamUser = configToString(obj.ccrDownstreamUser)
+        config.ccrDownstreamPassword = configToString(obj.ccrDownstreamPassword)
         config.image = configToString(obj.image)
         config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
@@ -576,6 +589,11 @@ class Config {
     }
 
     static void fillDefaultConfig(Config config) {
+        if (config.caseNamePrefix == null) {
+            config.caseNamePrefix = ""
+            log.info("set caseNamePrefix to '' because not specify.".toString())
+        }
+
         if (config.defaultDb == null) {
             config.defaultDb = "regression_test"
             log.info("Set defaultDb to '${config.defaultDb}' because not specify.".toString())
@@ -830,6 +848,13 @@ class Config {
         String arrowFlightSqlJdbcUser = otherConfigs.get("extArrowFlightSqlUser")
         String arrowFlightSqlJdbcPassword = otherConfigs.get("extArrowFlightSqlPassword")
         return DriverManager.getConnection(dbUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
+    }
+
+    Connection getDownstreamConnectionByDbName(String dbName) {
+        String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
+        tryCreateDbIfNotExist(dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, ccrDownstreamUser, ccrDownstreamPassword)
     }
 
     String getDbNameByFile(File suiteFile) {

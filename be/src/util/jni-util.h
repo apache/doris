@@ -52,9 +52,16 @@ public:
     static Status GetJNIEnv(JNIEnv** env) {
         if (tls_env_) {
             *env = tls_env_;
-            return Status::OK();
+        } else {
+            Status status = GetJNIEnvSlowPath(env);
+            if (!status.ok()) {
+                return status;
+            }
         }
-        return GetJNIEnvSlowPath(env);
+        if (*env == nullptr) {
+            return Status::RuntimeError("Failed to get JNIEnv: it is nullptr.");
+        }
+        return Status::OK();
     }
 
     static Status GetGlobalClassRef(JNIEnv* env, const char* class_str,

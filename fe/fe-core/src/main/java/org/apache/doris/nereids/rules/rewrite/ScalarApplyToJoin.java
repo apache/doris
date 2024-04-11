@@ -54,11 +54,8 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
     }
 
     private Plan unCorrelatedToJoin(LogicalApply apply) {
-        LogicalAssertNumRows assertNumRows = new LogicalAssertNumRows<>(
-                new AssertNumRowsElement(
-                        1, apply.getSubqueryExpr().toString(),
-                        apply.isInProject()
-                            ? AssertNumRowsElement.Assertion.EQ : AssertNumRowsElement.Assertion.LE),
+        LogicalAssertNumRows assertNumRows = new LogicalAssertNumRows<>(new AssertNumRowsElement(1,
+                apply.getSubqueryExpr().toString(), AssertNumRowsElement.Assertion.EQ),
                 (LogicalPlan) apply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
