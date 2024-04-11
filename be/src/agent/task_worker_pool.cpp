@@ -189,6 +189,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     }
 
