@@ -66,6 +66,7 @@ public:
         block->get_by_position(i).column->assume_mutable()->clear(); \
     }
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
     Status generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants);

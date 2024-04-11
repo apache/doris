@@ -135,18 +135,27 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(p._consumer_id, _dependency);
-    _output_expr_contexts.resize(p._output_expr_contexts.size());
-    for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
-        RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
-    }
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
     init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
                                    p.get_name() + "_FILTER_DEPENDENCY");
+    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(p._consumer_id, _dependency);
+    return Status::OK();
+}
+
+Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+    RETURN_IF_ERROR(_acquire_runtime_filter(true));
+    auto& p = _parent->cast<Parent>();
+    _output_expr_contexts.resize(p._output_expr_contexts.size());
+    for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
+        RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
+    }
     return Status::OK();
 }
 
