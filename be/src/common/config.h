@@ -1275,7 +1275,7 @@ DECLARE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_thresh
 DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
 
 /** Hive sink configurations **/
-DECLARE_mInt64(hive_sink_max_file_size); // 1GB
+DECLARE_mInt64(hive_sink_max_file_size);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.

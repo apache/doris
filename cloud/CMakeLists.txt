@@ -193,6 +193,10 @@ if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
 endif()
 
+if(BUILD_CHECK_META STREQUAL "ON")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBUILD_CHECK_META")
+endif()
+
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
@@ -241,10 +245,6 @@ endif()
 
 # Add flags that are common across build types
 SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
-
-if(BUILD_CHECK_META STREQUAL "ON")
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBUILD_CHECK_META")
-endif()
 
 message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 

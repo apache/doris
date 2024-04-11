@@ -560,6 +560,10 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             return;
         }
 
+        // This instance hasn't enable storage vault which means it's using legacy cloud mode
+        DCHECK(instance.enable_storage_vault())
+                << "Only instances with enable_storage_vault true have vault name";
+
         std::string_view name = request->storage_vault_name();
 
         // Try to use the default vault name if user doesn't specify the vault name
@@ -573,6 +577,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             name = instance.default_storage_vault_name();
         }
 
+        // The S3 vault would be stored inside the instance.storage_vault_names and instance.resource_ids
         auto vault_name = std::find_if(
                 instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                 [&](const auto& candidate_name) { return candidate_name == name; });
@@ -580,21 +585,6 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             auto idx = vault_name - instance.storage_vault_names().begin();
             response->set_storage_vault_id(instance.resource_ids().at(idx));
             response->set_storage_vault_name(*vault_name);
-            break;
-        }
-
-        // The S3 vault would be stored inside the instance.obj_info
-        auto s3_obj = std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
-                                   [&](const ObjectStoreInfoPB& obj) {
-                                       if (!obj.has_name()) {
-                                           return false;
-                                       }
-                                       return obj.name() == name;
-                                   });
-
-        if (s3_obj != instance.obj_info().end()) {
-            response->set_storage_vault_id(s3_obj->id());
-            response->set_storage_vault_name(s3_obj->name());
             break;
         }
 
@@ -707,6 +697,23 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
             tablet_meta.set_group_commit_interval_ms(tablet_meta_info.group_commit_interval_ms());
         } else if (tablet_meta_info.has_group_commit_data_bytes()) {
             tablet_meta.set_group_commit_data_bytes(tablet_meta_info.group_commit_data_bytes());
+        } else if (tablet_meta_info.has_compaction_policy()) {
+            tablet_meta.set_compaction_policy(tablet_meta_info.compaction_policy());
+        } else if (tablet_meta_info.has_time_series_compaction_goal_size_mbytes()) {
+            tablet_meta.set_time_series_compaction_goal_size_mbytes(
+                    tablet_meta_info.time_series_compaction_goal_size_mbytes());
+        } else if (tablet_meta_info.has_time_series_compaction_file_count_threshold()) {
+            tablet_meta.set_time_series_compaction_file_count_threshold(
+                    tablet_meta_info.time_series_compaction_file_count_threshold());
+        } else if (tablet_meta_info.has_time_series_compaction_time_threshold_seconds()) {
+            tablet_meta.set_time_series_compaction_time_threshold_seconds(
+                    tablet_meta_info.time_series_compaction_time_threshold_seconds());
+        } else if (tablet_meta_info.has_time_series_compaction_empty_rowsets_threshold()) {
+            tablet_meta.set_time_series_compaction_empty_rowsets_threshold(
+                    tablet_meta_info.time_series_compaction_empty_rowsets_threshold());
+        } else if (tablet_meta_info.has_time_series_compaction_level_threshold()) {
+            tablet_meta.set_time_series_compaction_level_threshold(
+                    tablet_meta_info.time_series_compaction_level_threshold());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();
@@ -1320,9 +1327,9 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
     return versions;
 }
 
-static bool try_fetch_and_parse_schema(
-            Transaction* txn, RowsetMetaCloudPB& rowset_meta,
-            const std::string& key, MetaServiceCode& code, std::string& msg) {
+static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rowset_meta,
+                                       const std::string& key, MetaServiceCode& code,
+                                       std::string& msg) {
     ValueBuf val_buf;
     TxnErrorCode err = cloud::get(txn, key, &val_buf);
     if (err != TxnErrorCode::TXN_OK) {
@@ -1445,7 +1452,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         if (rowset_meta.has_variant_type_in_schema()) {
             // get rowset schema kv
-            auto key = meta_rowset_schema_key({instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
+            auto key = meta_rowset_schema_key(
+                    {instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
             if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
@@ -1463,7 +1471,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
                 return;
             }
-            version_to_schema.emplace(rowset_meta.schema_version(), rowset_meta.mutable_tablet_schema());
+            version_to_schema.emplace(rowset_meta.schema_version(),
+                                      rowset_meta.mutable_tablet_schema());
         }
     }
 }

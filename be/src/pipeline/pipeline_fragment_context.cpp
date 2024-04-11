@@ -557,10 +557,10 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        auto* agg_node = dynamic_cast<vectorized::AggregationNode*>(node);
+        auto* agg_node = static_cast<vectorized::AggregationNode*>(node);
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
-        if (agg_node->is_probe_expr_ctxs_empty() && node->row_desc().num_slots() == 0) {
+        if (agg_node->is_probe_expr_ctxs_empty() && agg_node->agg_output_desc()->slots().empty()) {
             return Status::InternalError("Illegal aggregate node " +
                                          std::to_string(agg_node->id()) +
                                          ": group by and output is empty");

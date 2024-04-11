@@ -22,7 +22,7 @@
 namespace doris::cloud {
 
 static inline std::string trim(std::string& str) {
-    const std::string drop = "/ \t";
+    constexpr std::string_view drop = "/ \t";
     str.erase(str.find_last_not_of(drop) + 1);
     return str.erase(0, str.find_first_not_of(drop));
 }

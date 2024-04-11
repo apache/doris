@@ -66,7 +66,7 @@ public class ShowBackupStmtTest {
         AtomicBoolean privilege = new AtomicBoolean(true);
         new MockUp<AccessControllerManager>() {
             @Mock
-            public boolean checkDbPriv(ConnectContext ctx, String qualifiedDb, PrivPredicate wanted) {
+            public boolean checkDbPriv(ConnectContext ctx, String ctl, String qualifiedDb, PrivPredicate wanted) {
                 return privilege.get();
             }
         };

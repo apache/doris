@@ -102,7 +102,7 @@ public:
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
     //  override in Scan  MultiCastSink
-    virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
+    virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
@@ -326,6 +326,8 @@ public:
     [[nodiscard]] const RowDescriptor* output_row_descriptor() {
         return _output_row_descriptor.get();
     }
+
+    bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
 
     [[nodiscard]] bool is_source() const override { return false; }
 

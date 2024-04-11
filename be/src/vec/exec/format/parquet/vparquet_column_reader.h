@@ -185,7 +185,7 @@ private:
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
-    std::unique_ptr<ParquetConvert::ColumnConvert> _converter = nullptr;
+    std::unique_ptr<parquet::PhysicalToLogicalConverter> _converter = nullptr;
 
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,

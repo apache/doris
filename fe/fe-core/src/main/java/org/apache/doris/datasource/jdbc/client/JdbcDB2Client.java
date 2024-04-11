@@ -34,6 +34,10 @@ public class JdbcDB2Client extends JdbcClient {
         super(jdbcClientConfig);
     }
 
+    public String getTestQuery() {
+        return "select 1 from sysibm.sysdummy1";
+    }
+
     @Override
     public List<String> getDatabaseNameList() {
         Connection conn = getConnection();

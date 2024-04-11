@@ -152,6 +152,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
             // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
             if (table != null) {
+                table.unsetObjectCreated();
                 tmpTableNameToId.put(table.getName(), table.getId());
                 tmpIdToTbl.put(table.getId(), table);
             }

@@ -96,7 +96,7 @@ std::string MultiTablePipe::parse_dst_table(const char* data, size_t size) {
 Status MultiTablePipe::dispatch(const std::string& table, const char* data, size_t size,
                                 AppendFunc cb) {
     if (size == 0 || strlen(data) == 0) {
-        LOG(WARNING) << "empty data for table: " << table;
+        LOG(WARNING) << "empty data for table: " << table << ", ctx: " << _ctx->brief();
         return Status::InternalError("empty data");
     }
     KafkaConsumerPipePtr pipe = nullptr;
@@ -109,7 +109,7 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
         iter = _unplanned_pipes.find(table);
         if (iter == _unplanned_pipes.end()) {
             pipe = std::make_shared<io::KafkaConsumerPipe>();
-            LOG(INFO) << "create new unplanned pipe: " << pipe.get();
+            LOG(INFO) << "create new unplanned pipe: " << pipe.get() << ", ctx: " << _ctx->brief();
             _unplanned_pipes.emplace(table, pipe);
         } else {
             pipe = iter->second;
@@ -121,9 +121,11 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
         if (_unplanned_row_cnt >= _row_threshold ||
             _unplanned_pipes.size() >= _wait_tables_threshold) {
             LOG(INFO) << fmt::format(
-                    "unplanned row cnt={} reach row_threshold={} or wait_plan_table_threshold={}, "
-                    "plan them",
-                    _unplanned_row_cnt, _row_threshold, _wait_tables_threshold);
+                                 "unplanned row cnt={} reach row_threshold={} or "
+                                 "wait_plan_table_threshold={}, "
+                                 "plan them",
+                                 _unplanned_row_cnt, _row_threshold, _wait_tables_threshold)
+                      << ", ctx: " << _ctx->brief();
             Status st = request_and_exec_plans();
             _unplanned_row_cnt = 0;
             if (!st.ok()) {
@@ -208,7 +210,8 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         _planned_pipes.emplace(pipe.first, pipe.second);
     }
     LOG(INFO) << fmt::format("{} tables plan complete, planned table cnt={}, returned plan cnt={}",
-                             _unplanned_pipes.size(), _planned_pipes.size(), params.size());
+                             _unplanned_pipes.size(), _planned_pipes.size(), params.size())
+              << ", ctx: " << _ctx->brief();
     _unplanned_pipes.clear();
 
     _inflight_cnt += params.size();
@@ -222,14 +225,16 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
             RETURN_IF_ERROR(
                     put_pipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]));
             LOG(INFO) << "fragment_instance_id=" << print_id(plan.params.fragment_instance_id)
-                      << " table=" << plan.table_name;
+                      << " table=" << plan.table_name << ", ctx: " << _ctx->brief();
         } else if constexpr (std::is_same_v<ExecParam, TPipelineFragmentParams>) {
             auto pipe_id = calculate_pipe_id(plan.query_id, plan.fragment_id);
             RETURN_IF_ERROR(put_pipe(pipe_id, _planned_pipes[plan.table_name]));
-            LOG(INFO) << "pipe_id=" << pipe_id << "table=" << plan.table_name;
+            LOG(INFO) << "pipe_id=" << pipe_id << ", table=" << plan.table_name
+                      << ", ctx: " << _ctx->brief();
         } else {
             LOG(WARNING) << "illegal exec param type, need `TExecPlanFragmentParams` or "
-                            "`TPipelineFragmentParams`, will crash";
+                            "`TPipelineFragmentParams`, will crash"
+                         << ", ctx: " << _ctx->brief();
             CHECK(false);
         }
 
@@ -303,7 +308,8 @@ void MultiTablePipe::_handle_consumer_finished() {
     LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
               << _ctx->number_total_rows << " number_loaded_rows=" << _ctx->number_loaded_rows
               << " number_filtered_rows=" << _ctx->number_filtered_rows
-              << " number_unselected_rows=" << _ctx->number_unselected_rows;
+              << " number_unselected_rows=" << _ctx->number_unselected_rows
+              << ", ctx: " << _ctx->brief();
     _ctx->promise.set_value(_status); // when all done, finish the routine load task
 }
 

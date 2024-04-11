@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -2506,7 +2507,7 @@ public class FunctionCallExpr extends Expr {
         if (!Strings.isNullOrEmpty(dbName)) {
             // check operation privilege
             if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                    dbName, PrivPredicate.SELECT)) {
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
             }
             // TODO(gaoxin): ExternalDatabase not implement udf yet.
