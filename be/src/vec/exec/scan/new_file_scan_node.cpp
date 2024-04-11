@@ -84,8 +84,8 @@ void NewFileScanNode::set_scan_ranges(RuntimeState* state,
             auto& ranges =
                     _scan_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
             for (int j = 0; j < num_ranges; j++) {
-                auto& merged_ranges = scan_ranges[range_index++]
-                                              .scan_range.ext_scan_range.file_scan_range.ranges;
+                auto& merged_ranges =
+                        scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
                 ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
             }
         }
@@ -94,8 +94,8 @@ void NewFileScanNode::set_scan_ranges(RuntimeState* state,
             auto& ranges =
                     _scan_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
             for (int j = 0; j < num_ranges - 1; j++) {
-                auto& merged_ranges = scan_ranges[range_index++]
-                                              .scan_range.ext_scan_range.file_scan_range.ranges;
+                auto& merged_ranges =
+                        scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
                 ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
             }
         }
