@@ -49,7 +49,7 @@ suite("test_show_stream_load_auth","p0,auth") {
     }
 
     sql "sync"
-    String aa = sql "SHOW STREAM LOAD where label = '${label}'"
+    String aa = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
     log.info(aa)
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }
