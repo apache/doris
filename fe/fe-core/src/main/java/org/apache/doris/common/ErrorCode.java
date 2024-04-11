@@ -76,6 +76,10 @@ public enum ErrorCode {
             + "one of) the (%s) privilege(s) for this operation"),
     ERR_DB_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
             + "one of) the (%s) privilege(s) on database %s for this operation"),
+
+    ERR_TABLE_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
+            + "one of) the (%s) privilege(s) on table %s for this operation"),
+
     ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR(1227, new byte[] {'4', '2', '0', '0', '0'}, "Access denied; you need all "
             + " %s privilege(s) for this operation"),
     ERR_LOCAL_VARIABLE(1228, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a SESSION variable and can't be "
