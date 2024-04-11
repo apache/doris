@@ -366,7 +366,6 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                                             thrift_sink.result_sink));
         break;
     }
-    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
