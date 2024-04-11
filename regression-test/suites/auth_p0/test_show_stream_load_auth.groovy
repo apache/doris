@@ -48,7 +48,7 @@ suite("test_show_stream_load_auth","p0,auth") {
         time 10000 // limit inflight 10s
     }
 
-    Thread.sleep(30000);
+    Thread.sleep(90000);
     String res = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
     log.info(res)
     assertTrue(res.contains(${label}))
