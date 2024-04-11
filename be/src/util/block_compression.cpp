@@ -98,7 +98,7 @@ public:
             compressed_buf.data = reinterpret_cast<char*>(output->data());
             compressed_buf.size = max_len;
         } else {
-            // reuse context buffer if max_len < MAX_COMPRESSION_BUFFER_FOR_REUSE
+            // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
             context->buffer.resize(max_len);
             compressed_buf.data = reinterpret_cast<char*>(context->buffer.data());
             compressed_buf.size = max_len;
@@ -113,7 +113,7 @@ public:
                                            compressed_buf.size);
         }
         output->resize(compressed_len);
-        if (max_len < MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
+        if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
             output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), compressed_len);
         }
         return Status::OK();
@@ -237,7 +237,7 @@ private:
             compressed_buf.data = reinterpret_cast<char*>(output->data());
             compressed_buf.size = max_len;
         } else {
-            // reuse context buffer if max_len < MAX_COMPRESSION_BUFFER_FOR_REUSE
+            // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
             context->buffer.resize(max_len);
             compressed_buf.data = reinterpret_cast<char*>(context->buffer.data());
             compressed_buf.size = max_len;
@@ -271,7 +271,7 @@ private:
         }
         offset += wbytes;
         output->resize(offset);
-        if (max_len < MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
+        if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
             output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), offset);
         }
 
@@ -637,7 +637,7 @@ public:
             compressed_buf.data = reinterpret_cast<char*>(output->data());
             compressed_buf.size = max_len;
         } else {
-            // reuse context buffer if max_len < MAX_COMPRESSION_BUFFER_FOR_REUSE
+            // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
             context->buffer.resize(max_len);
             compressed_buf.data = reinterpret_cast<char*>(context->buffer.data());
             compressed_buf.size = max_len;
@@ -688,7 +688,7 @@ public:
 
         // set compressed size for caller
         output->resize(out_buf.pos);
-        if (max_len < MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
+        if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
             output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), out_buf.pos);
         }
 
