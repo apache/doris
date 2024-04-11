@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 
 #include "olap/hll.h"
 #include "util/url_coding.h"
@@ -52,7 +52,7 @@ public:
         auto& null_map = res_null_map->get_data();
         auto& res = res_data_column->get_data();
 
-        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
+        auto& argument_column = block.get_by_position(arguments[0]).column;
         const auto& str_column = static_cast<const ColumnString&>(*argument_column);
         const ColumnString::Chars& data = str_column.get_chars();
         const ColumnString::Offsets& offsets = str_column.get_offsets();
