@@ -30,6 +30,8 @@ PartitionedHashJoinProbeLocalState::PartitionedHashJoinProbeLocalState(RuntimeSt
 
 Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSpillLocalState::init(state, info));
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_init_timer);
     _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
     auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
 
@@ -141,6 +143,8 @@ void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* ch
 #undef UPDATE_PROFILE
 
 Status PartitionedHashJoinProbeLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_open_timer);
     RETURN_IF_ERROR(PipelineXSpillLocalState::open(state));
     return _partitioner->open(state);
 }
