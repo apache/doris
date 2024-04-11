@@ -21,11 +21,23 @@ suite("test_create_view_auth","p0,auth") {
     String user = 'test_create_view_auth_user'
     String pwd = 'C123_567p'
     String dbName = 'test_create_view_auth_db'
+    String tableName = 'test_create_view_auth_table'
     try_sql("DROP USER ${user}")
+    sql """drop table if exists ${dbName}.${tableName}"""
     sql """drop database if exists ${dbName}"""
 
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """create database ${dbName}"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `${tableName}` (
+            id BIGINT,
+            username VARCHAR(20)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
     sql """grant select_priv on regression_test to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
@@ -38,12 +50,13 @@ suite("test_create_view_auth","p0,auth") {
     sql """grant create_priv on ${dbName}.v1 to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
-            sql "create view ${dbName}.v1 as select * from ${dbName}.t1;"
+            sql "create view ${dbName}.v1 as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Create_priv"))
+            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
         }
     }
+    sql """drop table if exists ${dbName}.${tableName}"""
     sql """drop database if exists ${dbName}"""
     try_sql("DROP USER ${user}")
 }
