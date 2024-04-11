@@ -152,11 +152,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     }
     // de-duplicate. there's no check in FE
     std::vector<int64_t> request_part_ids(id_deduper.begin(), id_deduper.end());
-
     request.__set_partition_ids(request_part_ids);
-
-    string be_endpoint = BackendOptions::get_be_endpoint();
-    request.__set_be_endpoint(be_endpoint);
 
     VLOG_NOTICE << "auto detect replace partition request: " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;

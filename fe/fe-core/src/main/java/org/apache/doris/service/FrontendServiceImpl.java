@@ -3583,20 +3583,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     // we should ensure the replica backend is alive
                     // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                     // BE id -> path hash
-                    Multimap<Long, Long> bePathsMap;
-                    try {
-                        if (Config.isCloudMode() && request.isSetBeEndpoint()) {
-                            bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
-                        } else {
-                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
-                        }
-                    } catch (UserException ex) {
-                        errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
-                        result.setStatus(errorStatus);
-                        LOG.warn("send create partition error status: {}", result);
-                        return result;
-                    }
+                    Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < quorum) {
                         LOG.warn("auto go quorum exception");
                     }
