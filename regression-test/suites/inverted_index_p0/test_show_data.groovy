@@ -168,9 +168,12 @@ suite("test_show_data", "p0") {
         sql """ ALTER TABLE ${testTableWithoutIndex} ADD INDEX idx_request (`request`) USING INVERTED PROPERTIES("parser" = "english") """
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
 
-        sql """ BUILD INDEX idx_request ON ${testTableWithoutIndex} """
-        def state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
-        assertEquals(state, "FINISHED")
+        def state = ""
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX idx_request ON ${testTableWithoutIndex} """
+            state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
+            assertEquals(state, "FINISHED")
+        }
         def with_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
 
@@ -342,9 +345,11 @@ suite("test_show_data_for_bkd", "p0") {
         wait_for_latest_op_on_table_finish(testTableWithoutBKDIndex, timeout)
 
         // BUILD INDEX and expect state is RUNNING
-        sql """ BUILD INDEX idx_status ON ${testTableWithoutBKDIndex} """
-        def state = wait_for_last_build_index_on_table_finish(testTableWithoutBKDIndex, timeout)
-        assertEquals(state, "FINISHED")
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX idx_status ON ${testTableWithoutBKDIndex} """
+            def state = wait_for_last_build_index_on_table_finish(testTableWithoutBKDIndex, timeout)
+            assertEquals(state, "FINISHED")
+        }
         def with_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 300000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
 
@@ -517,9 +522,11 @@ suite("test_show_data_multi_add", "p0") {
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
 
         // BUILD INDEX and expect state is RUNNING
-        sql """ BUILD INDEX idx_status ON ${testTableWithoutIndex} """
-        def state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
-        assertEquals(state, "FINISHED")
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX idx_status ON ${testTableWithoutIndex} """
+            def state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
+            assertEquals(state, "FINISHED")
+        }
         def with_index_size1 = wait_for_show_data_finish(testTableWithoutIndex, 300000, no_index_size)
         assertTrue(with_index_size1 != "wait_timeout")
 
@@ -527,9 +534,11 @@ suite("test_show_data_multi_add", "p0") {
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
 
         // BUILD INDEX and expect state is RUNNING
-        sql """ BUILD INDEX request_idx ON ${testTableWithoutIndex} """
-        def state2 = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
-        assertEquals(state2, "FINISHED")
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX request_idx ON ${testTableWithoutIndex} """
+            def state2 = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
+            assertEquals(state2, "FINISHED")
+        }
         def with_index_size2 = wait_for_show_data_finish(testTableWithoutIndex, 300000, with_index_size1)
         assertTrue(with_index_size2 != "wait_timeout")
 
