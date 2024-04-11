@@ -71,7 +71,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     private final boolean ordinalIsResolved;
     private final boolean generated;
     private final boolean hasPushed;
-    public boolean done = false;
 
     /**
      * Desc: Constructor for LogicalAggregate.
