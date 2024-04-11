@@ -1894,11 +1894,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
         } catch (UserException e) {
-            LOG.warn("failed to get stream load plan: {}", e.getMessage());
+            LOG.warn("failed to get stream load plan, label: {}", request.getLabel(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.warn("stream load catch unknown result, label: {}", request.getLabel(), e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
