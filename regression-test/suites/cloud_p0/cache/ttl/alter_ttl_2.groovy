@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_2") {
-    sql """ use @compute_cluster """
+    sql """ use @regression_cluster_name1 """
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="300") """
     String[][] backends = sql """ show backends """
     String backendId;
@@ -26,7 +26,7 @@ suite("alter_ttl_2") {
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("compute_cluster")) {
+        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -140,16 +140,15 @@ suite("alter_ttl_2") {
             assertTrue(flag1)
     }
     // wait for ttl timeout
-    sleep(30000)
+    sleep(40000)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
             def strs = out.split('\n')
             Boolean flag1 = false;
-            Boolean flag2 = false;
             for (String line in strs) {
-                if (flag1 && flag2) break;
+                if (flag1) break;
                 if (line.contains("ttl_cache_size")) {
                     if (line.startsWith("#")) {
                         continue

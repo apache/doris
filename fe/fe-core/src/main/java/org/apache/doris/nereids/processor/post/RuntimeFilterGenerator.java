@@ -506,7 +506,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             // example: RegularChildrenOutputs is empty
             // "select 1 a, 2 b union all select 3, 4 union all select 10 e, 20 f;"
             for (int i = 0; i < setOperation.getOutput().size(); i++) {
-                Pair childSlotPair = ctx.getAliasTransferPair(setOperation.getRegularChildOutput(0).get(0));
+                Pair childSlotPair = ctx.getAliasTransferPair(setOperation.getRegularChildOutput(0).get(i));
                 if (childSlotPair != null) {
                     ctx.aliasTransferMapPut(setOperation.getOutput().get(i), childSlotPair);
                 }

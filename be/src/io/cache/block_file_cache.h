@@ -87,9 +87,13 @@ public:
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 const CacheContext& context);
 
-    void clear_file_cache_async();
-    // use for test
-    Status clear_file_cache_directly();
+    /**
+     * Clear all cached data for this cache instance async
+     *
+     * @returns summary message
+     */
+    std::string clear_file_cache_async();
+    std::string clear_file_cache_directly();
 
     /// For debug.
     std::string dump_structure(const UInt128Wrapper& hash);

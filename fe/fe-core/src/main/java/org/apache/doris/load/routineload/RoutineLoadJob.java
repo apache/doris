@@ -1102,7 +1102,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
-        writeLock();
+        if (Config.isCloudMode()) {
+            writeLock();
+        }
         try {
             if (txnOperated) {
                 // find task in job

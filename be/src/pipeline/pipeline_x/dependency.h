@@ -199,7 +199,7 @@ public:
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override { return nullptr; }
 };
 
-struct FinishDependency final : public Dependency {
+struct FinishDependency : public Dependency {
 public:
     using SharedState = FakeSharedState;
     FinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
@@ -208,80 +208,71 @@ public:
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override;
 };
 
+struct CountedFinishDependency final : public FinishDependency {
+public:
+    using SharedState = FakeSharedState;
+    CountedFinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
+            : FinishDependency(id, node_id, name, query_ctx) {}
+
+    void add() {
+        std::unique_lock<std::mutex> l(_mtx);
+        if (!_counter) {
+            block();
+        }
+        _counter++;
+    }
+
+    void sub() {
+        std::unique_lock<std::mutex> l(_mtx);
+        _counter--;
+        if (!_counter) {
+            set_ready();
+        }
+    }
+
+    std::string debug_string(int indentation_level = 0) override;
+
+private:
+    std::mutex _mtx;
+    uint32_t _counter = 0;
+};
+
 class RuntimeFilterDependency;
+struct RuntimeFilterTimerQueue;
 class RuntimeFilterTimer {
 public:
-    RuntimeFilterTimer(int filter_id, int64_t registration_time, int32_t wait_time_ms,
+    RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
                        std::shared_ptr<RuntimeFilterDependency> parent)
-            : _filter_id(filter_id),
-              _parent(std::move(parent)),
+            : _parent(std::move(parent)),
               _registration_time(registration_time),
               _wait_time_ms(wait_time_ms) {}
 
+    // Called by runtime filter producer.
     void call_ready();
 
+    // Called by RuntimeFilterTimerQueue which is responsible for checking if this rf is timeout.
     void call_timeout();
-
-    void call_has_ready();
-
-    // When the use count is equal to 1, only the timer queue still holds ownership,
-    // so there is no need to take any action.
-    void call_has_release() {};
-
-    bool has_ready();
 
     int64_t registration_time() const { return _registration_time; }
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
 private:
-    int _filter_id = -1;
-    bool _call_ready {};
-    bool _call_timeout {};
-    std::shared_ptr<RuntimeFilterDependency> _parent;
+    friend struct RuntimeFilterTimerQueue;
+    std::shared_ptr<RuntimeFilterDependency> _parent = nullptr;
     std::mutex _lock;
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
-    bool _is_ready = false;
 };
 
 struct RuntimeFilterTimerQueue {
     constexpr static int64_t interval = 10;
     void run() { _thread.detach(); }
-    void start() {
-        while (!_stop) {
-            std::unique_lock<std::mutex> lk(cv_m);
-
-            cv.wait(lk, [this] { return !_que.empty() || _stop; });
-            if (_stop) {
-                break;
-            }
-            {
-                std::unique_lock<std::mutex> lc(_que_lock);
-                std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> new_que;
-                for (auto& it : _que) {
-                    if (it.use_count() == 1) {
-                        it->call_has_release();
-                    } else if (it->has_ready()) {
-                        it->call_has_ready();
-                    } else {
-                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
-                        if (ms_since_registration > it->wait_time_ms()) {
-                            it->call_timeout();
-                        } else {
-                            new_que.push_back(std::move(it));
-                        }
-                    }
-                }
-                new_que.swap(_que);
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
-        }
-        _shutdown = true;
-    }
+    void start();
 
     void stop() {
         _stop = true;
         cv.notify_all();
+        wait_for_shutdown();
     }
 
     void wait_for_shutdown() const {
@@ -290,7 +281,7 @@ struct RuntimeFilterTimerQueue {
         }
     }
 
-    ~RuntimeFilterTimerQueue() { wait_for_shutdown(); }
+    ~RuntimeFilterTimerQueue() = default;
     RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
     void push_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) { push(filter); }
 
@@ -311,21 +302,15 @@ struct RuntimeFilterTimerQueue {
 
 class RuntimeFilterDependency final : public Dependency {
 public:
-    RuntimeFilterDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : Dependency(id, node_id, name, query_ctx) {}
-    Dependency* is_blocked_by(PipelineXTask* task) override;
-    void add_filters(IRuntimeFilter* runtime_filter);
-    void sub_filters(int id);
-    void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
-        _blocked_by_rf = blocked_by_rf;
-    }
-
+    RuntimeFilterDependency(int id, int node_id, std::string name, QueryContext* query_ctx,
+                            IRuntimeFilter* runtime_filter)
+            : Dependency(id, node_id, name, query_ctx), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
-protected:
-    std::atomic_int _filters;
-    phmap::flat_hash_map<int, bool> _filter_ready_map;
-    std::shared_ptr<std::atomic_bool> _blocked_by_rf;
+    Dependency* is_blocked_by(PipelineXTask* task) override;
+
+private:
+    const IRuntimeFilter* _runtime_filter = nullptr;
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -442,6 +427,7 @@ struct PartitionedAggSharedState : public BasicSharedState,
     size_t max_partition_index;
     Status sink_status;
     bool is_spilled = false;
+    std::atomic_bool is_closed = false;
     std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
 
     size_t get_partition_index(size_t hash_value) const {
@@ -511,11 +497,12 @@ struct SpillSortSharedState : public BasicSharedState,
             LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
         }
     }
-    void clear();
+    void close();
 
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
     bool is_spilled = false;
+    std::atomic_bool is_closed = false;
     Status sink_status;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
@@ -599,6 +586,8 @@ struct PartitionedHashJoinSharedState
           public std::enable_shared_from_this<PartitionedHashJoinSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinSharedState)
 
+    std::unique_ptr<RuntimeState> inner_runtime_state;
+    std::shared_ptr<HashJoinSharedState> inner_shared_state;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
     bool need_to_spill = false;

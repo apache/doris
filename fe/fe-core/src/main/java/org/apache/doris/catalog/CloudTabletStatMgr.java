@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.proto.Cloud.GetTabletStatsRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTabletStatsResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
@@ -69,7 +68,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -144,7 +143,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;

@@ -39,6 +39,7 @@
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_util.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
@@ -68,9 +69,12 @@ int get_base_thread_num() {
 CloudStorageEngine::CloudStorageEngine(const UniqueId& backend_uid)
         : BaseStorageEngine(Type::CLOUD, backend_uid),
           _meta_mgr(std::make_unique<cloud::CloudMetaMgr>()),
-          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)),
-          _cumulative_compaction_policy(
-                  std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>()) {}
+          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)) {
+    _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =
+            std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>();
+    _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
+            std::make_shared<CloudTimeSeriesCumulativeCompactionPolicy>();
+}
 
 CloudStorageEngine::~CloudStorageEngine() {
     stop();
@@ -764,6 +768,14 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
     root.Accept(writer);
     *result = std::string(strbuf.GetString());
     return Status::OK();
+}
+
+std::shared_ptr<CloudCumulativeCompactionPolicy> CloudStorageEngine::cumu_compaction_policy(
+        std::string_view compaction_policy) {
+    if (!_cumulative_compaction_policies.contains(compaction_policy)) {
+        return _cumulative_compaction_policies.at(CUMULATIVE_SIZE_BASED_POLICY);
+    }
+    return _cumulative_compaction_policies.at(compaction_policy);
 }
 
 } // namespace doris

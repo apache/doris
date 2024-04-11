@@ -127,3 +127,12 @@ qie	\N	TENGXUN2
 \N
 500
 
+-- !select_no_need_0 --
+d	-5	r
+d	1	w
+d	8	f
+g	6	q
+j	2	k
+k	2	j
+u	8	d
+

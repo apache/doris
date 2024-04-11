@@ -424,6 +424,8 @@ public:
     /// the preagg should pass through any rows it can't fit in its tables.
     bool _should_expand_preagg_hash_tables();
 
+    TupleDescriptor* agg_output_desc() { return _output_tuple_desc; }
+
 protected:
     bool _is_streaming_preagg;
     bool _child_eos = false;

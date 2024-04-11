@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_1") {
-    sql """ use @compute_cluster """
+    sql """ use @regression_cluster_name1 """
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="90") """
     String[][] backends = sql """ show backends """
     String backendId;
@@ -26,7 +26,7 @@ suite("alter_ttl_1") {
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("compute_cluster")) {
+        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -118,7 +118,7 @@ suite("alter_ttl_1") {
             }
             assertTrue(flag1)
     }
-    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="120") """
+    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="140") """
     sleep(80000)
     getMetricsMethod.call() {
         respCode, body ->
@@ -140,7 +140,7 @@ suite("alter_ttl_1") {
             assertTrue(flag1)
     }
     // wait for ttl timeout
-    sleep(30000)
+    sleep(50000)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")

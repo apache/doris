@@ -40,6 +40,8 @@ public:
                 std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                 RuntimeProfile* profile);
 
+    ~SpillStream();
+
     int64_t id() const { return stream_id_; }
 
     SpillDataDir* get_data_dir() const { return data_dir_; }
@@ -51,7 +53,7 @@ public:
 
     Status prepare_spill();
 
-    Status spill_block(const Block& block, bool eof);
+    Status spill_block(RuntimeState* state, const Block& block, bool eof);
 
     void end_spill(const Status& status);
 

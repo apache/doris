@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_clear_cache_async") {
-    sql """ use @compute_cluster """
+    sql """ use @regression_cluster_name1 """
     sql """ set global enable_auto_analyze = false; """
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="180") """
     String[][] backends = sql """ show backends """
@@ -27,7 +27,7 @@ suite("test_clear_cache_async") {
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("compute_cluster")) {
+        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -37,13 +37,14 @@ suite("test_clear_cache_async") {
 
     backendId = backendIdToBackendIP.keySet()[0]
     def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
-    logger.info(url)
+    url = url + "?sync=false"
+    logger.info("clear file cache URL:" + url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
             op "post"
-            body "{\"sync\"=\"false\"}"
+            body ""
             check check_func
         }
     }
@@ -95,36 +96,35 @@ suite("test_clear_cache_async") {
     clearFileCache.call() {
         respCode, body -> {}
     }
-    // sleep(30000) // 30s
-    // load_customer_once("customer_ttl")
-    // load_customer_once("customer")
 
-    // clearFileCache.call() {
-    //     respCode, body -> {}
-    // }
-    // sleep(30000)
-    // getMetricsMethod.call() {
-    //     respCode, body ->
-    //         assertEquals("${respCode}".toString(), "200")
-    //         String out = "${body}".toString()
-    //         def strs = out.split('\n')
-    //         Boolean flag = false;
-    //         long total_cache_size = 0;
-    //         for (String line in strs) {
-    //             if (line.contains("file_cache_cache_size")) {
-    //                 if (line.startsWith("#")) {
-    //                     continue
-    //                 }
-    //                 def i = line.indexOf(' ')
-    //                 total_cache_size = line.substring(i).toLong()
-    //                 assertEquals(0, total_cache_size)
-    //                 flag = true
-    //                 break
-    //             }
-    //         }
-    //         assertTrue(flag)
-    // }
+    load_customer_once("customer_ttl")
+    load_customer_once("customer")
+    sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
+    sql new File("""${context.file.parent}/../ddl/customer_delete.sql""").text
 
-    // sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
-    // sql new File("""${context.file.parent}/../ddl/customer_delete.sql""").text
+    clearFileCache.call() {
+        respCode, body -> {}
+    }
+    sleep(30000)
+    getMetricsMethod.call() {
+        respCode, body ->
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def strs = out.split('\n')
+            Boolean flag = false;
+            long total_cache_size = 0;
+            for (String line in strs) {
+                if (line.contains("file_cache_cache_size")) {
+                    if (line.startsWith("#")) {
+                        continue
+                    }
+                    def i = line.indexOf(' ')
+                    total_cache_size = line.substring(i).toLong()
+                    assertEquals(0, total_cache_size)
+                    flag = true
+                    break
+                }
+            }
+            assertTrue(flag)
+    }
 }

@@ -187,7 +187,7 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     }
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
-    RETURN_IF_ERROR(_acquire_runtime_filter());
+    RETURN_IF_ERROR(_acquire_runtime_filter(false));
     RETURN_IF_ERROR(_process_conjuncts());
 
     if (_is_pipeline_scan) {
@@ -380,18 +380,18 @@ Status VScanNode::_normalize_conjuncts() {
         }
     };
 
-    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
-        _slot_id_to_slot_desc[slots[slot_idx]->id()] = slots[slot_idx];
+    for (auto& slot : slots) {
+        _colname_to_slot_id[slot->col_name()] = slot->id();
+        _slot_id_to_slot_desc[slot->id()] = slot;
 
-        auto type = slots[slot_idx]->type().type;
-        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
-            type = slots[slot_idx]->type().children[0].type;
+        auto type = slot->type().type;
+        if (slot->type().type == TYPE_ARRAY) {
+            type = slot->type().children[0].type;
             if (type == TYPE_ARRAY) {
                 continue;
             }
         }
-        init_value_range(slots[slot_idx], slots[slot_idx]->type().type);
+        init_value_range(slot, slot->type().type);
     }
 
     get_cast_types_for_variants();
@@ -471,7 +471,7 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
-            auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            auto* cur_expr = impl ? impl.get() : conjunct_expr_root.get();
             bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
@@ -642,8 +642,8 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
         doris::FunctionContext* fn_ctx = nullptr;
         StringRef val;
         PushDownType temp_pdt;
-        RETURN_IF_ERROR(_should_push_down_function_filter(
-                reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx, temp_pdt));
+        RETURN_IF_ERROR(_should_push_down_function_filter(assert_cast<VectorizedFnCall*>(fn_expr),
+                                                          expr_ctx, &val, &fn_ctx, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             std::string col = slot->col_name();
             _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
@@ -699,16 +699,15 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const ColumnConst* const_column =
+        if (const auto* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
             }
-        } else if (const ColumnVector<UInt8>* bool_column =
-                           check_and_get_column<ColumnVector<UInt8>>(
-                                   const_col_wrapper->column_ptr)) {
+        } else if (const auto* bool_column = check_and_get_column<ColumnVector<UInt8>>(
+                           const_col_wrapper->column_ptr)) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
@@ -759,14 +758,14 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             }
         } else {
             // normal in predicate
-            VInPredicate* pred = static_cast<VInPredicate*>(expr);
+            auto* pred = static_cast<VInPredicate*>(expr);
             PushDownType temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, false);
             if (temp_pdt == PushDownType::UNACCEPTABLE) {
                 return Status::OK();
             }
 
             // begin to push InPredicate value into ColumnValueRange
-            InState* state = reinterpret_cast<InState*>(
+            auto* state = reinterpret_cast<InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -785,7 +784,7 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                 iter->next();
                 continue;
             }
-            auto value = const_cast<void*>(iter->get_value());
+            auto* value = const_cast<void*>(iter->get_value());
             RETURN_IF_ERROR(_change_value_range<true>(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
             iter->next();
@@ -846,14 +845,14 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
     PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
-        VInPredicate* pred = static_cast<VInPredicate*>(expr);
+        auto* pred = static_cast<VInPredicate*>(expr);
         if ((temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, true)) ==
             PushDownType::UNACCEPTABLE) {
             return Status::OK();
         }
 
         // begin to push InPredicate value into ColumnValueRange
-        InState* state = reinterpret_cast<InState*>(
+        auto* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(pred->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -864,7 +863,8 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
 
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
-        if (!is_fixed_range && state->hybrid_set->contain_null()) {
+        // https://github.com/apache/doris/pull/15466
+        if (state->hybrid_set->contain_null()) {
             _eos = true;
         }
         while (iter->has_next()) {
@@ -872,7 +872,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
             if (nullptr == iter->get_value()) {
                 continue;
             }
-            auto value = const_cast<void*>(iter->get_value());
+            auto* value = const_cast<void*>(iter->get_value());
             if (is_fixed_range) {
                 RETURN_IF_ERROR(_change_value_range<true>(
                         range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
@@ -1017,7 +1017,7 @@ Status VScanNode::_normalize_compound_predicate(
         auto compound_fn_name = expr->fn().name.function_name;
         auto children_num = expr->children().size();
         for (auto i = 0; i < children_num; ++i) {
-            auto child_expr = expr->children()[i].get();
+            auto* child_expr = expr->children()[i].get();
             if (TExprNodeType::BINARY_PRED == child_expr->node_type()) {
                 SlotDescriptor* slot = nullptr;
                 ColumnValueRangeType* range_on_slot = nullptr;
@@ -1276,7 +1276,7 @@ Status VScanNode::_should_push_down_binary_predicate(
         } else {
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const ColumnConst* const_column =
+            if (const auto* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *slot_ref_child = i;
                 *constant_val = const_column->get_data_at(0);
