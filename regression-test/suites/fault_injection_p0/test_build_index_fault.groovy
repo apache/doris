@@ -183,7 +183,7 @@ suite("test_build_index_fault", "inverted_index"){
     // BUILD INDEX and expect state is FINISHED
     sql """ BUILD INDEX idx_comment ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
-    assertEquals(state, "FINISHED")
+    assertEquals("FINISHED", state)
     // check data
     qt_count3 """ SELECT COUNT() from ${tableName}; """
 
@@ -200,7 +200,7 @@ suite("test_build_index_fault", "inverted_index"){
     // BUILD INDEX again and expect state is FINISHED
     sql """ BUILD INDEX idx_comment ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
-    assertEquals(state, "FINISHED")
+    assertEquals("FINISHED", state)
     // check data
     qt_count4 """ SELECT COUNT() from ${tableName}; """
 
@@ -210,7 +210,7 @@ suite("test_build_index_fault", "inverted_index"){
     GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
     sql """ BUILD INDEX idx_title ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
-    assertEquals(state, "wait_timeout")
+    assertEquals("wait_timeout", state)
     // check data
     qt_count5 """ SELECT COUNT() from ${tableName}; """
 
@@ -218,7 +218,23 @@ suite("test_build_index_fault", "inverted_index"){
     GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
     // timeout * 10 for possible fe schedule delay
     state = wait_for_last_build_index_on_table_finish(tableName, timeout * 10)
-    assertEquals(state, "FINISHED")
+    assertEquals("FINISHED", state)
     // check data
     qt_count6 """ SELECT COUNT() from ${tableName}; """
+
+    // BUILD INDEX with error injection
+    sql """ ALTER TABLE ${tableName} ADD INDEX idx_url (`url`) USING INVERTED """
+    GetDebugPoint().enableDebugPointForAllBEs("IndexBuilder::handle_single_rowset")
+    sql """ BUILD INDEX idx_url ON ${tableName}; """
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout)
+    assertEquals("wait_timeout", state)
+    // check data
+    qt_count7 """ SELECT COUNT() from ${tableName}; """
+
+    GetDebugPoint().disableDebugPointForAllBEs("IndexBuilder::handle_single_rowset")
+    // timeout * 10 for possible fe schedule delay
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout * 10)
+    assertEquals("FINISHED", state)
+    // check data
+    qt_count8 """ SELECT COUNT() from ${tableName}; """
 }
