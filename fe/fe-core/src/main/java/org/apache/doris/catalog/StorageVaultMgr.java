@@ -32,6 +32,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
@@ -40,6 +43,8 @@ public class StorageVaultMgr {
     private Pair<String, String> defaultVaultInfo;
 
     private ReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+    private static final ExecutorService ALTER_BE_SYNC_THREAD_POOL = Executors.newFixedThreadPool(1);
 
     public StorageVaultMgr() {
     }
@@ -125,6 +130,12 @@ public class StorageVaultMgr {
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
                     && hdfsStorageVault.ifNotExists()) {
+                ALTER_BE_SYNC_THREAD_POOL.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        alterSyncVaultTask();
+                    }
+                });
                 return;
             }
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
@@ -135,5 +146,9 @@ public class StorageVaultMgr {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
+    }
+
+    private void alterSyncVaultTask() {
+
     }
 }

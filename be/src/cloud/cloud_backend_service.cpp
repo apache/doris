@@ -17,6 +17,7 @@
 
 #include "cloud/cloud_backend_service.h"
 
+#include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "util/thrift_server.h"
 
@@ -43,6 +44,11 @@ Status CloudBackendService::create_service(CloudStorageEngine& engine, ExecEnv* 
     LOG(INFO) << "Doris CloudBackendService listening on " << port;
 
     return Status::OK();
+}
+
+void CloudBackendService::alter_sync_vault(TAlterSyncVaultResponse& response,
+                                           const TAlterSyncVaultRequest& request) {
+    _engine.sync_storage_vault();
 }
 
 } // namespace doris
