@@ -19,7 +19,7 @@ import org.junit.Assert;
 
 suite("test_show_stream_load_auth","p0,auth") {
     String tableName = "test_show_stream_load_auth_table"
-    String label = "test_show_stream_load_auth_label"
+    String label = "test_show_stream_load_auth_label" + System.currentTimeMillis();
     String user = 'test_show_stream_load_auth_user'
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
