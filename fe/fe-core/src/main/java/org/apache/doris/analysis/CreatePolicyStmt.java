@@ -17,12 +17,16 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -30,6 +34,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import lombok.Getter;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -92,6 +98,16 @@ public class CreatePolicyStmt extends DdlStmt {
         this.properties = properties;
     }
 
+    private void getColumnFromPredicate(Expr root, List<String> columnNameList) {
+        if (root instanceof SlotRef) {
+            columnNameList.add(((SlotRef) root).getColumnName());
+            return;
+        }
+        for (Expr child : root.getChildren()) {
+            getColumnFromPredicate(child, columnNameList);
+        }
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -103,7 +119,6 @@ public class CreatePolicyStmt extends DdlStmt {
                 }
                 break;
             case ROW:
-            default:
                 tableName.analyze(analyzer);
                 if (user != null) {
                     user.analyze();
@@ -112,6 +127,29 @@ public class CreatePolicyStmt extends DdlStmt {
                                 user.getQualifiedUser(), user.getHost(), tableName.getTbl());
                     }
                 }
+                // validate the columns present in the predicate with the table schema
+                List<String> columnList = new ArrayList<>();
+                getColumnFromPredicate(wherePredicate, columnList);
+                String catalogName = tableName.getCtl();
+                CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
+                DatabaseIf db = catalog.getDbOrAnalysisException(tableName.getDb());
+                TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
+                for (String predColName : columnList) {
+                    boolean isColPresentInTableSchema = false;
+                    for (Column tableColumn : table.getBaseSchema(true)) {
+                        if (tableColumn.getName().equalsIgnoreCase(predColName)) {
+                            isColPresentInTableSchema = true;
+                            break;
+                        }
+                    }
+                    if (!isColPresentInTableSchema) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, predColName,
+                                tableName.getTbl());
+                    }
+                }
+                break;
+            default:
+                throw new IllegalStateException("Unexcepted value" + type);
         }
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
