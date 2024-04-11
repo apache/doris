@@ -44,7 +44,7 @@ suite("test_alter_view_auth","p0,auth") {
     sql """create view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
-            sql "alter view ${dbName}.v1 as select * from ${dbName}.${tableName};"
+            sql "alter view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
             log.info(e.getMessage())
             assertTrue(e.getMessage().contains("Admin_priv,Alter_priv"))
@@ -53,7 +53,7 @@ suite("test_alter_view_auth","p0,auth") {
     sql """grant Alter_priv on ${dbName}.v1 to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
-            sql "alter view ${dbName}.v1 as select * from ${dbName}.${tableName};"
+            sql "alter view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
             log.info(e.getMessage())
             assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
