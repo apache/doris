@@ -412,23 +412,6 @@ void ColumnArray::insert(const Field& x) {
     }
 }
 
-void ColumnArray::replace(const Field& f, size_t self_row) {
-    const auto& array = f.get<const Array&>();
-    if (self_row == 0) {
-        // we should clear data because we call resize() before replace_column_data()
-        data->clear();
-    }
-    if (f.is_null()) {
-        get_offsets().push_back(get_offsets().back());
-    } else {
-        get_offsets()[self_row] = get_offsets()[self_row - 1] + array.size();
-        // we make sure call replace_column_data() by order so, here we just insert for nested
-        for (const auto& item : array) {
-            data->insert(item);
-        }
-    }
-}
-
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
     DCHECK(n < src_.size());
     const ColumnArray& src = assert_cast<const ColumnArray&>(src_);

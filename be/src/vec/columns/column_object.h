@@ -130,10 +130,6 @@ public:
 
         void insert(Field field, FieldInfo info);
 
-        void replace(Field field, int row_num);
-
-        void replace(Field field, FieldInfo info, int row_num);
-
         void insertDefault();
 
         void insertManyDefaults(size_t length);

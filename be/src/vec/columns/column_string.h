@@ -545,60 +545,12 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        // we check this column size and self_row because we need to make sure when we call
-        // replace_column_data() with a batch column data.
-        // and this column data is cleared at the every beginning.
-        // next we replace column one by one.
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnString&>(rhs);
-        auto data = r.get_data_at(row);
-
-        if (!self_row) {
-            // self_row == 0 means we first call replace_column_data() with batch column data. so we
-            // should clean last batch column data.
-            chars.clear();
-            offsets[self_row] = data.size;
-        } else {
-            offsets[self_row] = offsets[self_row - 1] + data.size;
-            check_chars_length(offsets[self_row], self_row);
-        }
-
-        chars.insert(data.data, data.data + data.size);
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     // should replace according to 0,1,2... ,size,0,1,2...
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-
-        if (!self_row) {
-            chars.clear();
-            offsets[self_row] = 0;
-        } else {
-            offsets[self_row] = offsets[self_row - 1];
-        }
-    }
-
-    void replace(const Field& f, size_t self_row) override {
-        StringRef data;
-        if (f.get_type() == Field::Types::JSONB) {
-            // Handle JsonbField
-            const auto& real_field = vectorized::get<const JsonbField&>(f);
-            data = StringRef(real_field.get_value(), real_field.get_size());
-        } else {
-            data.data = vectorized::get<const String&>(f).data();
-            data.size = vectorized::get<const String&>(f).size();
-        }
-        if (!self_row) {
-            // self_row == 0 means we first call replace_column_data() with batch column data. so we
-            // should clean last batch column data.
-            chars.clear();
-            offsets[self_row] = data.size;
-        } else {
-            offsets[self_row] = offsets[self_row - 1] + data.size;
-            check_chars_length(offsets[self_row], self_row);
-        }
-
-        chars.insert(data.data, data.data + data.size);
+        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

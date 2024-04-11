@@ -457,10 +457,6 @@ public:
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
-    void replace(const Field& f, size_t self_row) override {
-        data[self_row] = (doris::vectorized::get<NearestFieldType<T>>(f));
-    }
-
 protected:
     Container data;
 };

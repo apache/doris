@@ -346,16 +346,6 @@ public:
         LOG(FATAL) << "should not call the method in column nullable";
     }
 
-    void replace(const Field& f, size_t self_row) override {
-        if (f.is_null()) {
-            _get_null_map_column().get_data()[self_row] = 1;
-            nested_column->replace_column_data_default(self_row);
-        } else {
-            _get_null_map_column().get_data()[self_row] = 0;
-            nested_column->replace(f, self_row);
-        }
-    }
-
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
         nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();
         return get_ptr();
