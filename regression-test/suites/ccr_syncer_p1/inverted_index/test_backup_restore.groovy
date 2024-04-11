@@ -160,14 +160,10 @@ suite("test_backup_restore_index") {
                 ON (${tableName})
                 PROPERTIES ("type" = "full")
             """
-        while (syncer.checkSnapshotFinish() == false) {
-            Thread.sleep(3000)
-        }
+        syncer.waitAllSnapshotFinish()
         assertTrue(syncer.getSnapshot("${snapshotName}", "${tableName}"))
         assertTrue(syncer.restoreSnapshot(true))
-        while (syncer.checkRestoreFinish() == false) {
-            Thread.sleep(3000)
-        }
+        syncer.waitTargetRestoreFinish()
         target_sql " sync "
         res = target_sql "SELECT * FROM ${tableName}"
         if (tableName.contains("mow")) {

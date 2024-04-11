@@ -2405,6 +2405,7 @@ std::string Tablet::get_segment_index_filepath(std::string_view rowset_id, int64
         return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
                            index_id);
     } else {
+        DCHECK(index_id == -1);
         return fmt::format("{}/_binlog/{}_{}.idx", _tablet_path, rowset_id, segment_index);
     }
 }
