@@ -414,25 +414,25 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     return 0;
 }
 
-static std::optional<ObjectStoreInfoPB> create_object_info_with_encrypt(
-        InstanceInfoPB& instance, const ObjectStoreInfoPB& obj, bool sse_enabled,
-        MetaServiceCode& code, std::string& msg) {
-    std::string plain_ak = obj.has_ak() ? obj.ak() : "";
-    std::string plain_sk = obj.has_sk() ? obj.sk() : "";
-    std::string bucket = obj.has_bucket() ? obj.bucket() : "";
-    std::string prefix = obj.has_prefix() ? obj.prefix() : "";
+static void create_object_info_with_encrypt(const InstanceInfoPB& instance, ObjectStoreInfoPB* obj,
+                                            bool sse_enabled, MetaServiceCode& code,
+                                            std::string& msg) {
+    std::string plain_ak = obj->has_ak() ? obj->ak() : "";
+    std::string plain_sk = obj->has_sk() ? obj->sk() : "";
+    std::string bucket = obj->has_bucket() ? obj->bucket() : "";
+    std::string prefix = obj->has_prefix() ? obj->prefix() : "";
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
     prefix = trim(prefix);
-    std::string endpoint = obj.has_endpoint() ? obj.endpoint() : "";
-    std::string external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
-    std::string region = obj.has_region() ? obj.region() : "";
+    std::string endpoint = obj->has_endpoint() ? obj->endpoint() : "";
+    std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
+    std::string region = obj->has_region() ? obj->region() : "";
 
     // ATTN: prefix may be empty
     if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
-        region.empty() || !obj.has_provider() || external_endpoint.empty()) {
+        region.empty() || !obj->has_provider() || external_endpoint.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "s3 conf info err, please check it";
-        return std::nullopt;
+        return;
     }
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
@@ -443,32 +443,24 @@ static std::optional<ObjectStoreInfoPB> create_object_info_with_encrypt(
         TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ak_sk_ret);
     }
     if (ret != 0) {
-        return std::nullopt;
+        return;
     }
 
-    ObjectStoreInfoPB obj_info;
-    if (obj.has_user_id()) {
-        obj_info.set_user_id(obj.user_id());
-    }
-    obj_info.set_ak(std::move(cipher_ak_sk_pair.first));
-    obj_info.set_sk(std::move(cipher_ak_sk_pair.second));
-    obj_info.mutable_encryption_info()->CopyFrom(encryption_info);
-    obj_info.set_bucket(bucket);
-    obj_info.set_prefix(prefix);
-    obj_info.set_endpoint(endpoint);
-    obj_info.set_external_endpoint(external_endpoint);
-    obj_info.set_region(region);
-    obj_info.set_provider(obj.provider());
-    std::ostringstream oss;
-    // create instance's s3 conf, id = 1
-    obj_info.set_id(next_available_vault_id(instance));
+    obj->set_ak(std::move(cipher_ak_sk_pair.first));
+    obj->set_sk(std::move(cipher_ak_sk_pair.second));
+    obj->mutable_encryption_info()->CopyFrom(encryption_info);
+    obj->set_bucket(bucket);
+    obj->set_prefix(prefix);
+    obj->set_endpoint(endpoint);
+    obj->set_external_endpoint(external_endpoint);
+    obj->set_region(region);
+    obj->set_id(next_available_vault_id(instance));
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
-    obj_info.set_ctime(time);
-    obj_info.set_mtime(time);
-    obj_info.set_sse_enabled(sse_enabled);
-    return obj_info;
+    obj->set_ctime(time);
+    obj->set_mtime(time);
+    obj->set_sse_enabled(sse_enabled);
 }
 
 static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
@@ -477,13 +469,13 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
     if (vault_param.has_hdfs_info()) {
         return add_hdfs_storage_vault(instance, txn, vault_param, code, msg);
     }
-    auto ret = create_object_info_with_encrypt(instance, vault_param.s3_obj(), true, code, msg);
-    if (ret == std::nullopt) {
+    create_object_info_with_encrypt(instance, vault_param.mutable_s3_obj(), true, code, msg);
+    if (code != MetaServiceCode::OK) {
         return -1;
     }
-    vault_param.mutable_s3_obj()->CopyFrom(*ret);
-    vault_param.set_id(ret->id());
-    auto vault_key = storage_vault_key({instance.instance_id(), ret->id()});
+    vault_param.mutable_s3_obj()->CopyFrom(vault_param.s3_obj());
+    vault_param.set_id(vault_param.s3_obj().id());
+    auto vault_key = storage_vault_key({instance.instance_id(), vault_param.s3_obj().id()});
     *instance.mutable_resource_ids()->Add() = vault_param.id();
     *instance.mutable_storage_vault_names()->Add() = vault_param.name();
     txn->put(vault_key, vault_param.SerializeAsString());
@@ -1054,12 +1046,13 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     instance.set_sse_enabled(request->sse_enabled());
     instance.set_enable_storage_vault(!request->has_obj_info());
     if (request->has_obj_info()) {
-        auto ret = create_object_info_with_encrypt(instance, request->obj_info(),
-                                                   request->sse_enabled(), code, msg);
-        if (std::nullopt == ret) {
+        create_object_info_with_encrypt(instance,
+                                        const_cast<ObjectStoreInfoPB*>(&request->obj_info()),
+                                        request->sse_enabled(), code, msg);
+        if (code != MetaServiceCode::OK) {
             return;
         }
-        *instance.mutable_obj_info()->Add() = *ret;
+        instance.mutable_obj_info()->Add()->MergeFrom(request->obj_info());
     }
     if (request->has_ram_user()) {
         auto& ram_user = request->ram_user();
