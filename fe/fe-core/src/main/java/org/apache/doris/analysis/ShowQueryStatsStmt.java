@@ -128,6 +128,7 @@ public class ShowQueryStatsStmt extends ShowStmt {
             dbName = tableName.getDb();
         }
         Database db = (Database) Env.getCurrentEnv().getCurrentCatalog().getDbOrDdlException(dbName);
+        String ctlName = db.getCatalog().getName();
         if (tableName != null) {
             db.getTableOrDdlException(tableName.getTbl());
         }
@@ -135,7 +136,7 @@ public class ShowQueryStatsStmt extends ShowStmt {
             Map<String, Long> stats = QueryStatsUtil.getMergedDatabaseStats(catalog, dbName);
             stats.forEach((tableName, queryHit) -> {
                 if (Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.SHOW)) {
+                        .checkTblPriv(ConnectContext.get(), ctlName, dbName, tableName, PrivPredicate.SHOW)) {
                     totalRows.add(Arrays.asList(tableName, String.valueOf(queryHit)));
                 }
             });

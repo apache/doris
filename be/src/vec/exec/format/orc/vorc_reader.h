@@ -46,6 +46,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
@@ -190,6 +191,9 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
+    static TypeDescriptor convert_to_doris_type(const orc::Type* orc_type);
+    static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -255,15 +259,20 @@ private:
                         bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
-    TypeDescriptor _convert_to_doris_type(const orc::Type* orc_type);
     bool _init_search_argument(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
     void _init_file_description();
+
     template <bool is_filter = false>
-    Status _orc_column_to_doris_column(const std::string& col_name, const ColumnPtr& doris_column,
+    Status _fill_doris_data_column(const std::string& col_name, MutableColumnPtr& data_column,
+                                   const DataTypePtr& data_type, const orc::Type* orc_column_type,
+                                   orc::ColumnVectorBatch* cvb, size_t num_values);
+
+    template <bool is_filter = false>
+    Status _orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        const orc::Type* orc_column_type,
                                        orc::ColumnVectorBatch* cvb, size_t num_values);
@@ -470,8 +479,6 @@ private:
                                      orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
                                      size_t* element_size);
 
-    std::string _get_field_name_lower_case(const orc::Type* orc_type, int pos);
-
     void _collect_profile_on_close();
 
     bool _can_filter_by_dict(int slot_id);
@@ -576,6 +583,9 @@ private:
     bool _is_dict_cols_converted;
     bool _has_complex_type = false;
     std::vector<orc::TypeKind>* _unsupported_pushdown_types;
+
+    // resolve schema change
+    std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
 };
 
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {

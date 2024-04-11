@@ -96,36 +96,35 @@ suite("test_clear_cache_async") {
     clearFileCache.call() {
         respCode, body -> {}
     }
-    // sleep(30000) // 30s
-    // load_customer_once("customer_ttl")
-    // load_customer_once("customer")
 
-    // clearFileCache.call() {
-    //     respCode, body -> {}
-    // }
-    // sleep(30000)
-    // getMetricsMethod.call() {
-    //     respCode, body ->
-    //         assertEquals("${respCode}".toString(), "200")
-    //         String out = "${body}".toString()
-    //         def strs = out.split('\n')
-    //         Boolean flag = false;
-    //         long total_cache_size = 0;
-    //         for (String line in strs) {
-    //             if (line.contains("file_cache_cache_size")) {
-    //                 if (line.startsWith("#")) {
-    //                     continue
-    //                 }
-    //                 def i = line.indexOf(' ')
-    //                 total_cache_size = line.substring(i).toLong()
-    //                 assertEquals(0, total_cache_size)
-    //                 flag = true
-    //                 break
-    //             }
-    //         }
-    //         assertTrue(flag)
-    // }
+    load_customer_once("customer_ttl")
+    load_customer_once("customer")
+    sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
+    sql new File("""${context.file.parent}/../ddl/customer_delete.sql""").text
 
-    // sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
-    // sql new File("""${context.file.parent}/../ddl/customer_delete.sql""").text
+    clearFileCache.call() {
+        respCode, body -> {}
+    }
+    sleep(30000)
+    getMetricsMethod.call() {
+        respCode, body ->
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def strs = out.split('\n')
+            Boolean flag = false;
+            long total_cache_size = 0;
+            for (String line in strs) {
+                if (line.contains("file_cache_cache_size")) {
+                    if (line.startsWith("#")) {
+                        continue
+                    }
+                    def i = line.indexOf(' ')
+                    total_cache_size = line.substring(i).toLong()
+                    assertEquals(0, total_cache_size)
+                    flag = true
+                    break
+                }
+            }
+            assertTrue(flag)
+    }
 }
