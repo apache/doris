@@ -148,7 +148,8 @@ protected:
     }
 
     virtual bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
-        if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
+        if (reader->rowset()->num_rows() - reader->filtered_rows() !=
+            writer.num_rows() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
                          << ", writer rows=" << writer.num_rows()
