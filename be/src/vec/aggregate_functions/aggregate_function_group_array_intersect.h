@@ -46,7 +46,7 @@ namespace doris::vectorized {
 
 /// Only for changing Numeric type or Date(DateTime)V2 type to PrimitiveType so that to inherit HybridSet
 template <typename T>
-constexpr PrimitiveType TypeToPrimitiveType() {
+constexpr PrimitiveType type_to_primitive_type() {
     if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, Int8>) {
         return TYPE_TINYINT;
     } else if constexpr (std::is_same_v<T, Int16>) {
@@ -72,9 +72,9 @@ constexpr PrimitiveType TypeToPrimitiveType() {
 }
 
 template <typename T>
-class NullableNumericOrDateSet
-        : public HybridSet<TypeToPrimitiveType<T>(), DynamicContainer<typename PrimitiveTypeTraits<
-                                                             TypeToPrimitiveType<T>()>::CppType>> {
+class NullableNumericOrDateSet : public HybridSet<type_to_primitive_type<T>(),
+                                                  DynamicContainer<typename PrimitiveTypeTraits<
+                                                          type_to_primitive_type<T>()>::CppType>> {
 public:
     NullableNumericOrDateSet() { this->_null_aware = true; }
 
@@ -83,6 +83,7 @@ public:
 
 template <typename T>
 struct AggregateFunctionGroupArrayIntersectData {
+    using ColVecType = ColumnVector<T>;
     using NullableNumericOrDateSetType = NullableNumericOrDateSet<T>;
     using Set = std::unique_ptr<NullableNumericOrDateSetType>;
 
@@ -91,9 +92,36 @@ struct AggregateFunctionGroupArrayIntersectData {
 
     Set value;
     bool init = false;
+
+    void process_col_data(const ColumnNullable* col_null, const ColVecType* nested_column_data,
+                          size_t offset, size_t arr_size, bool init, Set& set) {
+        if (!init) {
+            for (size_t i = 0; i < arr_size; ++i) {
+                const bool is_null_element = col_null && col_null->is_null_at(offset + i);
+                const T* src_data =
+                        is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
+
+                set->insert(src_data);
+            }
+            init = true;
+        } else if (set->size() != 0 || set->contain_null()) {
+            Set new_set = std::make_unique<NullableNumericOrDateSetType>();
+
+            for (size_t i = 0; i < arr_size; ++i) {
+                const bool is_null_element = col_null && col_null->is_null_at(offset + i);
+                const T* src_data =
+                        is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
+
+                if (set->find(src_data) || (set->contain_null() && src_data == nullptr)) {
+                    new_set->insert(src_data);
+                }
+            }
+            set = std::move(new_set);
+        }
+    }
 };
 
-/// Puts all values to the hash set. Returns an array of unique values. Implemented for numeric types.
+/// Puts all values to the hybrid set. Returns an array of unique values. Implemented for numeric/date types.
 template <typename T>
 class AggregateFunctionGroupArrayIntersect
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
@@ -137,50 +165,23 @@ public:
 
         const auto data_column = column.get_data_ptr();
         const auto& offsets = column.get_offsets();
-        const size_t offset = offsets[static_cast<ssize_t>(row_num) - 1];
+        const auto offset = offsets[row_num - 1];
         const auto arr_size = offsets[row_num] - offset;
-
-        using ColVecType = ColumnVector<T>;
         const auto& column_data = column.get_data();
 
-        const bool is_column_data_nullable = column_data.is_nullable();
         const ColumnNullable* col_null = nullptr;
-        const ColVecType* nested_column_data = nullptr;
+        const typename State::ColVecType* nested_column_data = nullptr;
 
-        if (is_column_data_nullable) {
+        if (column_data.is_nullable()) {
             auto const_col_data = const_cast<IColumn*>(&column_data);
             col_null = static_cast<ColumnNullable*>(const_col_data);
-            nested_column_data = &assert_cast<const ColVecType&>(col_null->get_nested_column());
+            nested_column_data =
+                    &assert_cast<const typename State::ColVecType&>(col_null->get_nested_column());
         } else {
-            nested_column_data = &static_cast<const ColVecType&>(column_data);
+            nested_column_data = &static_cast<const typename State::ColVecType&>(column_data);
         }
 
-        if (!init) {
-            for (size_t i = 0; i < arr_size; ++i) {
-                const bool is_null_element =
-                        is_column_data_nullable && col_null->is_null_at(offset + i);
-                const T* src_data =
-                        is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
-
-                set->insert(src_data);
-            }
-            init = true;
-        } else if (set->size() != 0 || set->contain_null()) {
-            typename State::Set new_set =
-                    std::make_unique<typename State::NullableNumericOrDateSetType>();
-
-            for (size_t i = 0; i < arr_size; ++i) {
-                const bool is_null_element =
-                        is_column_data_nullable && col_null->is_null_at(offset + i);
-                const T* src_data =
-                        is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
-
-                if (set->find(src_data) || (set->contain_null() && src_data == nullptr)) {
-                    new_set->insert(src_data);
-                }
-            }
-            set = std::move(new_set);
-        }
+        data.process_col_data(col_null, nested_column_data, offset, arr_size, init, set);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -267,14 +268,11 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         ColumnArray& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
-
         auto& to_nested_col = arr_to.get_data();
-        using ColVecType = ColumnVector<T>;
-
         const bool is_nullable = to_nested_col.is_nullable();
 
-        auto insert_values = [](ColVecType& nested_col, auto& set, bool is_nullable = false,
-                                ColumnNullable* col_null = nullptr) {
+        auto insert_values = [](typename State::ColVecType& nested_col, auto& set,
+                                bool is_nullable = false, ColumnNullable* col_null = nullptr) {
             size_t old_size = nested_col.get_data().size();
             size_t res_size = set->size();
             size_t i = 0;
@@ -302,11 +300,12 @@ public:
         const auto& set = this->data(place).value;
         if (is_nullable) {
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
-            auto& nested_col = assert_cast<ColVecType&>(col_null->get_nested_column());
+            auto& nested_col =
+                    assert_cast<typename State::ColVecType&>(col_null->get_nested_column());
             offsets_to.push_back(offsets_to.back() + set->size() + (set->contain_null() ? 1 : 0));
             insert_values(nested_col, set, true, col_null);
         } else {
-            auto& nested_col = static_cast<ColVecType&>(to_nested_col);
+            auto& nested_col = static_cast<typename State::ColVecType&>(to_nested_col);
             offsets_to.push_back(offsets_to.back() + set->size());
             insert_values(nested_col, set);
         }

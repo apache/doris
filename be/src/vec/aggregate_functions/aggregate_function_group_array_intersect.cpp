@@ -25,9 +25,13 @@ namespace doris::vectorized {
 IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
                                             const DataTypes& argument_types) {
     WhichDataType which(nested_type);
-    if (which.idx == TypeIndex::Date || which.idx == TypeIndex::DateV2) {
+    if (which.idx == TypeIndex::Date || which.idx == TypeIndex::DateTime) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "We don't support array<date> or array<datetime> for "
+                        "group_array_intersect(), please use array<datev2> or array<datetimev2>.");
+    } else if (which.idx == TypeIndex::DateV2) {
         return new AggregateFunctionGroupArrayIntersect<DateV2>(argument_types);
-    } else if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::DateTimeV2) {
+    } else if (which.idx == TypeIndex::DateTimeV2) {
         return new AggregateFunctionGroupArrayIntersect<DateTimeV2>(argument_types);
     } else {
         /// Check that we can use plain version of AggregateFunctionGroupArrayIntersectGeneric
