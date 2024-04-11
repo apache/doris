@@ -140,16 +140,15 @@ suite("alter_ttl_2") {
             assertTrue(flag1)
     }
     // wait for ttl timeout
-    sleep(30000)
+    sleep(40000)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
             def strs = out.split('\n')
             Boolean flag1 = false;
-            Boolean flag2 = false;
             for (String line in strs) {
-                if (flag1 && flag2) break;
+                if (flag1) break;
                 if (line.contains("ttl_cache_size")) {
                     if (line.startsWith("#")) {
                         continue

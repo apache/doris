@@ -30,7 +30,7 @@ struct DecimalScaleParams {
         SCALE_DOWN,
     };
     ScaleType scale_type = ScaleType::NOT_INIT;
-    int32_t scale_factor = 1;
+    int64_t scale_factor = 1;
 
     template <typename DecimalPrimitiveType>
     static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
