@@ -458,33 +458,14 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     });
     // update delete_bitmap
     if (tablet_txn_info.unique_key_merge_on_write) {
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        RETURN_IF_ERROR(tablet->create_transient_rowset_writer(
-                rowset, &rowset_writer, tablet_txn_info.partial_update_info));
-
         int64_t t2 = MonotonicMicros();
-        RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
-                                                     tablet_txn_info.delete_bitmap, transaction_id,
-                                                     rowset_writer.get()));
+        RETURN_IF_ERROR(tablet->update_delete_bitmap(&tablet_txn_info, transaction_id));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
-        if (tablet_txn_info.partial_update_info &&
-            tablet_txn_info.partial_update_info->is_partial_update) {
-            // build rowset writer and merge transient rowset
-            RETURN_IF_ERROR(rowset_writer->flush());
-            RowsetSharedPtr transient_rowset;
-            RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
-            rowset->merge_rowset_meta(transient_rowset->rowset_meta());
-
-            // erase segment cache cause we will add a segment to rowset
-            SegmentLoader::instance()->erase_segments(rowset->rowset_id());
-        }
-        stats->partial_update_write_segment_us = MonotonicMicros() - t3;
-        int64_t t4 = MonotonicMicros();
         RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(
                 tablet->data_dir(), tablet->tablet_id(), tablet_txn_info.delete_bitmap,
                 version.second));
-        stats->save_meta_time_us = MonotonicMicros() - t4;
+        stats->save_meta_time_us = MonotonicMicros() - t3;
     }
 
     /// Step 3:  add to binlog
