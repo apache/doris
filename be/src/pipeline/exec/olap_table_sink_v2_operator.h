@@ -52,7 +52,6 @@ public:
     ENABLE_FACTORY_CREATOR(OlapTableSinkV2LocalState);
     OlapTableSinkV2LocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {};
-    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     friend class OlapTableSinkV2OperatorX;
 
