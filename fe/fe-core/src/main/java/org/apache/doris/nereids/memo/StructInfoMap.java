@@ -51,20 +51,18 @@ public class StructInfoMap {
      * @return struct info or null if not found
      */
     public @Nullable StructInfo getStructInfo(BitSet mvTableMap, BitSet foldTableMap, Group group, Plan originPlan) {
-
-        if (infoMap.containsKey(mvTableMap) && infoMap.get(mvTableMap).getOriginalPlan().equals(originPlan)) {
-            return infoMap.get(mvTableMap);
-        }
-        if ((groupExpressionMap.containsKey(foldTableMap) || groupExpressionMap.isEmpty())
-                && !groupExpressionMap.containsKey(mvTableMap)) {
-            refresh(group);
-        }
-        if (groupExpressionMap.containsKey(mvTableMap)) {
-            Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
-                    mvTableMap);
-            StructInfo structInfo = constructStructInfo(groupExpressionBitSetPair.first,
-                    groupExpressionBitSetPair.second, mvTableMap, originPlan);
-            infoMap.put(mvTableMap, structInfo);
+        if (!infoMap.containsKey(mvTableMap)) {
+            if ((groupExpressionMap.containsKey(foldTableMap) || groupExpressionMap.isEmpty())
+                    && !groupExpressionMap.containsKey(mvTableMap)) {
+                refresh(group);
+            }
+            if (groupExpressionMap.containsKey(mvTableMap)) {
+                Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
+                        mvTableMap);
+                StructInfo structInfo = constructStructInfo(groupExpressionBitSetPair.first,
+                        groupExpressionBitSetPair.second, mvTableMap, originPlan);
+                infoMap.put(mvTableMap, structInfo);
+            }
         }
         return infoMap.get(mvTableMap);
     }

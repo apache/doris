@@ -198,7 +198,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             Plan rewrittenPlan;
             Plan mvScan = materializationContext.getMvScanPlan();
-            Plan originalPlan = queryStructInfo.getOriginalPlan();
+            Plan originalPlan = queryStructInfo.getTopPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
             } else {
@@ -246,7 +246,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         .collect(Collectors.toSet())));
                 continue;
             }
-            recordIfRewritten(originalPlan, materializationContext);
+            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
             rewriteResults.add(finalRewrittenPlan);
         }
         return rewriteResults;

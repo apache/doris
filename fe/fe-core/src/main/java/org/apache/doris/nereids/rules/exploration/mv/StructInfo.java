@@ -123,7 +123,7 @@ public class StructInfo {
             this.predicates = Predicates.of(topPlanPredicates);
         }
         Pair<SplitPredicate, EquivalenceClass> derivedPredicates =
-                predicatesDerive(this.predicates, originalPlan, tableBitSet);
+                predicatesDerive(this.predicates, topPlan, tableBitSet);
         this.splitPredicate = derivedPredicates.key();
         this.equivalenceClass = derivedPredicates.value();
         this.shuttledHashConjunctsToConjunctsMap = shuttledHashConjunctsToConjunctsMap;
@@ -350,8 +350,8 @@ public class StructInfo {
     }
 
     public List<? extends Expression> getExpressions() {
-        return originalPlan instanceof LogicalProject
-                ? ((LogicalProject<Plan>) originalPlan).getProjects() : originalPlan.getOutput();
+        return topPlan instanceof LogicalProject
+                ? ((LogicalProject<Plan>) topPlan).getProjects() : topPlan.getOutput();
     }
 
     public ObjectId getOriginalPlanId() {

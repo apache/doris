@@ -44,7 +44,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         // Rewrite top projects, represent the query projects by view
         List<Expression> expressionsRewritten = rewriteExpression(
                 queryStructInfo.getExpressions(),
-                queryStructInfo.getOriginalPlan(),
+                queryStructInfo.getTopPlan(),
                 materializationContext.getMvExprToMvScanExprMapping(),
                 targetToSourceMapping,
                 true,
