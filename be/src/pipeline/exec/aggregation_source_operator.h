@@ -20,6 +20,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/exec/aggregation_source_operator_helper.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vaggregation_node.h"
 
@@ -52,6 +53,7 @@ class AggSourceOperatorX;
 class AggLocalState final : public PipelineXLocalState<AggSharedState> {
 public:
     using Base = PipelineXLocalState<AggSharedState>;
+    using PipelineXLocalState<AggSharedState>::_shared_state;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
     ~AggLocalState() override = default;
@@ -65,15 +67,10 @@ public:
 
 protected:
     friend class AggSourceOperatorX;
+    friend class AggSourceLocalStateHelper<AggLocalState, AggSourceOperatorX>;
+    friend class AggLocalStateHelper<AggLocalState, AggSourceOperatorX>;
+    AggSourceLocalStateHelper<AggLocalState, AggSourceOperatorX> _agg_helper;
 
-    Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status _serialize_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                           bool* eos);
-    Status _serialize_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                                 bool* eos);
-    Status _create_agg_status(vectorized::AggregateDataPtr data);
-    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
     void _make_nullable_output_key(vectorized::Block* block) {
         if (block->rows() != 0) {
             auto& shared_state = *Base ::_shared_state;
@@ -84,11 +81,6 @@ protected:
             }
         }
     }
-    void _find_in_hash_table(vectorized::AggregateDataPtr* places,
-                             vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
-    void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
-    size_t _get_hash_table_size();
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
@@ -117,6 +109,7 @@ protected:
 
     bool _should_limit_output = false;
     bool _reach_limit = false;
+    std::vector<vectorized::AggregateDataPtr> _values;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {
@@ -135,7 +128,8 @@ public:
 
 private:
     friend class AggLocalState;
-
+    friend class AggSourceLocalStateHelper<AggLocalState, AggSourceOperatorX>;
+    friend class AggLocalStateHelper<AggLocalState, AggSourceOperatorX>;
     bool _needs_finalize;
     bool _without_key;
 
