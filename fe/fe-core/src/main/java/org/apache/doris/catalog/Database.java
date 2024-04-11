@@ -49,7 +49,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -425,6 +424,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    @Override
     public boolean registerTable(TableIf table) {
         boolean result = true;
         Table olapTable = (Table) table;
@@ -866,11 +866,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             return dbEncryptKey.getName2EncryptKey().get(keyName);
         }
         return null;
-    }
-
-    @Override
-    public Map<Long, TableIf> getIdToTable() {
-        return new HashMap<>(idToTable);
     }
 
     public void replayUpdateDbProperties(Map<String, String> properties) {

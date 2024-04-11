@@ -57,7 +57,7 @@ public class ExternalSchemaCache {
                 Config.max_external_schema_cache_num,
                 false,
                 null);
-        schemaCache = schemaCacheeFactory.buildCache(key -> loadSchema(key), executor);
+        schemaCache = schemaCacheeFactory.buildCache(key -> loadSchema(key), null, executor);
     }
 
     private void initMetrics() {
