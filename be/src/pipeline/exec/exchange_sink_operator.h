@@ -291,10 +291,10 @@ private:
     segment_v2::CompressionTypePB _compression_type;
 
     // for tablet sink shuffle
-    const TOlapTableSchemaParam& _tablet_sink_schema;
-    const TOlapTablePartitionParam& _tablet_sink_partition;
-    const TOlapTableLocationParam& _tablet_sink_location;
-    const TTupleId& _tablet_sink_tuple_id;
+    const TOlapTableSchemaParam _tablet_sink_schema;
+    const TOlapTablePartitionParam _tablet_sink_partition;
+    const TOlapTableLocationParam _tablet_sink_location;
+    const TTupleId _tablet_sink_tuple_id;
     int64_t _tablet_sink_txn_id = -1;
     std::shared_ptr<ObjectPool> _pool;
 
