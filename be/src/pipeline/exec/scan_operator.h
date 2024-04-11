@@ -63,7 +63,7 @@ public:
             : PipelineXLocalState<>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
-    virtual ~ScanLocalStateBase() = default;
+    ~ScanLocalStateBase() override = default;
 
     virtual bool ready_to_read() = 0;
 
@@ -134,13 +134,14 @@ class ScanOperatorX;
 template <typename Derived>
 class ScanLocalState : public ScanLocalStateBase {
     ENABLE_FACTORY_CREATOR(ScanLocalState);
-    ScanLocalState(RuntimeState* state, OperatorXBase* parent);
+    ScanLocalState(RuntimeState* state, OperatorXBase* parent)
+            : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    std::string debug_string(int indentation_level) const override;
+    std::string debug_string(int indentation_level) const final;
 
     bool ready_to_read() override;
 
@@ -158,14 +159,24 @@ class ScanLocalState : public ScanLocalStateBase {
     }
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
-    virtual void set_scan_ranges(RuntimeState* state,
-                                 const std::vector<TScanRangeParams>& scan_ranges) override {}
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
 
     int64_t get_push_down_count() override;
 
-    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+    std::vector<Dependency*> filter_dependencies() override {
+        if (_filter_dependencies.empty()) {
+            return {};
+        }
+        std::vector<Dependency*> res;
+        res.resize(_filter_dependencies.size());
+        for (size_t i = 0; i < _filter_dependencies.size(); i++) {
+            res[i] = _filter_dependencies[i].get();
+        }
+        return res;
+    }
 
     std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
 
@@ -175,7 +186,7 @@ protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::VScanner;
 
-    virtual Status _init_profile() override;
+    Status _init_profile() override;
     virtual Status _process_conjuncts() {
         RETURN_IF_ERROR(_normalize_conjuncts());
         return Status::OK();
@@ -364,7 +375,7 @@ protected:
 
     std::mutex _block_lock;
 
-    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
+    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
@@ -382,6 +393,8 @@ public:
         return get_block(state, block, eos);
     }
     [[nodiscard]] bool is_source() const override { return true; }
+
+    [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;

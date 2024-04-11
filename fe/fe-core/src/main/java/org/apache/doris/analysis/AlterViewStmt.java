@@ -60,7 +60,8 @@ public class AlterViewStmt extends BaseViewStmt {
         }
 
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
+                        PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER VIEW",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());

@@ -476,7 +476,7 @@ Status Compaction::do_inverted_index_compaction() {
 
     if (!_allow_delete_in_cumu_compaction) {
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
-            _stats.merged_rows != missed_rows.size()) {
+            _stats.merged_rows != missed_rows.size() && _tablet->tablet_state() == TABLET_RUNNING) {
             std::string err_msg = fmt::format(
                     "cumulative compaction: the merged rows({}) is not equal to missed "
                     "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
@@ -863,6 +863,7 @@ Status CompactionMixin::modify_rowsets() {
         if (!_allow_delete_in_cumu_compaction) {
             missed_rows_size = missed_rows.size();
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                _tablet->tablet_state() == TABLET_RUNNING &&
                 _stats.merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
@@ -1108,6 +1109,11 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+
+    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
+    ctx.compaction_level =
+            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
+
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
     return Status::OK();

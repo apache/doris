@@ -139,9 +139,11 @@ suite("test_decimal256_index") {
 
     sql """CREATE INDEX k2_bitmap_index ON test_decimal256_bitmap_index(k2) USING BITMAP;"""
     wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
-    sql """BUILD INDEX k2_bitmap_index ON test_decimal256_bitmap_index;"""
-    wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
-    wait_for_build_index_on_partition_finish("test_decimal256_bitmap_index", 10000)
+    if (!isCloudMode()) {
+        sql """BUILD INDEX k2_bitmap_index ON test_decimal256_bitmap_index;"""
+        wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
+        wait_for_build_index_on_partition_finish("test_decimal256_bitmap_index", 10000)
+    }
 
     qt_sql_bitmap_index_select_all """
         select * from test_decimal256_bitmap_index order by 1,2,3;

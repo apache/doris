@@ -78,7 +78,6 @@ suite("stress_test_diff_date_list", "p2,nonConcurrent") {
         proc.consumeProcessOutput(sout, serr)
         proc.waitForOrKill(7200000)
         logger.info("std out: " + sout + "std err: " + serr)
-
     }
 
     def write_to_file = { cur_path, content ->

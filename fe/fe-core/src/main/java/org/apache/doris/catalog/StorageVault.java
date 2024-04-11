@@ -170,11 +170,11 @@ public abstract class StorageVault {
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         builder.mergeFrom(info);
         List<String> row = new ArrayList<>();
-        row.add(info.getVaultName());
+        row.add(info.getName());
         row.add(info.getId());
         TextFormat.Printer printer = TextFormat.printer();
         builder.clearId();
-        builder.clearVaultName();
+        builder.clearName();
         builder.setSk("xxxxxxx");
         row.add(printer.shortDebugString(builder));
         return row;

@@ -61,9 +61,7 @@ suite("test_backup_restore_with_view", "backup_restore") {
         TO `${repoName}`
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -81,9 +79,7 @@ suite("test_backup_restore_with_view", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     qt_sql "SELECT * FROM ${dbName}.${tableName} ORDER BY id ASC"
     qt_sql "SELECT * FROM ${dbName}.${viewName} ORDER BY id ASC"

@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_4") {
-    sql """ use @compute_cluster """
+    sql """ use @regression_cluster_name1 """
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="0") """
     String[][] backends = sql """ show backends """
     String backendId;
@@ -26,7 +26,7 @@ suite("alter_ttl_4") {
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("compute_cluster")) {
+        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -165,16 +165,18 @@ suite("alter_ttl_4") {
     load_customer_once("customer")
 
     sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="3600") """
+    // wait for fetching new tablet meta in BE
     sleep(60000)
     // some datas in s3 and will download them
-    sql """ select C_CUSTKEY from customer_ttl"""
-    sql """ select C_NAME from customer_ttl"""
+    sql """ select C_CUSTKEY from customer_ttl order by C_CUSTKEY limit 1"""
+    sql """ select C_NAME from customer_ttl order by C_NAME limit 1"""
     sql """ select C_ADDRESS from customer_ttl order by C_ADDRESS limit 1"""
     sql """ select C_NATIONKEY from customer_ttl order by C_NATIONKEY limit 1"""
     sql """ select C_PHONE from customer_ttl order by C_PHONE limit 1 """
     sql """ select C_ACCTBAL from customer_ttl order by C_ACCTBAL limit 1"""
     sql """ select C_MKTSEGMENT from customer_ttl order by C_MKTSEGMENT limit 1"""
     sql """ select C_COMMENT from customer_ttl order by C_COMMENT limit 1"""
+    // wait for updating file cache metrics
     sleep(30000)
     getMetricsMethod.call() {
         respCode, body ->

@@ -65,6 +65,8 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TableName;
@@ -82,6 +84,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -112,6 +115,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -148,19 +152,26 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
+import org.apache.doris.proto.InternalService.POutfileWriteSuccessRequest;
+import org.apache.doris.proto.InternalService.POutfileWriteSuccessResult;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.Coordinator.FragmentExecParams;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
@@ -168,6 +179,7 @@ import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
@@ -185,6 +197,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
+import org.apache.doris.thrift.TResultFileSink;
+import org.apache.doris.thrift.TResultFileSinkOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
@@ -207,6 +221,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -220,6 +235,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
@@ -258,6 +274,8 @@ public class StmtExecutor {
     private String mysqlLoadId;
     // Distinguish from prepare and execute command
     private boolean isExecuteStmt = false;
+    // Handle selects that fe can do without be
+    private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
 
@@ -489,6 +507,10 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
+    public boolean isHandleQueryInFe() {
+        return isHandleQueryInFe;
+    }
+
     // query with a random sql
     public void execute() throws Exception {
         UUID uuid = UUID.randomUUID();
@@ -502,6 +524,9 @@ public class StmtExecutor {
                 return;
             } catch (UserException e) {
                 if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
+                    throw e;
+                }
+                if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
                 TUniqueId lastQueryId = queryId;
@@ -803,6 +828,9 @@ public class StmtExecutor {
                 break;
             } catch (RpcException | UserException e) {
                 if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                    throw e;
+                }
+                if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
                 // cloud mode retry
@@ -1689,6 +1717,7 @@ public class StmtExecutor {
             Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get());
+                isHandleQueryInFe = true;
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
@@ -1794,6 +1823,9 @@ public class StmtExecutor {
                         if (!isOutfileQuery) {
                             sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                         } else {
+                            if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
+                                outfileWriteSuccess(queryStmt.getOutFileClause());
+                            }
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
                         isSendFields = true;
@@ -1848,6 +1880,65 @@ public class StmtExecutor {
             throw e;
         } finally {
             coordBase.close();
+        }
+    }
+
+    private void outfileWriteSuccess(OutFileClause outFileClause) throws Exception {
+        // 1. set TResultFileSinkOptions
+        TResultFileSinkOptions sinkOptions = outFileClause.toSinkOptions();
+
+        // 2. set brokerNetAddress
+        List<PlanFragment> fragments = coord.getFragments();
+        Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = coord.getFragmentExecParamsMap();
+        PlanFragmentId topId = fragments.get(0).getFragmentId();
+        FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
+        DataSink topDataSink = topParams.fragment.getSink();
+        TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
+        if (topDataSink instanceof ResultFileSink
+                && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
+            // set the broker address for OUTFILE sink
+            ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
+                    .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+            sinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(broker.host, broker.port)));
+        }
+
+        // 3. set TResultFileSink properties
+        TResultFileSink sink = new TResultFileSink();
+        sink.setFileOptions(sinkOptions);
+        StorageType storageType = outFileClause.getBrokerDesc() == null
+                ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
+        sink.setStorageBackendType(storageType.toThrift());
+
+        // 4. get BE
+        TNetworkAddress address = null;
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+            if (be.isAlive()) {
+                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                break;
+            }
+        }
+        if (address == null) {
+            throw new AnalysisException("No Alive backends");
+        }
+
+        // 5. send rpc to BE
+        POutfileWriteSuccessRequest request = POutfileWriteSuccessRequest.newBuilder()
+                .setResultFileSink(ByteString.copyFrom(new TSerializer().serialize(sink))).build();
+        Future<POutfileWriteSuccessResult> future = BackendServiceProxy.getInstance()
+                .outfileWriteSuccessAsync(address, request);
+        InternalService.POutfileWriteSuccessResult result = future.get();
+        TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+        String errMsg;
+        if (code != TStatusCode.OK) {
+            if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                errMsg = result.getStatus().getErrorMsgsList().get(0);
+            } else {
+                errMsg = "Outfile write success file failed. backend address: "
+                        + NetUtils
+                        .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
+            }
+            throw new AnalysisException(errMsg);
         }
     }
 
@@ -1944,13 +2035,11 @@ public class StmtExecutor {
             int schemaSize = tbl.getBaseSchema(false).size();
             if (parsedStmt instanceof NativeInsertStmt
                     && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
-
-                if (((NativeInsertStmt) parsedStmt).getTargetColumnNames()
-                        .contains(Column.SEQUENCE_COL)) {
+                NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+                if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)) {
                     schemaSize++;
                 }
-                if (((NativeInsertStmt) parsedStmt).getTargetColumnNames()
-                        .contains(Column.DELETE_SIGN)) {
+                if (nativeInsertStmt.containTargetColumnName(Column.DELETE_SIGN)) {
                     schemaSize++;
                 }
             }
@@ -2028,19 +2117,13 @@ public class StmtExecutor {
                 .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism).setTrimDoubleQuotes(true);
         if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
-            List<String> targetColumnNames = ((NativeInsertStmt) parsedStmt).getTargetColumnNames();
-            if (targetColumnNames.contains(Column.SEQUENCE_COL) || targetColumnNames.contains(Column.DELETE_SIGN)) {
-                if (targetColumnNames.contains(Column.SEQUENCE_COL)) {
+            NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+            if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)
+                    || nativeInsertStmt.containTargetColumnName(Column.DELETE_SIGN)) {
+                if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)) {
                     request.setSequenceCol(Column.SEQUENCE_COL);
                 }
-                StringBuilder allCols = new StringBuilder();
-                for (String col : ((NativeInsertStmt) parsedStmt).getTargetColumnNames()) {
-                    allCols.append(col);
-                    allCols.append(",");
-                }
-                allCols.deleteCharAt(allCols.length() - 1);
-                request.setColumns(String.valueOf(allCols));
-                request.setColumnSeparator(",");
+                request.setColumns("`" + String.join("`,`", nativeInsertStmt.getTargetColumnNames()) + "`");
             }
         }
 
@@ -2807,12 +2890,12 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.isAutoDetectPartition()) {
-                // insert overwrite table auto detect which partitions need to replace
-                handleAutoOverwritePartition(iotStmt);
-            } else if (iotStmt.getPartitionNames().size() == 0) {
+            if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
+            } else if (iotStmt.isAutoDetectPartition()) {
+                // insert overwrite table auto detect which partitions need to replace
+                handleAutoOverwritePartition(iotStmt);
             } else {
                 // insert overwrite table with partition
                 handleOverwritePartition(iotStmt);

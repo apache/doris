@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cloud.qe;
+package org.apache.doris.cloud.rpc;
 
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.rpc.RpcException;
 
@@ -30,25 +29,26 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class SnapshotProxy {
-    private static final Logger LOG = LogManager.getLogger(SnapshotProxy.class);
+public class VersionHelper {
+    private static final Logger LOG = LogManager.getLogger(VersionHelper.class);
 
     public static Cloud.GetVersionResponse getVisibleVersion(Cloud.GetVersionRequest request) throws RpcException {
         int tryTimes = 0;
         while (tryTimes++ < Config.meta_service_rpc_retry_times) {
             Cloud.GetVersionResponse resp = getVisibleVersionInternal(request,
                     Config.default_get_version_from_ms_timeout_second * 1000);
-            if (resp.hasStatus() && (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK
-                    || resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get version from meta service, code: {}", resp.getStatus().getCode());
+            if (resp != null) {
+                if (resp.hasStatus() && (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK
+                        || resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND)) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("get version from meta service, code: {}", resp.getStatus().getCode());
+                    }
+                    return resp;
                 }
-                return resp;
+
+                LOG.warn("get version from meta service failed, status: {}, retry time: {}",
+                        resp.getStatus(), tryTimes);
             }
-
-            LOG.warn("get version from meta service failed, status: {}, retry time: {}",
-                    resp.getStatus(), tryTimes);
-
             // sleep random millis, retry rpc failed
             if (tryTimes > Config.meta_service_rpc_retry_times / 2) {
                 sleepSeveralMs(500, 1000);

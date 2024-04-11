@@ -79,6 +79,8 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
+    bool is_file_scan_operator() const override { return true; }
+
 private:
     friend class FileScanLocalState;
 
