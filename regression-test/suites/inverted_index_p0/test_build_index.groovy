@@ -17,7 +17,7 @@
 
 
 suite("test_build_index", "inverted_index"){
-    if (!isCloudMode()) {
+    if (isCloudMode()) {
         return // TODO enable this case after enable light index in cloud mode
     }
     // prepare test table
@@ -177,10 +177,6 @@ suite("test_build_index", "inverted_index"){
     sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") """
 
     wait_for_latest_op_on_table_finish(tableName, timeout)
-
-    if (!isCloudMode()) {
-        return // TODO enable this case after enable light index in cloud mode
-    }
 
     // BUILD INDEX and expect state is RUNNING
     sql """ BUILD INDEX idx_comment ON ${tableName} """

@@ -17,7 +17,7 @@
 
 
 suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
-    if (!isCloudMode()) {
+    if (isCloudMode()) {
         return // TODO enable this case after enable light index in cloud mode
     }
     // prepare test table
