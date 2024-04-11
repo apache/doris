@@ -54,7 +54,7 @@ public:
     using Base = PipelineXLocalState<FakeSharedState>;
     RepeatLocalState(RuntimeState* state, OperatorXBase* parent);
 
-    Status open(RuntimeState* state) override;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
 
     Status get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
                               vectorized::Block* output_block);

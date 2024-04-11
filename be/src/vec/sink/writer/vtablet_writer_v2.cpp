@@ -135,8 +135,12 @@ Status VTabletWriterV2::_init_row_distribution() {
     return _row_distribution.open(_output_row_desc);
 }
 
+Status VTabletWriterV2::init_properties(ObjectPool* pool) {
+    _pool = pool;
+    return Status::OK();
+}
+
 Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
-    _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
