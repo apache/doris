@@ -429,7 +429,7 @@ public:
         return str;
     }
 
-    string dump() const {
+    string dump_full_schema() const {
         string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {

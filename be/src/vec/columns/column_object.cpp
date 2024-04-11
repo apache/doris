@@ -732,19 +732,7 @@ Field ColumnObject::operator[](size_t n) const {
 }
 
 void ColumnObject::get(size_t n, Field& res) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    res = VariantMap();
-    auto& map = res.get<VariantMap&>();
-    for (const auto& entry : subcolumns) {
-        auto it = map.try_emplace(entry->path.get_path()).first;
-        if (WhichDataType(remove_nullable(entry->data.data_types.back())).is_json()) {
-            // JsonbFiled is special case
-            it->second = JsonbField();
-        }
-        entry->data.data.back()->get(n, it->second);
-    }
+    res = (*this)[n];
 }
 
 Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indices_begin,

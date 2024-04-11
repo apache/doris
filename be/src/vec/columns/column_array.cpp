@@ -419,13 +419,12 @@ void ColumnArray::replace(const Field& f, size_t self_row) {
         data->clear();
     }
     if (f.is_null()) {
-        get_data().insert(Null());
-        get_offsets().push_back(get_offsets().back() + 1);
+        get_offsets().push_back(get_offsets().back());
     } else {
         get_offsets()[self_row] = get_offsets()[self_row - 1] + array.size();
         // we make sure call replace_column_data() by order so, here we just insert for nested
-        for (const auto& i : array) {
-            data->insert(i);
+        for (const auto& item : array) {
+            data->insert(item);
         }
     }
 }
