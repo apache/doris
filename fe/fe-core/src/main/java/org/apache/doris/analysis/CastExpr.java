@@ -132,6 +132,11 @@ public class CastExpr extends Expr {
             if (type.isDecimalV2() && e.type.isDecimalV2()) {
                 getChild(0).setType(type);
             }
+            // as the targetType have struct field name, if use the default name will be
+            // like col1,col2, col3... in struct, and the filed name is import in BE.
+            if (type.isStructType() && e.type.isStructType()) {
+                getChild(0).setType(type);
+            }
             analysisDone();
             return;
         }
