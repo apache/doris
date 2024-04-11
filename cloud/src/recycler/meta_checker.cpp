@@ -399,8 +399,9 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     if (!mysql_real_connect(&conn, host.c_str(), user.c_str(), password.c_str(), "", stol(port),
                             nullptr, 0)) {
         msg = "mysql conn failed ";
-        LOG(WARNING) << msg << mysql_error(&conn) << " host " << host << " port " << port << " user "
-                     << user << " password " << password << " instance_id " << instance_id;
+        LOG(WARNING) << msg << mysql_error(&conn) << " host " << host << " port " << port
+                     << " user " << user << " password " << password << " instance_id "
+                     << instance_id;
         return;
     }
 
