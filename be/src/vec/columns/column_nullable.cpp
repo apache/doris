@@ -60,9 +60,17 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     _need_update_has_null = true;
 }
 
+bool ColumnNullable::could_shrinked_column() {
+    return get_nested_column_ptr()->could_shrinked_column();
+}
+
 MutableColumnPtr ColumnNullable::get_shrinked_column() {
-    return ColumnNullable::create(get_nested_column_ptr()->get_shrinked_column(),
-                                  get_null_map_column_ptr());
+    if (could_shrinked_column()) {
+        return ColumnNullable::create(get_nested_column_ptr()->get_shrinked_column(),
+                                      get_null_map_column_ptr());
+    } else {
+        return ColumnNullable::create(get_nested_column_ptr(), get_null_map_column_ptr());
+    }
 }
 
 void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
