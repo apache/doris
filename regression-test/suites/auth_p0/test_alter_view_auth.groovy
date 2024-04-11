@@ -50,7 +50,7 @@ suite("test_alter_view_auth","p0,auth") {
             assertTrue(e.getMessage().contains("Admin_priv,Alter_priv"))
         }
     }
-    sql """grant Alter_priv on ${dbName}.v1 to ${user}"""
+    sql """grant Alter_priv on ${dbName}.${viewName} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
             sql "alter view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"
