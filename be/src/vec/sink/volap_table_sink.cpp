@@ -122,7 +122,7 @@ namespace vectorized {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs)
-        : AsyncWriterSink<VTabletWriter, VOLAP_TABLE_SINK>(row_desc, texprs), _pool(pool) {}
+        : AsyncWriterSink<VTabletWriter, VOLAP_TABLE_SINK>(row_desc, texprs) {}
 
 Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
