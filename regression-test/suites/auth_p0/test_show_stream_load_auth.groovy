@@ -37,21 +37,35 @@ suite("test_show_stream_load_auth","p0,auth") {
     """
 
     streamLoad {
-        table "${tableName1}"
+        table "${tableName}"
 
         set 'column_separator', ','
         set 'columns', 'k1, k2'
         set 'label', label
         set 'strict_mode', 'true'
 
-        file 'test_strict_mode1.csv'
+        file 'test_strict_mode.csv'
         time 10000 // limit inflight 10s
     }
 
     Thread.sleep(30000);
     String res = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
+    log.info(res)
     assertTrue(res.contains(${label}))
 
-
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    sql """grant select_priv on regression_test to ${user}"""
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+       res = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
+       log.info(res)
+       assertFalse(res.contains(${label}))
+    }
+    sql """grant load_priv on regression_test_auth_p0.${tableName} to ${user}"""
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+       res = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
+       log.info(res)
+       assertTrue(res.contains(${label}))
+    }
+    try_sql("DROP USER ${user}")
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }
