@@ -389,10 +389,10 @@ suite("test_join", "query,p0") {
     }
     sql"""select a.k1 k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName1} a full outer join ${tbName2} b 
              on a.k1 = b.k1 and a.k2 > b.k2 order by isnull(k1), 1, 2, 3, 4, 5 limit 65535"""
-    sql"""select a.k1 k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName1} a left outer join ${tbName2} b 
-             on a.k1 = b.k1 and a.k2 > b.k2 union (select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 
+    sql"""select a.k1 ak1, a.k2 ak2, a.k3 ak3, b.k1 bk1, b.k2 bk2, b.k3 bk3 from ${tbName1} a left outer join ${tbName2} b 
+             on a.k1 = b.k1 and a.k2 > b.k2 union (select a.k1 ak1, a.k2 ak2, a.k3 ak3, b.k1 bk1, b.k2 bk2, b.k3 bk3 
              from ${tbName1} a right outer join ${tbName2} b on a.k1 = b.k1 and a.k2 > b.k2) 
-             order by isnull(k1), 1, 2, 3, 4, 5 limit 65535"""
+             order by isnull(ak1), 1, 2, 3, 4, 5 limit 65535"""
     sql"""select count(*) from ${tbName1} a full outer join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 
             full outer join ${tbName3} c on a.k3 = c.k3 and b.k1 = c.k1 and c.k3 > 0"""
     sql"""select count(*) from ((select a.k1 as k1, b.k1 as k2, a.k2 as k3, b.k2 as k4, a.k3 as k5, b.k3 as k6, c.k1 as k7, c.k2 as k8, c.k3 as k9 from ${tbName1} a 
