@@ -55,7 +55,7 @@ public:
     TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent);
     ~TableFunctionLocalState() override = default;
 
-    Status open(RuntimeState* state) override;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
     void process_next_child_row();
     Status get_expanded_block(RuntimeState* state, vectorized::Block* output_block, bool* eos);
 

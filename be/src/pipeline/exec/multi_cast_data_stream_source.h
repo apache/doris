@@ -102,7 +102,11 @@ public:
     MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
-    Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(_acquire_runtime_filter(true));
+        return Status::OK();
+    }
     Status close(RuntimeState* state) override;
     friend class MultiCastDataStreamerSourceOperatorX;
 

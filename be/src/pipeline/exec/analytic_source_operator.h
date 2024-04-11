@@ -53,7 +53,6 @@ public:
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     void init_result_columns();

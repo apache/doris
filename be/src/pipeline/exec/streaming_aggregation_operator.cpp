@@ -83,7 +83,15 @@ StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBas
 Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
-    SCOPED_TIMER(Base::_init_timer);
+    SCOPED_TIMER(Base::_open_timer);
+    auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
+    for (auto& evaluator : p._aggregate_evaluators) {
+        _aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
+    }
+    _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
+    for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
+    }
     _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
                                                             TUnit::BYTES, "MemoryUsage", 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
@@ -111,23 +119,7 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
-
-    return Status::OK();
-}
-
-Status StreamingAggLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(Base::exec_time_counter());
-    SCOPED_TIMER(Base::_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
-
-    auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
-    for (auto& evaluator : p._aggregate_evaluators) {
-        _aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
-    }
-    _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
-    for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
-    }
+    COUNTER_SET(_max_row_size_counter, (int64_t)0);
 
     for (auto& evaluator : _aggregate_evaluators) {
         evaluator->set_timer(_merge_timer, _expr_timer);
