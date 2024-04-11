@@ -301,9 +301,9 @@ public:
                                     google::protobuf::Closure* done) override;
 
     void alter_vault_sync(google::protobuf::RpcController* controller,
-                       const doris::PAlterVaultSyncRequest* request,
-                       PAlterVaultSyncResponse* response,
-                       google::protobuf::Closure* done) override;
+                          const doris::PAlterVaultSyncRequest* request,
+                          PAlterVaultSyncResponse* response,
+                          google::protobuf::Closure* done) override;
 
 private:
     void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
