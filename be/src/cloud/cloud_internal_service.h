@@ -31,6 +31,11 @@ public:
 
     // TODO(plat1ko): cloud internal service functions
 
+    void alter_vault_sync(google::protobuf::RpcController* controller,
+                          const doris::PAlterVaultSyncRequest* request,
+                          PAlterVaultSyncResponse* response,
+                          google::protobuf::Closure* done) override;
+
 private:
     [[maybe_unused]] CloudStorageEngine& _engine;
 };
