@@ -149,7 +149,6 @@ struct DownloadFileBuffer final : public FileBuffer {
     std::function<void(Slice, size_t)> _write_to_use_buffer;
 };
 
-
 struct UploadFileBuffer final : public FileBuffer {
     UploadFileBuffer(std::function<void(UploadFileBuffer&)> upload_cb, OperationState state,
                      size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder,

@@ -228,11 +228,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(config::sync_load_for_tablets_thread)
                               .set_min_threads(config::sync_load_for_tablets_thread)
                               .build(&_sync_load_for_tablets_thread_pool));
-    
+
     static_cast<void>(ThreadPoolBuilder("S3DownloaderDownloadThreadPool")
-            .set_min_threads(16)
-            .set_max_threads(64)
-            .build(&_s3_downloader_download_thread_pool));
+                              .set_min_threads(16)
+                              .set_max_threads(64)
+                              .build(&_s3_downloader_download_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
