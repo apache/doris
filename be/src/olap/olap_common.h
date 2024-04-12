@@ -372,7 +372,7 @@ struct OlapReaderStatistics {
 
     int64_t collect_iterator_merge_next_timer = 0;
     int64_t collect_iterator_normal_next_timer = 0;
-    int64_t delete_bitmap_ns = 0;
+    int64_t delete_bitmap_get_agg_ns = 0;
 };
 
 using ColumnId = uint32_t;

@@ -221,6 +221,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
     auto* timer = _parent ? ((NewOlapScanNode*)_parent)->_reader_init_timer
                           : ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
     SCOPED_TIMER(timer);
+
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
         std::stringstream ss;
