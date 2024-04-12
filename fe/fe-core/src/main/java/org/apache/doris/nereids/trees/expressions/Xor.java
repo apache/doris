@@ -25,9 +25,9 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * Or predicate expression.
+ * Xor predicate expression.
  */
-public class Or extends CompoundPredicate {
+public class Xor extends CompoundPredicate {
 
     /**
      * Desc: Constructor for CompoundPredicate.
@@ -35,32 +35,32 @@ public class Or extends CompoundPredicate {
      * @param left  left child of comparison predicate
      * @param right right child of comparison predicate
      */
-    public Or(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "OR");
+    public Xor(Expression left, Expression right) {
+        super(ImmutableList.of(left, right), "XOR");
     }
 
-    private Or(List<Expression> children) {
-        super(children, "OR");
+    private Xor(List<Expression> children) {
+        super(children, "XOR");
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Or(children);
+        return new Xor(children);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitOr(this, context);
+        return visitor.visitXor(this, context);
     }
 
     @Override
     public Expression flip() {
-        return new And(new Not(left()), new Not(right()));
+        return new Not(this);
     }
 
     @Override
     public Class<? extends CompoundPredicate> flipType() {
-        return And.class;
+        return Or.class;
     }
 }

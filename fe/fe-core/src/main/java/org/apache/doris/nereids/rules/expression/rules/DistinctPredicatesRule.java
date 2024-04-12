@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Xor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -47,6 +48,9 @@ public class DistinctPredicatesRule implements ExpressionPatternRuleFactory {
     }
 
     private static Expression distinct(CompoundPredicate expr) {
+        if (expr instanceof Xor) {
+            return expr;
+        }
         List<Expression> extractExpressions = ExpressionUtils.extract(expr);
         Set<Expression> distinctExpressions = new LinkedHashSet<>(extractExpressions);
         if (distinctExpressions.size() != extractExpressions.size()) {

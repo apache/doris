@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -152,6 +153,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(User.class, this::visitUser),
                 matches(ConnectionId.class, this::visitConnectionId),
                 matches(And.class, this::visitAnd),
+                matches(Xor.class, this::visitXor),
                 matches(Or.class, this::visitOr),
                 matches(Cast.class, this::visitCast),
                 matches(BoundFunction.class, this::visitBoundFunction),

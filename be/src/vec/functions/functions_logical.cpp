@@ -272,6 +272,7 @@ void register_function_logical(SimpleFunctionFactory& instance) {
     instance.register_function<FunctionAnd>();
     instance.register_function<FunctionOr>();
     instance.register_function<FunctionNot>();
+    instance.register_function<FunctionXor>();
 }
 
 } // namespace doris::vectorized

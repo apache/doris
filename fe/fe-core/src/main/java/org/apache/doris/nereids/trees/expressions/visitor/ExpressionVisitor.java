@@ -84,6 +84,7 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -339,6 +340,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitAnd(And and, C context) {
         return visitCompoundPredicate(and, context);
+    }
+
+    public R visitXor(Xor xor, C context) {
+        return visitCompoundPredicate(xor, context);
     }
 
     public R visitOr(Or or, C context) {

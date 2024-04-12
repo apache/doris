@@ -26,7 +26,7 @@ import java.util.List;
 
 /**
  * Compound predicate expression.
- * Such as &&,||,AND,OR.
+ * Such as &&,||,AND,OR,XOR.
  */
 public abstract class CompoundPredicate extends BinaryOperator {
 
@@ -55,14 +55,9 @@ public abstract class CompoundPredicate extends BinaryOperator {
     }
 
     /**
-     * Flip logical `and` and `or` operator with original children.
+     * Flip logical `and` and `or` and `xor` operator with original children.
      */
-    public abstract CompoundPredicate flip();
-
-    /**
-     * Flip logical `and` and `or` operator with new children.
-     */
-    public abstract CompoundPredicate flip(Expression left, Expression right);
+    public abstract Expression flip();
 
     public abstract Class<? extends CompoundPredicate> flipType();
 

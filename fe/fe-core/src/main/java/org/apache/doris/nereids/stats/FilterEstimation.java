@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -130,6 +131,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 }
             }
             return orStats;
+        } else if (predicate instanceof Xor) {
+            return andStats;
         }
         // should not come here
         Preconditions.checkArgument(false,

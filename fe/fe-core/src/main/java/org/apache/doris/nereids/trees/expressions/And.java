@@ -55,13 +55,8 @@ public class And extends CompoundPredicate {
     }
 
     @Override
-    public CompoundPredicate flip() {
-        return new Or(left(), right());
-    }
-
-    @Override
-    public CompoundPredicate flip(Expression left, Expression right) {
-        return new Or(left, right);
+    public Expression flip() {
+        return new Or(new Not(left()), new Not(right()));
     }
 
     @Override

@@ -22,6 +22,7 @@ enum TExprOpcode {
     COMPOUND_NOT,
     COMPOUND_AND,
     COMPOUND_OR,
+    COMPOUND_XOR,
     CAST,
     FILTER_IN,
     FILTER_NOT_IN,

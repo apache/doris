@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -331,6 +332,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 org.apache.doris.analysis.CompoundPredicate.Operator.AND,
                 and.child(0).accept(this, context),
                 and.child(1).accept(this, context));
+    }
+
+    @Override
+    public Expr visitXor(Xor xor, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.CompoundPredicate(
+                org.apache.doris.analysis.CompoundPredicate.Operator.XOR,
+                xor.child(0).accept(this, context),
+                xor.child(1).accept(this, context));
     }
 
     @Override

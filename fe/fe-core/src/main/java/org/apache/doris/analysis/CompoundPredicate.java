@@ -150,7 +150,8 @@ public class CompoundPredicate extends Predicate {
     public enum Operator {
         AND("AND", TExprOpcode.COMPOUND_AND),
         OR("OR", TExprOpcode.COMPOUND_OR),
-        NOT("NOT", TExprOpcode.COMPOUND_NOT);
+        NOT("NOT", TExprOpcode.COMPOUND_NOT),
+        XOR("XOR", TExprOpcode.COMPOUND_XOR);
 
         private final String      description;
         private final TExprOpcode thriftOp;

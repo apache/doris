@@ -35,6 +35,8 @@ inline std::string compound_operator_to_string(TExprOpcode::type op) {
         return "and";
     } else if (op == TExprOpcode::COMPOUND_OR) {
         return "or";
+    } else if (op == TExprOpcode::COMPOUND_XOR) {
+        return "xor";
     } else {
         return "not";
     }
@@ -127,7 +129,7 @@ public:
             return null_map_data;
         };
 
-        auto vector_vector_null = [&]<bool is_and_op>() {
+        auto vector_vector_null = [&]<TExprOpcode::type op>() {
             auto col_res = ColumnUInt8::create(size);
             auto col_nulls = ColumnUInt8::create(size);
             auto* __restrict res_datas = assert_cast<ColumnUInt8*>(col_res)->get_data().data();
@@ -137,17 +139,23 @@ public:
             lhs_null_map = create_null_map_column(temp_null_map, lhs_null_map);
             rhs_null_map = create_null_map_column(temp_null_map, rhs_null_map);
 
-            if constexpr (is_and_op) {
+            if constexpr (op == TExprOpcode::COMPOUND_AND) {
                 for (size_t i = 0; i < size; ++i) {
                     res_nulls[i] = apply_and_null(lhs_data_column[i], lhs_null_map[i],
                                                   rhs_data_column[i], rhs_null_map[i]);
                     res_datas[i] = lhs_data_column[i] & rhs_data_column[i];
                 }
-            } else {
+            } else if constexpr (op == TExprOpcode::COMPOUND_OR) {
                 for (size_t i = 0; i < size; ++i) {
                     res_nulls[i] = apply_or_null(lhs_data_column[i], lhs_null_map[i],
                                                  rhs_data_column[i], rhs_null_map[i]);
                     res_datas[i] = lhs_data_column[i] | rhs_data_column[i];
+                }
+            } else { // xor
+                for (size_t i = 0; i < size; ++i) {
+                    res_nulls[i] = apply_xor_null(lhs_data_column[i], lhs_null_map[i],
+                                                  rhs_data_column[i], rhs_null_map[i]);
+                    res_datas[i] = lhs_data_column[i] xor rhs_data_column[i];
                 }
             }
             auto result_column = ColumnNullable::create(std::move(col_res), std::move(col_nulls));
@@ -185,7 +193,7 @@ public:
                             lhs_data_column[i] &= rhs_data_column[i];
                         }
                     } else {
-                        vector_vector_null.template operator()<true>();
+                        vector_vector_null.template operator()<TExprOpcode::COMPOUND_AND>();
                     }
                 }
             }
@@ -215,12 +223,23 @@ public:
                             lhs_data_column[i] |= rhs_data_column[i];
                         }
                     } else {
-                        vector_vector_null.template operator()<false>();
+                        vector_vector_null.template operator()<TExprOpcode::COMPOUND_OR>();
                     }
                 }
             }
+        } else if (_op == TExprOpcode::COMPOUND_XOR) {
+            // The XOR operator does not have short-circuit logic.
+            RETURN_IF_ERROR(get_rhs_colum());
+            if (!result_is_nullable) {
+                *result_column_id = lhs_id;
+                for (size_t i = 0; i < size; i++) {
+                    lhs_data_column[i] ^= rhs_data_column[i];
+                }
+            } else {
+                vector_vector_null.template operator()<TExprOpcode::COMPOUND_XOR>();
+            }
         } else {
-            return Status::InternalError("Compound operator must be AND or OR.");
+            return Status::InternalError("Compound operator must be AND or OR or XOR.");
         }
 
         return Status::OK();
@@ -236,6 +255,10 @@ private:
     static inline constexpr uint8 apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> || true) is true, (false || NULL) is NULL
         return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));
+    }
+
+    static inline constexpr uint8 apply_xor_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+        return l_null xor r_null;
     }
 
     bool _all_child_is_compound_and_not_const() const {

@@ -76,9 +76,7 @@ public class SimplifyNotExprRule implements ExpressionPatternRuleFactory {
             }
         } else if (child instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) child;
-            Not left = new Not(cp.left());
-            Not right = new Not(cp.right());
-            return cp.flip(left, right);
+            return cp.flip();
         } else if (child instanceof Not) {
             return child.child(0);
         }

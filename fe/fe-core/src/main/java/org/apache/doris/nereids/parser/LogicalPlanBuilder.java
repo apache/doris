@@ -265,6 +265,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
@@ -1522,6 +1523,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return new And(left, right);
             case DorisParser.OR:
                 return new Or(left, right);
+            case DorisParser.XOR:
+                return new Xor(left, right);
             default:
                 throw new ParseException("Unsupported logical binary type: " + ctx.operator.getText(), ctx);
         }
