@@ -20,6 +20,7 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TUnit;
+import org.apache.doris.transaction.TransactionType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -83,10 +84,19 @@ public class SummaryProfile {
 
     public static final String FRAGMENT_COMPRESSED_SIZE = "Fragment Compressed Size";
     public static final String FRAGMENT_RPC_COUNT = "Fragment RPC Count";
+    public static final String TRANSACTION_COMMIT_TIME = "Transaction Commit Time";
+    public static final String FILESYSTEM_OPT_TIME = "FileSystem Operator Time";
+    public static final String FILESYSTEM_OPT_RENAME_FILE_CNT = "Rename File Count";
+    public static final String FILESYSTEM_OPT_RENAME_DIR_CNT = "Rename Dir Count";
+    public static final String FILESYSTEM_OPT_DELETE_DIR_CNT = "Delete Dir Count";
+    public static final String HMS_ADD_PARTITION_TIME = "HMS Add Partition Time";
+    public static final String HMS_ADD_PARTITION_CNT = "HMS Add Partition Count";
+    public static final String HMS_UPDATE_PARTITION_TIME = "HMS Update Partition Time";
+    public static final String HMS_UPDATE_PARTITION_CNT = "HMS Update Partition Count";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
-    // add many columns here. Add to ExcecutionSummary list.
+    // add many columns here. Add to ExecutionSummary list.
     public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
             START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
 
@@ -126,7 +136,9 @@ public class SummaryProfile {
             TOTAL_INSTANCES_NUM,
             INSTANCES_NUM_PER_BE,
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
-            TRACE_ID);
+            TRACE_ID,
+            TRANSACTION_COMMIT_TIME
+    );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
     // Please set this map for new profile items if they need ident.
@@ -149,6 +161,14 @@ public class SummaryProfile {
             .put(SEND_FRAGMENT_PHASE2_TIME, 1)
             .put(FRAGMENT_COMPRESSED_SIZE, 1)
             .put(FRAGMENT_RPC_COUNT, 1)
+            .put(FILESYSTEM_OPT_TIME, 1)
+            .put(FILESYSTEM_OPT_RENAME_FILE_CNT, 2)
+            .put(FILESYSTEM_OPT_RENAME_DIR_CNT, 2)
+            .put(FILESYSTEM_OPT_DELETE_DIR_CNT, 2)
+            .put(HMS_ADD_PARTITION_TIME, 1)
+            .put(HMS_ADD_PARTITION_CNT, 2)
+            .put(HMS_UPDATE_PARTITION_TIME, 1)
+            .put(HMS_UPDATE_PARTITION_CNT, 2)
             .build();
 
     private RuntimeProfile summaryProfile;
@@ -194,6 +214,17 @@ public class SummaryProfile {
     private long tempStarTime = -1;
     private long queryFetchResultConsumeTime = 0;
     private long queryWriteResultConsumeTime = 0;
+    private long transactionCommitBeginTime = -1;
+    private long transactionCommitEndTime = -1;
+    private long filesystemOptTime = -1;
+    private long hmsAddPartitionTime = -1;
+    private long hmsAddPartitionCnt = 0;
+    private long hmsUpdatePartitionTime = -1;
+    private long hmsUpdatePartitionCnt = 0;
+    private long filesystemRenameFileCnt = 0;
+    private long filesystemRenameDirCnt = 0;
+    private long filesystemDeleteDirCnt = 0;
+    private TransactionType transactionType = TransactionType.UNKNOWN;
 
     public SummaryProfile() {
         summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
@@ -299,6 +330,32 @@ public class SummaryProfile {
                 RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
                 RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
+        setTransactionSummary();
+    }
+
+    public void setTransactionSummary() {
+        executionSummaryProfile.addInfoString(TRANSACTION_COMMIT_TIME,
+                getPrettyTime(transactionCommitEndTime, transactionCommitBeginTime, TUnit.TIME_MS));
+
+        if (transactionType.equals(TransactionType.HMS)) {
+            executionSummaryProfile.addInfoString(FILESYSTEM_OPT_TIME,
+                    getPrettyTime(filesystemOptTime, 0, TUnit.TIME_MS));
+            executionSummaryProfile.addInfoString(FILESYSTEM_OPT_RENAME_FILE_CNT,
+                    getPrettyCount(filesystemRenameFileCnt));
+            executionSummaryProfile.addInfoString(FILESYSTEM_OPT_RENAME_DIR_CNT,
+                    getPrettyCount(filesystemRenameDirCnt));
+            executionSummaryProfile.addInfoString(FILESYSTEM_OPT_DELETE_DIR_CNT,
+                    getPrettyCount(filesystemDeleteDirCnt));
+
+            executionSummaryProfile.addInfoString(HMS_ADD_PARTITION_TIME,
+                    getPrettyTime(hmsAddPartitionTime, 0, TUnit.TIME_MS));
+            executionSummaryProfile.addInfoString(HMS_ADD_PARTITION_CNT,
+                    getPrettyCount(hmsAddPartitionCnt));
+            executionSummaryProfile.addInfoString(HMS_UPDATE_PARTITION_TIME,
+                    getPrettyTime(hmsUpdatePartitionTime, 0, TUnit.TIME_MS));
+            executionSummaryProfile.addInfoString(HMS_UPDATE_PARTITION_CNT,
+                    getPrettyCount(hmsUpdatePartitionCnt));
+        }
     }
 
     public void setParseSqlStartTime(long parseSqlStartTime) {
@@ -543,6 +600,10 @@ public class SummaryProfile {
         return getPrettyTime(nereidsOptimizeFinishTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
     }
 
+    private String getPrettyCount(long cnt) {
+        return RuntimeProfile.printCounter(cnt, TUnit.UNIT);
+    }
+
     public String getPrettyNereidsTranslateTime() {
         return getPrettyTime(nereidsTranslateFinishTime, nereidsOptimizeFinishTime, TUnit.TIME_MS);
     }
@@ -552,5 +613,57 @@ public class SummaryProfile {
             return "N/A";
         }
         return RuntimeProfile.printCounter(end - start, unit);
+    }
+
+    public void setTransactionBeginTime(TransactionType type) {
+        this.transactionCommitBeginTime = TimeUtils.getStartTimeMs();
+        this.transactionType = type;
+    }
+
+    public void setTransactionEndTime() {
+        this.transactionCommitEndTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void freshFilesystemOptTime() {
+        if (this.filesystemOptTime == -1) {
+            // Because this value needs to be summed up.
+            // If it is not set zero here:
+            //     1. If the detection time is longer than 1ms,
+            //        the final cumulative value will be 1 ms less due to -1 initialization.
+            //     2. if the detection time is no longer than 1ms,
+            //        the final cumulative value will be -1 always.
+            //        This is considered to be the indicator's not being detected,
+            //        Apparently not, it's just that the value detected is 0.
+            this.filesystemOptTime = 0;
+        }
+        this.filesystemOptTime += System.currentTimeMillis() - tempStarTime;
+    }
+
+    public void setHmsAddPartitionTime() {
+        this.hmsAddPartitionTime = TimeUtils.getStartTimeMs() - tempStarTime;
+    }
+
+    public void addHmsAddPartitionCnt(long c) {
+        this.hmsAddPartitionCnt = c;
+    }
+
+    public void setHmsUpdatePartitionTime() {
+        this.hmsUpdatePartitionTime = TimeUtils.getStartTimeMs() - tempStarTime;
+    }
+
+    public void addHmsUpdatePartitionCnt(long c) {
+        this.hmsUpdatePartitionCnt = c;
+    }
+
+    public void addRenameFileCnt(long c) {
+        this.filesystemRenameFileCnt += c;
+    }
+
+    public void incRenameDirCnt() {
+        this.filesystemRenameDirCnt += 1;
+    }
+
+    public void incDeleteDirRecursiveCnt() {
+        this.filesystemDeleteDirCnt += 1;
     }
 }
