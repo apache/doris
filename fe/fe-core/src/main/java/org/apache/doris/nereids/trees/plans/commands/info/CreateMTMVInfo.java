@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeNameFormat;
@@ -60,8 +59,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
-import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
-import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -139,7 +136,7 @@ public class CreateMTMVInfo {
     public void analyze(ConnectContext ctx) {
         // analyze table name
         mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getCtl(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.CREATE)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
                     ctx.getQualifiedUser(), ctx.getRemoteIP(),
@@ -267,14 +264,6 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeBaseTables(Plan plan) {
-        TableCollectorContext collectorContext =
-                new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.MATERIALIZED_VIEW), true);
-        plan.accept(TableCollector.INSTANCE, collectorContext);
-        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
-        if (!CollectionUtils.isEmpty(collectedTables)) {
-            throw new AnalysisException("can not contain MATERIALIZED_VIEW");
-        }
-
         List<Object> subQuerys = plan.collectToList(node -> node instanceof LogicalSubQueryAlias);
         for (Object subquery : subQuerys) {
             List<String> qualifier = ((LogicalSubQueryAlias) subquery).getQualifier();

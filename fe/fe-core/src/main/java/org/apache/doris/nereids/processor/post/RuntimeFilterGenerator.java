@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -495,6 +496,23 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         relation.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(relation, slot)));
         return relation;
+    }
+
+    @Override
+    public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
+        setOperation.children().forEach(child -> child.accept(this, context));
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        if (!setOperation.getRegularChildrenOutputs().isEmpty()) {
+            // example: RegularChildrenOutputs is empty
+            // "select 1 a, 2 b union all select 3, 4 union all select 10 e, 20 f;"
+            for (int i = 0; i < setOperation.getOutput().size(); i++) {
+                Pair childSlotPair = ctx.getAliasTransferPair(setOperation.getRegularChildOutput(0).get(i));
+                if (childSlotPair != null) {
+                    ctx.aliasTransferMapPut(setOperation.getOutput().get(i), childSlotPair);
+                }
+            }
+        }
+        return setOperation;
     }
 
     // runtime filter build side ndv

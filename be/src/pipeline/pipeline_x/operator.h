@@ -102,7 +102,7 @@ public:
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
     //  override in Scan  MultiCastSink
-    virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
+    virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
@@ -327,6 +327,8 @@ public:
         return _output_row_descriptor.get();
     }
 
+    bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
+
     [[nodiscard]] bool is_source() const override { return false; }
 
     [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
@@ -455,6 +457,8 @@ public:
                 ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", "Spill", 1);
         _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
                                                          TUnit::BYTES, "Spill", 1);
+        _spill_wait_in_queue_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
         _spill_write_wait_io_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
         _spill_read_wait_io_timer =
@@ -469,6 +473,7 @@ public:
     RuntimeProfile::Counter* _spill_read_bytes;
     RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
     RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
+    RuntimeProfile::Counter* _spill_wait_in_queue_timer = nullptr;
 };
 
 class DataSinkOperatorXBase;
@@ -776,6 +781,8 @@ public:
                                                         TUnit::BYTES, "Spill", 1);
         _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
                                                           TUnit::UNIT, "Spill", 1);
+        _spill_wait_in_queue_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
         _spill_write_wait_io_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
         _spill_read_wait_io_timer =
@@ -789,6 +796,7 @@ public:
     RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
     RuntimeProfile::Counter* _spill_data_size = nullptr;
     RuntimeProfile::Counter* _spill_block_count = nullptr;
+    RuntimeProfile::Counter* _spill_wait_in_queue_timer = nullptr;
     RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
     RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
 };

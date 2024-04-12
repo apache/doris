@@ -20,6 +20,10 @@ echo "input params: $*"
 
 function usage() {
     echo "$0 [--fdb <fdb_conf>] [--test <test_binary>] [--filter <gtest_filter>]"
+    echo "    fdb_conf the connection string of an fdb cluster, e.g fdb_cluster0:cluster0@192.168.1.100:4500"
+    echo "             some unit tests rely on a fdb to run"
+    echo "    test_binary the unit test binary name, e.g. txn_kv_test"
+    echo "    gtest_filter the filter for the test_binary unit test, e.g. TxnKvTest.BatchGet"
 }
 if ! OPTS=$(getopt -n "$0" -o a:b:c: -l test:,fdb:,filter:,coverage -- "$@"); then
     usage
@@ -104,21 +108,23 @@ echo "DORIS_JAVA_HOME=${DORIS_JAVA_HOME}"
 
 export LD_LIBRARY_PATH="${DORIS_JAVA_HOME}/lib/server:${LD_LIBRARY_PATH}"
 
+# disable some STUPID shell-check rules for this function
+# shellcheck disable=SC2048,SC2068,SC2086,SC2155,SC2248
 # report converage for unittest
 # input param is unittest binary file list
 function report_coverage() {
     local binary_objects=$1
     local profdata="./report/doris_cloud.profdata"
-    profraw=$(ls ./report/*.profraw)
+    local profraw=$(ls ./report/*.profraw)
     local binary_objects_options=()
-    for object in "${binary_objects[@]}"; do
+    for object in ${binary_objects[@]}; do
         binary_objects_options[${#binary_objects_options[*]}]="-object ${object}"
     done
-    llvm-profdata merge -o "${profdata}" "${profraw}"
+    llvm-profdata merge -o ${profdata} ${profraw}
     llvm-cov show -output-dir=report -format=html \
         -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)' \
-        -instr-profile="${profdata}" \
-        "${binary_objects_options[*]}"
+        -instr-profile=${profdata} \
+        ${binary_objects_options[*]}
 }
 
 export LSAN_OPTIONS=suppressions=./lsan_suppression.conf
@@ -151,4 +157,4 @@ if [[ "_${ENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     report_coverage "${unittest_files[*]}"
 fi
 
-# vim: et ts=2 sw=2:
+# vim: et ts=4 sw=4:

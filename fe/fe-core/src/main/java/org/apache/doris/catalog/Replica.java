@@ -629,6 +629,8 @@ public class Replica implements Writable {
         strBuffer.append(schemaHash);
         strBuffer.append(", state=");
         strBuffer.append(state.name());
+        strBuffer.append(", isBad=");
+        strBuffer.append(isBad());
         strBuffer.append("]");
         return strBuffer.toString();
     }

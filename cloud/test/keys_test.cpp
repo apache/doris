@@ -21,6 +21,7 @@
 #include <bthread/countdown_event.h>
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <random>
@@ -1023,4 +1024,33 @@ TEST(KeysTest, DecodeKeysTest) {
     pretty_key = prettify_key(key, true);
     ASSERT_TRUE(!pretty_key.empty()) << key;
     std::cout << "\n" << pretty_key << std::endl;
+}
+
+TEST(KeysTest, MetaSchemaPBDictionaryTest) {
+    using namespace doris::cloud;
+    std::string instance_id = "instance_id_meta_dict";
+    int64_t index_id = 123456;
+
+    // 0:instance_id  1:index_id
+    MetaSchemaPBDictionaryInfo dict_key {instance_id, index_id};
+    std::string encoded_dict_key;
+    meta_schema_pb_dictionary_key(dict_key, &encoded_dict_key);
+    std::cout << hex(encoded_dict_key) << std::endl;
+
+    std::string decoded_instance_id;
+    std::string decoded_prefix;
+    std::string decoded_meta_prefix;
+    int64_t decoded_index_id;
+    std::string_view key_sv(encoded_dict_key);
+    remove_user_space_prefix(&key_sv);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_prefix), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_meta_prefix), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_index_id), 0);
+    ASSERT_TRUE(key_sv.empty());
+
+    EXPECT_EQ("meta", decoded_prefix);
+    EXPECT_EQ("tablet_schema_pb_dict", decoded_meta_prefix);
+    EXPECT_EQ(instance_id, decoded_instance_id);
+    EXPECT_EQ(index_id, decoded_index_id);
 }

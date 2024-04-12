@@ -106,7 +106,7 @@ private:
 
 public:
     void sanity_check() const;
-
+    bool is_variable_length() const override { return true; }
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -120,6 +120,7 @@ public:
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override { return true; }
 
     Field operator[](size_t n) const override {
         assert(n < size());
@@ -515,10 +516,6 @@ public:
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnString>(num_columns, selector);
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         append_data_by_selector_impl<ColumnString>(res, selector);
@@ -548,31 +545,12 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnString&>(rhs);
-        auto data = r.get_data_at(row);
-
-        if (!self_row) {
-            chars.clear();
-            offsets[self_row] = data.size;
-        } else {
-            offsets[self_row] = offsets[self_row - 1] + data.size;
-            check_chars_length(offsets[self_row], self_row);
-        }
-
-        chars.insert(data.data, data.data + data.size);
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     // should replace according to 0,1,2... ,size,0,1,2...
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-
-        if (!self_row) {
-            chars.clear();
-            offsets[self_row] = 0;
-        } else {
-            offsets[self_row] = offsets[self_row - 1];
-        }
+        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

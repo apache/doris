@@ -89,12 +89,9 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLi
     DCHECK(ExecEnv::tracking_memory());
     std::lock_guard<std::mutex> l(
             ExecEnv::GetInstance()->mem_tracker_limiter_pool[tracker->group_num()].group_lock);
-    tracker->tracker_limiter_group_it =
-            ExecEnv::GetInstance()->mem_tracker_limiter_pool[tracker->group_num()].trackers.insert(
-                    ExecEnv::GetInstance()
-                            ->mem_tracker_limiter_pool[tracker->group_num()]
-                            .trackers.end(),
-                    tracker);
+    ExecEnv::GetInstance()->mem_tracker_limiter_pool[tracker->group_num()].trackers.insert(
+            ExecEnv::GetInstance()->mem_tracker_limiter_pool[tracker->group_num()].trackers.end(),
+            tracker);
 #endif
     return tracker;
 }
@@ -128,19 +125,6 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         }
         _consumption->set(0);
     }
-#ifndef BE_TEST
-    if (ExecEnv::tracking_memory()) {
-        std::lock_guard<std::mutex> l(
-                ExecEnv::GetInstance()->mem_tracker_limiter_pool[_group_num].group_lock);
-        if (tracker_limiter_group_it !=
-            ExecEnv::GetInstance()->mem_tracker_limiter_pool[_group_num].trackers.end()) {
-            ExecEnv::GetInstance()->mem_tracker_limiter_pool[_group_num].trackers.erase(
-                    tracker_limiter_group_it);
-            tracker_limiter_group_it =
-                    ExecEnv::GetInstance()->mem_tracker_limiter_pool[_group_num].trackers.end();
-        }
-    }
-#endif
     g_memtrackerlimiter_cnt << -1;
 }
 
@@ -173,6 +157,24 @@ void MemTrackerLimiter::refresh_global_counter() {
     }
 }
 
+void MemTrackerLimiter::clean_tracker_limiter_group() {
+#ifndef BE_TEST
+    if (ExecEnv::tracking_memory()) {
+        for (auto& group : ExecEnv::GetInstance()->mem_tracker_limiter_pool) {
+            std::lock_guard<std::mutex> l(group.group_lock);
+            auto it = group.trackers.begin();
+            while (it != group.trackers.end()) {
+                if ((*it).expired()) {
+                    it = group.trackers.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+    }
+#endif
+}
+
 void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots) {
     MemTrackerLimiter::refresh_global_counter();
     int64_t all_tracker_mem_sum = 0;
@@ -202,7 +204,11 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
 
+#ifdef ADDRESS_SANITIZER
+    snapshot.type = "[ASAN]process resident memory"; // from /proc VmRSS VmHWM
+#else
     snapshot.type = "process resident memory"; // from /proc VmRSS VmHWM
+#endif
     snapshot.label = "";
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_rss();
@@ -606,9 +612,9 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                                                              tracker->consumption()));
                         continue;
                     }
-                    int64_t overcommit_ratio =
+                    auto overcommit_ratio = int64_t(
                             (static_cast<double>(tracker->consumption()) / tracker->limit()) *
-                            10000;
+                            10000);
                     max_pq.emplace(overcommit_ratio, tracker->label());
                     query_consumption[tracker->label()] = tracker->consumption();
                 }

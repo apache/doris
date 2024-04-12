@@ -65,6 +65,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
+
+    public static final Long DEFAULT_GROUP_ID = 1L;
+
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
             .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
@@ -137,18 +140,26 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public WorkloadGroupMgr() {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(WorkloadGroup.CPU_SHARE, "1024");
-        properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
-        properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-        WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(1, DEFAULT_GROUP_NAME, properties);
-        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
+        // if no fe image exist, we should append internal group here.
+        appendInternalWorkloadGroup();
     }
 
     public static WorkloadGroupMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, WorkloadGroupMgr.class);
+        WorkloadGroupMgr ret = GsonUtils.GSON.fromJson(json, WorkloadGroupMgr.class);
+        ret.appendInternalWorkloadGroup();
+        return ret;
+    }
+
+    public void appendInternalWorkloadGroup() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(WorkloadGroup.CPU_SHARE, "1024");
+        properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+        WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(DEFAULT_GROUP_ID.longValue(), DEFAULT_GROUP_NAME,
+                properties);
+        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
+        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
     }
 
     private void readLock() {

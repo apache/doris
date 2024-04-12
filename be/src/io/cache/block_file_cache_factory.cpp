@@ -82,7 +82,7 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     }
     size_t disk_total_size = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize);
     if (disk_total_size < file_cache_settings.capacity) {
-        file_cache_settings = get_file_cache_settings(disk_total_size * 0.9,
+        file_cache_settings = get_file_cache_settings(size_t(disk_total_size * 0.9),
                                                       file_cache_settings.max_query_cache_size);
     }
     auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
@@ -118,17 +118,12 @@ FileCacheFactory::get_query_context_holders(const TUniqueId& query_id) {
     return holders;
 }
 
-void FileCacheFactory::clear_file_caches(bool sync) {
+std::string FileCacheFactory::clear_file_caches(bool sync) {
+    std::stringstream ss;
     for (const auto& cache : _caches) {
-        if (sync) {
-            Status st = cache->clear_file_cache_directly();
-            if (st.ok()) {
-                LOG_WARNING("").error(st);
-            }
-        } else {
-            cache->clear_file_cache_async();
-        }
+        ss << (sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async()) << "\n";
     }
+    return ss.str();
 }
 
 } // namespace io

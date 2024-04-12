@@ -118,8 +118,10 @@ suite("test_index_change_4") {
     sql """ CREATE INDEX idx_note ON ${tableName}(`note`) USING INVERTED PROPERTIES("parser"="english") """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // build index
-    sql """ BUILD INDEX idx_note ON ${tableName} """
-    wait_for_build_index_on_partition_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        sql """ BUILD INDEX idx_note ON ${tableName} """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+    }
 
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
@@ -190,8 +192,10 @@ suite("test_index_change_4") {
     sql """ CREATE INDEX idx_note ON ${tableName}(`note`) USING INVERTED PROPERTIES("parser"="english") """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // build index
-    sql """ BUILD INDEX idx_note ON ${tableName} """
-    wait_for_build_index_on_partition_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        sql """ BUILD INDEX idx_note ON ${tableName} """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+    }
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

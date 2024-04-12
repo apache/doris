@@ -119,7 +119,7 @@ int64_t WorkloadGroup::memory_used() {
 }
 
 void WorkloadGroup::set_weighted_memory_used(int64_t wg_total_mem_used, double ratio) {
-    _weighted_mem_used.store(wg_total_mem_used * ratio, std::memory_order_relaxed);
+    _weighted_mem_used.store(int64_t(wg_total_mem_used * ratio), std::memory_order_relaxed);
 }
 
 void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {

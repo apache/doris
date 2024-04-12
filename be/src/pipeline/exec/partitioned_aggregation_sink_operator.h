@@ -71,7 +71,8 @@ public:
         std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
                 Base::_shared_state->partition_count);
         auto& iter = Base::_shared_state->in_mem_shared_state->aggregate_data_container->iterator;
-        while (iter != Base::_shared_state->in_mem_shared_state->aggregate_data_container->end()) {
+        while (iter != Base::_shared_state->in_mem_shared_state->aggregate_data_container->end() &&
+               !state->is_cancelled()) {
             const auto& key = iter.template get_key<typename HashTableType::key_type>();
             auto partition_index = Base::_shared_state->get_partition_index(hash_table.hash(key));
             spill_infos[partition_index].keys_.emplace_back(key);
@@ -93,7 +94,7 @@ public:
             ++iter;
         }
         auto hash_null_key_data = hash_table.has_null_key_data();
-        for (int i = 0; i < Base::_shared_state->partition_count; ++i) {
+        for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled(); ++i) {
             auto spill_null_key_data =
                     (hash_null_key_data && i == Base::_shared_state->partition_count - 1);
             if (spill_infos[i].keys_.size() > 0 || spill_null_key_data) {
@@ -160,7 +161,7 @@ public:
                              SCOPED_TIMER(_spill_write_disk_timer);
                              Status status;
                              Defer defer {[&]() { spill_stream->end_spill(status); }};
-                             status = spill_stream->spill_block(block_, false);
+                             status = spill_stream->spill_block(state, block_, false);
                              return status;
                          });
         if (!status.ok()) {
@@ -319,8 +320,6 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
