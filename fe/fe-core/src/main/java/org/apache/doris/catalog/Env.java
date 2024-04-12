@@ -692,7 +692,7 @@ public class Env {
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
-        this.storageVaultMgr = new StorageVaultMgr();
+        this.storageVaultMgr = new StorageVaultMgr(systemInfo);
 
         this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
