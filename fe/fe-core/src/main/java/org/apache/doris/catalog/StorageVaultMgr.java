@@ -71,6 +71,8 @@ public class StorageVaultMgr {
             default:
                 throw new DdlException("Only support S3, HDFS storage vault.");
         }
+        // Make BE eagerly fetch the storage vault info from Meta Service
+        ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
     }
 
     @VisibleForTesting
@@ -138,7 +140,6 @@ public class StorageVaultMgr {
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
                     && hdfsStorageVault.ifNotExists()) {
-                ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
                 return;
             }
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
