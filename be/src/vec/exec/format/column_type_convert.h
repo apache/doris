@@ -384,7 +384,7 @@ public:
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType*>(to_col.get())->get_data();
         for (int i = 0; i < rows; ++i) {
-            DstCppType value;
+            DstCppType& value = data[start_idx + i];
             auto string_value = string_col.get_data_at(i);
             bool can_cast = false;
             if constexpr (is_decimal_type_const<DstPrimitiveType>()) {
@@ -398,9 +398,7 @@ public:
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
                         string_value.data, string_value.size, &value);
             }
-            if (can_cast) {
-                data[start_idx + i] = value;
-            } else {
+            if (!can_cast) {
                 if (null_map == nullptr) {
                     return Status::InternalError("Failed to cast string '{}' to not null column",
                                                  string_value.to_string());
