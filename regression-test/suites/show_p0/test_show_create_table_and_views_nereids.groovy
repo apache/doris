@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_create_table_and_views", "show") {
+suite("test_show_create_table_and_views_nereids", "show") {
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
@@ -23,14 +23,16 @@ suite("test_show_create_table_and_views", "show") {
         return
     }
 
-    String suiteName = "show_create_table_and_views"
+    String suiteName = "show_create_table_and_views_nereids"
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String viewName = "${suiteName}_view"
     String rollupName = "${suiteName}_rollup"
     String likeName = "${suiteName}_like"
 
-    sql "SET enable_nereids_planner=false;"
+    sql "SET enable_nereids_planner=true;"
+    sql "SET enable_fallback_to_original_planner=false;"
+
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
