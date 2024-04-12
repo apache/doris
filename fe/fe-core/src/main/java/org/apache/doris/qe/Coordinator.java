@@ -1330,7 +1330,7 @@ public class Coordinator implements CoordInterface {
         resultBatch = receiver.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
-                    DebugUtil.printId(queryId), status.toString());
+                    DebugUtil.printId(queryId), status.getErrorMsg());
         }
 
         updateStatus(status);
@@ -1474,7 +1474,8 @@ public class Coordinator implements CoordInterface {
             } else {
                 queryStatus.setStatus(Status.CANCELLED);
             }
-            LOG.warn("Cancel execution of query {}, this is a outside invoke", DebugUtil.printId(queryId));
+            LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
+                    DebugUtil.printId(queryId), cancelReason.toString());
             cancelInternal(cancelReason);
         } finally {
             unlock();
@@ -1501,7 +1502,7 @@ public class Coordinator implements CoordInterface {
 
     private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
         if (null != receiver) {
-            receiver.cancel(cancelReason.toString());
+            receiver.cancel(cancelReason);
         }
         if (null != pointExec) {
             pointExec.cancel();
