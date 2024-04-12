@@ -116,6 +116,16 @@ public:
             return binary_cast<int64_t, double>(_value.load(std::memory_order_relaxed));
         }
 
+        virtual void to_thrift(const std::string& name, std::vector<TCounter>& tcounters,
+                               std::map<std::string, std::set<std::string>>& child_counters_map) {
+            TCounter counter;
+            counter.name = name;
+            counter.value = this->value();
+            counter.type = this->type();
+            counter.__set_level(this->level());
+            tcounters.push_back(counter);
+        }
+
         TUnit::type type() const { return _type; }
 
         virtual int64_t level() { return _level; }
@@ -199,6 +209,26 @@ public:
 
     private:
         DerivedCounterFunction _counter_fn;
+    };
+
+    // NonZeroCounter will not be converted to Thrift if the value is 0.
+    class NonZeroCounter : public Counter {
+    public:
+        NonZeroCounter(TUnit::type type, int64_t level, const std::string& parent_name)
+                : Counter(type, 0, level), _parent_name(parent_name) {}
+
+        void to_thrift(const std::string& name, std::vector<TCounter>& tcounters,
+                       std::map<std::string, std::set<std::string>>& child_counters_map) override {
+            if (this->_value > 0) {
+                Counter::to_thrift(name, tcounters, child_counters_map);
+            } else {
+                // remove it
+                child_counters_map[_parent_name].erase(name);
+            }
+        }
+
+    private:
+        const std::string _parent_name;
     };
 
     // An EventSequence captures a sequence of events (each added by
@@ -298,6 +328,10 @@ public:
     Counter* add_counter_with_level(const std::string& name, TUnit::type type, int64_t level) {
         return add_counter(name, type, "", level);
     }
+
+    NonZeroCounter* add_nonzero_counter(const std::string& name, TUnit::type type,
+                                        const std::string& parent_counter_name = "",
+                                        int64_t level = 2);
 
     // Add a derived counter with 'name'/'type'. The counter is owned by the
     // RuntimeProfile object.

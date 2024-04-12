@@ -85,8 +85,8 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
-        metrics[i] = ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, fmt::format("WaitForData{}", i),
-                                                timer_name, 1);
+        metrics[i] = _runtime_profile->add_nonzero_counter(fmt::format("WaitForData{}", i),
+                                                           TUnit ::TIME_NS, timer_name, 1);
     }
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
