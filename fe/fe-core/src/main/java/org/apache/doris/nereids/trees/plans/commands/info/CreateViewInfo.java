@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColWithComment;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
@@ -112,8 +113,8 @@ public class CreateViewInfo {
         // disallow external catalog
         Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewStmt");
         // check privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), viewName.getDb(),
-                viewName.getTbl(), PrivPredicate.CREATE)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
+                viewName.getTbl()), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
