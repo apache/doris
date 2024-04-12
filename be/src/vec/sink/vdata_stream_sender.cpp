@@ -85,8 +85,8 @@ Status Channel<Parent>::init(RuntimeState* state) {
     }
 
     if (_is_local) {
-        _local_recvr = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id);
+        RETURN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                _fragment_instance_id, _dest_node_id, &_local_recvr));
     } else {
         if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
             _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
@@ -163,8 +163,8 @@ Status Channel<Parent>::open(RuntimeState* state) {
     _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
 
     if (_is_local) {
-        _local_recvr = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id);
+        RETURN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                _fragment_instance_id, _dest_node_id, &_local_recvr));
     }
 
     _serializer.set_is_local(_is_local);
