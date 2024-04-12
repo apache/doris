@@ -542,7 +542,13 @@ public class OlapTable extends Table {
     }
 
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
-                                     boolean reserveReplica) {
+            boolean reserveReplica) {
+        // ATTN: The meta of the restore may come from different clusters, so the
+        // original ID in the meta may conflict with the ID of the new cluster. For
+        // example, if a newly allocated ID happens to be the same as an original ID,
+        // the original one may be overwritten when executing `put`, then causes a
+        // NullPointerException.
+
         // table id
         id = env.getNextId();
 
@@ -553,13 +559,15 @@ public class OlapTable extends Table {
         }
 
         // reset all 'indexIdToXXX' map
+        Map<Long, MaterializedIndexMeta> origIdxIdToMeta = indexIdToMeta;
+        indexIdToMeta = Maps.newHashMap();
         for (Map.Entry<Long, String> entry : origIdxIdToName.entrySet()) {
             long newIdxId = env.getNextId();
             if (entry.getValue().equals(name)) {
                 // base index
                 baseIndexId = newIdxId;
             }
-            indexIdToMeta.put(newIdxId, indexIdToMeta.remove(entry.getKey()));
+            indexIdToMeta.put(newIdxId, origIdxIdToMeta.get(entry.getKey()));
             indexNameToId.put(entry.getValue(), newIdxId);
         }
 
@@ -570,35 +578,24 @@ public class OlapTable extends Table {
         }
 
         // reset partition info and idToPartition map
-        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                long newPartId = env.getNextId();
-                if (reserveReplica) {
-                    ReplicaAllocation originReplicaAlloc = partitionInfo.getReplicaAllocation(entry.getValue());
-                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), originReplicaAlloc, false);
-                } else {
-                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, false);
-                }
-                idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
-            }
-        } else {
-            // Single partitioned
+        Map<Long, Long> partitionMap = Maps.newHashMap();
+        Map<Long, Partition> origIdToPartition = idToPartition;
+        idToPartition = Maps.newHashMap();
+        for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
             long newPartId = env.getNextId();
-            for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                if (reserveReplica) {
-                    ReplicaAllocation originReplicaAlloc = partitionInfo.getReplicaAllocation(entry.getValue());
-                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), originReplicaAlloc, true);
-                } else {
-                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, true);
-                }
-                idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
-            }
+            idToPartition.put(newPartId, origIdToPartition.get(entry.getValue()));
+            partitionMap.put(newPartId, entry.getValue());
         }
+        boolean isSinglePartition = partitionInfo.getType() != PartitionType.RANGE
+                && partitionInfo.getType() != PartitionType.LIST;
+        partitionInfo.resetPartitionIdForRestore(partitionMap,
+                reserveReplica ? null : restoreReplicaAlloc, isSinglePartition);
 
         // for each partition, reset rollup index map
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             Partition partition = entry.getValue();
-            // entry.getKey() is the new partition id, use it to get the restore specified replica allocation
+            // entry.getKey() is the new partition id, use it to get the restore specified
+            // replica allocation
             ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(entry.getKey());
             for (Map.Entry<Long, String> entry2 : origIdxIdToName.entrySet()) {
                 MaterializedIndex idx = partition.getIndex(entry2.getKey());
