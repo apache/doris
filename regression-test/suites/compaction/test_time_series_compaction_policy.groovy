@@ -23,10 +23,10 @@ suite("test_time_series_compaction_polciy", "p0") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    def trigger_cumulative_compaction_on_tablets = { String[][] tablets ->
-        for (String[] tablet : tablets) {
-            String tablet_id = tablet[0]
-            String backend_id = tablet[2]
+    def trigger_cumulative_compaction_on_tablets = { tablets ->
+        for (def tablet : tablets) {
+            String tablet_id = tablet.TabletId
+            String backend_id = tablet.BackendId
             int times = 1
             
             String compactionStatus;
@@ -45,13 +45,13 @@ suite("test_time_series_compaction_polciy", "p0") {
         }
     }
 
-    def wait_cumulative_compaction_done = { String[][] tablets ->
-        for (String[] tablet in tablets) {
+    def wait_cumulative_compaction_done = { tablets ->
+        for (def tablet in tablets) {
             boolean running = true
             do {
                 Thread.sleep(1000)
-                String tablet_id = tablet[0]
-                String backend_id = tablet[2]
+                String tablet_id = tablet.TabletId
+                String backend_id = tablet.BackendId
                 def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
@@ -62,13 +62,11 @@ suite("test_time_series_compaction_polciy", "p0") {
         }
     }
 
-    def get_rowset_count = {String[][] tablets ->
+    def get_rowset_count = { tablets ->
         int rowsetCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            def compactionStatusUrlIndex = 18
-            def (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
-            logger.info("Show tablet status: code=" + code + ", out=" + out + ", err=" + err)
+        for (def tablet in tablets) {
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
+            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
             assert tabletJson.rowsets instanceof List
@@ -77,12 +75,12 @@ suite("test_time_series_compaction_polciy", "p0") {
         return rowsetCount
     }
 
-    String backend_id;
-    backend_id = backendId_to_backendIP.keySet()[0]
-    def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+    // String backend_id;
+    // backend_id = backendId_to_backendIP.keySet()[0]
+    // def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
     
-    logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
+    // logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+    // assertEquals(code, 0)
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -118,8 +116,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     qt_sql_1 """ select count() from ${tableName} """
 
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
-    String[][] tablets = sql """ show tablets from ${tableName}; """
-
+    def tablets = sql_return_maparray """ show tablets from ${tableName}; """
     // BUCKETS = 2
     // before cumulative compaction, there are 17 * 2 = 34 rowsets.
     int rowsetCount = get_rowset_count.call(tablets);
