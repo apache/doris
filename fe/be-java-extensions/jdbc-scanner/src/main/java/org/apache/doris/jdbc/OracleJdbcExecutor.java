@@ -22,7 +22,7 @@ import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
 
-import com.alibaba.druid.pool.DruidDataSource;
+import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
@@ -40,8 +40,8 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
     }
 
     @Override
-    protected void setValidationQuery(DruidDataSource ds) {
-        ds.setValidationQuery("SELECT 1 FROM dual");
+    protected void setValidationQuery(HikariDataSource ds) {
+        ds.setConnectionTestQuery("SELECT 1 FROM dual");
     }
 
     @Override
