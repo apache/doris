@@ -65,7 +65,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .rewrite()
                 .matches(
                         logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
-                                && p.getProjects().get(1).toSql().equals("age AS `min(age)`"))
+                                && p.getProjects().get(1).toSql().equals("cast(age as BIGINT) AS `sum(age)`"))
                 );
     }
 
