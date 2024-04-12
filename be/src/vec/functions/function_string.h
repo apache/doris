@@ -3886,31 +3886,12 @@ public:
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
-        auto& col_res_chars = col_res->get_chars();
-        auto& col_res_offsets = col_res->get_offsets();
-
-        for (int i = 0; i < input_rows_count; ++i) {
-            StringRef origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
-            auto pos = col_pos[index_check_const(i, col_const[1])];
-            auto len = col_len[index_check_const(i, col_const[2])];
-            StringRef insert_str = col_insert->get_data_at(index_check_const(i, col_const[3]));
-
-            if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
-                is_origin) {
-                col_res->insert_data(origin_str.data, offset);
-            } else {
-                const auto old_size = col_res_chars.size();
-                col_res_chars.resize(old_size + offset);
-                // There are three stages here
-                // 1. copy origin_str with index 0 to pos - 2
-                // 2. copy all of insert_str.
-                // 3. copy origin_str from pos+len-1 to the end of the line.
-                memcpy(col_res_chars.data() + old_size, origin_str.data, pos - 1);
-                memcpy(col_res_chars.data() + old_size + pos - 1, insert_str.data, insert_str.size);
-                memcpy(col_res_chars.data() + old_size + pos - 1 + insert_str.size,
-                       origin_str.data + pos + len - 1, origin_str.size - pos - len + 1);
-                col_res_offsets.push_back(offset + old_size);
-            }
+        if (col_const[1]) {
+            vector<true>(col_origin, col_pos, col_len, col_insert, col_res, col_const,
+                         input_rows_count);
+        } else {
+            vector<false>(col_origin, col_pos, col_len, col_insert, col_res, col_const,
+                          input_rows_count);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -3929,6 +3910,50 @@ private:
             return {false, pos + ins_size - 1};
         }
         return {false, str_size - len + ins_size};
+    }
+
+    template <bool is_const>
+    void vector(const ColumnString* col_origin, int const* col_pos, int const* col_len,
+                const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
+                bool col_const[4], size_t input_rows_count) const {
+        auto& col_res_chars = col_res->get_chars();
+        auto& col_res_offsets = col_res->get_offsets();
+        StringRef origin_str = col_origin->get_data_at(0);
+        StringRef insert_str = col_insert->get_data_at(0);
+        auto pos = col_pos[0];
+        auto len = col_len[0];
+        if constexpr (is_const) {
+            if (pos < 1 || (col_const[0] && pos > origin_str.size)) {
+                for (size_t i = 0; i < input_rows_count; i++) {
+                    origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
+                    col_res->insert_data(origin_str.data, origin_str.size);
+                }
+                return;
+            }
+        }
+        for (size_t i = 0; i < input_rows_count; i++) {
+            origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
+            pos = col_pos[index_check_const(i, col_const[1])];
+            len = col_len[index_check_const(i, col_const[2])];
+            insert_str = col_insert->get_data_at(index_check_const(i, col_const[3]));
+
+            if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
+                is_origin) {
+                col_res->insert_data(origin_str.data, offset);
+            } else {
+                const auto old_size = col_res_chars.size();
+                col_res_chars.resize(old_size + offset);
+                // There are three stages here
+                // 1. copy origin_str with index 0 to pos - 2
+                // 2. copy all of insert_str.
+                // 3. copy origin_str from pos+len-1 to the end of the line.
+                memcpy(col_res_chars.data() + old_size, origin_str.data, pos - 1);
+                memcpy(col_res_chars.data() + old_size + pos - 1, insert_str.data, insert_str.size);
+                memcpy(col_res_chars.data() + old_size + pos - 1 + insert_str.size,
+                       origin_str.data + pos + len - 1, origin_str.size - pos - len + 1);
+                col_res_offsets.push_back(offset + old_size);
+            }
+        }
     }
 };
 } // namespace doris::vectorized
