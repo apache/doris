@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -44,6 +45,7 @@ public class CreateStorageVaultStmtTest {
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         vaultName = "hdfs";
+        FeConstants.runningUnitTest = true;
     }
 
     @Test
