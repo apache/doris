@@ -28,6 +28,7 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilder;
@@ -571,6 +572,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 () -> analyzer.analyzeToSet(project.getExcepts()));
 
         Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
+        StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
             if (!(expr instanceof BoundStar)) {
@@ -582,6 +584,13 @@ public class BindExpression implements AnalysisRuleFactory {
                     slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains(slot));
                 }
                 boundProjections.addAll(slots);
+
+                // for create view stmt expand star
+                List<Slot> slotsForLambda = slots;
+                UnboundStar unboundStar = (UnboundStar) expression;
+                unboundStar.getIndexInSqlString().ifPresent(pair ->
+                        statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda))
+                );
             }
         }
         return project.withProjects(boundProjections.build());
@@ -973,6 +982,11 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private interface CustomSlotBinderAnalyzer {
         List<? extends Expression> bindSlot(ExpressionAnalyzer analyzer, UnboundSlot unboundSlot);
+    }
+
+    public String toSqlWithBackquote(List<Slot> slots) {
+        return slots.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBackquote())
+                .collect(Collectors.joining(", "));
     }
 
     private boolean hasAggregateFunction(Expression expression, FunctionRegistry functionRegistry) {

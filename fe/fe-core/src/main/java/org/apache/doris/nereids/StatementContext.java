@@ -54,6 +54,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -120,6 +121,11 @@ public class StatementContext {
     private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
 
     private BitSet disableRules;
+
+    // for create view support in nereids
+    // key is the start and end position of the sql substring that needs to be replaced,
+    // and value is the new string used for replacement.
+    private TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -353,5 +359,13 @@ public class StatementContext {
 
     public void setHasUnknownColStats(boolean hasUnknownColStats) {
         this.hasUnknownColStats = hasUnknownColStats;
+    }
+
+    public TreeMap<Pair<Integer, Integer>, String> getIndexInSqlToString() {
+        return indexInSqlToString;
+    }
+
+    public void addIndexInSqlToString(Pair<Integer, Integer> pair, String replacement) {
+        indexInSqlToString.put(pair, replacement);
     }
 }
