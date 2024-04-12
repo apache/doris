@@ -298,7 +298,7 @@ query
 
 queryTerm
     : queryPrimary                                                         #queryTermDefault
-    | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
+    | left=queryTerm operator=(UNION | EXCEPT | MINUS | INTERSECT)
       setQuantifier? right=queryTerm                                       #setOperation
     ;
 
