@@ -131,7 +131,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     .checkDatabase(((OlapTable) targetTable).getQualifiedDbName(), ConnectContext.get());
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), ((OlapTable) targetTable).getQualifiedDbName(),
+                    .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
+                            ((OlapTable) targetTable).getQualifiedDbName(),
                             targetTable.getName(), PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

@@ -73,6 +73,10 @@ public:
     // for more details, see `Tablet::create_transient_rowset_writer`.
     Result<std::vector<size_t>> segments_file_size(int seg_id_offset);
 
+    const std::unordered_map<int, io::FileWriterPtr>& get_file_writers() const {
+        return _file_writers;
+    }
+
 private:
     mutable SpinLock _lock;
     std::unordered_map<int /* seg_id */, io::FileWriterPtr> _file_writers;
@@ -145,6 +149,10 @@ public:
 
     bool is_partial_update() override {
         return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+    }
+
+    const std::unordered_map<int, io::FileWriterPtr>& get_file_writers() const {
+        return _seg_files.get_file_writers();
     }
 
 private:

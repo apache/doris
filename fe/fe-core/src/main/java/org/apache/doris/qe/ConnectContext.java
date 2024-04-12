@@ -1150,13 +1150,14 @@ public class ConnectContext {
     }
 
     /**
-     * @param updateErr whether set this connect state to error when the returned cluster is null or empty.
+     * Tries to choose an available cluster in the following order
+     * 1. Do nothing if a cluster has been chosen for current session. It may be
+     *    chosen explicitly by `use @` command or setCloudCluster() or this method
+     * 2. Tries to choose a default cluster if current mysql user has been set any
+     * 3. Tries to choose an authorized cluster if all preceeding conditions failed
      *
-     * @return Returns an available cluster in the following order
-     *         1 Use an explicitly specified cluster
-     *         2 If no cluster is specified, the user's default cluster is used
-     *         3 If the user does not have a default cluster, select a cluster with permissions for the user
-     *         Returns null when there is no available cluster
+     * @param updateErr whether set the connect state to error if the returned cluster is null or empty
+     * @return non-empty cluster name if a cluster has been chosen otherwise null or empty string
      */
     public String getCloudCluster(boolean updateErr) {
         if (!Config.isCloudMode()) {

@@ -62,7 +62,9 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         job.write(dos);
         ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
         DataInputStream dis = new DataInputStream(bais);
-        return CloudRollupJobV2.read(dis);
+        CloudRollupJobV2 ret = (CloudRollupJobV2) CloudRollupJobV2.read(dis);
+        ret.partitionIdToRollupIndex = job.partitionIdToRollupIndex;
+        return ret;
     }
 
     private CloudRollupJobV2() {}
@@ -187,7 +189,12 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                             tbl.isInMemory(), true,
                             tbl.getName(), tbl.getTTLSeconds(),
                             tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                            tbl.getBaseSchemaVersion());
+                            tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
+                            tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                            tbl.getTimeSeriesCompactionFileCountThreshold(),
+                            tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                            tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                            tbl.getTimeSeriesCompactionLevelThreshold());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

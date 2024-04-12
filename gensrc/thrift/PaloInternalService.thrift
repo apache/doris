@@ -548,6 +548,7 @@ struct TFoldConstantParams {
   3: optional bool vec_exec
   4: optional TQueryOptions query_options
   5: optional Types.TUniqueId query_id
+  6: optional bool is_nereids
 }
 
 // TransmitData

@@ -89,12 +89,9 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLi
     DCHECK(ExecEnv::tracking_memory());
     std::lock_guard<std::mutex> l(
             ExecEnv::GetInstance()->mem_tracker_limiter_pool[tracker->group_num()].group_lock);
-    tracker->tracker_limiter_group_it =
-            ExecEnv::GetInstance()->mem_tracker_limiter_pool[tracker->group_num()].trackers.insert(
-                    ExecEnv::GetInstance()
-                            ->mem_tracker_limiter_pool[tracker->group_num()]
-                            .trackers.end(),
-                    tracker);
+    ExecEnv::GetInstance()->mem_tracker_limiter_pool[tracker->group_num()].trackers.insert(
+            ExecEnv::GetInstance()->mem_tracker_limiter_pool[tracker->group_num()].trackers.end(),
+            tracker);
 #endif
     return tracker;
 }
@@ -128,19 +125,6 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         }
         _consumption->set(0);
     }
-#ifndef BE_TEST
-    if (ExecEnv::tracking_memory()) {
-        std::lock_guard<std::mutex> l(
-                ExecEnv::GetInstance()->mem_tracker_limiter_pool[_group_num].group_lock);
-        if (tracker_limiter_group_it !=
-            ExecEnv::GetInstance()->mem_tracker_limiter_pool[_group_num].trackers.end()) {
-            ExecEnv::GetInstance()->mem_tracker_limiter_pool[_group_num].trackers.erase(
-                    tracker_limiter_group_it);
-            tracker_limiter_group_it =
-                    ExecEnv::GetInstance()->mem_tracker_limiter_pool[_group_num].trackers.end();
-        }
-    }
-#endif
     g_memtrackerlimiter_cnt << -1;
 }
 
@@ -171,6 +155,24 @@ void MemTrackerLimiter::refresh_global_counter() {
     for (auto it : type_mem_sum) {
         MemTrackerLimiter::TypeMemSum[it.first]->set(it.second);
     }
+}
+
+void MemTrackerLimiter::clean_tracker_limiter_group() {
+#ifndef BE_TEST
+    if (ExecEnv::tracking_memory()) {
+        for (auto& group : ExecEnv::GetInstance()->mem_tracker_limiter_pool) {
+            std::lock_guard<std::mutex> l(group.group_lock);
+            auto it = group.trackers.begin();
+            while (it != group.trackers.end()) {
+                if ((*it).expired()) {
+                    it = group.trackers.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+    }
+#endif
 }
 
 void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots) {

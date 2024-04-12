@@ -170,6 +170,11 @@ Status ExecNode::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, projections_row_desc()));
 
+    if (has_output_row_descriptor()) {
+        RETURN_IF_ERROR(
+                vectorized::VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
+    }
+
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->prepare(state));
     }
@@ -582,12 +587,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
     auto& mutable_columns = mutable_block.mutable_columns();
 
-    if (mutable_columns.size() != _projections.size()) {
-        return Status::InternalError(
-                "Logical error during processing {}, output of projections {} mismatches with "
-                "exec node output {}",
-                this->get_name(), _projections.size(), mutable_columns.size());
-    }
+    DCHECK_EQ(mutable_columns.size(), _projections.size());
 
     for (int i = 0; i < mutable_columns.size(); ++i) {
         auto result_column_id = -1;

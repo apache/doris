@@ -27,11 +27,8 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
@@ -56,8 +53,6 @@ import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
-import org.apache.hadoop.hive.metastore.api.SerDeInfo;
-import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.apache.hadoop.hive.metastore.txn.TxnUtils;
@@ -67,7 +62,6 @@ import org.apache.logging.log4j.Logger;
 import java.security.PrivilegedExceptionAction;
 import java.util.BitSet;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -605,11 +599,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
             Table originTable = getTable(dbName, tableName);
             Map<String, String> originParams = originTable.getParameters();
-            HivePartitionStatistics updatedStats = update.apply(toHivePartitionStatistics(originParams));
+            HivePartitionStatistics updatedStats = update.apply(HiveUtil.toHivePartitionStatistics(originParams));
 
             Table newTable = originTable.deepCopy();
             Map<String, String> newParams =
-                    updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
+                    HiveUtil.updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
             newParams.put("transient_lastDdlTime", String.valueOf(System.currentTimeMillis() / 1000));
             newTable.setParameters(newParams);
             client.client.alter_table(dbName, tableName, newTable);
@@ -633,11 +627,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
             Partition originPartition = partitions.get(0);
             Map<String, String> originParams = originPartition.getParameters();
-            HivePartitionStatistics updatedStats = update.apply(toHivePartitionStatistics(originParams));
+            HivePartitionStatistics updatedStats = update.apply(HiveUtil.toHivePartitionStatistics(originParams));
 
             Partition modifiedPartition = originPartition.deepCopy();
             Map<String, String> newParams =
-                    updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
+                    HiveUtil.updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
             newParams.put("transient_lastDdlTime", String.valueOf(System.currentTimeMillis() / 1000));
             modifiedPartition.setParameters(newParams);
             client.client.alter_partition(dbName, tableName, modifiedPartition);
@@ -650,7 +644,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions) {
         try (ThriftHMSClient client = getClient()) {
             List<Partition> hivePartitions = partitions.stream()
-                    .map(ThriftHMSCachedClient::toMetastoreApiPartition)
+                    .map(HiveUtil::toMetastoreApiPartition)
                     .collect(Collectors.toList());
             client.client.add_partitions(hivePartitions);
         } catch (Exception e) {
@@ -666,64 +660,4 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName);
         }
     }
-
-    private static HivePartitionStatistics toHivePartitionStatistics(Map<String, String> params) {
-        long rowCount = Long.parseLong(params.getOrDefault(StatsSetupConst.ROW_COUNT, "-1"));
-        long totalSize = Long.parseLong(params.getOrDefault(StatsSetupConst.TOTAL_SIZE, "-1"));
-        long numFiles = Long.parseLong(params.getOrDefault(StatsSetupConst.NUM_FILES, "-1"));
-        return HivePartitionStatistics.fromCommonStatistics(rowCount, numFiles, totalSize);
-    }
-
-    private static Map<String, String> updateStatisticsParameters(
-            Map<String, String> parameters,
-            HiveCommonStatistics statistics) {
-        HashMap<String, String> result = new HashMap<>(parameters);
-
-        result.put(StatsSetupConst.NUM_FILES, String.valueOf(statistics.getFileCount()));
-        result.put(StatsSetupConst.ROW_COUNT, String.valueOf(statistics.getRowCount()));
-        result.put(StatsSetupConst.TOTAL_SIZE, String.valueOf(statistics.getTotalFileBytes()));
-
-        // CDH 5.16 metastore ignores stats unless STATS_GENERATED_VIA_STATS_TASK is set
-        // https://github.com/cloudera/hive/blob/cdh5.16.2-release/metastore/src/java/org/apache/hadoop/hive/metastore/MetaStoreUtils.java#L227-L231
-        if (!parameters.containsKey("STATS_GENERATED_VIA_STATS_TASK")) {
-            result.put("STATS_GENERATED_VIA_STATS_TASK", "workaround for potential lack of HIVE-12730");
-        }
-
-        return result;
-    }
-
-    public static Partition toMetastoreApiPartition(HivePartitionWithStatistics partitionWithStatistics) {
-        Partition partition =
-                toMetastoreApiPartition(partitionWithStatistics.getPartition());
-        partition.setParameters(updateStatisticsParameters(
-                partition.getParameters(), partitionWithStatistics.getStatistics().getCommonStatistics()));
-        return partition;
-    }
-
-    public static Partition toMetastoreApiPartition(HivePartition hivePartition) {
-        Partition result = new Partition();
-        result.setDbName(hivePartition.getDbName());
-        result.setTableName(hivePartition.getTblName());
-        result.setValues(hivePartition.getPartitionValues());
-        result.setSd(makeStorageDescriptorFromHivePartition(hivePartition));
-        result.setParameters(hivePartition.getParameters());
-        return result;
-    }
-
-    private static StorageDescriptor makeStorageDescriptorFromHivePartition(HivePartition partition) {
-        SerDeInfo serdeInfo = new SerDeInfo();
-        serdeInfo.setName(partition.getTblName());
-        serdeInfo.setSerializationLib(partition.getSerde());
-
-        StorageDescriptor sd = new StorageDescriptor();
-        sd.setLocation(Strings.emptyToNull(partition.getPath()));
-        sd.setCols(partition.getColumns());
-        sd.setSerdeInfo(serdeInfo);
-        sd.setInputFormat(partition.getInputFormat());
-        sd.setOutputFormat(partition.getOutputFormat());
-        sd.setParameters(ImmutableMap.of());
-
-        return sd;
-    }
-
 }

@@ -55,12 +55,17 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
 
     public static AlterJobV2 buildCloudSchemaChangeJobV2(SchemaChangeJobV2 job) throws IOException {
+        // deep copy to save repeated assignments
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream dos = new DataOutputStream(baos);
         job.write(dos);
         ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
         DataInputStream dis = new DataInputStream(bais);
-        return CloudSchemaChangeJobV2.read(dis);
+        // partitionIndexMap cannot be deep-copied because it is referenced
+        // by `SchemaChangeJobV2#addShadowIndexToCatalog` and `SchemaChangeHandler.createJob`
+        CloudSchemaChangeJobV2 ret = (CloudSchemaChangeJobV2) CloudSchemaChangeJobV2.read(dis);
+        ret.partitionIndexMap = job.partitionIndexMap;
+        return ret;
     }
 
     public CloudSchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId,
@@ -196,7 +201,12 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                 tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                 tbl.getName(), tbl.getTTLSeconds(),
                                 tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                shadowSchemaVersion);
+                                shadowSchemaVersion, tbl.getCompactionPolicy(),
+                                tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                tbl.getTimeSeriesCompactionFileCountThreshold(),
+                                tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                tbl.getTimeSeriesCompactionLevelThreshold());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

@@ -452,7 +452,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             for (DatabaseIf db : dbs) {
                 String dbName = db.getFullName();
-                if (!env.getAccessManager().checkDbPriv(currentUser, dbName, PrivPredicate.SHOW)) {
+                if (!env.getAccessManager()
+                        .checkDbPriv(currentUser, catalog.getName(), dbName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -537,7 +538,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         LOG.debug("get table: {}, wait to check", tableName);
                     }
                     if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(currentUser, dbName, tableName, PrivPredicate.SHOW)) {
+                            .checkTblPriv(currentUser, catalogName, dbName, tableName,
+                                    PrivPredicate.SHOW)) {
                         continue;
                     }
                     if (matcher != null && !matcher.match(tableName)) {
@@ -601,8 +603,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                     }
                     for (TableIf table : tables) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, dbName,
-                                table.getName(), PrivPredicate.SHOW)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(currentUser, catalogName, dbName,
+                                        table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
                         table.readLock();
@@ -681,7 +684,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (db != null) {
                     List<TableIf> tables = db.getTables();
                     for (TableIf table : tables) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, dbName,
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, catalogName, dbName,
                                 table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
@@ -1083,7 +1086,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         Preconditions.checkState(currentUser.size() == 1);
         if (tables == null || tables.isEmpty()) {
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(currentUser.get(0), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, predicate)) {
                 throw new AuthenticationException(
                         "Access denied; you need (at least one of) the (" + predicate.toString()
                                 + ") privilege(s) for this operation");
@@ -1092,7 +1096,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         for (String tbl : tables) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(currentUser.get(0), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, tbl,
+                            predicate)) {
                 throw new AuthenticationException(
                         "Access denied; you need (at least one of) the (" + predicate.toString()
                                 + ") privilege(s) for this operation");
@@ -1905,6 +1911,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr);
 
         try {
+            // Some requests forget to remove the ConnectContext, so remove it firstly
+            ConnectContext.remove();
             streamLoadHandler.setCloudCluster();
 
             List<TPipelineWorkloadGroup> tWorkloadGroupList = null;
@@ -1940,11 +1948,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.NOT_FOUND);
             status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
-            LOG.warn("failed to get stream load plan: {}", e.getMessage());
+            LOG.warn("failed to get stream load plan, label: {}", request.getLabel(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.warn("stream load catch unknown result, label: {}", request.getLabel(), e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
@@ -1998,6 +2006,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
+        } finally {
+            ConnectContext.remove();
         }
         if (Config.enable_pipeline_load) {
             result.setPipelineParams(planFragmentParamsList);
@@ -2317,13 +2327,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         } else if (privHier == TPrivilegeHier.DATABASE) {
             String fullDbName = privCtrl.getDb();
-            if (!accessManager.checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
+            if (!accessManager.checkDbPriv(currentUser.get(0), privCtrl.getCtl(), fullDbName,
+                    predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs("Database permissions error");
             }
         } else if (privHier == TPrivilegeHier.TABLE) {
             String fullDbName = privCtrl.getDb();
-            if (!accessManager.checkTblPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), predicate)) {
+            if (!accessManager.checkTblPriv(currentUser.get(0), privCtrl.getCtl(), fullDbName, privCtrl.getTbl(),
+                    predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs("Table permissions error");
             }
@@ -2331,7 +2343,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             String fullDbName = privCtrl.getDb();
 
             try {
-                accessManager.checkColumnsPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), privCtrl.getCols(),
+                accessManager.checkColumnsPriv(currentUser.get(0), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                        privCtrl.getTbl(), privCtrl.getCols(),
                         predicate);
             } catch (UserException e) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);

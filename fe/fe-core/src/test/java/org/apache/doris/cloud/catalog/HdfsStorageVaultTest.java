@@ -31,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableMap;
 import mockit.Mock;
@@ -44,7 +45,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class HdfsStorageVaultTest {
-    private StorageVaultMgr mgr = new StorageVaultMgr();
+    private StorageVaultMgr mgr = new StorageVaultMgr(new SystemInfoService());
 
     @Before
     public void setUp() throws Exception {

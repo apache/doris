@@ -106,6 +106,11 @@ public class BackendServiceClient {
         return stub.fetchArrowFlightSchema(request);
     }
 
+    public Future<InternalService.POutfileWriteSuccessResult> outfileWriteSuccessAsync(
+            InternalService.POutfileWriteSuccessRequest request) {
+        return stub.outfileWriteSuccess(request);
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             InternalService.PFetchTableSchemaRequest request) {
         return stub.fetchTableSchema(request);
@@ -175,6 +180,11 @@ public class BackendServiceClient {
     public Future<InternalService.PGetWalQueueSizeResponse> getWalQueueSize(
             InternalService.PGetWalQueueSizeRequest request) {
         return stub.getWalQueueSize(request);
+    }
+
+    public Future<InternalService.PAlterVaultSyncResponse> alterVaultSync(
+            InternalService.PAlterVaultSyncRequest request) {
+        return stub.alterVaultSync(request);
     }
 
 

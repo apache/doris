@@ -52,15 +52,15 @@ suite("test_plsql_variable") {
         """
 
     sql """
-        CREATE OR REPLACE PROCEDURE procedure_insert(IN id int, IN name STRING)
+        CREATE OR REPLACE PROCEDURE plsql_variable_insert(IN id int, IN name STRING)
         BEGIN
             INSERT INTO ${tableName} VALUES(id, name);
         END;
         """
-    sql """call procedure_insert(111, "plsql111")"""
-    sql """call procedure_insert(222, "plsql222")"""
-    sql """call procedure_insert(333, "plsql333")"""
-    sql """call procedure_insert(111, "plsql333")"""
+    sql """call plsql_variable_insert(111, "plsql111")"""
+    sql """call plsql_variable_insert(222, "plsql222")"""
+    sql """call plsql_variable_insert(333, "plsql333")"""
+    sql """call plsql_variable_insert(111, "plsql333")"""
     qt_select "select sum(id), count(1) from ${tableName}"
 
     sql """
@@ -107,4 +107,36 @@ suite("test_plsql_variable") {
         END;
         """
     qt_select """call plsql_variable3()"""
+
+    sql """
+        CREATE OR REPLACE PROCEDURE plsql_variable4()
+        BEGIN
+            select 1;     
+            select now();
+            select to_date("2024-04-07 00:00:00");
+            select 9999 * 999 + 99 / 9;
+        END;
+        """
+    // qt_select """call plsql_variable4()""" // Groovy jdbc not support procedure return select results.
+
+    sql "DROP TABLE IF EXISTS plsql_variable2"
+    sql """
+        create table plsql_variable2 (k1 int, k2 varchar(20), k3 double) DUPLICATE key(`k1`) distributed by hash (`k1`) buckets 1
+        properties ("replication_num"="1");
+        """
+    sql """
+        CREATE OR REPLACE PROCEDURE plsql_variable5()
+        BEGIN
+            INSERT INTO plsql_variable2 select 1, to_date("2024-04-07 00:00:00"), 9999 * 999 + 99 / 9;
+        END;
+        """
+    qt_select """call plsql_variable5()"""
+    qt_select "select * from plsql_variable2"
+
+    sql """DROP PROCEDURE plsql_variable1"""
+    sql """DROP PROCEDURE plsql_variable2"""
+    sql """DROP PROCEDURE plsql_variable3"""
+    sql """DROP PROCEDURE plsql_variable4"""
+    sql """DROP PROCEDURE plsql_variable5"""
+    sql """DROP PROC plsql_variable_insert"""
 }

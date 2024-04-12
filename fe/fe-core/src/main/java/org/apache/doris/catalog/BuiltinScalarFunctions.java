@@ -317,6 +317,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
@@ -384,6 +385,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
@@ -843,6 +845,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StX.class, "st_x"),
             scalar(StY.class, "st_y"),
             scalar(StartsWith.class, "starts_with"),
+            scalar(Strcmp.class, "strcmp"),
             scalar(StrInsert.class, "str_insert"),
             scalar(StrLeft.class, "strleft"),
             scalar(StrRight.class, "strright"),
@@ -870,6 +873,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Unhex.class, "unhex"),
             scalar(UnixTimestamp.class, "unix_timestamp"),
             scalar(Upper.class, "ucase", "upper"),
+            scalar(Quote.class, "quote"),
             scalar(UrlDecode.class, "url_decode"),
             scalar(User.class, "user"),
             scalar(UtcTimestamp.class, "utc_timestamp"),

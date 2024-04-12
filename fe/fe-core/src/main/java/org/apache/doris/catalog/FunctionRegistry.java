@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -169,7 +170,8 @@ public class FunctionRegistry {
         if (ConnectContext.get() != null) {
             dbName = dbName == null ? ConnectContext.get().getDatabase() : dbName;
             if (dbName == null || !Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                            PrivPredicate.SELECT)) {
                 scopes = ImmutableList.of(GLOBAL_FUNCTION);
             } else {
                 scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);

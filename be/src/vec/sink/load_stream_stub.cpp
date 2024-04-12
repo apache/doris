@@ -250,7 +250,7 @@ Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
-    header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
+    header.set_opcode(doris::PStreamHeader::GET_SCHEMA);
     std::ostringstream oss;
     oss << "fetching tablet schema from stream " << _stream_id
         << ", load id: " << print_id(_load_id) << ", tablet id:";
@@ -291,10 +291,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 }
 
 Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
-    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
-        while (true) {
-        };
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
     if (!_is_init.load()) {
         return Status::InternalError("stream {} is not opened, load_id={}", _stream_id,
                                      print_id(_load_id));
@@ -308,6 +305,9 @@ Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {
         //the query maybe cancel, so need check after wait 1s
         timeout_sec = timeout_sec - 1;
+        LOG(INFO) << "close waiting, " << *this << ", timeout_sec=" << timeout_sec
+                  << ", is_closed=" << _is_closed.load()
+                  << ", is_cancelled=" << state->get_query_ctx()->is_cancelled();
         int ret = _close_cv.wait_for(lock, 1000000);
         if (ret != 0 && timeout_sec <= 0) {
             return Status::InternalError(

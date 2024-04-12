@@ -55,6 +55,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
 
@@ -66,14 +67,16 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-SnapshotManager::SnapshotManager(StorageEngine& engine)
-        : _engine(engine), _mem_tracker(std::make_shared<MemTracker>("SnapshotManager")) {}
+SnapshotManager::SnapshotManager(StorageEngine& engine) : _engine(engine) {
+    _mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "SnapshotManager");
+}
 
 SnapshotManager::~SnapshotManager() = default;
 
 Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
                                       bool* allow_incremental_clone) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
@@ -98,7 +101,7 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
     // Otherwise, it is considered an illegal request and returns an error result.
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     auto stores = _engine.get_stores();
     for (auto* store : stores) {
         std::string abs_path;
@@ -119,7 +122,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t partition_id,
         int32_t schema_hash) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
     bool exists = true;

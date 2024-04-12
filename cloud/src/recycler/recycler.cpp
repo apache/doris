@@ -948,7 +948,7 @@ int InstanceRecycler::recycle_versions() {
     int64_t last_scanned_table_id = 0;
     bool is_recycled = false; // Is last scanned kv recycled
     auto recycle_func = [&num_scanned, &num_recycled, &last_scanned_table_id, &is_recycled, this](
-            std::string_view k, std::string_view) {
+                                std::string_view k, std::string_view) {
         ++num_scanned;
         auto k1 = k;
         k1.remove_prefix(1);
@@ -980,8 +980,10 @@ int InstanceRecycler::recycle_versions() {
         }
         auto db_id = std::get<int64_t>(std::get<0>(out[3]));
         // 1. Remove all partition version kvs of this table
-        auto partition_version_key_begin = partition_version_key({instance_id_, db_id, table_id, 0});
-        auto partition_version_key_end = partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
+        auto partition_version_key_begin =
+                partition_version_key({instance_id_, db_id, table_id, 0});
+        auto partition_version_key_end =
+                partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
         txn->remove(partition_version_key_begin, partition_version_key_end);
         LOG(WARNING) << "remove partition version kv, begin=" << hex(partition_version_key_begin)
                      << " end=" << hex(partition_version_key_end);
@@ -1151,6 +1153,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
     txn->remove(job_key_begin, job_key_end);
     LOG(WARNING) << "remove job kv, begin=" << hex(job_key_begin) << " end=" << hex(job_key_end);
     std::string schema_key_begin, schema_key_end;
+    std::string schema_dict_key;
     if (partition_id <= 0) {
         // Delete schema kv of this index
         meta_schema_key({instance_id_, index_id, 0}, &schema_key_begin);
@@ -1158,6 +1161,9 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         txn->remove(schema_key_begin, schema_key_end);
         LOG(WARNING) << "remove schema kv, begin=" << hex(schema_key_begin)
                      << " end=" << hex(schema_key_end);
+        meta_schema_pb_dictionary_key({instance_id_, index_id}, &schema_dict_key);
+        txn->remove(schema_dict_key);
+        LOG(WARNING) << "remove schema dict kv, key=" << hex(schema_dict_key);
     }
 
     TxnErrorCode err = txn->commit();
@@ -1334,11 +1340,6 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);
 
-    // remove rowset schema
-    std::string rowset_schema_start = meta_rowset_schema_key({instance_id_, tablet_id, ""});
-    std::string rowset_schema_end = meta_rowset_schema_key({instance_id_, tablet_id + 1, ""});
-    txn->remove(rowset_schema_start, rowset_schema_end);
-
     TxnErrorCode err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete rowset kv of tablet " << tablet_id << ", err=" << err;
@@ -1399,7 +1400,6 @@ int InstanceRecycler::recycle_rowsets() {
     });
 
     std::vector<std::string> rowset_keys;
-    std::vector<std::string> rowset_schema_keys;
     std::vector<doris::RowsetMetaCloudPB> rowsets;
 
     // Store keys of rowset recycled by background workers
@@ -1527,9 +1527,6 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
-            auto schema_key = meta_rowset_schema_key(
-                    {instance_id_, rowset_meta->tablet_id(), rowset_meta->rowset_id_v2()});
-            rowset_schema_keys.push_back(std::move(schema_key));
             rowset_keys.push_back(std::string(k));
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
                 rowsets.push_back(std::move(*rowset_meta));
@@ -1540,21 +1537,13 @@ int InstanceRecycler::recycle_rowsets() {
 
     auto loop_done = [&]() -> int {
         std::vector<std::string> rowset_keys_to_delete;
-        std::vector<std::string> rowset_schema_keys_to_delete;
         std::vector<doris::RowsetMetaCloudPB> rowsets_to_delete;
         rowset_keys_to_delete.swap(rowset_keys);
-        rowset_schema_keys_to_delete.swap(rowset_schema_keys);
         rowsets_to_delete.swap(rowsets);
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
-                             rowsets_to_delete = std::move(rowsets_to_delete),
-                             rowset_schema_keys_to_delete =
-                                     std::move(rowset_schema_keys_to_delete)]() {
+                             rowsets_to_delete = std::move(rowsets_to_delete)]() {
             if (delete_rowset_data(rowsets_to_delete) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
-                return;
-            }
-            if (txn_remove(txn_kv_.get(), rowset_schema_keys_to_delete) != 0) {
-                LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
                 return;
             }
             if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
@@ -1616,11 +1605,10 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 
     // Elements in `tmp_rowset_keys` has the same lifetime as `it`
     std::vector<std::string_view> tmp_rowset_keys;
-    std::vector<std::string> tmp_rowset_schema_keys;
     std::vector<doris::RowsetMetaCloudPB> tmp_rowsets;
 
     auto handle_rowset_kv = [&num_scanned, &num_expired, &tmp_rowset_keys, &tmp_rowsets,
-                             &expired_rowset_size, &total_rowset_size, &tmp_rowset_schema_keys,
+                             &expired_rowset_size, &total_rowset_size,
                              this](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         total_rowset_size += v.size();
@@ -1650,11 +1638,6 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             tmp_rowset_keys.push_back(k);
             return 0;
         }
-        if (rowset.has_variant_type_in_schema()) {
-            auto schema_key = meta_rowset_schema_key(
-                    {instance_id_, rowset.tablet_id(), rowset.rowset_id_v2()});
-            tmp_rowset_schema_keys.push_back(std::move(schema_key));
-        }
         // TODO(plat1ko): check rowset not referenced
         LOG(INFO) << "delete rowset data, instance_id=" << instance_id_
                   << " tablet_id=" << rowset.tablet_id() << " rowset_id=" << rowset.rowset_id_v2()
@@ -1668,18 +1651,13 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         return 0;
     };
 
-    auto loop_done = [&tmp_rowset_keys, &tmp_rowsets, &num_recycled, &tmp_rowset_schema_keys,
-                      this]() -> int {
+    auto loop_done = [&tmp_rowset_keys, &tmp_rowsets, &num_recycled, this]() -> int {
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
             tmp_rowset_keys.clear();
             tmp_rowsets.clear();
         });
         if (delete_rowset_data(tmp_rowsets) != 0) {
             LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
-            return -1;
-        }
-        if (txn_remove(txn_kv_.get(), tmp_rowset_schema_keys) != 0) {
-            LOG(WARNING) << "failed to delete tmp rowset schema kv, instance_id=" << instance_id_;
             return -1;
         }
         if (txn_remove(txn_kv_.get(), tmp_rowset_keys) != 0) {

@@ -46,6 +46,10 @@ Status CloudRowsetBuilder::init() {
     }
     RETURN_IF_ERROR(check_tablet_version_count());
 
+    using namespace std::chrono;
+    std::static_pointer_cast<CloudTablet>(_tablet)->last_load_time_ms =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                  *_tablet->tablet_schema());

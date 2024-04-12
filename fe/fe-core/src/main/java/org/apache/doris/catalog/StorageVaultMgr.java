@@ -24,12 +24,18 @@ import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -41,7 +47,12 @@ public class StorageVaultMgr {
 
     private ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
-    public StorageVaultMgr() {
+    private static final ExecutorService ALTER_BE_SYNC_THREAD_POOL = Executors.newFixedThreadPool(1);
+
+    private final SystemInfoService systemInfoService;
+
+    public StorageVaultMgr(SystemInfoService systemInfoService) {
+        this.systemInfoService = systemInfoService;
     }
 
     // TODO(ByteYue): The CreateStorageVault should only be handled by master
@@ -125,6 +136,7 @@ public class StorageVaultMgr {
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
                     && hdfsStorageVault.ifNotExists()) {
+                ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
                 return;
             }
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
@@ -135,5 +147,16 @@ public class StorageVaultMgr {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
+    }
+
+    private void alterSyncVaultTask() {
+        systemInfoService.getAllBackends().forEach(backend -> {
+            TNetworkAddress address = backend.getBrpcAddress();
+            try {
+                BackendServiceProxy.getInstance().alterVaultSync(address, PAlterVaultSyncRequest.newBuilder().build());
+            } catch (RpcException e) {
+                LOG.warn("failed to alter sync vault");
+            }
+        });
     }
 }
