@@ -146,7 +146,9 @@ add_be_to_cluster() {
     fi
 
     if [ "${IS_CLOUD}" == "1" ]; then
-        add_cloud_be
+        if [ "${REG_BE_TO_MS}" == "1" ]; then
+            add_cloud_be
+        fi
     else
         add_local_be
     fi

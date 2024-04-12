@@ -20,7 +20,6 @@ package org.apache.doris.datasource.trinoconnector.source;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -29,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorPluginLoader;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
@@ -41,7 +41,6 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTrinoConnectorFileDesc;
 import org.apache.doris.trinoconnector.TrinoColumnMetadata;
-import org.apache.doris.trinoconnector.TrinoConnectorPluginManager;
 
 import com.fasterxml.jackson.databind.Module;
 import com.google.common.collect.ImmutableMap;
@@ -85,7 +84,8 @@ import java.util.stream.Collectors;
 
 public class TrinoConnectorScanNode extends FileQueryScanNode {
     private static final int minScheduleSplitBatchSize = 10;
-    private static TrinoConnectorSource source = null;
+    private TrinoConnectorSource source = null;
+    private ObjectMapperProvider objectMapperProvider;
 
     // private static List<Predicate> predicates;
 
@@ -131,7 +131,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         List<Split> splits = Lists.newArrayList();
         while (!splitSource.isFinished()) {
             for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
-                splits.add(new TrinoConnectorSplit(split.getConnectorSplit()));
+                splits.add(new TrinoConnectorSplit(split.getConnectorSplit(), source.getConnectorName()));
             }
         }
         return splits;
@@ -174,14 +174,11 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
 
     public void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
         // mock ObjectMapperProvider
-        ObjectMapperProvider objectMapperProvider = createObjectMapperProvider();
+        objectMapperProvider = createObjectMapperProvider();
 
         // set TTrinoConnectorFileDesc
         TTrinoConnectorFileDesc fileDesc = new TTrinoConnectorFileDesc();
         fileDesc.setTrinoConnectorSplit(encodeObjectToString(trinoConnectorSplit.getSplit(), objectMapperProvider));
-        fileDesc.setTrinoConnectorColumnNames(
-                source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
-                        .collect(Collectors.joining(",")));
         fileDesc.setCatalogName(source.getCatalog().getName());
         fileDesc.setDbName(source.getTargetTable().getDbName());
         fileDesc.setTrinoConnectorOptions(source.getCatalog().getTrinoConnectorProperties());
@@ -194,6 +191,9 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         List<ColumnHandle> columnHandles = new ArrayList<>();
         List<ColumnMetadata> columnMetadataList = new ArrayList<>();
         for (SlotDescriptor slotDescriptor : source.getDesc().getSlots()) {
+            if (!slotDescriptor.isMaterialized()) {
+                continue;
+            }
             String colName = slotDescriptor.getColumn().getName();
             if (columnMetadataMap.containsKey(colName)) {
                 columnMetadataList.add(columnMetadataMap.get(colName));
@@ -207,7 +207,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
                         filed -> new TrinoColumnMetadata(filed.getName(), filed.getType(), filed.isNullable(),
                                 filed.getComment(),
                                 filed.getExtraInfo(), filed.isHidden(), filed.getProperties()))
-                        .collect(Collectors.toList()), objectMapperProvider));
+                .collect(Collectors.toList()), objectMapperProvider));
 
         // set TTableFormatFileDesc
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
@@ -220,11 +220,10 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
 
     private ObjectMapperProvider createObjectMapperProvider() {
         // mock ObjectMapperProvider
-        TrinoConnectorPluginManager trinoConnectorPluginManager = Env.getCurrentEnv().getTrinoConnectorPluginManager();
-        TypeManager typeManager = new InternalTypeManager(trinoConnectorPluginManager.getTypeRegistry());
+        TypeManager typeManager = new InternalTypeManager(TrinoConnectorPluginLoader.getTypeRegistry());
         ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
         Set<Module> modules = new HashSet<Module>();
-        HandleResolver handleResolver = trinoConnectorPluginManager.getHandleResolver();
+        HandleResolver handleResolver = TrinoConnectorPluginLoader.getHandleResolver();
         modules.add(HandleJsonModule.tableHandleModule(handleResolver));
         modules.add(HandleJsonModule.columnHandleModule(handleResolver));
         modules.add(HandleJsonModule.splitModule(handleResolver));
@@ -256,12 +255,21 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
             Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
         super.updateRequiredSlots(planTranslatorContext, requiredByProjectSlotIdSet);
-        String cols = desc.getSlots().stream().map(slot -> slot.getColumn().getName())
-                .collect(Collectors.joining(","));
+        Map<String, ColumnMetadata> columnMetadataMap = source.getTargetTable().getColumnMetadataMap();
+        Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
+        List<ColumnHandle> columnHandles = new ArrayList<>();
+        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            String colName = slotDescriptor.getColumn().getName();
+            if (columnMetadataMap.containsKey(colName)) {
+                columnHandles.add(columnHandleMap.get(colName));
+            }
+        }
+
         for (TScanRangeLocations tScanRangeLocations : scanRangeLocations) {
             List<TFileRangeDesc> ranges = tScanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges;
             for (TFileRangeDesc tFileRangeDesc : ranges) {
-                tFileRangeDesc.table_format_params.trino_connector_params.setTrinoConnectorColumnNames(cols);
+                tFileRangeDesc.table_format_params.trino_connector_params.setTrinoConnectorColumnHandles(
+                        encodeObjectToString(columnHandles, objectMapperProvider));
             }
         }
     }

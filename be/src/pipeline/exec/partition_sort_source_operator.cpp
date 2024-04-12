@@ -60,6 +60,10 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                     local_state._dependency->block();
                 }
             }
+            if (!output_block->empty()) {
+                COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
+                COUNTER_UPDATE(local_state.rows_returned_counter(), output_block->rows());
+            }
             return Status::OK();
         }
     }
@@ -77,6 +81,10 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
 
         *eos = local_state._shared_state->blocks_buffer.empty() &&
                local_state._sort_idx >= local_state._shared_state->partition_sorts.size();
+    }
+    if (!output_block->empty()) {
+        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
+        COUNTER_UPDATE(local_state.rows_returned_counter(), output_block->rows());
     }
     return Status::OK();
 }

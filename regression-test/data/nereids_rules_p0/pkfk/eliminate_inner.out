@@ -285,3 +285,31 @@ PhysicalResultSink
 
 -- !res --
 
+-- !name --
+multi_table_join_with_pk_predicate
+
+-- !shape --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((fkt_not_null.fk = fkt_not_null2.fk)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------filter((cast(p as DOUBLE) = 1.0))
+--------PhysicalOlapScan[pkt]
+------PhysicalOlapScan[fkt_not_null]
+----PhysicalOlapScan[fkt_not_null]
+
+-- !res --
+
+-- !name --
+multi_table_join_with_pk_fk_predicate
+
+-- !shape --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((fkt_not_null.fk = fkt_not_null2.fk)) otherCondition=()
+----filter((fkt_not_null.fk = 1))
+------PhysicalOlapScan[fkt_not_null]
+----filter((fkt_not_null2.fk = 1))
+------PhysicalOlapScan[fkt_not_null]
+
+-- !res --
+1	John
+

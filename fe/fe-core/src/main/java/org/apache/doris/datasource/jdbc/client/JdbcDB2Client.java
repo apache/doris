@@ -26,7 +26,6 @@ import com.google.common.collect.Lists;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 public class JdbcDB2Client extends JdbcClient {
@@ -35,36 +34,31 @@ public class JdbcDB2Client extends JdbcClient {
         super(jdbcClientConfig);
     }
 
+    public String getTestQuery() {
+        return "select 1 from sysibm.sysdummy1";
+    }
+
     @Override
     public List<String> getDatabaseNameList() {
         Connection conn = getConnection();
-        Statement stmt = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
-        }
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
-            while (rs.next()) {
-                remoteDatabaseNames.add(rs.getString("TABLE_SCHEM").trim());
+            if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+                String currentDatabase = conn.getSchema().trim();
+                remoteDatabaseNames.add(currentDatabase);
+            } else {
+                rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
+                while (rs.next()) {
+                    remoteDatabaseNames.add(rs.getString("TABLE_SCHEM").trim());
+                }
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
-            close(rs, stmt, conn);
+            close(rs, conn);
         }
         return filterDatabaseNames(remoteDatabaseNames);
-    }
-
-    @Override
-    protected String getDatabaseQuery() {
-        return "SELECT schemaname FROM syscat.schemata WHERE DEFINER = CURRENT USER;";
-    }
-
-    @Override
-    protected String getCatalogName(Connection conn) throws SQLException {
-        return conn.getCatalog();
     }
 
     @Override

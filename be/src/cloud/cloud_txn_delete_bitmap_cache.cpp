@@ -69,17 +69,16 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
     }
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
     CacheKey key(key_str);
-    Cache::Handle* handle = cache()->lookup(key);
+    Cache::Handle* handle = lookup(key);
 
     DeleteBitmapCacheValue* val =
-            handle == nullptr ? nullptr
-                              : reinterpret_cast<DeleteBitmapCacheValue*>(cache()->value(handle));
+            handle == nullptr ? nullptr : reinterpret_cast<DeleteBitmapCacheValue*>(value(handle));
     if (val) {
         *delete_bitmap = val->delete_bitmap;
         *rowset_ids = val->rowset_ids;
         // must call release handle to reduce the reference count,
         // otherwise there will be memory leak
-        cache()->release(handle);
+        release(handle);
     } else {
         LOG_INFO("cache missed when get delete bitmap")
                 .tag("txn_id", transaction_id)
@@ -111,17 +110,14 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
     CacheKey key(key_str);
 
     auto val = new DeleteBitmapCacheValue(delete_bitmap, rowset_ids);
-    auto deleter = [](const CacheKey&, void* value) {
-        delete (DeleteBitmapCacheValue*)value; // Just delete to reclaim
-    };
     size_t charge = sizeof(DeleteBitmapCacheValue);
     for (auto& [k, v] : val->delete_bitmap->delete_bitmap) {
         charge += v.getSizeInBytes();
     }
-    auto handle = cache()->insert(key, val, charge, deleter, CachePriority::NORMAL);
+    auto* handle = insert(key, val, charge, charge, CachePriority::NORMAL);
     // must call release handle to reduce the reference count,
     // otherwise there will be memory leak
-    cache()->release(handle);
+    release(handle);
     LOG_INFO("set txn related delete bitmap")
             .tag("txn_id", transaction_id)
             .tag("expiration", txn_expiration)
@@ -137,17 +133,14 @@ void CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transactio
     CacheKey key(key_str);
 
     auto val = new DeleteBitmapCacheValue(delete_bitmap, rowset_ids);
-    auto deleter = [](const CacheKey&, void* value) {
-        delete (DeleteBitmapCacheValue*)value; // Just delete to reclaim
-    };
     size_t charge = sizeof(DeleteBitmapCacheValue);
     for (auto& [k, v] : val->delete_bitmap->delete_bitmap) {
         charge += v.getSizeInBytes();
     }
-    auto handle = cache()->insert(key, val, charge, deleter, CachePriority::NORMAL);
+    auto* handle = insert(key, val, charge, charge, CachePriority::NORMAL);
     // must call release handle to reduce the reference count,
     // otherwise there will be memory leak
-    cache()->release(handle);
+    release(handle);
     LOG_INFO("update txn related delete bitmap")
             .tag("txn_id", transaction_id)
             .tag("tablt_id", tablet_id)
@@ -174,7 +167,7 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
             std::string key_str = std::to_string(txn_iter->first.txn_id) + "/" +
                                   std::to_string(txn_iter->first.tablet_id); // Cache key container
             CacheKey cache_key(key_str);
-            cache()->erase(cache_key);
+            erase(cache_key);
             _txn_map.erase(iter->second);
         }
         _expiration_txn.erase(iter);

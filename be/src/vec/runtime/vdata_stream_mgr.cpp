@@ -38,12 +38,17 @@ VDataStreamMgr::VDataStreamMgr() {
 }
 
 VDataStreamMgr::~VDataStreamMgr() {
-    // TODO: metric
+    // Has to call close here, because receiver will check if the receiver is closed.
+    // It will core during graceful stop.
+    auto receivers = std::vector<std::shared_ptr<VDataStreamRecvr>>();
     auto receiver_iterator = _receiver_map.begin();
     while (receiver_iterator != _receiver_map.end()) {
-        // Has to call close here, because receiver will check if the receiver is closed.
-        // It will core during graceful stop.
-        receiver_iterator->second->close();
+        // Could not call close directly, because during close method, it will remove itself
+        // from the map, and modify the map, it will core.
+        receivers.push_back(receiver_iterator->second);
+    }
+    for (auto iter = receivers.begin(); iter != receivers.end(); ++iter) {
+        (*iter)->close();
     }
 }
 

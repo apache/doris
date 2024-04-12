@@ -153,4 +153,21 @@ suite("fix_leading") {
     qt_select2_5_11 """select /*+ leading(t3 {t1 t2}) */ count(*) from t1 right join t2 on c2 = c2 left semi join t3 on c2 = c3;"""
     qt_select2_5_12 """select /*+ leading(t3 t2 t1) */ count(*) from t1 right join t2 on c2 = c2 left semi join t3 on c2 = c3;"""
     qt_select2_5_13 """select /*+ leading(t3 {t2 t1}) */ count(*) from t1 right join t2 on c2 = c2 left semi join t3 on c2 = c3;"""
+
+    // check only one table used in leading
+    qt_select3_1 """select /*+ leading(t1) */ count(*) from t1 join t2 on c1 = c2;"""
+
+    // check only one table used in leading and add brace
+    qt_select3_2 """select /*+ leading({t1}) */ count(*) from t1 join t2 on c1 = c2;"""
+
+    // check mistake usage of brace
+    qt_select3_3 """select /*+ leading(t1 {t2}) */ count(*) from t1 join t2 on c1 = c2;"""
+
+    // check using subquery alias to cte in cte query
+    qt_select3_4 """with cte as (select c1 from t1) select count(*) from t1 join (select /*+ leading(cte t2) */ c2 from t2 join cte on c2 = cte.c1) as alias on t1.c1 = alias.c2;"""
+
+    // check left right join result
+    qt_select4_1 """select count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+    qt_select4_2 """select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+    qt_select4_3 """explain shape plan select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
 }

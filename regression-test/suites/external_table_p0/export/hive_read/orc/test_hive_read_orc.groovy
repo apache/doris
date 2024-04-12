@@ -183,12 +183,12 @@ suite("test_hive_read_orc", "external,hive,external_docker") {
 
         def hive_column_define = """
                                     user_id INT,
-                                    `date` STRING,
-                                    datev2 STRING,
-                                    `datetime` STRING,
-                                    datetimev2_1 STRING,
-                                    datetimev2_2 STRING,
-                                    datetimev2_3 STRING,
+                                    `date` DATE,
+                                    datev2 DATE,
+                                    `datetime` TIMESTAMP,
+                                    datetimev2_1 TIMESTAMP,
+                                    datetimev2_2 TIMESTAMP,
+                                    datetimev2_3 TIMESTAMP,
                                     city STRING,
                                     street STRING,
                                     age SMALLINT,

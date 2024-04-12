@@ -63,8 +63,9 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 // null aware mark join will be translated to null aware left semi/anti join
                 // we don't support null aware right semi/anti join, so should not commute
                 .whenNot(join -> JoinUtils.isNullAwareMarkJoin(join))
-                // commuting nest loop mark join is not supported by be
-                .whenNot(join -> join.isMarkJoin() && join.getHashJoinConjuncts().isEmpty())
+                // commuting nest loop mark join or left anti mark join is not supported by be
+                .whenNot(join -> join.isMarkJoin() && (join.getHashJoinConjuncts().isEmpty()
+                        || join.getJoinType().isLeftAntiJoin()))
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
                             join.right(), join.left(), null);

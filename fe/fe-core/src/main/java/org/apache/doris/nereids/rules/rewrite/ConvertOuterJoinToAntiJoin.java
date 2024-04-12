@@ -68,10 +68,10 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
 
         Plan newJoin = null;
         if (join.getJoinType().isLeftOuterJoin() && !rightAlwaysNullSlots.isEmpty()) {
-            newJoin = join.withJoinType(JoinType.LEFT_ANTI_JOIN, join.getJoinReorderContext());
+            newJoin = join.withJoinTypeAndContext(JoinType.LEFT_ANTI_JOIN, join.getJoinReorderContext());
         }
         if (join.getJoinType().isRightOuterJoin() && !leftAlwaysNullSlots.isEmpty()) {
-            newJoin = join.withJoinType(JoinType.RIGHT_ANTI_JOIN, join.getJoinReorderContext());
+            newJoin = join.withJoinTypeAndContext(JoinType.RIGHT_ANTI_JOIN, join.getJoinReorderContext());
         }
         if (newJoin == null) {
             return null;

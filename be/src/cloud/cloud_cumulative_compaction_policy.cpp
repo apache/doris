@@ -34,11 +34,12 @@ namespace doris {
 
 CloudSizeBasedCumulativeCompactionPolicy::CloudSizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
-        int64_t compaction_min_size)
+        int64_t compaction_min_size, int64_t promotion_version_count)
         : _promotion_size(promotion_size),
           _promotion_ratio(promotion_ratio),
           _promotion_min_size(promotion_min_size),
-          _compaction_min_size(compaction_min_size) {}
+          _compaction_min_size(compaction_min_size),
+          _promotion_version_count(promotion_version_count) {}
 
 int64_t CloudSizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
     if (size < 1024) return 0;
@@ -48,7 +49,7 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size
     return (int64_t)1 << (sizeof(size) * 8 - 1 - __builtin_clzl(size));
 }
 
-int CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
+int32_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         CloudTablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
@@ -182,7 +183,7 @@ int CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 }
 
 int64_t CloudSizeBasedCumulativeCompactionPolicy::cloud_promotion_size(CloudTablet* t) const {
-    int64_t promotion_size = t->base_size() * _promotion_ratio;
+    int64_t promotion_size = int64_t(t->base_size() * _promotion_ratio);
     // promotion_size is between _size_based_promotion_size and _size_based_promotion_min_size
     return promotion_size > _promotion_size       ? _promotion_size
            : promotion_size < _promotion_min_size ? _promotion_min_size
@@ -194,13 +195,170 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point(
         int64_t last_cumulative_point) {
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("new_cumulative_point", int64_t(0), output_rowset.get(),
                                            last_cumulative_point);
+    // for MoW table, if there's too many versions, the delete bitmap will grow to
+    // a very big size, which may cause the tablet meta too big and the `save_meta`
+    // operation too slow.
+    // if the rowset should not promotion according to it's disk size, we should also
+    // consider it's version count here.
+    bool satisfy_promotion_version = tablet->enable_unique_key_merge_on_write() &&
+                                     output_rowset->end_version() - output_rowset->start_version() >
+                                             _promotion_version_count;
     // if rowsets have delete version, move to the last directly.
     // if rowsets have no delete version, check output_rowset total disk size satisfies promotion size.
     return output_rowset->start_version() == last_cumulative_point &&
                            (last_delete_version.first != -1 ||
-                            output_rowset->data_disk_size() >= cloud_promotion_size(tablet))
+                            output_rowset->data_disk_size() >= cloud_promotion_size(tablet) ||
+                            satisfy_promotion_version)
                    ? output_rowset->end_version() + 1
                    : last_cumulative_point;
+}
+
+int32_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
+        CloudTablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+        const int64_t max_compaction_score, const int64_t min_compaction_score,
+        std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
+        size_t* compaction_score, bool allow_delete) {
+    if (tablet->tablet_state() == TABLET_NOTREADY) {
+        return 0;
+    }
+
+    int64_t compaction_goal_size_mbytes =
+            tablet->tablet_meta()->time_series_compaction_goal_size_mbytes();
+
+    int transient_size = 0;
+    *compaction_score = 0;
+    input_rowsets->clear();
+    int64_t total_size = 0;
+
+    for (const auto& rowset : candidate_rowsets) {
+        // check whether this rowset is delete version
+        if (!allow_delete && rowset->rowset_meta()->has_delete_predicate()) {
+            *last_delete_version = rowset->version();
+            if (!input_rowsets->empty()) {
+                // we meet a delete version, and there were other versions before.
+                // we should compact those version before handling them over to base compaction
+                break;
+            } else {
+                // we meet a delete version, and no other versions before, skip it and continue
+                input_rowsets->clear();
+                *compaction_score = 0;
+                transient_size = 0;
+                total_size = 0;
+                continue;
+            }
+        }
+
+        *compaction_score += rowset->rowset_meta()->get_compaction_score();
+        total_size += rowset->rowset_meta()->total_disk_size();
+
+        transient_size += 1;
+        input_rowsets->push_back(rowset);
+
+        // Condition 1: the size of input files for compaction meets the requirement of parameter compaction_goal_size
+        if (total_size >= (compaction_goal_size_mbytes * 1024 * 1024)) {
+            if (input_rowsets->size() == 1 &&
+                !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
+                // Only 1 non-overlapping rowset, skip it
+                input_rowsets->clear();
+                *compaction_score = 0;
+                total_size = 0;
+                continue;
+            }
+            return transient_size;
+        }
+    }
+
+    // if there is delete version, do compaction directly
+    if (last_delete_version->first != -1) {
+        // if there is only one rowset and not overlapping,
+        // we do not need to do cumulative compaction
+        if (input_rowsets->size() == 1 &&
+            !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
+            input_rowsets->clear();
+            *compaction_score = 0;
+        }
+        return transient_size;
+    }
+
+    // Condition 2: the number of input files reaches the threshold specified by parameter compaction_file_count_threshold
+    if (*compaction_score >= tablet->tablet_meta()->time_series_compaction_file_count_threshold()) {
+        return transient_size;
+    }
+
+    // Condition 3: level1 achieve compaction_goal_size
+    std::vector<RowsetSharedPtr> level1_rowsets;
+    if (tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+        int64_t continuous_size = 0;
+        for (const auto& rowset : candidate_rowsets) {
+            const auto& rs_meta = rowset->rowset_meta();
+            if (rs_meta->compaction_level() == 0) {
+                break;
+            }
+            level1_rowsets.push_back(rowset);
+            continuous_size += rs_meta->total_disk_size();
+            if (level1_rowsets.size() >= 2) {
+                if (continuous_size >= compaction_goal_size_mbytes * 1024 * 1024) {
+                    input_rowsets->swap(level1_rowsets);
+                    return input_rowsets->size();
+                }
+            }
+        }
+    }
+
+    int64_t now = UnixMillis();
+    int64_t last_cumu = tablet->last_cumu_compaction_success_time();
+    if (last_cumu != 0) {
+        int64_t cumu_interval = now - last_cumu;
+
+        // Condition 4: the time interval between compactions exceeds the value specified by parameter compaction_time_threshold_second
+        if (cumu_interval >
+            (tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() * 1000)) {
+            if (tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+                if (input_rowsets->empty() && level1_rowsets.size() >= 2) {
+                    input_rowsets->swap(level1_rowsets);
+                    return input_rowsets->size();
+                }
+            }
+            return transient_size;
+        }
+    }
+
+    input_rowsets->clear();
+    *compaction_score = 0;
+
+    return 0;
+}
+
+int64_t CloudTimeSeriesCumulativeCompactionPolicy::new_compaction_level(
+        const std::vector<RowsetSharedPtr>& input_rowsets) {
+    int64_t first_level = 0;
+    for (size_t i = 0; i < input_rowsets.size(); i++) {
+        int64_t cur_level = input_rowsets[i]->rowset_meta()->compaction_level();
+        if (i == 0) {
+            first_level = cur_level;
+        } else {
+            if (first_level != cur_level) {
+                LOG(ERROR) << "Failed to check compaction level, first_level: " << first_level
+                           << ", cur_level: " << cur_level;
+            }
+        }
+    }
+    return first_level + 1;
+}
+
+int64_t CloudTimeSeriesCumulativeCompactionPolicy::new_cumulative_point(
+        CloudTablet* tablet, const RowsetSharedPtr& output_rowset, Version& last_delete_version,
+        int64_t last_cumulative_point) {
+    if (tablet->tablet_state() != TABLET_RUNNING || output_rowset->num_segments() == 0) {
+        return last_cumulative_point;
+    }
+
+    if (tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2 &&
+        output_rowset->rowset_meta()->compaction_level() < 2) {
+        return last_cumulative_point;
+    }
+
+    return output_rowset->end_version() + 1;
 }
 
 } // namespace doris

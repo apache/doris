@@ -120,10 +120,25 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsSystem() throws AnalysisException {
+        new Expectations() {
+            {
+                mtmvRefreshInfo.getRefreshMethod();
+                minTimes = 0;
+                result = RefreshMethod.AUTO;
+            }
+        };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertTrue(CollectionUtils.isEmpty(result));
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsSystemComplete() throws AnalysisException {
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
+        Assert.assertEquals(allPartitionIds, result);
     }
 
     @Test

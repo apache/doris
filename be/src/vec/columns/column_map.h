@@ -94,6 +94,7 @@ public:
     ColumnPtr convert_to_full_column_if_const() const override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
+    bool is_variable_length() const override { return true; }
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
@@ -112,13 +113,11 @@ public:
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnMap>(num_columns, selector);
-    }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 

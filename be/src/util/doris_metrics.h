@@ -190,8 +190,6 @@ public:
     UIntGauge* query_cache_sql_total_count = nullptr;
     UIntGauge* query_cache_partition_total_count = nullptr;
 
-    IntGauge* lru_cache_memory_bytes = nullptr;
-
     UIntGauge* scanner_thread_pool_queue_size = nullptr;
     UIntGauge* add_batch_task_queue_size = nullptr;
     UIntGauge* send_batch_thread_pool_thread_num = nullptr;
@@ -224,6 +222,10 @@ public:
     UIntGauge* limited_scan_thread_pool_thread_num = nullptr;
     UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
     UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
+
+    IntAtomicCounter* num_io_bytes_read_total = nullptr;
+    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
+    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

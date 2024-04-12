@@ -122,21 +122,6 @@ suite("test_build_mtmv") {
         log.info(e.getMessage())
     }
 
-    // not allow create mv use other mv
-    try {
-        sql """
-            CREATE MATERIALIZED VIEW ${mvNameRenamed}
-            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
-            AS
-            SELECT * from ${mvName};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
     // not allow create mv use view
     try {
         sql """
@@ -213,7 +198,7 @@ suite("test_build_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName}
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName

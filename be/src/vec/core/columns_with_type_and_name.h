@@ -31,5 +31,5 @@ namespace doris::vectorized {
 
 using ColumnsWithTypeAndName = std::vector<ColumnWithTypeAndName>;
 using NameAndTypePair = std::pair<std::string, DataTypePtr>;
-
+using NameAndTypePairs = std::vector<NameAndTypePair>;
 } // namespace doris::vectorized

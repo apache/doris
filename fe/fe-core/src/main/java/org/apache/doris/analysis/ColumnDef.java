@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -93,6 +94,7 @@ public class ColumnDef {
             this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
         }
 
+        public static String CURRENT_DATE = "CURRENT_DATE";
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
@@ -175,6 +177,7 @@ public class ColumnDef {
     private boolean isAllowNull;
     private boolean isAutoInc;
     private long autoIncInitValue;
+    private KeysType keysType;
     private DefaultValue defaultValue;
     private String comment;
     private boolean visible;
@@ -277,6 +280,10 @@ public class ColumnDef {
         this.isKey = isKey;
     }
 
+    public void setKeysType(KeysType keysType) {
+        this.keysType = keysType;
+    }
+
     public TypeDef getTypeDef() {
         return typeDef;
     }
@@ -317,8 +324,10 @@ public class ColumnDef {
             if (isKey) {
                 throw new AnalysisException("Key column can not set complex type:" + name);
             }
-            if (aggregateType == null) {
-                throw new AnalysisException("complex type have to use aggregate function: " + name);
+            if (keysType == null || keysType == KeysType.AGG_KEYS) {
+                if (aggregateType == null) {
+                    throw new AnalysisException("complex type have to use aggregate function: " + name);
+                }
             }
             isAllowNull = false;
         }
@@ -332,12 +341,12 @@ public class ColumnDef {
             }
 
             // check if aggregate type is valid
-            if (aggregateType != AggregateType.GENERIC_AGGREGATION
+            if (aggregateType != AggregateType.GENERIC
                     && !aggregateType.checkCompatibility(type.getPrimitiveType())) {
                 throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
                         toString(), type.toSql()));
             }
-            if (aggregateType == AggregateType.GENERIC_AGGREGATION) {
+            if (aggregateType == AggregateType.GENERIC) {
                 if (!SessionVariable.enableAggState()) {
                     throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
                 }
@@ -466,7 +475,15 @@ public class ColumnDef {
                 break;
             case DATE:
             case DATEV2:
-                new DateLiteral(defaultValue, scalarType);
+                if (defaultValueExprDef == null) {
+                    new DateLiteral(defaultValue, scalarType);
+                } else {
+                    if (defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.CURRENT_DATE)) {
+                        break;
+                    } else {
+                        throw new AnalysisException("date literal [" + defaultValue + "] is invalid");
+                    }
+                }
                 break;
             case DATETIME:
             case DATETIMEV2:
@@ -519,6 +536,16 @@ public class ColumnDef {
                 default:
                     throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
                             + "cannot use current_timestamp as the default value");
+            }
+        } else if (null != defaultValueExprDef
+                && defaultValueExprDef.getExprName().equals(DefaultValue.CURRENT_DATE.toLowerCase())) {
+            switch (primitiveType) {
+                case DATE:
+                case DATEV2:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than DATE and DATEV2 "
+                            + "cannot use current_date as the default value");
             }
         }
     }

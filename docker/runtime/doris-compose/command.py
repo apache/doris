@@ -235,6 +235,16 @@ class UpCommand(Command):
                             type=str,
                             help="Specify be configs for be.conf. "\
                                     "Example: --be-config \"enable_debug_points = true\" \"enable_auth = true\".")
+        group1.add_argument("--ms-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify ms configs for doris_cloud.conf. "\
+                                    "Example: --ms-config \"log_level = warn\".")
+        group1.add_argument("--recycle-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify recycle configs for doris_cloud.conf. "\
+                                    "Example: --recycle-config \"log_level = warn\".")
         group1.add_argument("--be-disks",
                             nargs="*",
                             default=["HDD=1"],
@@ -300,6 +310,23 @@ class UpCommand(Command):
                                 action=self._get_parser_bool_action(False),
                                 help="Run containers in frontend. ")
 
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--reg-be",
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help="Register be to meta server in cloud mode, use for multi clusters test. If specific --no-reg-be, "\
+                "will not register be to meta server. ")
+        else:
+            parser.add_argument(
+                "--no-reg-be",
+                dest='reg_be',
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help=
+                "Don't register be to meta server in cloud mode, use for multi clusters test"
+            )
+
     def run(self, args):
         if not args.NAME:
             raise Exception("Need specific not empty cluster name")
@@ -358,8 +385,9 @@ class UpCommand(Command):
 
             cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE, args.cloud,
                                           args.fe_config, args.be_config,
+                                          args.ms_config, args.recycle_config,
                                           args.be_disks, args.be_cluster,
-                                          args.coverage_dir,
+                                          args.reg_be, args.coverage_dir,
                                           cloud_store_config)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
@@ -717,36 +745,93 @@ class GenConfCommand(Command):
             "config",
             help="Generate regression-conf-custom.groovy for regression test.")
         parser.add_argument("NAME", default="", help="Specific cluster name.")
+        parser.add_argument("DORIS_ROOT_PATH", default="", help="Specify doris or selectdb root path, "\
+                "i.e. the parent directory of regression-test.")
+        parser.add_argument("--connect-follow-fe",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="Connect to follow fe.")
+        parser.add_argument("-q",
+                            "--quiet",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="write config quiet, no need confirm.")
 
         return parser
 
     def run(self, args):
-        content = '''
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
-syncerAddress = "127.0.0.1:9190"
-feHttpAddress = "127.0.0.1:8030"
+        base_conf = '''
+jdbcUrl = "jdbc:mysql://{fe_ip}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://{fe_ip}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+feSourceThriftAddress = "{fe_ip}:9020"
+feTargetThriftAddress = "{fe_ip}:9020"
+syncerAddress = "{fe_ip}:9190"
+feHttpAddress = "{fe_ip}:8030"
 '''
-        master_fe_ip = CLUSTER.get_master_fe_endpoint(args.NAME)
-        if not master_fe_ip:
+
+        cloud_conf = '''
+feCloudHttpAddress = "{fe_ip}:18030"
+metaServiceHttpAddress = "{ms_endpoint}"
+metaServiceToken = "greedisgood9999"
+recycleServiceHttpAddress = "{recycle_endpoint}"
+instanceId = "default_instance_id"
+multiClusterInstance = "default_instance_id"
+multiClusterBes = "{multi_cluster_bes}"
+cloudUniqueId= "{fe_cloud_unique_id}"
+'''
+        cluster = CLUSTER.Cluster.load(args.NAME)
+        master_fe_ip_ep = CLUSTER.get_master_fe_endpoint(args.NAME)
+        if not master_fe_ip_ep:
             print("Not found cluster with name {} in directory {}".format(
                 args.NAME, CLUSTER.LOCAL_DORIS_PATH))
             return
-        doris_root_dir = os.path.abspath(__file__)
-        for i in range(4):
-            doris_root_dir = os.path.dirname(doris_root_dir)
-        regression_conf_custom = doris_root_dir + "/regression-test/conf/regression-conf-custom.groovy"
-        if input("write file {} ?\n   y/N:  ".format(
-                regression_conf_custom)) != 'y':
-            print("No write regression custom file.")
-            return
+
+        master_fe_ip = master_fe_ip_ep[:master_fe_ip_ep.find(':')]
+        fe_ip = ""
+        if not args.connect_follow_fe:
+            fe_ip = master_fe_ip
+        else:
+            for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
+                if fe.get_ip() == master_fe_ip:
+                    continue
+                else:
+                    fe_ip = fe.get_ip()
+                    break
+            if not fe_ip:
+                raise Exception(
+                    "Not found follow fe, pls add a follow fe use command `up <your-cluster> --add-fe-num 1`"
+                )
+
+        relative_custom_file_path = "regression-test/conf/regression-conf-custom.groovy"
+        regression_conf_custom = os.path.join(args.DORIS_ROOT_PATH,
+                                              relative_custom_file_path)
+        if not args.quiet:
+            ans = input(
+                "\nwrite file {} ?  y/n: ".format(regression_conf_custom))
+            if ans != 'y':
+                print("\nNo write regression custom file.")
+                return
+
         with open(regression_conf_custom, "w") as f:
-            f.write(
-                content.replace("127.0.0.1",
-                                master_fe_ip[:master_fe_ip.find(':')]))
-        print("Write succ: " + regression_conf_custom)
+            f.write(base_conf.format(fe_ip=fe_ip))
+            if cluster.is_cloud:
+                multi_cluster_bes = ",".join([
+                    "{}:{}:{}:{}:{}".format(be.get_ip(),
+                                            CLUSTER.BE_HEARTBEAT_PORT,
+                                            CLUSTER.BE_WEBSVR_PORT,
+                                            be.cloud_unique_id(),
+                                            CLUSTER.BE_BRPC_PORT)
+                    for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE)
+                ])
+                f.write(
+                    cloud_conf.format(
+                        fe_ip=fe_ip,
+                        ms_endpoint=cluster.get_meta_server_addr(),
+                        recycle_endpoint=cluster.get_recycle_addr(),
+                        multi_cluster_bes=multi_cluster_bes,
+                        fe_cloud_unique_id=cluster.get_node(
+                            CLUSTER.Node.TYPE_FE, 1).cloud_unique_id()))
+        print("\nWrite succ: " + regression_conf_custom)
 
 
 class ListCommand(Command):
@@ -916,6 +1001,8 @@ class ListCommand(Command):
                         container.attrs["NetworkSettings"]
                         ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]
                     node.image = ",".join(container.image.tags)
+                    if not node.image:
+                        node.image = container.attrs["Config"]["Image"]
                     node.container_id = container.short_id
                     node.status = container.status
                     if node.container_id and \

@@ -19,6 +19,8 @@
 
 #include <arrow/array/builder_nested.h>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -224,33 +226,40 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
     result.writeEndBinary();
 }
 
-void DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                                rapidjson::Document::AllocatorType& allocator,
-                                                int row_num) const {
-    // vectorized::Field array = column[row_num];
+Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                  rapidjson::Document::AllocatorType& allocator,
+                                                  int row_num) const {
     // Use allocator instead of stack memory, since rapidjson hold the reference of String value
     // otherwise causes stack use after free
     auto& column_array = static_cast<const ColumnArray&>(column);
+    if (row_num > column_array.size()) {
+        return Status::InternalError("row num {} out of range {}!", row_num, column_array.size());
+    }
     void* mem = allocator.Malloc(sizeof(vectorized::Field));
+    if (!mem) {
+        return Status::InternalError("Malloc failed");
+    }
     vectorized::Field* array = new (mem) vectorized::Field(column_array[row_num]);
 
     convert_field_to_rapidjson(*array, result, allocator);
+    return Status::OK();
 }
 
-void DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
-                                                 const rapidjson::Value& result) const {
+Status DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
+                                                   const rapidjson::Value& result) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
     auto& nested_data = column_array.get_data();
     if (!result.IsArray()) {
         column_array.insert_default();
-        return;
+        return Status::OK();
     }
     // TODO this is slow should improve performance
     for (const rapidjson::Value& v : result.GetArray()) {
-        nested_serde->read_one_cell_from_json(nested_data, v);
+        RETURN_IF_ERROR(nested_serde->read_one_cell_from_json(nested_data, v));
     }
     offsets_data.emplace_back(result.GetArray().Size());
+    return Status::OK();
 }
 
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
@@ -260,7 +269,7 @@ void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbVa
 
 void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                arrow::ArrayBuilder* array_builder, int start,
-                                               int end) const {
+                                               int end, const cctz::time_zone& ctz) const {
     auto& array_column = static_cast<const ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     auto& nested_data = array_column.get_data();
@@ -274,7 +283,7 @@ void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Null
         }
         checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
         nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
-                                            offsets[array_idx - 1], offsets[array_idx]);
+                                            offsets[array_idx - 1], offsets[array_idx], ctz);
     }
 }
 
@@ -383,5 +392,35 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                              int end) const {
+    const auto& array_col = assert_cast<const ColumnArray&>(column);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::LIST);
+    const IColumn& nested_column = array_col.get_data();
+    const auto& offsets = array_col.get_offsets();
+    auto* child_element = result.add_child_element();
+    for (size_t row_id = start; row_id < end; row_id++) {
+        size_t offset = offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+        result.add_child_offset(next_offset);
+        RETURN_IF_ERROR(nested_serde->write_column_to_pb(nested_column, *child_element, offset,
+                                                         next_offset));
+    }
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    for (int i = 0; i < arg.child_offset_size(); ++i) {
+        offsets.emplace_back(arg.child_offset(i));
+    }
+    for (int i = 0; i < arg.child_element_size(); ++i) {
+        RETURN_IF_ERROR(nested_serde->read_column_from_pb(nested_column, arg.child_element(i)));
+    }
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

@@ -19,6 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.ExprRewriter;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class SetUserDefinedVar extends SetVar {
     public SetUserDefinedVar(String variable, Expr value) {
@@ -28,12 +34,40 @@ public class SetUserDefinedVar extends SetVar {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException  {
         Expr expression = getValue();
+        if (!(expression instanceof LiteralExpr)) {
+            boolean changed = true;
+            for (int i = 0; i < 1000 && changed; i++) {
+                Pair<Expr, Boolean> result = fold(analyzer, expression);
+                expression = result.first;
+                changed = result.second;
+            }
+        }
         if (expression instanceof NullLiteral) {
             setResult(NullLiteral.create(ScalarType.NULL));
         } else if (expression instanceof LiteralExpr) {
             setResult((LiteralExpr) expression);
         } else {
-            throw new AnalysisException("Unsupported to set the non-literal for user defined variables.");
+            throw new AnalysisException("Unsupported to set " + expression.toSql() + " user defined variables.");
         }
+    }
+
+    public void registerExprId(Expr expr, Analyzer analyzer) {
+        if (expr.getId() == null) {
+            analyzer.registerExprId(expr);
+        }
+        for (Expr child : expr.getChildren()) {
+            registerExprId(child, analyzer);
+        }
+    }
+
+    private Pair<Expr, Boolean> fold(Analyzer analyzer, Expr expression) throws AnalysisException {
+        expression.analyze(analyzer);
+        registerExprId(expression, analyzer);
+        ExprRewriter rewriter = analyzer.getExprRewriter();
+        rewriter.reset();
+        Map<String, Expr> exprMap = new HashMap<>();
+        exprMap.put(expression.getId().toString(), expression);
+        rewriter.rewriteConstant(exprMap, analyzer, ConnectContext.get().getSessionVariable().toThrift());
+        return Pair.of(exprMap.get(expression.getId().toString()), rewriter.changed());
     }
 }

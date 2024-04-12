@@ -23,6 +23,7 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.cloud.load.CloudCopyJob;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -41,6 +42,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
@@ -249,9 +251,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      */
     abstract Set<String> getTableNames() throws MetaNotFoundException;
 
-    // return true if the corresponding transaction is done(COMMITTED, FINISHED, CANCELLED)
+    // return true if the corresponding transaction is done(COMMITTED, FINISHED, CANCELLED, RETRY)
     public boolean isTxnDone() {
-        return state == JobState.COMMITTED || state == JobState.FINISHED || state == JobState.CANCELLED;
+        return state == JobState.COMMITTED || state == JobState.FINISHED
+                || state == JobState.CANCELLED || state == JobState.RETRY;
     }
 
     // return true if job is done(FINISHED/CANCELLED/UNKNOWN)
@@ -521,15 +524,17 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             Set<String> tableNames = getTableNames();
             if (tableNames.isEmpty()) {
                 // forward compatibility
-                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db.getFullName(),
-                        PrivPredicate.LOAD)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                                PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             Privilege.LOAD_PRIV);
                 }
             } else {
                 for (String tblName : tableNames) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                            tblName, PrivPredicate.LOAD)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                                    tblName, PrivPredicate.LOAD)) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                                 command,
                                 ConnectContext.get().getQualifiedUser(),
@@ -606,7 +611,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         state = JobState.CANCELLED;
     }
 
-    private void executeFinish() {
+    protected void executeFinish() {
         progress = 100;
         finishTimestamp = System.currentTimeMillis();
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
@@ -766,6 +771,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             job = new InsertLoadJob();
         } else if (type == EtlJobType.MINI) {
             job = new MiniLoadJob();
+        } else if (type == EtlJobType.COPY) {
+            job = new CloudCopyJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }

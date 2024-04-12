@@ -17,8 +17,6 @@
 
 #include "multi_cast_data_stream_sink.h"
 
-#include "pipeline/pipeline_x/dependency.h"
-
 namespace doris::pipeline {
 
 OperatorPtr MultiCastDataStreamSinkOperatorBuilder::build_operator() {

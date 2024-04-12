@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -43,7 +44,7 @@ public class ShowCreateDbStmtTest {
 
     @Test
     public void testNormal() throws AnalysisException, UserException {
-        ShowCreateDbStmt stmt = new ShowCreateDbStmt("testDb");
+        ShowCreateDbStmt stmt = new ShowCreateDbStmt(new DbName(InternalCatalog.INTERNAL_CATALOG_NAME, "testDb"));
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(true));
         Assert.assertEquals("testDb", stmt.getDb());
         Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
@@ -52,7 +53,7 @@ public class ShowCreateDbStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testEmptyDb() throws AnalysisException, UserException {
-        ShowCreateDbStmt stmt = new ShowCreateDbStmt("");
+        ShowCreateDbStmt stmt = new ShowCreateDbStmt(new DbName(InternalCatalog.INTERNAL_CATALOG_NAME, ""));
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         Assert.fail("No exception throws.");
     }

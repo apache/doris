@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import org.apache.thrift.TException;
 
+import java.util.Map;
 import java.util.Objects;
 
 public class PlsqlMetaClient {
@@ -42,16 +43,18 @@ public class PlsqlMetaClient {
     }
 
     public void addPlsqlStoredProcedure(String name, long catalogId, long dbId, String packageName,
-            String ownerName, String source,
+            String ownerName, String source, String createTime, String modifyTime,
             boolean isForce) {
         checkPriv();
         if (Env.getCurrentEnv().isMaster()) {
             Env.getCurrentEnv().getPlsqlManager()
                     .addPlsqlStoredProcedure(
-                            new PlsqlStoredProcedure(name, catalogId, dbId, packageName, ownerName, source),
+                            new PlsqlStoredProcedure(name, catalogId, dbId, packageName, ownerName, source,
+                            createTime, modifyTime),
                             isForce);
         } else {
-            addPlsqlStoredProcedureThrift(name, catalogId, dbId, packageName, ownerName, source, isForce);
+            addPlsqlStoredProcedureThrift(name, catalogId, dbId, packageName, ownerName, source,
+                                            createTime, modifyTime, isForce);
         }
     }
 
@@ -68,6 +71,11 @@ public class PlsqlMetaClient {
     public PlsqlStoredProcedure getPlsqlStoredProcedure(String name, long catalogId, long dbId) {
         return Env.getCurrentEnv().getPlsqlManager()
                 .getPlsqlStoredProcedure(new PlsqlProcedureKey(name, catalogId, dbId));
+    }
+
+    public Map<PlsqlProcedureKey, PlsqlStoredProcedure> getAllPlsqlStoredProcedures() {
+        return Env.getCurrentEnv().getPlsqlManager()
+                .getAllPlsqlStoredProcedures();
     }
 
     public void addPlsqlPackage(String name, long catalogId, long dbId, String ownerName, String header,
@@ -97,10 +105,12 @@ public class PlsqlMetaClient {
 
     protected void addPlsqlStoredProcedureThrift(String name, long catalogId, long dbId, String packageName,
             String ownerName,
-            String source, boolean isForce) {
+            String source, String createTime, String modifyTime, boolean isForce) {
         TPlsqlStoredProcedure tPlsqlStoredProcedure = new TPlsqlStoredProcedure().setName(name)
                 .setCatalogId(catalogId).setDbId(dbId)
-                .setPackageName(packageName).setOwnerName(ownerName).setSource(source);
+                .setPackageName(packageName).setOwnerName(ownerName).setSource(source)
+                .setCreateTime(createTime).setModifyTime(modifyTime);
+
         TAddPlsqlStoredProcedureRequest tAddPlsqlStoredProcedureRequest = new TAddPlsqlStoredProcedureRequest()
                 .setPlsqlStoredProcedure(tPlsqlStoredProcedure);
         tAddPlsqlStoredProcedureRequest.setIsForce(isForce);

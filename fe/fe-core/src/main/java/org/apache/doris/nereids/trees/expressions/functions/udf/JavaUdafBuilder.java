@@ -50,6 +50,11 @@ public class JavaUdafBuilder extends UdfBuilder {
     }
 
     @Override
+    public Class<? extends BoundFunction> functionClass() {
+        return JavaUdaf.class;
+    }
+
+    @Override
     public boolean canApply(List<?> arguments) {
         if ((isVarArgs && arity > arguments.size() + 1) || (!isVarArgs && arguments.size() != arity)) {
             return false;

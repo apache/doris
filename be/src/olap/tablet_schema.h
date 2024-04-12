@@ -158,6 +158,7 @@ public:
     };
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
+    void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
     void append_sparse_column(TabletColumn column);
@@ -292,6 +293,7 @@ public:
     Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
+    TabletColumn& mutable_column(size_t ordinal);
     void replace_column(size_t pos, TabletColumn new_col);
     const std::vector<TabletColumnPtr>& columns() const;
     size_t num_columns() const { return _num_columns; }
@@ -331,6 +333,14 @@ public:
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    bool has_inverted_index() const {
+        for (const auto& index : _indexes) {
+            if (index.index_type() == IndexType::INVERTED) {
+                return true;
+            }
+        }
+        return false;
+    }
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
     bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
@@ -419,6 +429,9 @@ public:
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
     std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+    InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
+        return _inverted_index_storage_format;
+    }
 
     void update_tablet_columns(const TabletSchema& tablet_schema,
                                const std::vector<TColumn>& t_columns);
@@ -463,6 +476,7 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

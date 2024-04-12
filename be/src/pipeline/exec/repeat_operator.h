@@ -59,6 +59,9 @@ public:
     Status get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
                               vectorized::Block* output_block);
 
+    Status add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
+                                  vectorized::MutableColumns& columns, int repeat_id_idx);
+
 private:
     friend class RepeatOperatorX;
     template <typename LocalStateType>
@@ -97,7 +100,7 @@ private:
     TupleId _output_tuple_id;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
-    std::vector<SlotDescriptor*> _output_slots;
+    mutable std::vector<SlotDescriptor*> _output_slots;
 
     vectorized::VExprContextSPtrs _expr_ctxs;
 };

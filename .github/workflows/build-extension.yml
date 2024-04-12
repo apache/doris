@@ -61,7 +61,7 @@ jobs:
         uses: actions/setup-java@v2
         with:
           distribution: adopt
-          java-version: '8'
+          java-version: '17'
 
       - name: Setup thrift
         run: |
@@ -84,39 +84,39 @@ jobs:
       - name: Build broker
         run: |
           cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
-  build-docs:
-    name: Build Documents
-    needs: changes
-    if: ${{ needs.changes.outputs.docs_changes == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout ${{ github.ref }}
-        uses: actions/checkout@v3
+  # build-docs:
+  #   name: Build Documents
+  #   needs: changes
+  #   if: ${{ needs.changes.outputs.docs_changes == 'true' }}
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout ${{ github.ref }}
+  #       uses: actions/checkout@v3
 
-      - name: Build docs
-        run: |
-          cd docs && /bin/bash build_help_zip.sh
-      - name: Build
-        run: |
-          git clone https://github.com/apache/doris-website.git website
-          cd website
-          echo "[\"current\"]" > versions.json 
-          mkdir -p docs
-          cp -R ../docs/en/docs/* docs/
-          cp -R ../docs/sidebars.json sidebars.json
-          mkdir -p i18n/zh-CN/docusaurus-plugin-content-docs/current
-          cp -R ../docs/zh-CN/docs/* i18n/zh-CN/docusaurus-plugin-content-docs/current/
-          cp -R ../docs/dev.json i18n/zh-CN/docusaurus-plugin-content-docs/current.json
+  #     - name: Build docs
+  #       run: |
+  #         cd docs && /bin/bash build_help_zip.sh
+  #     - name: Build
+  #       run: |
+  #         git clone https://github.com/apache/doris-website.git website
+  #         cd website
+  #         echo "[\"current\"]" > versions.json 
+  #         mkdir -p docs
+  #         cp -R ../docs/en/docs/* docs/
+  #         cp -R ../docs/sidebars.json sidebars.json
+  #         mkdir -p i18n/zh-CN/docusaurus-plugin-content-docs/current
+  #         cp -R ../docs/zh-CN/docs/* i18n/zh-CN/docusaurus-plugin-content-docs/current/
+  #         cp -R ../docs/dev.json i18n/zh-CN/docusaurus-plugin-content-docs/current.json
 
-          mkdir -p community
-          cp -R ../docs/en/community/* community/
-          mkdir -p i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
-          cp -R ../docs/zh-CN/community/* i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
-          cp -R ../docs/sidebarsCommunity.json .
+  #         mkdir -p community
+  #         cp -R ../docs/en/community/* community/
+  #         mkdir -p i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
+  #         cp -R ../docs/zh-CN/community/* i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
+  #         cp -R ../docs/sidebarsCommunity.json .
 
-          cp -R ../docs/images static/
-          npm install -g yarn
-          yarn cache clean
-          yarn && yarn build
-          cd ../
-          rm -rf website
+  #         cp -R ../docs/images static/
+  #         npm install -g yarn
+  #         yarn cache clean
+  #         yarn && yarn build
+  #         cd ../
+  #         rm -rf website

@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
@@ -35,40 +34,43 @@ public class EliminateSemiJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                // right will be converted to left
                 .whenNot(LogicalJoin::isMarkJoin)
-                .when(join -> join.getJoinType().isLeftSemiOrAntiJoin())
+                .when(join -> join.getJoinType().isSemiOrAntiJoin())
                 .when(join -> join.getHashJoinConjuncts().isEmpty())
                 .then(join -> {
                     List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
-                    JoinType joinType = join.getJoinType();
-
-                    boolean condition;
-                    if (otherJoinConjuncts.isEmpty()) {
-                        condition = true;
-                    } else if (otherJoinConjuncts.size() == 1) {
-                        if (otherJoinConjuncts.get(0).equals(BooleanLiteral.TRUE)) {
-                            condition = true;
-                        } else if (otherJoinConjuncts.get(0).equals(BooleanLiteral.FALSE)) {
-                            condition = false;
-                        } else {
-                            return null;
+                    if (otherJoinConjuncts.size() == 1
+                            && otherJoinConjuncts.get(0).equals(BooleanLiteral.FALSE)) {
+                        switch (join.getJoinType()) {
+                            case LEFT_SEMI_JOIN:
+                            case RIGHT_SEMI_JOIN: {
+                                return new LogicalEmptyRelation(
+                                        StatementScopeIdGenerator.newRelationId(),
+                                        join.getOutput());
+                            }
+                            case NULL_AWARE_LEFT_ANTI_JOIN:
+                            case LEFT_ANTI_JOIN: {
+                                return join.left();
+                            }
+                            case RIGHT_ANTI_JOIN: {
+                                return join.right();
+                            }
+                            default:
+                                throw new IllegalStateException("Unexpected join type: " + join.getJoinType());
                         }
                     } else {
+                        /*
+                         * A left semi join B on true, normally should output all rows from A
+                         * A left anti join B on true, normally should output empty set
+                         * but things are different if other side table is empty, examples:
+                         * A left semi join B on true, if B is empty, should output empty set
+                         * A left anti join B on true, if B is empty, should output all rows from A
+                         * A right semi join B on true, if A is empty, should output empty set
+                         * A right anti join B on true, if A is empty, should output all rows from B
+                         * we can see even condition is true, the result depends on if other side table is empty
+                         */
                         return null;
                     }
-                    if (joinType == JoinType.LEFT_SEMI_JOIN && condition) {
-                        // the right table may be empty, we need keep plan unchanged
-                        return null;
-                    } else if (joinType == JoinType.LEFT_ANTI_JOIN && !condition) {
-                        return join.left();
-                    } else if (joinType == JoinType.LEFT_SEMI_JOIN && !condition
-                            || (joinType == JoinType.LEFT_ANTI_JOIN && condition)) {
-                        return new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), join.getOutput());
-                    } else {
-                        throw new IllegalStateException("Unexpected join type: " + joinType);
-                    }
-                })
-                .toRule(RuleType.ELIMINATE_SEMI_JOIN);
+                }).toRule(RuleType.ELIMINATE_SEMI_JOIN);
     }
 }

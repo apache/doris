@@ -57,6 +57,11 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
     }
 
     @Override
+    public Class<? extends BoundFunction> functionClass() {
+        return nestedBuilder.functionClass();
+    }
+
+    @Override
     public boolean canApply(List<? extends Object> arguments) {
         if (combinatorSuffix.equals(STATE) || combinatorSuffix.equals(FOREACH)) {
             return nestedBuilder.canApply(arguments);

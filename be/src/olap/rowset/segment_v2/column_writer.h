@@ -60,10 +60,12 @@ struct ColumnWriterOptions {
     bool need_bitmap_index = false;
     bool need_bloom_filter = false;
     bool is_ngram_bf_index = false;
+    bool need_inverted_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
     std::vector<const TabletIndex*> indexes;
     const TabletIndex* inverted_index = nullptr;
+    InvertedIndexFileWriter* inverted_index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()

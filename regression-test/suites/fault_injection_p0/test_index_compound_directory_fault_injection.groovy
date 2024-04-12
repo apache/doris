@@ -90,67 +90,67 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
         create_httplogs_dup_table.call(testTable_dup)
 
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
             load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
+            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
         }
         qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
             load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
+            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
         }
         qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._set_writer_finalize_status_error")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error")
             load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._set_writer_finalize_status_error")
+            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error")
         }
         qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._set_writer_close_status_error")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error")
             load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._set_writer_close_status_error")
+            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error")
         }
         qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
         try {
             def test_index_compound_directory = "test_index_compound_directory1"
             sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
             create_httplogs_dup_table.call(test_index_compound_directory)
-            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
             load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
             qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'gif'"
             try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
         } catch(Exception ex) {
             logger.info("_mock_append_data_error_in_fsindexoutput_flushBuffer,  result: " + ex)
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
+            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
         }
         try {
             def test_index_compound_directory = "test_index_compound_directory2"
             sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
             create_httplogs_dup_table.call(test_index_compound_directory)
-            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
             load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
             qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'images'"
             try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
         }
         try {
             def test_index_compound_directory = "test_index_compound_directory3"
             sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
             create_httplogs_dup_table.call(test_index_compound_directory)
-            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
             load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
             qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'png'"
             try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
+            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
         }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")

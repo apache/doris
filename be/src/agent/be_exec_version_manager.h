@@ -58,19 +58,24 @@ private:
  *    c. change the string hash method in runtime filter
  *    d. elt function return type change to nullable(string)
  *    e. add repeat_max_num in repeat function
- * 3: start from doris 2.1
+ * 3: start from doris 2.0 (by some mistakes)
  *    a. aggregation function do not serialize bitmap to string.
+ *    b. support window funnel mode.
+ * 4: start from doris 2.1
+ *    a. ignore this line, window funnel mode should be enabled from 2.0.
  *    b. array contains/position/countequal function return nullable in less situations.
  *    c. cleared old version of Version 2.
  *    d. unix_timestamp function support timestamp with float for datetimev2, and change nullable mode.
  *    e. change shuffle serialize/deserialize way 
  *    f. shrink some function's nullable mode.
  *    g. do local merge of remote runtime filter
+ *    h. "now": ALWAYS_NOT_NULLABLE -> DEPEND_ON_ARGUMENTS
 */
-constexpr inline int BeExecVersionManager::max_be_exec_version = 3;
+constexpr inline int BeExecVersionManager::max_be_exec_version = 4;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 
 /// functional
-constexpr inline int USE_NEW_SERDE = 3; // release on DORIS version 2.1
+constexpr inline int BITMAP_SERDE = 3;
+constexpr inline int USE_NEW_SERDE = 4; // release on DORIS version 2.1
 
 } // namespace doris

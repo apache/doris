@@ -109,10 +109,14 @@ class LoadStreamStub {
 
 public:
     // construct new stub
-    LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use);
+    LoadStreamStub(PUniqueId load_id, int64_t src_id,
+                   std::shared_ptr<IndexToTabletSchema> schema_map,
+                   std::shared_ptr<IndexToEnableMoW> mow_map);
 
-    // copy constructor, shared_ptr members are shared
-    LoadStreamStub(LoadStreamStub& stub);
+    LoadStreamStub(UniqueId load_id, int64_t src_id,
+                   std::shared_ptr<IndexToTabletSchema> schema_map,
+                   std::shared_ptr<IndexToEnableMoW> mow_map)
+            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map) {};
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -150,7 +154,7 @@ public:
 
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
-    Status close_wait(int64_t timeout_ms = 0);
+    Status close_wait(RuntimeState* state, int64_t timeout_ms = 0);
 
     // cancel the stream, abort close_wait, mark _is_closed and _is_cancelled
     void cancel(Status reason);
@@ -213,7 +217,6 @@ protected:
     std::atomic<bool> _is_closed;
     std::atomic<bool> _is_cancelled;
     std::atomic<bool> _is_eos;
-    std::atomic<int> _use_cnt;
 
     PUniqueId _load_id;
     brpc::StreamId _stream_id;
@@ -225,9 +228,6 @@ protected:
     bthread::Mutex _close_mutex;
     bthread::Mutex _cancel_mutex;
     bthread::ConditionVariable _close_cv;
-
-    std::mutex _tablets_to_commit_mutex;
-    std::vector<PTabletID> _tablets_to_commit;
 
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;

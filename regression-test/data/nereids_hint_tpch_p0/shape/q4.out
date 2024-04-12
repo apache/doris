@@ -2,21 +2,22 @@
 -- !select --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
+----------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
 ------------------PhysicalProject
 --------------------filter((lineitem.l_commitdate < lineitem.l_receiptdate))
-----------------------PhysicalOlapScan[lineitem] apply RFs: RF0
+----------------------PhysicalOlapScan[lineitem]
 ------------------PhysicalProject
 --------------------filter((orders.o_orderdate < '1993-10-01') and (orders.o_orderdate >= '1993-07-01'))
 ----------------------PhysicalOlapScan[orders]
 
-Used: leading(lineitem orders)
+Hint log:
+Used: leading(lineitem orders )
 UnUsed:
 SyntaxError:
 

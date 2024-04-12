@@ -160,6 +160,7 @@ private:
     std::string _brokers;
     std::string _topic;
     std::unordered_map<std::string, std::string> _custom_properties;
+    std::set<int32_t> _consuming_partition_ids;
 
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;

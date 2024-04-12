@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -46,6 +47,9 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
                         .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.left().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
+                            if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
+                                return null;
+                            }
                             GroupPlan a = bottomJoin.left();
                             GroupPlan b = bottomJoin.right();
                             GroupPlan c = topJoin.right();
@@ -61,6 +65,9 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
                         .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.right().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right();
+                            if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
+                                return null;
+                            }
                             GroupPlan a = topJoin.left();
                             GroupPlan b = bottomJoin.left();
                             GroupPlan c = bottomJoin.right();

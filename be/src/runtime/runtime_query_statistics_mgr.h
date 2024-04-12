@@ -28,6 +28,10 @@
 
 namespace doris {
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 class QueryStatisticsCtx {
 public:
     QueryStatisticsCtx(TNetworkAddress fe_addr) : _fe_addr(fe_addr) {
@@ -68,8 +72,8 @@ public:
     void get_metric_map(std::string query_id,
                         std::map<WorkloadMetricType, std::string>& metric_map);
 
-    // used for tvf active_queries
-    std::vector<TRow> get_active_be_tasks_statistics(std::vector<std::string> filter_columns);
+    // used for backend_active_tasks
+    void get_active_be_tasks_block(vectorized::Block* block);
 
 private:
     std::shared_mutex _qs_ctx_map_lock;
