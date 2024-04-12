@@ -31,6 +31,8 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -613,29 +615,12 @@ public class LoadManager implements Writable {
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }
-                    String dbName = loadJob.getDb().getName();
-                    Set<String> tableNames = loadJob.getTableNames();
                     // check auth
-                    if (tableNames.isEmpty()) {
-                        // forward compatibility
-                        if (!Env.getCurrentEnv().getAccessManager()
-                                .checkDbPriv(ConnectContext.get(), loadJob.getDb().getCatalog().getName(), dbName,
-                                        PrivPredicate.LOAD)) {
-                            continue;
-                        }
-                    } else {
-                        boolean auth = true;
-                        for (String tblName : tableNames) {
-                            if (!Env.getCurrentEnv().getAccessManager()
-                                    .checkTblPriv(ConnectContext.get(), loadJob.getDb().getCatalog().getName(), dbName,
-                                            tblName, PrivPredicate.LOAD)) {
-                                auth = false;
-                                break;
-                            }
-                        }
-                        if (!auth) {
-                            continue;
-                        }
+                    try {
+                        checkJobAuth(loadJob.getDb().getCatalog().getName(), loadJob.getDb().getName(),
+                                loadJob.getTableNames());
+                    } catch (AnalysisException e) {
+                        continue;
                     }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
@@ -647,6 +632,27 @@ public class LoadManager implements Writable {
             return loadJobInfos;
         } finally {
             readUnlock();
+        }
+    }
+
+    public void checkJobAuth(String ctlName, String dbName, Set<String> tableNames) throws AnalysisException {
+        if (tableNames.isEmpty()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
+                            PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.LOAD.getPrivs().toString(), dbName);
+            }
+        } else {
+            for (String tblName : tableNames) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                                tblName, PrivPredicate.LOAD)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                            PrivPredicate.LOAD.getPrivs().toString(), tblName);
+                    return;
+                }
+            }
         }
     }
 

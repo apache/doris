@@ -127,25 +127,7 @@ public class ExportMgr {
         }
 
         // check auth
-        String dbName = stmt.getDbName();
-        if (matchExportJobs.size() > 1) {
-            if (Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                            PrivPredicate.SELECT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
-                        PrivPredicate.SELECT.getPrivs().toString(), dbName);
-            }
-        } else {
-            String tableName = matchExportJobs.get(0).getTableName().getTbl();
-            if (Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                            tableName,
-                            PrivPredicate.SELECT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
-                        PrivPredicate.SELECT.getPrivs().toString(), tableName);
-            }
-        }
-
+        checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, stmt.getDbName(), matchExportJobs);
         try {
             for (ExportJob exportJob : matchExportJobs) {
                 // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
@@ -154,6 +136,29 @@ public class ExportMgr {
             }
         } catch (JobException e) {
             throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    public void checkCancelExportJobAuth(String ctlName, String dbName, List<ExportJob> jobs) throws AnalysisException {
+        if (jobs.size() > 1) {
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), dbName);
+            }
+        } else {
+            TableName tableName = jobs.get(0).getTableName();
+            if (tableName == null) {
+                return;
+            }
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                            tableName.getTbl(),
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), tableName.getTbl());
+            }
         }
     }
 
@@ -418,7 +423,7 @@ public class ExportMgr {
                 ExportJob job = entry.getValue();
                 if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second
                         && (job.getState() == ExportJobState.CANCELLED
-                            || job.getState() == ExportJobState.FINISHED)) {
+                        || job.getState() == ExportJobState.FINISHED)) {
                     iter.remove();
                     Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
                     if (labelJobs != null) {

@@ -363,28 +363,10 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                         continue;
                     }
                     // check auth
-                    Set<String> tableNames = loadJob.getTableNames();
-                    // check auth
-                    if (tableNames.isEmpty()) {
-                        // forward compatibility
-                        if (!Env.getCurrentEnv().getAccessManager()
-                                .checkDbPriv(ConnectContext.get(), catalogName, dbName,
-                                        PrivPredicate.LOAD)) {
-                            continue;
-                        }
-                    } else {
-                        boolean auth = true;
-                        for (String tblName : tableNames) {
-                            if (!Env.getCurrentEnv().getAccessManager()
-                                    .checkTblPriv(ConnectContext.get(), catalogName, dbName,
-                                            tblName, PrivPredicate.LOAD)) {
-                                auth = false;
-                                break;
-                            }
-                        }
-                        if (!auth) {
-                            continue;
-                        }
+                    try {
+                        checkJobAuth(catalogName, dbName, loadJob.getTableNames());
+                    } catch (AnalysisException e) {
+                        continue;
                     }
                     // add load job info, convert String list to Comparable list
                     loadJobInfos.add(new ArrayList<>(loadJob.getShowInfo()));
@@ -396,6 +378,27 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             return loadJobInfos;
         } finally {
             readUnlock();
+        }
+    }
+
+    public void checkJobAuth(String ctlName, String dbName, Set<String> tableNames) throws AnalysisException {
+        if (tableNames.isEmpty()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
+                            PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.LOAD.getPrivs().toString(), dbName);
+            }
+        } else {
+            for (String tblName : tableNames) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                                tblName, PrivPredicate.LOAD)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                            PrivPredicate.LOAD.getPrivs().toString(), tblName);
+                    return;
+                }
+            }
         }
     }
 
