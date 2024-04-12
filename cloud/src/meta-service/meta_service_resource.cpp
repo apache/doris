@@ -408,7 +408,8 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     hdfs_param.set_id(vault_id);
     std::string val = hdfs_param.SerializeAsString();
     txn->put(key, val);
-    LOG_INFO("try to put storage vault_id={}, vault_name={}", vault_id, hdfs_param.name());
+    LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault_id,
+             hdfs_param.name(), hex(key));
     instance.mutable_resource_ids()->Add(std::move(vault_id));
     *instance.mutable_storage_vault_names()->Add() = hdfs_param.name();
     return 0;
@@ -478,6 +479,8 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
     auto vault_key = storage_vault_key({instance.instance_id(), vault_param.s3_obj().id()});
     *instance.mutable_resource_ids()->Add() = vault_param.id();
     *instance.mutable_storage_vault_names()->Add() = vault_param.name();
+    LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault_param.id(),
+             vault_param.name(), hex(vault_key));
     txn->put(vault_key, vault_param.SerializeAsString());
     return 0;
 }
