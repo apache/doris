@@ -373,10 +373,6 @@ public class CascadesContext implements ScheduleContext {
         this.materializationContexts.add(materializationContext);
     }
 
-    public void release() {
-        statementContext = null;
-    }
-
     /**
      * getAndCacheSessionVariable
      */
