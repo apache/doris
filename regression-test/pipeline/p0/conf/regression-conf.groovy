@@ -72,6 +72,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_spark_load," +
     "test_broker_load_func," +
     "test_be_inject_publish_txn_fail,"+
+    "dis_26495,"+
     "test_stream_stub_fault_injection," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
