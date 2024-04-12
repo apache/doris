@@ -19,7 +19,7 @@ attrs==23.1.0
 boltons==23.0.0
 certifi==2023.7.22
 charset-normalizer==3.2.0
-idna==3.4
+idna==3.7
 kafka-python==2.0.2
 numpy==1.24.2
 petl==1.7.12
