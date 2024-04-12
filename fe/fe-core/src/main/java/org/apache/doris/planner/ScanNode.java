@@ -728,7 +728,12 @@ public abstract class ScanNode extends PlanNode {
                 && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
+                * (numScanBackends() > 0 ? numScanBackends() : numBackends);
+    }
+
+    public int numScanBackends() {
+        return 0;
     }
 
     public int getScanRangeNum() {
