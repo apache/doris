@@ -2070,8 +2070,7 @@ public class Coordinator implements CoordInterface {
                                 && context.getSessionVariable().isForceToLocalShuffle();
                         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                                 .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
-                                        fragmentExecParamsMap.get(scanNode.getFragment().getFragmentId())
-                                                .scanRangeAssignment.size())) && useNereids);
+                                        addressToBackendID.size())) && useNereids);
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
@@ -2963,8 +2962,7 @@ public class Coordinator implements CoordInterface {
                 && context.getSessionVariable().isForceToLocalShuffle();
         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                 .allMatch(node -> node.ignoreStorageDataDistribution(context,
-                        fragmentExecParamsMap.get(node.getFragment().getFragmentId())
-                                .scanRangeAssignment.size()))
+                        addressToBackendID.size()))
                 && addressToScanRanges.entrySet().stream().allMatch(addressScanRange -> {
                     return addressScanRange.getValue().size() < parallelExecInstanceNum;
                 }) && useNereids);
