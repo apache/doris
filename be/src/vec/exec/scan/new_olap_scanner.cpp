@@ -221,7 +221,6 @@ Status NewOlapScanner::open(RuntimeState* state) {
     auto* timer = _parent ? ((NewOlapScanNode*)_parent)->_reader_init_timer
                           : ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
     SCOPED_TIMER(timer);
-
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
         std::stringstream ss;
@@ -576,6 +575,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                               \
     COUNTER_UPDATE(Parent->_block_load_counter, stats.blocks_load);                               \
     COUNTER_UPDATE(Parent->_block_fetch_timer, stats.block_fetch_ns);                             \
+    COUNTER_UPDATE(Parent->_delete_bitmap_timer, stats.delete_bitmap_ns);                         \
     COUNTER_UPDATE(Parent->_block_convert_timer, stats.block_convert_ns);                         \
     COUNTER_UPDATE(Parent->_raw_rows_counter, stats.raw_rows_read);                               \
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;                             \
