@@ -19,6 +19,12 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -32,23 +38,26 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * show procedure status command
  */
 public class ShowProcedureStatusCommand extends Command implements NoForward {
-
     public static final Logger LOG = LogManager.getLogger(ShowProcedureStatusCommand.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("ProcedureName")
-                                                                .add("CatalogId").add("DbId").add("PackageName")
-                                                                .add("OwnerName").add("CreateTime").add("ModifyTime")
-                                                                .build();
+            .add("CatalogId").add("DbId").add("DbName").add("PackageName").add("OwnerName").add("CreateTime")
+            .add("ModifyTime").build();
+    private final Set<Expression> whereExpr;
 
     /**
      * constructor
      */
-    public ShowProcedureStatusCommand() {
+    public ShowProcedureStatusCommand(final Set<Expression> whereExpr) {
         super(PlanType.SHOW_PROCEDURE_COMMAND);
+        this.whereExpr = whereExpr;
     }
 
     public ShowResultSetMetaData getMetaData() {
@@ -59,10 +68,53 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
         return builder.build();
     }
 
+    private void validateAndExtractFilters(StringBuilder dbFilter, StringBuilder procFilter) throws Exception {
+
+        if (whereExpr.isEmpty()) {
+            return;
+        }
+        Set<Expression> likeSet = whereExpr.stream().filter(Like.class::isInstance).collect(Collectors.toSet());
+        Set<Expression> equalTo = whereExpr.stream().filter(EqualTo.class::isInstance).collect(Collectors.toSet());
+
+        if (whereExpr.size() != likeSet.size() + equalTo.size()) {
+            throw new AnalysisException("Only support equalTo  and Like filters.");
+        }
+
+        equalTo.addAll(likeSet);
+
+        Map<String, String> filterMap = equalTo.stream()
+                .collect(Collectors.toMap(exp -> ((Slot) exp.child(0)).getName(),
+                        exp -> ((Literal) exp.child(1)).getStringValue()));
+
+        // we support filter on Db and Name and ProcedureName.
+        // But one column we can put only once and support conjuncts
+        for (Map.Entry<String, String> elem : filterMap.entrySet()) {
+            String columnName = elem.getKey();
+            if ((!columnName.equals("Db")) && (!columnName.equals("Name")) && (!columnName.equals("ProcedureName"))) {
+                throw new AnalysisException("Only supports filter Db, Name, ProcedureName with equalTo or LIKE");
+            }
+            if (columnName.equals("Db")) {
+                if (dbFilter.length() != 0) {
+                    throw new AnalysisException("Only supports filter Db only 1 time in where clause");
+                }
+                dbFilter.append(elem.getValue());
+            } else if ((columnName.equals("Name")) || (columnName.equals("ProcedureName"))) {
+                if (procFilter.length() != 0) {
+                    throw new AnalysisException("Only supports filter Name/ProcedureName only 1 time in where clause");
+                }
+                procFilter.append(elem.getValue());
+            }
+        }
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        StringBuilder dbFilter = new StringBuilder();
+        StringBuilder procFilter = new StringBuilder();
+        validateAndExtractFilters(dbFilter, procFilter);
+
         List<List<String>> results = new ArrayList<>();
-        ctx.getPlSqlOperation().getExec().functions.showProcedure(results);
+        ctx.getPlSqlOperation().getExec().functions.showProcedure(results, dbFilter.toString(), procFilter.toString());
         if (!results.isEmpty()) {
             ShowResultSet commonResultSet = new ShowResultSet(getMetaData(), results);
             executor.sendResultSet(commonResultSet);
