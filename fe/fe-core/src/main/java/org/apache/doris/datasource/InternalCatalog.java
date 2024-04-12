@@ -2852,7 +2852,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 Env.getCurrentColocateIndex().removeTable(tableId);
             }
-            dropTable(db, tableId, true, 0L);
+            try {
+                dropTable(db, tableId, true, 0L);
+            } catch (Exception ex) {
+                LOG.warn("drop table", ex);
+            }
 
             throw e;
         }
