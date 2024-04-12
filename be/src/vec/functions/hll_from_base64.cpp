@@ -65,11 +65,18 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_size = offsets[i] - offsets[i - 1];
+
+            // Base64 encoding has a characteristic where every 4 characters represent 3 bytes of data.
+            // Here, we check if the length of the input string is a multiple of 4 to ensure it's a valid base64 encoded string.
             if (0 != src_size % 4) {
                 res.emplace_back();
                 null_map[i] = 1;
                 continue;
             }
+
+            // Allocate sufficient space for the decoded data.
+            // The number 3 here represents the number of bytes in the decoded data for each group of 4 base64 characters.
+            // We set the size of the decoding buffer to be 'src_size + 3' to ensure there is enough space to store the decoded data.
             curr_decode_buff_len = src_size + 3;
             if (curr_decode_buff_len > last_decode_buff_len) {
                 decode_buff.resize(curr_decode_buff_len);
