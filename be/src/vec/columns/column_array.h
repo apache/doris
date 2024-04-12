@@ -119,6 +119,7 @@ public:
     }
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnVector<Offset64>;
@@ -126,6 +127,7 @@ public:
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
+    bool is_variable_length() const override { return true; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
@@ -197,10 +199,6 @@ public:
     const ColumnPtr& get_offsets_ptr() const { return offsets; }
     ColumnPtr& get_offsets_ptr() { return offsets; }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnArray>(num_columns, selector);
-    }
-
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
@@ -219,23 +217,11 @@ public:
                              const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnArray&>(rhs);
-        const size_t nested_row_size = r.size_at(row);
-        const size_t r_nested_start_off = r.offset_at(row);
-
-        // we should clear data because we call resize() before replace_column_data()
-        if (self_row == 0) {
-            data->clear();
-        }
-        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
-        // we make sure call replace_column_data() by order so, here we just insert data for nested
-        data->insert_range_from(r.get_data(), r_nested_start_off, nested_row_size);
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        get_offsets()[self_row] = get_offsets()[self_row - 1];
+        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     void clear() override {

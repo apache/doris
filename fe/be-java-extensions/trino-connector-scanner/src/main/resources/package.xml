@@ -23,20 +23,11 @@ under the License.
         <format>jar</format>
     </formats>
     <includeBaseDirectory>false</includeBaseDirectory>
-    <fileSets>
-        <fileSet>
-            <directory>${project.build.outputDirectory}</directory>
-            <outputDirectory>/</outputDirectory>
-            <includes>
-                <include>**/*.class</include>
-            </includes>
-        </fileSet>
-    </fileSets>
-    <!--dependencySets>
+    <dependencySets>
         <dependencySet>
             <outputDirectory>/</outputDirectory>
             <useProjectArtifact>true</useProjectArtifact>
-            <unpack>false</unpack>
+            <unpack>true</unpack>
             <scope>runtime</scope>
             <unpackOptions>
                 <excludes>
@@ -44,5 +35,5 @@ under the License.
                 </excludes>
             </unpackOptions>
         </dependencySet>
-    </dependencySets-->
+    </dependencySets>
 </assembly>

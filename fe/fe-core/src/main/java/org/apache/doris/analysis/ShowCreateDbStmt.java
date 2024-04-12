@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -40,25 +41,35 @@ public class ShowCreateDbStmt extends ShowStmt {
                     .addColumn(new Column("Create Database", ScalarType.createVarchar(30)))
                     .build();
 
+    private String ctl;
     private String db;
 
-    public ShowCreateDbStmt(String db) {
-        this.db = db;
+    public ShowCreateDbStmt(DbName db) {
+        this.ctl = db.getCtl();
+        this.db = db.getDb();
     }
 
     public String getDb() {
         return db;
     }
 
+    public String getCtl() {
+        return ctl;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        if (Strings.isNullOrEmpty(ctl)) {
+            ctl = Env.getCurrentEnv().getCurrentCatalog().getName();
+        }
         if (Strings.isNullOrEmpty(db)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, db);
         }
 
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db,
-                PrivPredicate.ALTER_CREATE_DROP)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db,
+                        PrivPredicate.ALTER_CREATE_DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     ConnectContext.get().getQualifiedUser(), db);
         }

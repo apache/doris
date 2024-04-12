@@ -127,9 +127,13 @@ public:
 
     // shrink the end zeros for CHAR type or ARRAY<CHAR> type
     virtual MutablePtr get_shrinked_column() {
-        LOG(FATAL) << "Cannot clone_resized() column " << get_name();
+        LOG(FATAL) << "Cannot get_shrinked_column() column " << get_name();
         return nullptr;
     }
+
+    // check the column whether could shrinked
+    // now support only in char type, or the nested type in complex type: array{char}, struct{char}, map{char}
+    virtual bool could_shrinked_column() { return false; }
 
     /// Some columns may require finalization before using of other operations.
     virtual void finalize() {}
@@ -492,8 +496,6 @@ public:
       */
     using ColumnIndex = UInt64;
     using Selector = PaddedPODArray<ColumnIndex>;
-    virtual std::vector<MutablePtr> scatter(ColumnIndex num_columns,
-                                            const Selector& selector) const = 0;
 
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
 
@@ -630,6 +632,9 @@ public:
     /// Implies is_fixed_and_contiguous.
     virtual bool is_numeric() const { return false; }
 
+    // Column is ColumnString/ColumnArray/ColumnMap or other variable length column at every row
+    virtual bool is_variable_length() const { return false; }
+
     virtual bool is_column_string() const { return false; }
 
     virtual bool is_column_decimal() const { return false; }
@@ -688,11 +693,6 @@ public:
     bool is_date_time = false;
 
 protected:
-    /// Template is to devirtualize calls to insert_from method.
-    /// In derived classes (that use final keyword), implement scatter method as call to scatter_impl.
-    template <typename Derived>
-    std::vector<MutablePtr> scatter_impl(ColumnIndex num_columns, const Selector& selector) const;
-
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
 };

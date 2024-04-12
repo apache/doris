@@ -29,13 +29,17 @@ import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,9 +54,11 @@ import java.nio.ByteBuffer;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,8 +78,9 @@ public class DFSFileSystem extends RemoteFileSystem {
         this.properties.putAll(properties);
     }
 
+    @VisibleForTesting
     @Override
-    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
+    public FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem != null) {
             return dfsFileSystem;
         }
@@ -517,6 +524,46 @@ public class DFSFileSystem extends RemoteFileSystem {
             }
         } catch (Exception e) {
             LOG.warn("failed to make dir for " + remotePath);
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
+    @Override
+    public Status listFiles(String remotePath, List<RemoteFile> result) {
+        RemoteIterator<LocatedFileStatus> iterator;
+        try {
+            FileSystem fileSystem = nativeFileSystem(remotePath);
+            Path dirPath = new Path(remotePath);
+            iterator = fileSystem.listFiles(dirPath, true);
+            while (iterator.hasNext()) {
+                LocatedFileStatus next = iterator.next();
+                String location = next.getPath().toString();
+                String child = location.substring(dirPath.toString().length());
+                while (child.startsWith("/")) {
+                    child = child.substring(1);
+                }
+                if (!child.contains("/")) {
+                    result.add(new RemoteFile(location, next.isFile(), next.getLen(), next.getBlockSize()));
+                }
+            }
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
+    @Override
+    public Status listDirectories(String remotePath, Set<String> result) {
+        try {
+            FileSystem fileSystem = nativeFileSystem(remotePath);
+            FileStatus[] fileStatuses = fileSystem.listStatus(new Path(remotePath));
+            result.addAll(
+                    Arrays.stream(fileStatuses)
+                        .filter(FileStatus::isDirectory)
+                        .map(file -> file.getPath().toString() + "/")
+                        .collect(ImmutableSet.toImmutableSet()));
+        } catch (Exception e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
         return Status.OK;

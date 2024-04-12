@@ -79,7 +79,8 @@ int MetaServer::start(brpc::Server* server) {
     brpc::ServiceOptions options;
     options.ownership = brpc::SERVER_OWNS_SERVICE;
     if (!config::secondary_package_name.empty()) {
-        LOG(INFO) << "Add MetaService with secondary package name " << config::secondary_package_name;
+        LOG(INFO) << "Add MetaService with secondary package name "
+                  << config::secondary_package_name;
         options.secondary_package_name = config::secondary_package_name;
     }
     server->AddService(meta_service_proxy, options);

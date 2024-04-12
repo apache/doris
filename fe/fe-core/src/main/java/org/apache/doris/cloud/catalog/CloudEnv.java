@@ -19,12 +19,15 @@ package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.NodeInfoPB;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.HttpURLUtil;
@@ -57,10 +60,19 @@ public class CloudEnv extends Env {
     private CloudInstanceStatusChecker cloudInstanceStatusChecker;
     private CloudClusterChecker cloudClusterCheck;
 
+    private CloudTabletRebalancer cloudTabletRebalancer;
+
+    private boolean enableStorageVault;
+
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
         this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
+        this.cloudTabletRebalancer = new CloudTabletRebalancer((CloudSystemInfoService) systemInfo);
+    }
+
+    public CloudTabletRebalancer getCloudTabletRebalancer() {
+        return this.cloudTabletRebalancer;
     }
 
     @Override
@@ -68,6 +80,7 @@ public class CloudEnv extends Env {
         LOG.info("start cloud Master only daemon threads");
         super.startMasterOnlyDaemonThreads();
         cloudClusterCheck.start();
+        cloudTabletRebalancer.start();
     }
 
     @Override
@@ -83,8 +96,8 @@ public class CloudEnv extends Env {
 
     private Cloud.NodeInfoPB getLocalTypeFromMetaService() {
         // get helperNodes from ms
-        Cloud.GetClusterResponse response = CloudSystemInfoService.getCloudCluster(
-                Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
+        Cloud.GetClusterResponse response = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudCluster(Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
                 || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             LOG.warn("failed to get cloud cluster due to incomplete response, "
@@ -100,6 +113,7 @@ public class CloudEnv extends Env {
                     Config.cloud_unique_id, Config.cloud_sql_server_cluster_id, response);
             return null;
         }
+        this.enableStorageVault = response.getEnableStorageVault();
         List<Cloud.NodeInfoPB> allNodes = response.getCluster(0).getNodesList()
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
@@ -392,7 +406,7 @@ public class CloudEnv extends Env {
 
     public void changeCloudCluster(String clusterName, ConnectContext ctx) throws DdlException {
         checkCloudClusterPriv(clusterName);
-        CloudSystemInfoService.waitForAutoStart(clusterName);
+        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(clusterName);
         try {
             ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster(clusterName, "");
         } catch (UserException e) {
@@ -415,5 +429,13 @@ public class CloudEnv extends Env {
 
         changeCloudCluster(res[1], ctx);
         return res[0];
+    }
+
+    public void replayUpdateCloudReplica(UpdateCloudReplicaInfo info) throws MetaNotFoundException {
+        ((CloudInternalCatalog) getInternalCatalog()).replayUpdateCloudReplica(info);
+    }
+
+    public boolean getEnableStorageVault() {
+        return this.enableStorageVault;
     }
 }

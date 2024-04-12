@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -35,7 +36,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.text.ParseException;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
 
@@ -95,8 +95,8 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tblId")
     public final long tblId;
 
-    // TODO: Map here is wired, List is enough
-    public final Map<String, Set<String>> colToPartitions;
+    // Pair<IndexName, ColumnName>
+    public final List<Pair<String, String>> jobColumns;
 
     public final Set<String> partitionNames;
 
@@ -200,7 +200,7 @@ public class AnalysisInfo implements Writable {
     public final boolean userInject;
 
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
-            Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
+            List<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
@@ -213,7 +213,7 @@ public class AnalysisInfo implements Writable {
         this.catalogId = catalogId;
         this.dbId = dbId;
         this.tblId = tblId;
-        this.colToPartitions = colToPartitions;
+        this.jobColumns = jobColumns;
         this.partitionNames = partitionNames;
         this.colName = colName;
         this.indexId = indexId;
@@ -268,8 +268,8 @@ public class AnalysisInfo implements Writable {
         if (maxBucketNum > 0) {
             sj.add("MaxBucketNum: " + maxBucketNum);
         }
-        if (colToPartitions != null) {
-            sj.add("colToPartitions: " + getColToPartitionStr());
+        if (jobColumns != null) {
+            sj.add("jobColumns: " + getJobColumns());
         }
         if (lastExecTimeInMs > 0) {
             sj.add("LastExecTime: " + StatisticsUtil.getReadableTime(lastExecTimeInMs));
@@ -301,12 +301,12 @@ public class AnalysisInfo implements Writable {
         taskIds.add(taskId);
     }
 
-    public String getColToPartitionStr() {
-        if (colToPartitions == null || colToPartitions.isEmpty()) {
+    public String getJobColumns() {
+        if (jobColumns == null || jobColumns.isEmpty()) {
             return "";
         }
         Gson gson = new Gson();
-        return gson.toJson(colToPartitions);
+        return gson.toJson(jobColumns);
     }
 
     @Override

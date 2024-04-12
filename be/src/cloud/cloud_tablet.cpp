@@ -26,10 +26,13 @@
 
 #include <atomic>
 #include <memory>
+#include <unordered_map>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
@@ -38,6 +41,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/txn_manager.h"
+#include "util/debug_points.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -75,6 +79,10 @@ Status CloudTablet::capture_consistent_rowsets_unlocked(
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
                                        std::vector<RowSetSplits>* rs_splits,
                                        bool skip_missing_version) {
+    DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
+        LOG_WARNING("CloudTablet.capture_rs_readers.return e-230").tag("tablet_id", tablet_id());
+        return Status::Error<false>(-230, "injected error");
+    });
     Versions version_path;
     std::shared_lock rlock(_meta_lock);
     auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
@@ -312,11 +320,22 @@ void CloudTablet::update_base_size(const Rowset& rs) {
 }
 
 void CloudTablet::recycle_cached_data() {
-    // TODO(plat1ko)
+    CloudTablet::recycle_cached_data(get_snapshot_rowset(true));
+    _engine.tablet_mgr().erase_tablet(tablet_id());
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
-    // TODO(plat1ko)
+    std::unordered_map<int, int> map;
+    if (config::enable_file_cache) {
+        for (const auto& rs : rowsets) {
+            for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
+                auto seg_path = rs->segment_file_path(seg_id);
+                auto file_key = io::BlockFileCache::hash(io::Path(seg_path).filename().native());
+                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+                file_cache->remove_if_cached(file_key);
+            }
+        }
+    }
 }
 
 void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segments,
@@ -391,6 +410,23 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
 }
 
 int64_t CloudTablet::get_cloud_base_compaction_score() const {
+    if (_tablet_meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
+        bool has_delete = false;
+        int64_t point = cumulative_layer_point();
+        for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
+            if (rs_meta->start_version() >= point) {
+                continue;
+            }
+            if (rs_meta->has_delete_predicate()) {
+                has_delete = true;
+                break;
+            }
+        }
+        if (!has_delete) {
+            return 0;
+        }
+    }
+
     return _approximate_num_rowsets.load(std::memory_order_relaxed) -
            _approximate_cumu_num_rowsets.load(std::memory_order_relaxed);
 }
@@ -487,8 +523,7 @@ std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compact
     {
         std::shared_lock rlock(_meta_lock);
         for (const auto& [version, rs] : _rs_version_map) {
-            // Do compaction on local rowsets only.
-            if (version.first < _cumulative_point && rs->is_local()) {
+            if (version.first != 0 && version.first < _cumulative_point) {
                 candidate_rowsets.push_back(rs);
             }
         }
@@ -573,7 +608,8 @@ Status CloudTablet::calc_delete_bitmap_for_compaciton(
             input_rowsets, rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
             tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
     std::size_t missed_rows_size = missed_rows.size();
-    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
+    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
+        tablet_state() == TABLET_RUNNING) {
         if (merged_rows >= 0 && merged_rows != missed_rows_size) {
             std::string err_msg = fmt::format(
                     "cumulative compaction: the merged rows({}) is not equal to missed "
@@ -588,7 +624,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaciton(
     }
     location_map.clear();
 
-    // 2. calc delete bimap for incremental data
+    // 2. calc delete bitmap for incremental data
     RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));

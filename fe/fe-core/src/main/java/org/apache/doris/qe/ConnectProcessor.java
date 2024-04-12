@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -49,6 +50,7 @@ import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.Dialect;
@@ -58,22 +60,26 @@ import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import javax.annotation.Nullable;
 
@@ -98,6 +104,10 @@ public abstract class ConnectProcessor {
 
     public ConnectContext getConnectContext() {
         return ctx;
+    }
+
+    public boolean isHandleQueryInFe() {
+        return executor.isHandleQueryInFe();
     }
 
     // change current database of this session.
@@ -214,6 +224,7 @@ public abstract class ConnectProcessor {
     public void executeQuery(MysqlCommand mysqlCommand, String originStmt) throws Exception {
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+            MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
         }
 
         String convertedStmt = convertOriginStmt(originStmt);
@@ -231,10 +242,19 @@ public abstract class ConnectProcessor {
                 // Parse sql failed, audit it and return
                 handleQueryException(e, convertedStmt, null, null);
                 return;
+            } catch (ParseException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                            e.getMessage(), convertedStmt);
+                }
+                // ATTN: Do not set nereidsParseException in this case.
+                // Because ParseException means the sql is not supported by Nereids.
+                // It should be parsed by old parser, so not setting nereidsParseException to avoid
+                // suppressing the exception thrown by old parser.
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                    LOG.debug("Nereids parse sql failed with other exception. Reason: {}. Statement: \"{}\".",
                             e.getMessage(), convertedStmt);
                 }
                 nereidsParseException = e;
@@ -524,7 +544,7 @@ public abstract class ConnectProcessor {
         }
     }
 
-    public TMasterOpResult proxyExecute(TMasterOpRequest request) {
+    public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {
         ctx.setDatabase(request.db);
         ctx.setQualifiedUser(request.user);
         ctx.setEnv(Env.getCurrentEnv());
@@ -577,6 +597,10 @@ public abstract class ConnectProcessor {
             if (request.isSetQueryTimeout()) {
                 ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
             }
+        }
+
+        if (request.isSetUserVariables()) {
+            ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
         }
 
         ctx.setThreadLocalInfo();
@@ -652,5 +676,19 @@ public abstract class ConnectProcessor {
     // only Mysql protocol
     public void processOnce() throws IOException, NotImplementedException {
         throw new NotImplementedException("Not Impl processOnce");
+    }
+
+    private Map<String, LiteralExpr> userVariableFromThrift(Map<String, TExprNode> thriftMap) throws TException {
+        try {
+            Map<String, LiteralExpr> userVariables = Maps.newHashMap();
+            for (Map.Entry<String, TExprNode> entry : thriftMap.entrySet()) {
+                TExprNode tExprNode = entry.getValue();
+                LiteralExpr literalExpr = LiteralExpr.getLiteralExprFromThrift(tExprNode);
+                userVariables.put(entry.getKey(), literalExpr);
+            }
+            return userVariables;
+        } catch (AnalysisException e) {
+            throw new TException(e.getMessage());
+        }
     }
 }

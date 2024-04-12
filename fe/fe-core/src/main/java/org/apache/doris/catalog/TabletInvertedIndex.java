@@ -91,7 +91,9 @@ public class TabletInvertedIndex {
     private Table<Long, Long, TabletMeta> tabletMetaTable = HashBasedTable.create();
 
     // tablet id -> (backend id -> replica)
+    // for cloud mode, no need to known the replica's backend, so use backend id = -1 in cloud mode.
     private Table<Long, Long, Replica> replicaMetaTable = HashBasedTable.create();
+
     // backing replica table, for visiting backend replicas faster.
     // backend id -> (tablet id -> replica)
     private Table<Long, Long, Replica> backingReplicaMetaTable = HashBasedTable.create();
@@ -617,6 +619,9 @@ public class TabletInvertedIndex {
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, backend " + backendId);
+            if (Config.isCloudMode()) {
+                backendId = -1;
+            }
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
                 replicaToTabletMap.remove(replica.getId());
@@ -641,6 +646,9 @@ public class TabletInvertedIndex {
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, backend " + backendId);
+            if (Config.isCloudMode()) {
+                backendId = -1;
+            }
             return replicaMetaTable.get(tabletId, backendId);
         } finally {
             readUnlock(stamp);

@@ -329,8 +329,7 @@ Status CloudBaseCompaction::modify_rowsets() {
 }
 
 void CloudBaseCompaction::garbage_collection() {
-    // TODO(luwei) implement file_cache_garbage_collection
-    //file_cache_garbage_collection();
+    CloudCompactionMixin::garbage_collection();
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());

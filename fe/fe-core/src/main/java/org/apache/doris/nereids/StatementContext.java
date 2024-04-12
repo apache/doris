@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
@@ -45,6 +46,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -52,6 +54,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -116,6 +119,13 @@ public class StatementContext {
     // Map slot to its relation, currently used in SlotReference to find its original
     // Relation for example LogicalOlapScan
     private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
+
+    private BitSet disableRules;
+
+    // for create view support in nereids
+    // key is the start and end position of the sql substring that needs to be replaced,
+    // and value is the new string used for replacement.
+    private TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -259,11 +269,22 @@ public class StatementContext {
         return supplier.get();
     }
 
+    public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
+        if (this.disableRules != null) {
+            return this.disableRules;
+        }
+        this.disableRules = sessionVariable.getDisableNereidsRules();
+        return this.disableRules;
+    }
+
     /**
      * Some value of the cacheKey may change, invalid cache when value change
      */
     public synchronized void invalidCache(String cacheKey) {
         contextCacheMap.remove(cacheKey);
+        if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)) {
+            this.disableRules = null;
+        }
     }
 
     public ColumnAliasGenerator getColumnAliasGenerator() {
@@ -338,5 +359,13 @@ public class StatementContext {
 
     public void setHasUnknownColStats(boolean hasUnknownColStats) {
         this.hasUnknownColStats = hasUnknownColStats;
+    }
+
+    public TreeMap<Pair<Integer, Integer>, String> getIndexInSqlToString() {
+        return indexInSqlToString;
+    }
+
+    public void addIndexInSqlToString(Pair<Integer, Integer> pair, String replacement) {
+        indexInSqlToString.put(pair, replacement);
     }
 }
