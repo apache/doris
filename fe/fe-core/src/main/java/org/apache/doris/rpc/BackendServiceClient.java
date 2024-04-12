@@ -182,6 +182,11 @@ public class BackendServiceClient {
         return stub.getWalQueueSize(request);
     }
 
+    public Future<InternalService.PAlterVaultSyncResponse> alterVaultSync(
+            InternalService.PAlterVaultSyncRequest request) {
+        return stub.alterVaultSync(request);
+    }
+
 
     public void shutdown() {
         ConnectivityState state = channel.getState(false);

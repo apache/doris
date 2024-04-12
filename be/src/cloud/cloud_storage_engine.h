@@ -109,6 +109,8 @@ public:
     std::shared_ptr<CloudCumulativeCompactionPolicy> cumu_compaction_policy(
             std::string_view compaction_policy);
 
+    void sync_storage_vault();
+
 private:
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
