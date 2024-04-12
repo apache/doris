@@ -65,6 +65,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Iceberg utils
@@ -524,12 +525,17 @@ public class IcebergUtils {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
             org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
             Schema schema = icebergTable.schema();
+            Set<Integer> identifierFields = schema.identifierFieldIds();
             List<Types.NestedField> columns = schema.columns();
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
             for (Types.NestedField field : columns) {
-                tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
-                        IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
-                        schema.caseInsensitiveFindField(field.name()).fieldId()));
+                Column newColumn = new Column(field.name().toLowerCase(Locale.ROOT),
+                    IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                    schema.caseInsensitiveFindField(field.name()).fieldId());
+                if (identifierFields.contains(field.fieldId())) {
+                    newColumn.setIdentifierKey(true);
+                }
+                tmpSchema.add(newColumn);
             }
             return tmpSchema;
         });
