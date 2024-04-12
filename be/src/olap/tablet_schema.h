@@ -127,7 +127,10 @@ public:
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
 
-    void set_aggregation_method(FieldAggregationMethod agg) { _aggregation = agg; }
+    void set_aggregation_method(FieldAggregationMethod agg) {
+        _aggregation = agg;
+        _aggregation_name = get_string_by_aggregation_type(agg);
+    }
 
     /**
      * Add a sub column.
@@ -420,6 +423,22 @@ public:
             str += ", ";
             str += "is_nullable:";
             str += (p->is_nullable() ? "true" : "false");
+            str += ")";
+        }
+        str += "]";
+        return str;
+    }
+
+    string dump_full_schema() const {
+        string str = "[";
+        for (auto p : _cols) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            ColumnPB col_pb;
+            p->to_schema_pb(&col_pb);
+            str += "(";
+            str += col_pb.ShortDebugString();
             str += ")";
         }
         str += "]";
