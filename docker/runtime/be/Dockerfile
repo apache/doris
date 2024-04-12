@@ -1,4 +1,3 @@
-#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -51,9 +50,13 @@ ADD resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/be /opt/apac
 
 COPY resource/be_*.sh /opt/apache-doris/
 
+COPY --from=selectdb/doris-debug-ubuntu:latest /doris-debug /opt/apache-doris/
+
 COPY resource/entry_point.sh /usr/local/bin/
 
 COPY resource/init_be.sh /usr/local/bin/
+
+#RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 
 WORKDIR /opt/apache-doris
 
