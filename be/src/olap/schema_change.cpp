@@ -935,7 +935,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         }
         int64_t real_alter_version = 0;
         res = _convert_historical_rowsets(sc_params, &real_alter_version);
-        DCHECK_GE(real_alter_version, request.alter_version);
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
             _tablet_ids_in_converting.erase(new_tablet->tablet_id());
@@ -943,6 +942,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         if (!res) {
             break;
         }
+
+        DCHECK_GE(real_alter_version, request.alter_version);
 
         if (new_tablet->keys_type() == UNIQUE_KEYS &&
             new_tablet->enable_unique_key_merge_on_write()) {
