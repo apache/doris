@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.datasource.HMSCachedClientTest;
 import org.apache.doris.fs.LocalDfsFileSystem;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TUpdateMode;
@@ -69,6 +70,10 @@ public class HmsCommitTest {
         writeLocation = "file://" + writePath.toAbsolutePath() + "/";
         createTestHiveCatalog();
         createTestHiveDatabase();
+
+        // context
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
     }
 
     @AfterClass
