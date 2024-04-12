@@ -183,7 +183,7 @@ _main() {
   register_broker_to_fe
   check_broker_status
   doris_note "Ready to start BROKER！"
-  start_broker.sh
+  ${DORIS_HOME}/apache_hdfs_broker/bin/start_broker.sh
   exec "$@"
 }
 
