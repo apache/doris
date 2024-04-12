@@ -962,13 +962,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         return true;
     }
 
-    public void dropTable(Database db, long tableId) throws MetaNotFoundException {
+    public void dropTable(Database db, long tableId, boolean isForceDrop,
+                          Long recycleTime) throws MetaNotFoundException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
         table.writeLock();
         try {
-            unprotectDropTable(db, table, true, true, 0);
+            unprotectDropTable(db, table, isForceDrop, true, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
+            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             table.writeUnlock();
             db.writeUnlock();
@@ -977,18 +979,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
             Long recycleTime) throws MetaNotFoundException {
-        Table table = db.getTableOrMetaException(tableId);
-        db.writeLock();
-        table.writeLock();
-        try {
-            unprotectDropTable(db, table, isForceDrop, true, recycleTime);
-            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(),
-                    tableId);
-            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
-        } finally {
-            table.writeUnlock();
-            db.writeUnlock();
-        }
+        dropTable(db, tableId, isForceDrop, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
@@ -2861,7 +2852,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 Env.getCurrentColocateIndex().removeTable(tableId);
             }
-            dropTable(db, tableId);
+            dropTable(db, tableId, true, 0L);
 
             throw e;
         }

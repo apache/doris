@@ -24,25 +24,6 @@ suite("test_create_table_exception") {
     options.setFeNum(3)
     options.feConfigs.add('max_dynamic_partition_num=2000')
 
-    def checkTabletOnDiskTabletNumEq = {tbl ->
-        sleep 5000
-
-        def tablets = sql_return_maparray "SHOW TABLETS FROM $tbl"
-        def pathTabletNum = [:]
-        tablets.each {
-            def num = pathTabletNum.get(it.PathHash)
-            if (num) {
-                pathTabletNum.put(it.PathHash, ++num)
-            } else {
-                pathTabletNum.put(it.PathHash, 1)
-            }
-        }
-
-        log.info("table ${tbl} tablet in path ${pathTabletNum.values()}")
-        def count = pathTabletNum.values().stream().distinct().count()
-        assertEquals(count, 1)
-    }
-
     docker(options) {
         sleep 2000
         def table1 = "normal_table"
