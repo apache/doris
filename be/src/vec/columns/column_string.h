@@ -123,6 +123,7 @@ public:
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override { return true; }
 
     Field operator[](size_t n) const override {
         assert(n < size());
