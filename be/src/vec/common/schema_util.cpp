@@ -369,7 +369,7 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
     update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id);
 }
 
-void inherit_tablet_index(TabletSchemaSPtr& schema) {
+void inherit_root_attributes(TabletSchemaSPtr& schema) {
     std::unordered_map<int32_t, TabletIndex> variants_index_meta;
     // Get all variants tablet index metas if exist
     for (const auto& col : schema->columns()) {
@@ -392,6 +392,7 @@ void inherit_tablet_index(TabletSchemaSPtr& schema) {
             // above types are not supported in bf
             col.set_is_bf_column(schema->column(col.parent_unique_id()).is_bf_column());
         }
+        col.set_aggregation_method(schema->column(col.parent_unique_id()).aggregation());
         auto it = variants_index_meta.find(col.parent_unique_id());
         // variant has no index meta, ignore
         if (it == variants_index_meta.end()) {
@@ -467,7 +468,7 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         update_least_sparse_column(schemas, output_schema, unique_id, path_set);
     }
 
-    inherit_tablet_index(output_schema);
+    inherit_root_attributes(output_schema);
     if (check_schema_size &&
         output_schema->columns().size() > config::variant_max_merged_tablet_schema_size) {
         return Status::DataQualityError("Reached max column size limit {}",
@@ -710,7 +711,7 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
         VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
     }
 
-    vectorized::schema_util::inherit_tablet_index(flush_schema);
+    vectorized::schema_util::inherit_root_attributes(flush_schema);
 }
 
 // ---------------------------
