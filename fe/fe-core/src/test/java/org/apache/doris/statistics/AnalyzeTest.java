@@ -172,6 +172,7 @@ public class AnalyzeTest extends TestWithFeService {
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .setJobColumns(colList)
                 .setState(AnalysisState.RUNNING)
+                .setRowCount(10)
                 .build();
         new OlapAnalysisTask(analysisJobInfo).doExecute();
         new Expectations() {
