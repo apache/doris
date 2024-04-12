@@ -1,0 +1,1 @@
+DROP table IF EXISTS `supplier`;
