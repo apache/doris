@@ -17,16 +17,20 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InitCatalogLog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -123,7 +127,7 @@ public class View extends Table {
                 retStmt = queryStmtRef.get();
                 if (retStmt == null) {
                     try {
-                        retStmt = init();
+                        retStmt = init(InitCatalogLog.Type.UNKNOWN);
                     } catch (UserException e) {
                         // should not happen
                         LOG.error("unexpected exception", e);
@@ -153,7 +157,7 @@ public class View extends Table {
      * Throws a TableLoadingException if there was any error parsing the
      * the SQL or if the view definition did not parse into a QueryStmt.
      */
-    public synchronized QueryStmt init() throws UserException {
+    public synchronized QueryStmt init(InitCatalogLog.Type catalogType) throws UserException {
         Preconditions.checkNotNull(inlineViewDef);
         // Parse the expanded view definition SQL-string into a QueryStmt and
         // populate a view definition.
@@ -174,8 +178,39 @@ public class View extends Table {
             throw new UserException(String.format("View definition of %s "
                     + "is not a query statement", name));
         }
+
+        if (catalogType == InitCatalogLog.Type.HMS) {
+            initChildrenCatalogType(node, catalogType);
+        }
         queryStmtRef = new SoftReference<QueryStmt>((QueryStmt) node);
         return (QueryStmt) node;
+    }
+
+    public void initChildrenCatalogType(ParseNode node, InitCatalogLog.Type catalogType) {
+        if (node == null) {
+            return;
+        }
+
+        if (node instanceof SelectStmt) {
+            SelectStmt selectStmt = (SelectStmt) node;
+            List<TableRef> list = selectStmt.getTableRefs();
+            for (TableRef tableRef : list) {
+                if (tableRef instanceof InlineViewRef) {
+                    ((InlineViewRef) tableRef).setCatalogType(catalogType);
+                }
+            }
+
+            for (int i = 0; i < selectStmt.getFromClause().size(); i++) {
+                TableRef tableRefInFrom = selectStmt.getFromClause().get(i);
+                // Recursively init subquery
+                if (tableRefInFrom instanceof InlineViewRef) {
+                    InlineViewRef viewRef = (InlineViewRef) tableRefInFrom;
+                    viewRef.setCatalogType(catalogType);
+
+                    initChildrenCatalogType(viewRef.getQueryStmt(), catalogType);
+                }
+            }
+        }
     }
 
     /**

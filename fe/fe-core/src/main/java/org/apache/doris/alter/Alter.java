@@ -64,6 +64,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
+import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
@@ -617,7 +618,7 @@ public class Alter {
             try {
                 view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
                 try {
-                    view.init();
+                    view.init(Type.UNKNOWN);
                 } catch (UserException e) {
                     throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
                 }
@@ -653,7 +654,7 @@ public class Alter {
             String viewName = view.getName();
             view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
             try {
-                view.init();
+                view.init(Type.UNKNOWN);
             } catch (UserException e) {
                 throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
             }

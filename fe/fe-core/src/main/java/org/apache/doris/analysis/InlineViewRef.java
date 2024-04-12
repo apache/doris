@@ -27,6 +27,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -84,6 +86,9 @@ public class InlineViewRef extends TableRef {
     // so we need to record it in Analyzer
     // otherwise some error will occurs when resolving TableRef later.
     protected String externalCtl;
+
+    // Some catalog has its own specific view grammar。for example: inner name like _c1,_c2 in hive
+    protected InitCatalogLog.Type catalogType;
 
     // END: Members that need to be reset()
     // ///////////////////////////////////////
@@ -148,6 +153,7 @@ public class InlineViewRef extends TableRef {
         materializedTupleIds.addAll(other.materializedTupleIds);
         sMap = other.sMap.clone();
         baseTblSmap = other.baseTblSmap.clone();
+        catalogType = other.catalogType;
     }
 
     public List<String> getExplicitColLabels() {
@@ -176,6 +182,7 @@ public class InlineViewRef extends TableRef {
         materializedTupleIds.clear();
         sMap.clear();
         baseTblSmap.clear();
+        catalogType = Type.UNKNOWN;
     }
 
     @Override
@@ -337,8 +344,8 @@ public class InlineViewRef extends TableRef {
                     false, null, selectItemExpr.isNullable(),
                     null, ""));
         }
-        InlineView inlineView = (view != null) ? new InlineView(view, columnList)
-                : new InlineView(getExplicitAlias(), columnList);
+        InlineView inlineView = (view != null) ? new InlineView(view, columnList, catalogType)
+                : new InlineView(getExplicitAlias(), columnList, catalogType);
 
         // Create the non-materialized tuple and set the fake table in it.
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
@@ -496,6 +503,10 @@ public class InlineViewRef extends TableRef {
 
     public String getExternalCtl() {
         return this.externalCtl;
+    }
+
+    public void setCatalogType(Type catalogType) {
+        this.catalogType = catalogType;
     }
 
     @Override

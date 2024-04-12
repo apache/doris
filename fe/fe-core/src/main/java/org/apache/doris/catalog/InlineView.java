@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Maps;
@@ -36,26 +37,37 @@ public class InlineView extends Table {
 
     protected Map<String, Column> innerNameToColumn;
 
+    // Some catalog has its own specific view grammar。for example: inner name like _c1,_c2 in hive
+    protected InitCatalogLog.Type catalogType;
+
     /**
      * An inline view only has an alias and columns, but it won't have id, db and owner.
      */
-    public InlineView(String alias, List<Column> columns) {
+    public InlineView(String alias, List<Column> columns, InitCatalogLog.Type catalogType) {
         // ID for inline view has no use.
         super(-1, alias, TableType.INLINE_VIEW, columns);
-        initColumnInnerNameMap();
+        this.catalogType = catalogType;
+        init();
     }
 
     /**
      * An inline view only has an alias and columns, but it won't have id, db and owner.
      */
-    public InlineView(View view, List<Column> columns) {
+    public InlineView(View view, List<Column> columns, InitCatalogLog.Type catalogType) {
         // TODO(zc): think about it
         super(-1, view.getName(), TableType.INLINE_VIEW, columns);
-        initColumnInnerNameMap();
+        this.catalogType = catalogType;
+        init();
+    }
+
+    private void init() {
+        if (this.catalogType == InitCatalogLog.Type.HMS) {
+            initColumnInnerNameMap();
+        }
     }
 
     /**
-     * Support get column from inline view with column name like '_c0', '_c1' etc. Same as hive.
+     * Support get column from inline view with column name like '_c0', '_c1' etc for hive.
      */
     public void initColumnInnerNameMap() {
         innerNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -67,13 +79,18 @@ public class InlineView extends Table {
                 if (!col.getName().matches(FeNameFormat.getColumnNameRegex())) {
                     innerNameToColumn.put("_c" + counter, col);
                 }
-
             }
         }
     }
 
     public Column getColumn(String name) {
-        return nameToColumn.containsKey(name) ? nameToColumn.get(name) : innerNameToColumn.get(name);
+        Column column = nameToColumn.get(name);
+
+        if (column == null && this.catalogType == InitCatalogLog.Type.HMS) {
+            column = innerNameToColumn.get(name);
+        }
+
+        return column;
     }
 
     /**

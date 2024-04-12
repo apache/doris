@@ -40,6 +40,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
@@ -874,7 +875,7 @@ public class Analyzer {
                     // for user experience consideration, parse hive view ddl first to avoid NPE
                     // if legacy parser can not parse hive view ddl properly
                     try {
-                        hmsView.init();
+                        hmsView.init(InitCatalogLog.Type.HMS);
                     } catch (UserException e) {
                         throw new AnalysisException(e.getMessage(), e);
                     }

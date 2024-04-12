@@ -131,16 +131,6 @@ suite("test_many_inlineview") {
     }
 
     sql """
-        select PARAM_TYPE_CODE,
-               _c1
-        from
-          (select PARAM_TYPE_CODE,
-                  count(*)
-           from ods_drp_ch_sys_codelist_et
-           group by PARAM_TYPE_CODE) t1;
-    """
-
-    sql """
         drop table if exists ods_drp_ch_sys_codelist_et;
     """
 
