@@ -93,11 +93,24 @@ struct AggregateFunctionGroupArrayIntersectData {
     Set value;
     bool init = false;
 
-    void process_col_data(const ColumnNullable* col_null, const ColVecType* nested_column_data,
-                          size_t offset, size_t arr_size, bool init, Set& set) {
+    void process_col_data(auto& column_data, size_t offset, size_t arr_size, bool& init, Set& set) {
+        const bool is_column_data_nullable = column_data.is_nullable();
+
+        const ColumnNullable* col_null = nullptr;
+        const ColVecType* nested_column_data = nullptr;
+
+        if (is_column_data_nullable) {
+            auto* const_col_data = const_cast<IColumn*>(&column_data);
+            col_null = static_cast<ColumnNullable*>(const_col_data);
+            nested_column_data = &assert_cast<const ColVecType&>(col_null->get_nested_column());
+        } else {
+            nested_column_data = &static_cast<const ColVecType&>(column_data);
+        }
+
         if (!init) {
             for (size_t i = 0; i < arr_size; ++i) {
-                const bool is_null_element = col_null && col_null->is_null_at(offset + i);
+                const bool is_null_element =
+                        is_column_data_nullable && col_null->is_null_at(offset + i);
                 const T* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
 
@@ -108,7 +121,8 @@ struct AggregateFunctionGroupArrayIntersectData {
             Set new_set = std::make_unique<NullableNumericOrDateSetType>();
 
             for (size_t i = 0; i < arr_size; ++i) {
-                const bool is_null_element = col_null && col_null->is_null_at(offset + i);
+                const bool is_null_element =
+                        is_column_data_nullable && col_null->is_null_at(offset + i);
                 const T* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
 
@@ -163,25 +177,12 @@ public:
                                                   .get_nested_column())
                                 : assert_cast<const ColumnArray&>(*columns[0]);
 
-        const auto data_column = column.get_data_ptr();
         const auto& offsets = column.get_offsets();
         const auto offset = offsets[row_num - 1];
         const auto arr_size = offsets[row_num] - offset;
         const auto& column_data = column.get_data();
 
-        const ColumnNullable* col_null = nullptr;
-        const typename State::ColVecType* nested_column_data = nullptr;
-
-        if (column_data.is_nullable()) {
-            auto const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
-            nested_column_data =
-                    &assert_cast<const typename State::ColVecType&>(col_null->get_nested_column());
-        } else {
-            nested_column_data = &static_cast<const typename State::ColVecType&>(column_data);
-        }
-
-        data.process_col_data(col_null, nested_column_data, offset, arr_size, init, set);
+        data.process_col_data(column_data, offset, arr_size, init, set);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
