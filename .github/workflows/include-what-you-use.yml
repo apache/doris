@@ -21,6 +21,12 @@ jobs:
         with:
           ref: v2
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: include what you use
         uses: EmilGedda/include-what-you-use-action@v1.0
         with:
