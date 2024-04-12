@@ -197,9 +197,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             if (channel->is_local()) {
                 _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
                 DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                _wait_channel_timer[dep_id] = ADD_CHILD_TIMER_WITH_LEVEL(
-                        _profile, fmt::format("WaitForLocalExchangeBuffer{}", dep_id), timer_name,
-                        1);
+                _wait_channel_timer[dep_id] = _profile->add_nonzero_counter(
+                        fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
+                        timer_name, 1);
                 dep_id++;
             }
         }
