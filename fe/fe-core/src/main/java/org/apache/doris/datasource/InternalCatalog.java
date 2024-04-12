@@ -127,6 +127,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -959,6 +960,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finished dropping table[{}] in db[{}] recycleTable cost: {}ms",
                 table.getName(), db.getFullName(), watch.getTime());
         return true;
+    }
+
+    public void dropTable(Database db, long tableId) throws MetaNotFoundException {
+        Table table = db.getTableOrMetaException(tableId);
+        db.writeLock();
+        table.writeLock();
+        try {
+            unprotectDropTable(db, table, true, true, 0);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
+        } finally {
+            table.writeUnlock();
+            db.writeUnlock();
+        }
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
@@ -2803,6 +2817,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
+            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
+                LOG.info("debug point FE.createOlapTable.exception, throw e");
+                // not commit, not log edit
+                throw new DdlException("debug point FE.createOlapTable.exception");
+            }
 
             if (result.second) {
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
@@ -2834,6 +2853,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 TimeUtils.getCurrentFormatTime());
             }
         } catch (DdlException e) {
+            LOG.warn("create table failed {} - {}", tabletIdSet, e.getMessage());
             for (Long tabletId : tabletIdSet) {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
@@ -2841,6 +2861,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 Env.getCurrentColocateIndex().removeTable(tableId);
             }
+            dropTable(db, tableId);
 
             throw e;
         }
