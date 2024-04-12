@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.cache.CacheAnalyzer;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
@@ -44,7 +46,11 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.sparkproject.guava.base.Throwables;
 
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
@@ -53,14 +59,18 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.Stack;
 import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
  * Statement context for nereids
  */
-public class StatementContext {
+public class StatementContext implements Closeable {
+    private static final Logger LOG = LogManager.getLogger(StatementContext.class);
 
     private ConnectContext connectContext;
 
@@ -101,6 +111,8 @@ public class StatementContext {
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
+    private final SqlCacheContext sqlCacheContext;
+    private Map<TableIf, Set<String>> checkedPrivilegedTableAndUsedColumns = Maps.newLinkedHashMap();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
@@ -122,18 +134,30 @@ public class StatementContext {
 
     private BitSet disableRules;
 
+    // table locks
+    private Stack<CloseableResource> plannerResources = new Stack<>();
+
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
     // and value is the new string used for replacement.
     private TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
 
     public StatementContext() {
-        this.connectContext = ConnectContext.get();
+        this(ConnectContext.get(), null);
     }
 
+    /** StatementContext */
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        if (connectContext != null && connectContext.getSessionVariable() != null
+                && connectContext.queryId() != null
+                && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+            this.sqlCacheContext = new SqlCacheContext(
+                    connectContext.getCurrentUserIdentity(), connectContext.queryId());
+        } else {
+            this.sqlCacheContext = null;
+        }
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -170,6 +194,10 @@ public class StatementContext {
         if (joinCount > this.joinCount) {
             this.joinCount = joinCount;
         }
+    }
+
+    public Optional<SqlCacheContext> getSqlCacheContext() {
+        return Optional.ofNullable(sqlCacheContext);
     }
 
     public int getMaxContinuousJoin() {
@@ -367,5 +395,91 @@ public class StatementContext {
 
     public void addIndexInSqlToString(Pair<Integer, Integer> pair, String replacement) {
         indexInSqlToString.put(pair, replacement);
+    }
+
+    /** addTableReadLock */
+    public synchronized void addTableReadLock(TableIf tableIf) {
+        if (!tableIf.needReadLockWhenPlan()) {
+            return;
+        }
+        if (!tableIf.tryReadLock(1, TimeUnit.MINUTES)) {
+            close();
+            throw new RuntimeException(String.format("Failed to get read lock on table: %s", tableIf.getName()));
+        }
+
+        String fullTableName = tableIf.getNameWithFullQualifiers();
+        String resourceName = "tableReadLock(" + fullTableName + ")";
+        plannerResources.push(new CloseableResource(
+                resourceName, Thread.currentThread().getName(), originStatement.originStmt, tableIf::readUnlock));
+    }
+
+    /** releasePlannerResources */
+    public synchronized void releasePlannerResources() {
+        Throwable throwable = null;
+        while (!plannerResources.isEmpty()) {
+            try {
+                plannerResources.pop().close();
+            } catch (Throwable t) {
+                if (throwable == null) {
+                    throwable = t;
+                }
+            }
+        }
+        if (throwable != null) {
+            Throwables.propagateIfInstanceOf(throwable, RuntimeException.class);
+            throw new IllegalStateException("Release resource failed", throwable);
+        }
+    }
+
+    // CHECKSTYLE OFF
+    @Override
+    protected void finalize() throws Throwable {
+        if (!plannerResources.isEmpty()) {
+            String msg = "Resources leak: " + plannerResources;
+            LOG.error(msg);
+            throw new IllegalStateException(msg);
+        }
+    }
+    // CHECKSTYLE ON
+
+    @Override
+    public void close() {
+        releasePlannerResources();
+    }
+
+    private static class CloseableResource implements Closeable {
+        public final String resourceName;
+        public final String threadName;
+        public final String sql;
+
+        private final Closeable resource;
+
+        private boolean closed;
+
+        public CloseableResource(String resourceName, String threadName, String sql, Closeable resource) {
+            this.resourceName = resourceName;
+            this.threadName = threadName;
+            this.sql = sql;
+            this.resource = resource;
+        }
+
+        @Override
+        public void close() {
+            if (!closed) {
+                try {
+                    resource.close();
+                } catch (Throwable t) {
+                    Throwables.propagateIfInstanceOf(t, RuntimeException.class);
+                    throw new IllegalStateException("Close resource failed: " + t.getMessage(), t);
+                }
+                closed = true;
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "\nResource {\n  name: " + resourceName + ",\n  thread: " + threadName
+                    + ",\n  sql:\n" + sql + "\n}";
+        }
     }
 }

@@ -19,8 +19,10 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.MappingSlot;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -49,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -833,11 +836,16 @@ public class BindExpression implements AnalysisRuleFactory {
         String functionName = unboundTVFRelation.getFunctionName();
         Properties arguments = unboundTVFRelation.getProperties();
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
-        Expression function = functionBuilder.build(functionName, arguments);
-        if (!(function instanceof TableValuedFunction)) {
-            throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
+        Pair<? extends Expression, ? extends BoundFunction> bindResult
+                = functionBuilder.build(functionName, arguments);
+        if (!(bindResult.first instanceof TableValuedFunction)) {
+            throw new AnalysisException(bindResult.first.toSql() + " is not a TableValuedFunction");
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) function);
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        if (sqlCacheContext.isPresent()) {
+            sqlCacheContext.get().setCannotProcessExpression(true);
+        }
+        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
     }
 
     private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
