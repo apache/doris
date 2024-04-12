@@ -1499,7 +1499,7 @@ public class Coordinator implements CoordInterface {
 
     private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
         if (null != receiver) {
-            receiver.cancel(cancelReason.toString());
+            receiver.cancel(cancelReason);
         }
         if (null != pointExec) {
             pointExec.cancel();
