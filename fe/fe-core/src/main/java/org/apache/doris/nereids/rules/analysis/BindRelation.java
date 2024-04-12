@@ -332,15 +332,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (CollectionUtils.isEmpty(parts)) {
             return ImmutableList.of();
         }
-        if (!t.getType().equals(TableIf.TableType.OLAP)) {
-            throw new IllegalStateException(String.format(
+        if (!t.isManagedTable()) {
+            throw new AnalysisException(String.format(
                     "Only OLAP table is support select by partition for now,"
                             + "Table: %s is not OLAP table", t.getName()));
         }
         return parts.stream().map(name -> {
             Partition part = ((OlapTable) t).getPartition(name, unboundRelation.isTempPart());
             if (part == null) {
-                throw new IllegalStateException(String.format("Partition: %s is not exists", name));
+                throw new AnalysisException(String.format("Partition: %s is not exists", name));
             }
             return part.getId();
         }).collect(ImmutableList.toImmutableList());
