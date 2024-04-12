@@ -45,6 +45,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "thrift/protocol/TDebugProtocol.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -233,6 +234,11 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnCommitResult result;
     int64_t duration_ns = 0;
+    DBUG_EXECUTE_IF("StreamLoadExecutor.operate_txn_2pc.precommit_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            return Status::InternalError<false>("precommit failed, label exist");
+        }
+    });
     {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
@@ -274,6 +280,19 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     if (ctx->txn_id != doris::StreamLoadContext::default_txn_id) {
         request.__set_txnId(ctx->txn_id);
     }
+
+    DBUG_EXECUTE_IF("StreamLoadExecutor.operate_txn_2pc.abort_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5)) &&
+            ctx->txn_operation.compare("abort") == 0) {
+            return Status::InternalError<false>("abort failed, txn not found");
+        }
+    });
+    DBUG_EXECUTE_IF("StreamLoadExecutor.operate_txn_2pc.commit_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5)) &&
+            ctx->txn_operation.compare("commit") == 0) {
+            return Status::InternalError<false>("commit failed, txn not found");
+        }
+    });
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxn2PCResult result;
