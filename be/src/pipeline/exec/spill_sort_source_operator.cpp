@@ -31,8 +31,6 @@ SpillSortLocalState::SpillSortLocalState(RuntimeState* state, OperatorXBase* par
 }
 Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_init_timer);
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     _spill_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillMergeSortTime", "Spill", 1);
     _spill_merge_sort_timer =
@@ -51,8 +49,6 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 Status SpillSortLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
     if (_opened) {
         return Status::OK();
     }

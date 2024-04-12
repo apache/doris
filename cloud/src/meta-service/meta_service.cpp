@@ -40,6 +40,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -1087,14 +1088,11 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         DCHECK(rowset_meta.tablet_schema().has_schema_version());
         DCHECK_GE(rowset_meta.tablet_schema().schema_version(), 0);
         rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
-        std::string schema_key;
+        std::string schema_key = meta_schema_key(
+                {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
         if (rowset_meta.has_variant_type_in_schema()) {
-            // encodes schema in a seperate kv, since variant schema is volatile
-            schema_key = meta_rowset_schema_key(
-                    {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
-        } else {
-            schema_key = meta_schema_key(
-                    {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+            write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+            if (code != MetaServiceCode::OK) return;
         }
         put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
         if (code != MetaServiceCode::OK) return;
@@ -1439,8 +1437,12 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         rowset_meta.set_index_id(idx.index_id());
     }
+    bool need_read_schema_dict = false;
     auto arena = response->GetArena();
     for (auto& rowset_meta : *response->mutable_rowset_meta()) {
+        if (rowset_meta.has_schema_dict_key_list()) {
+            need_read_schema_dict = true;
+        }
         if (rowset_meta.has_tablet_schema()) continue;
         if (!rowset_meta.has_schema_version()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1449,15 +1451,6 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     "rowset_version=[{}-{}]",
                     rowset_meta.start_version(), rowset_meta.end_version());
             return;
-        }
-        if (rowset_meta.has_variant_type_in_schema()) {
-            // get rowset schema kv
-            auto key = meta_rowset_schema_key(
-                    {instance_id, idx.tablet_id(), rowset_meta.rowset_id_v2()});
-            if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
-                return;
-            }
-            continue;
         }
         if (auto it = version_to_schema.find(rowset_meta.schema_version());
             it != version_to_schema.end()) {
@@ -1474,6 +1467,12 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             version_to_schema.emplace(rowset_meta.schema_version(),
                                       rowset_meta.mutable_tablet_schema());
         }
+    }
+
+    if (need_read_schema_dict) {
+        read_schema_from_dict(code, msg, instance_id, idx.index_id(), txn.get(),
+                              response->mutable_rowset_meta());
+        if (code != MetaServiceCode::OK) return;
     }
 }
 

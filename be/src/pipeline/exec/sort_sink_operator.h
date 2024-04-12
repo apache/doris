@@ -51,13 +51,12 @@ class SortSinkOperatorX;
 
 class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
-    using Base = PipelineXSinkLocalState<SortSharedState>;
 
 public:
-    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
+    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : PipelineXSinkLocalState<SortSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override;
 
 private:
     friend class SortSinkOperatorX;

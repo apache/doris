@@ -33,29 +33,9 @@ HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXB
 Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_init_timer);
-    _probe_arena_memory_usage =
-            profile()->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
-    // Probe phase
-    _probe_next_timer = ADD_TIMER(profile(), "ProbeFindNextTime");
-    _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
-    _search_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenSearchHashTableTime");
-    _build_side_output_timer = ADD_TIMER(profile(), "ProbeWhenBuildSideOutputTime");
-    _probe_side_output_timer = ADD_TIMER(profile(), "ProbeWhenProbeSideOutputTime");
-    _probe_process_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenProcessHashTableTime");
-    _process_other_join_conjunct_timer = ADD_TIMER(profile(), "OtherJoinConjunctTime");
-    _init_probe_side_timer = ADD_TIMER(profile(), "InitProbeSideTime");
-
-    _shared_state->probe_ignore_null = _parent->cast<HashJoinProbeOperatorX>()._probe_ignore_null;
-    return Status::OK();
-}
-
-Status HashJoinProbeLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(JoinProbeLocalState::open(state));
-
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+    _shared_state->probe_ignore_null = p._probe_ignore_null;
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
@@ -72,7 +52,27 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
 
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
+    _probe_arena_memory_usage =
+            profile()->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+    // Probe phase
+    _probe_next_timer = ADD_TIMER(profile(), "ProbeFindNextTime");
+    _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
+    _search_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenSearchHashTableTime");
+    _build_side_output_timer = ADD_TIMER(profile(), "ProbeWhenBuildSideOutputTime");
+    _probe_side_output_timer = ADD_TIMER(profile(), "ProbeWhenProbeSideOutputTime");
+    _probe_process_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenProcessHashTableTime");
+    _process_other_join_conjunct_timer = ADD_TIMER(profile(), "OtherJoinConjunctTime");
+    _init_probe_side_timer = ADD_TIMER(profile(), "InitProbeSideTime");
+    return Status::OK();
+}
+
+Status HashJoinProbeLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(JoinProbeLocalState::open(state));
+
     _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
+    auto& p = _parent->cast<HashJoinProbeOperatorX>();
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
@@ -434,8 +434,7 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
     }
     auto output_rows = temp_block->rows();
     if (check_rows_count) {
-        DCHECK(output_rows <= state->batch_size())
-                << "Reason: " << output_rows << " > " << state->batch_size();
+        DCHECK(output_rows <= state->batch_size());
     }
     {
         SCOPED_TIMER(_join_filter_timer);

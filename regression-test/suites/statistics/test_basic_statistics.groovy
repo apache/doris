@@ -18,6 +18,7 @@
 suite("test_basic_statistics") {
     String db = "test_basic_statistics"
     String tbl = "test_table_1"
+    sql """set global force_sample_analyze=false"""
 
     sql """
         DROP DATABASE IF EXISTS `${db}`

@@ -43,7 +43,7 @@ public class LeadingJoin implements RewriteRuleFactory {
                             return ctx.root;
                         }
                         Hint leadingHint = ctx.cascadesContext.getHintMap().get("Leading");
-                        ((LeadingHint) leadingHint).setTotalBitmap();
+                        ((LeadingHint) leadingHint).setTotalBitmap(ctx.root.getInputRelations());
                         Long currentBitMap = LongBitmap.computeTableBitmap(ctx.root.getInputRelations());
                         if (((LeadingHint) leadingHint).getTotalBitmap().equals(currentBitMap)
                                 && leadingHint.isSuccess()) {

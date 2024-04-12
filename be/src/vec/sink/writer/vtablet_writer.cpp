@@ -974,6 +974,11 @@ VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& o
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
+Status VTabletWriter::init_properties(doris::ObjectPool* pool) {
+    _pool = pool;
+    return Status::OK();
+}
+
 void VTabletWriter::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(_state);
@@ -1131,7 +1136,6 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
     _schema->set_timezone(state->timezone());
-    _pool = state->obj_pool();
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
     if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {

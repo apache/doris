@@ -41,10 +41,14 @@ suite("test_compaction_variant") {
         }
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
+            def var_def = "variant"
+            if (key_type == "AGGREGATE") {
+                var_def = "variant replace"
+            }
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,
-                    v variant
+                    v ${var_def} 
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
@@ -52,7 +56,8 @@ suite("test_compaction_variant") {
             """
         }
 
-        def key_types = ["DUPLICATE", "UNIQUE"]
+        def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
+        // def key_types = ["AGGREGATE"]
         for (int i = 0; i < key_types.size(); i++) {
             def tableName = "simple_variant_${key_types[i]}"
             // 1. simple cases
@@ -62,7 +67,7 @@ suite("test_compaction_variant") {
                 sql """insert into ${tableName} values (2,  '{"a" : "1"}'),(14,  '{"a" : [[[1]]]}');"""
                 sql """insert into ${tableName} values (3,  '{"x" : [3]}'),(15,  '{"a" : 1}')"""
                 sql """insert into ${tableName} values (4,  '{"y": 1}'),(16,  '{"a" : "1223"}');"""
-                sql """insert into ${tableName} values (5,  '{"z" : 2}'),(17,  '{"a" : [1]}');"""
+                sql """insert into ${tableName} values (5,  '{"z" : 2.0}'),(17,  '{"a" : [1]}');"""
                 sql """insert into ${tableName} values (6,  '{"x" : 111}'),(18,  '{"a" : ["1", 2, 1.1]}');"""
                 sql """insert into ${tableName} values (7,  '{"m" : 1}'),(19,  '{"a" : 1, "b" : {"c" : 1}}');"""
                 sql """insert into ${tableName} values (8,  '{"l" : 2}'),(20,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""

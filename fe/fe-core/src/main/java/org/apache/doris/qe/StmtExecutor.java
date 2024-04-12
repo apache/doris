@@ -601,7 +601,8 @@ public class StmtExecutor {
                     if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner
                             && !forceFallback) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                        throw ((NereidsException) e).getException();
+                        context.getState().setError(e.getMessage());
+                        return;
                     }
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
@@ -1141,13 +1142,13 @@ public class StmtExecutor {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-        // If any error happends in update profile, we should ignore this error
+        // If any error happened in update profile, we should ignore this error
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
             profile.updateSummary(context.startTime, getSummaryInfo(isFinished), isFinished, this.planner);
         } catch (Throwable t) {
-            LOG.warn("failed to update profile, ingore this error", t);
+            LOG.warn("failed to update profile, ignore this error", t);
         }
     }
 
@@ -1517,6 +1518,20 @@ public class StmtExecutor {
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel();
+        }
+        if (mysqlLoadId != null) {
+            Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
+        }
+        if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
+            Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
+        }
+    }
+
+    // Because this is called by other thread
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+        Coordinator coordRef = coord;
+        if (coordRef != null) {
+            coordRef.cancel(cancelReason);
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
