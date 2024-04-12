@@ -537,7 +537,8 @@ public class StmtExecutor {
                     if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner
                             && !forceFallback) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                        throw ((NereidsException) e).getException();
+                        context.getState().setError(e.getMessage());
+                        return;
                     }
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
