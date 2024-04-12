@@ -961,7 +961,6 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         sc_params.enable_unique_key_merge_on_write =
                 _new_tablet->enable_unique_key_merge_on_write();
         res = _convert_historical_rowsets(sc_params, &real_alter_version);
-        DCHECK_GE(real_alter_version, request.alter_version);
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
             _tablet_ids_in_converting.erase(_new_tablet->tablet_id());
@@ -969,6 +968,8 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         if (!res) {
             break;
         }
+
+        DCHECK_GE(real_alter_version, request.alter_version);
 
         if (_new_tablet->keys_type() == UNIQUE_KEYS &&
             _new_tablet->enable_unique_key_merge_on_write()) {
