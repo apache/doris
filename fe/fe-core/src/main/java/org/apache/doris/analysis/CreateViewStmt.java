@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -93,5 +94,13 @@ public class CreateViewStmt extends BaseViewStmt {
                 ConnectContext.get().setNotEvalNondeterministicFunction(false);
             }
         }
+    }
+
+    public void setInlineViewDef(String querySql) {
+        inlineViewDef = querySql;
+    }
+
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
     }
 }
