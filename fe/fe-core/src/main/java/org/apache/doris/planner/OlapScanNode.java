@@ -1813,4 +1813,9 @@ public class OlapScanNode extends ScanNode {
     public List<SortNode> getTopnFilterSortNodes() {
         return topnFilterSortNodes;
     }
+
+    @Override
+    public int numScanBackends() {
+        return scanBackendIds.size();
+    }
 }

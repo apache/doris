@@ -30,6 +30,7 @@ suite("test_show_create_table_and_views", "show") {
     String rollupName = "${suiteName}_rollup"
     String likeName = "${suiteName}_like"
 
+    sql "SET enable_nereids_planner=false;"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
@@ -76,6 +77,7 @@ suite("test_show_create_table_and_views", "show") {
     qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY user_id, good_id"
 
+    sql "drop view if exists ${dbName}.${viewName};"
     // create view and show
     sql """
         CREATE VIEW IF NOT EXISTS ${dbName}.${viewName} (user_id, cost)

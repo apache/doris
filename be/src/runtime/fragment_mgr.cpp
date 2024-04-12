@@ -855,30 +855,30 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
         g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
-        for (size_t i = 0; i < params.local_params.size(); i++) {
-            std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-            RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
-                    params.local_params[i], params.query_id, params.query_options, &handler,
-                    RuntimeFilterParamsContext::create(context->get_runtime_state())));
-            if (!i && handler) {
-                query_ctx->set_merge_controller_handler(handler);
-            }
-            const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
-            {
-                std::lock_guard<std::mutex> lock(_lock);
-                auto iter = _pipeline_map.find(fragment_instance_id);
-                if (iter != _pipeline_map.end()) {
-                    // Duplicated
-                    return Status::OK();
-                }
-                query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
-            }
-
-            if (!params.__isset.need_wait_execution_trigger ||
-                !params.need_wait_execution_trigger) {
-                query_ctx->set_ready_to_execute_only();
-            }
+        std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+        RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
+                params.local_params[0], params.query_id, params.query_options, &handler,
+                RuntimeFilterParamsContext::create(context->get_runtime_state())));
+        if (handler) {
+            query_ctx->set_merge_controller_handler(handler);
         }
+
+        for (const auto& local_param : params.local_params) {
+            const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
+            std::lock_guard<std::mutex> lock(_lock);
+            auto iter = _pipeline_map.find(fragment_instance_id);
+            if (iter != _pipeline_map.end()) {
+                return Status::InternalError(
+                        "exec_plan_fragment input duplicated fragment_instance_id({})",
+                        UniqueId(fragment_instance_id).to_string());
+            }
+            query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
+        }
+
+        if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
+            query_ctx->set_ready_to_execute_only();
+        }
+
         int64 now = duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
@@ -1116,36 +1116,6 @@ void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id
         LOG(WARNING) << "Could not find the query id:" << print_id(query_id)
                      << " fragment id:" << fragment_id << " to cancel";
     }
-}
-
-bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
-    std::lock_guard<std::mutex> lock(_lock);
-    auto ctx = _query_ctx_map.find(query_id);
-
-    if (ctx != _query_ctx_map.end()) {
-        const bool is_pipeline_version = ctx->second->enable_pipeline_exec();
-        const bool is_pipeline_x = ctx->second->enable_pipeline_x_exec();
-        if (is_pipeline_x) {
-            return ctx->second->is_cancelled();
-        } else {
-            for (auto itr : ctx->second->fragment_instance_ids) {
-                if (is_pipeline_version) {
-                    auto pipeline_ctx_iter = _pipeline_map.find(itr);
-                    if (pipeline_ctx_iter != _pipeline_map.end() && pipeline_ctx_iter->second) {
-                        return pipeline_ctx_iter->second->is_canceled();
-                    }
-                } else {
-                    auto fragment_instance_itr = _fragment_instance_map.find(itr);
-                    if (fragment_instance_itr != _fragment_instance_map.end() &&
-                        fragment_instance_itr->second) {
-                        return fragment_instance_itr->second->is_canceled();
-                    }
-                }
-            }
-        }
-    }
-
-    return true;
 }
 
 void FragmentMgr::cancel_worker() {

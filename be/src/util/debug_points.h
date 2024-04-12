@@ -43,7 +43,6 @@
 
 // define some common debug actions
 // usage example: DBUG_EXECUTE_IF("xxx", DBUG_BLOCK);
-
 #define DBUG_BLOCK                                                      \
     {                                                                   \
         LOG(INFO) << "start debug block " << DP_NAME;                   \
@@ -53,41 +52,35 @@
         LOG(INFO) << "end debug block " << DP_NAME;                     \
     }
 
-// example of debug point with handler.
+// DBUG_RUN_CALLBACK is usually use in be ut, to exchange local variable between the injected code and callback code.
+// usage example: DBUG_EXECUTE_IF("xxx", DBUG_RUN_CALLBACK(yyy,...));
+#define DBUG_RUN_CALLBACK(...) \
+    { dp->execute_callback(__VA_ARGS__); }
+
+// example of debug point with callback.
 //
-// base code:
+// void demo_callback() {
+//     int a = 0;
 //
-// void demo_handler() {
-//    int a = 0;
+//     DBUG_EXECUTE_IF("set_a", DBUG_RUN_CALLBACK(&a));
+//     DBUG_EXECUTE_IF("get_a", DBUG_RUN_CALLBACK(a));
+// }
 //
-//    DBUG_EXECUTE_IF("set_a", {
-//        auto handler = std::any_cast<std::function<void(int&)>>(dp->handler);
-//        handler(a);
-//    });
+// TEST(DebugPointsTest, Callback) {
+//     config::enable_debug_points = true;
+//     DebugPoints::instance()->clear();
 //
-//    DBUG_EXECUTE_IF("get_a", {
-//        auto handler = std::any_cast<std::function<void(int)>>(dp->handler);
-//        handler(a);
-//    });
-//}
+//     int got_a = 0;
 //
-// test code:
+//     std::function<void(int*)> set_handler = [](int* a) { *a = 1000; };
+//     std::function<void(int)> get_handler = [&got_a](int a) { got_a = a; };
+//     DebugPoints::instance()->add_with_callback("set_a", set_handler);
+//     DebugPoints::instance()->add_with_callback("get_a", get_handler);
 //
-//TEST(DebugPointsTest, Handler) {
-//    config::enable_debug_points = true;
-//    DebugPoints::instance()->clear();
+//     demo_callback();
 //
-//    int got_a = 0;
-//
-//    std::function<void(int&)> set_handler = [](int& a) { a = 1000; };
-//    std::function<void(int)> get_handler = [&got_a](int a) { got_a = a; };
-//    DebugPoints::instance()->add_with_handler("set_a", set_handler);
-//    DebugPoints::instance()->add_with_handler("get_a", get_handler);
-//
-//    demo_handler();
-//
-//    EXPECT_EQ(1000, got_a);
-//}
+//     EXPECT_EQ(1000, got_a);
+// }
 
 namespace doris {
 
@@ -98,10 +91,10 @@ struct DebugPoint {
 
     std::map<std::string, std::string> params;
 
-    // Usually `handler` use in be ut, to exchange local variable between base code and injected code,
+    // Usually `callback` use in be ut, to exchange local variable between callback code and injected code,
     // or change with different injected handlers.
-    // test/util/debug_points_test.cpp#Handler give a example.
-    std::any handler;
+    // test/util/debug_points_test.cpp#Callback give a example.
+    std::any callback;
 
     template <typename T>
     T param(const std::string& key, T default_value = T()) {
@@ -125,6 +118,16 @@ struct DebugPoint {
             static_assert(std::is_same_v<T, std::string>);
             return it->second;
         }
+    }
+
+    template <typename... ARGS>
+    void execute_callback(ARGS... args) {
+        if (!callback.has_value()) {
+            throw std::invalid_argument("No set callback");
+        }
+
+        auto func = std::any_cast<std::function<void(ARGS...)>>(callback);
+        func(args...);
     }
 };
 
@@ -156,15 +159,20 @@ public:
     void add(const std::string& name) { add(name, std::make_shared<DebugPoint>()); }
     void add_with_params(const std::string& name,
                          const std::map<std::string, std::string>& params) {
-        add(name, std::shared_ptr<DebugPoint>(new DebugPoint {.params = params}));
+        auto debug_point = std::make_shared<DebugPoint>();
+        debug_point->params = params;
+        add(name, debug_point);
     }
     template <typename T>
     void add_with_value(const std::string& name, const T& value) {
         add_with_params(name, {{"value", fmt::format("{}", value)}});
     }
 
-    void add_with_handler(const std::string& name, std::any handler) {
-        add(name, std::shared_ptr<DebugPoint>(new DebugPoint {.handler = handler}));
+    template <typename... ARGS>
+    void add_with_callback(const std::string& name, std::function<void(ARGS...)> callback) {
+        auto debug_point = std::make_shared<DebugPoint>();
+        debug_point->callback = callback;
+        add(name, debug_point);
     }
 
     static DebugPoints* instance();

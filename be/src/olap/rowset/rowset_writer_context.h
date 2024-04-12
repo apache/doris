@@ -102,6 +102,8 @@ struct RowsetWriterContext {
     // In semi-structure senario tablet_schema will be updated concurrently,
     // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
     std::shared_ptr<std::mutex> schema_lock;
+
+    int64_t compaction_level = 0;
 };
 
 } // namespace doris

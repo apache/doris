@@ -153,6 +153,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(_process_conjuncts());
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
+    RETURN_IF_ERROR(status);
     if (_scanner_ctx) {
         DCHECK(!_eos && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
@@ -539,11 +540,15 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
 template <typename Derived>
 std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, _eos = {}",
-                   PipelineXLocalState<>::debug_string(indentation_level), _eos.load());
+    fmt::format_to(debug_string_buffer, "{}, _eos = {} , _opened = {}",
+                   PipelineXLocalState<>::debug_string(indentation_level), _eos.load(),
+                   _opened.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
         fmt::format_to(debug_string_buffer, ", Scanner Context: {}", _scanner_ctx->debug_string());
+    } else {
+        fmt::format_to(debug_string_buffer, "");
+        fmt::format_to(debug_string_buffer, ", Scanner Context: NULL");
     }
 
     return fmt::to_string(debug_string_buffer);
@@ -743,9 +748,8 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
         } else {
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const vectorized::ColumnConst* const_column =
-                        check_and_get_column<vectorized::ColumnConst>(
-                                const_col_wrapper->column_ptr)) {
+            if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
+                        const_col_wrapper->column_ptr)) {
                 *slot_ref_child = i;
                 *constant_val = const_column->get_data_at(0);
             } else {
@@ -1195,7 +1199,7 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
     }
     if (scanners.empty()) {
         _eos = true;
-        _scan_dependency->set_ready();
+        _scan_dependency->set_always_ready();
     } else {
         for (auto& scanner : scanners) {
             scanner->set_query_statistics(_query_statistics.get());

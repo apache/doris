@@ -125,6 +125,9 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
 
+// Limit kv size of Schema SchemaDictKeyList, default 10MB
+CONF_mInt32(schema_dict_kv_size_limit, "10485760");
+
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
 
@@ -164,5 +167,7 @@ CONF_String(secondary_package_name, "");
 CONF_String(kerberos_ccache_path, "");
 // set krb5.conf path, use "/etc/krb5.conf" by default
 CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
+
+CONF_mBool(enable_distinguish_hdfs_path, "true");
 
 } // namespace doris::cloud::config

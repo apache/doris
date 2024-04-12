@@ -63,7 +63,7 @@ public:
             : PipelineXLocalState<>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
-    virtual ~ScanLocalStateBase() = default;
+    ~ScanLocalStateBase() override = default;
 
     virtual bool ready_to_read() = 0;
 
@@ -141,7 +141,7 @@ class ScanLocalState : public ScanLocalStateBase {
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    std::string debug_string(int indentation_level) const override;
+    std::string debug_string(int indentation_level) const final;
 
     bool ready_to_read() override;
 
@@ -159,8 +159,8 @@ class ScanLocalState : public ScanLocalStateBase {
     }
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
-    virtual void set_scan_ranges(RuntimeState* state,
-                                 const std::vector<TScanRangeParams>& scan_ranges) override {}
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
 
@@ -186,7 +186,7 @@ protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::VScanner;
 
-    virtual Status _init_profile() override;
+    Status _init_profile() override;
     virtual Status _process_conjuncts() {
         RETURN_IF_ERROR(_normalize_conjuncts());
         return Status::OK();

@@ -45,5 +45,10 @@ suite('cse') {
 
     qt_cse_4 """select sum(s_nationkey),sum(s_nationkey) + count(1) ,sum(s_nationkey) + 2 * count(1) , sum(s_nationkey)  + 3 * count(1) from supplier ;"""
 
-
+    // when clause cannot be regarded as common-sub-expression.
+    // if "when r_regionkey=1 then 0" is regarded as a common-sub-expression, but if it will be replaced by a slot, and hence the case clause
+    // become syntax illegal: case cseSlot when r_regionkey=2 the 1 else ....
+    qt_cse_5 """select (case r_regionkey when 1 then 0 when 2 then 1 else r_regionkey+1 END) + 1 As x,
+                (case r_regionkey when 1 then 0 when 2 then 3 else r_regionkey+1 END) + 2  as y
+            from region order by x, y;"""
 }

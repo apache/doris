@@ -320,8 +320,7 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
 
         RETURN_IF_ERROR(local_writer->append({read_buf.get(), read_len}));
     }
-
-    return Status::OK();
+    return local_writer->close();
 }
 
 } // namespace doris::io
