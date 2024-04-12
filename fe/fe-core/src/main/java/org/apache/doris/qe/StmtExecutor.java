@@ -96,6 +96,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
@@ -138,6 +139,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
@@ -156,6 +158,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
+import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -1496,15 +1499,30 @@ public class StmtExecutor {
      */
     private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel)
             throws Exception {
-        InternalService.PFetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
-        if (cacheResult == null) {
-            if (ConnectContext.get() != null
-                    && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
-                throw new UserException("The variable test_query_cache_hit is set to "
-                        + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                        + ", but the query cache is not hit.");
+        InternalService.PFetchCacheResult cacheResult = null;
+        boolean wantToParseSqlForSqlCache = planner instanceof NereidsPlanner
+                && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());
+        try {
+            cacheResult = cacheAnalyzer.getCacheData();
+            if (cacheResult == null) {
+                if (ConnectContext.get() != null
+                        && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
+                    throw new UserException("The variable test_query_cache_hit is set to "
+                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
+                            + ", but the query cache is not hit.");
+                }
+            }
+        } finally {
+            if (wantToParseSqlForSqlCache) {
+                String originStmt = parsedStmt.getOrigStmt().originStmt;
+                NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
+                if (cacheResult != null) {
+                    sqlCacheManager.tryAddCache(context, originStmt, cacheAnalyzer, false);
+                }
             }
         }
+
+
         CacheMode mode = cacheAnalyzer.getCacheMode();
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
@@ -1573,13 +1591,23 @@ public class StmtExecutor {
             channel = context.getMysqlChannel();
         }
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+            LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+            if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
+                NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
+                PhysicalSqlCache physicalSqlCache = (PhysicalSqlCache) nereidsPlanner.getPhysicalPlan();
+                sendCachedValues(channel, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
+                return;
+            }
+        }
 
         // Sql and PartitionCache
         CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, planner);
         // TODO support arrow flight sql
-        if (channel != null && cacheAnalyzer.enableCache() && !isOutfileQuery
-                && context.getSessionVariable().getSqlSelectLimit() < 0
-                && context.getSessionVariable().getDefaultOrderByLimit() < 0) {
+        // NOTE: If you want to add another condition about SessionVariable, please consider whether
+        // add to CacheAnalyzer.commonCacheCondition
+        if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
@@ -1690,6 +1718,16 @@ public class StmtExecutor {
                 }
 
                 cacheAnalyzer.updateCache();
+
+                Cache cache = cacheAnalyzer.getCache();
+                if (cache instanceof SqlCache && !cache.isDisableCache() && planner instanceof NereidsPlanner) {
+                    String originStmt = parsedStmt.getOrigStmt().originStmt;
+                    LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
+                    boolean currentMissParseSqlFromSqlCache = !(logicalPlanAdapter.getLogicalPlan()
+                            instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache);
+                    context.getEnv().getSqlCacheManager().tryAddCache(
+                            context, originStmt, cacheAnalyzer, currentMissParseSqlFromSqlCache);
+                }
             }
             if (!isSendFields) {
                 if (!isOutfileQuery) {
@@ -1713,7 +1751,7 @@ public class StmtExecutor {
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime();
         } catch (Exception e) {
-            // notify all be cancel runing fragment
+            // notify all be cancel running fragment
             // in some case may block all fragment handle threads
             // details see issue https://github.com/apache/doris/issues/16203
             LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());

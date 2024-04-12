@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -25,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Variable;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * replace varaible to real expression
@@ -35,7 +38,15 @@ public class ReplaceVariableByLiteral implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-            matchesType(Variable.class).then(Variable::getRealExpression)
+            matchesType(Variable.class).thenApply(ctx -> {
+                StatementContext statementContext = ctx.cascadesContext.getStatementContext();
+                Variable variable = ctx.expr;
+                Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+                if (sqlCacheContext.isPresent()) {
+                    sqlCacheContext.get().addUsedVariable(variable);
+                }
+                return variable.getRealExpression();
+            })
         );
     }
 }

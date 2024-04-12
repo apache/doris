@@ -27,6 +27,7 @@ public enum PlanType {
 
     // logical plans
     // logical relations
+    LOGICAL_SQL_CACHE,
     LOGICAL_BOUND_RELATION,
     LOGICAL_CTE_CONSUMER,
     LOGICAL_FILE_SCAN,
@@ -83,6 +84,7 @@ public enum PlanType {
 
     // physical plans
     // physical relations
+    PHYSICAL_SQL_CACHE,
     PHYSICAL_CTE_CONSUMER,
     PHYSICAL_EMPTY_RELATION,
     PHYSICAL_ES_SCAN,

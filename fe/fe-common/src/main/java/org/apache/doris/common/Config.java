@@ -2008,6 +2008,14 @@ public class Config extends ConfigBase {
                     + "the old load statement will be degraded."})
     public static boolean enable_nereids_load = false;
 
+    /**
+     * the plan cache num which can be reused for the next query
+     */
+    @ConfField(mutable = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
+            "Now default set to 100, this config is used to control the number of "
+                    + "sql cache managed by NereidsSqlCacheManager"})
+    public static int sql_cache_manage_num = 100;
 
     /**
      * Maximum number of events to poll in each RPC.
