@@ -407,6 +407,42 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
     }
 }
 
+void ColumnMap::insert_range_from_ignore_overflow(const IColumn& src, size_t start, size_t length) {
+    const ColumnMap& src_concrete = assert_cast<const ColumnMap&>(src);
+
+    if (start + length > src_concrete.size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in ColumnMap::insert_range_from method. "
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
+                               std::to_string(src_concrete.size()));
+    }
+
+    size_t nested_offset = src_concrete.offset_at(start);
+    size_t nested_length = src_concrete.offset_at(start + length) - nested_offset;
+
+    keys_column->insert_range_from_ignore_overflow(src_concrete.get_keys(), nested_offset,
+                                                   nested_length);
+    values_column->insert_range_from_ignore_overflow(src_concrete.get_values(), nested_offset,
+                                                     nested_length);
+
+    auto& cur_offsets = get_offsets();
+    const auto& src_offsets = src_concrete.get_offsets();
+
+    if (start == 0 && cur_offsets.empty()) {
+        cur_offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+    } else {
+        size_t old_size = cur_offsets.size();
+        // -1 is ok, because PaddedPODArray pads zeros on the left.
+        size_t prev_max_offset = cur_offsets.back();
+        cur_offsets.resize(old_size + length);
+
+        for (size_t i = 0; i < length; ++i) {
+            cur_offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
+        }
+    }
+}
+
 ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const {
     auto k_arr =
             ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())

@@ -216,9 +216,8 @@ protected:
         template <typename, typename>
         friend class COWHelper;
 
-        explicit mutable_ptr(T* ptr) : Base(ptr) {}
-
     public:
+        explicit mutable_ptr(T* ptr) : Base(ptr) {}
         /// Copy: not possible.
         mutable_ptr(const mutable_ptr&) = delete;
 
