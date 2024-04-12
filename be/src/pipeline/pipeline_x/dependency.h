@@ -348,7 +348,6 @@ public:
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
-    std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
@@ -356,13 +355,6 @@ public:
     /// The offset to the n-th aggregate function in a row of aggregate functions.
     vectorized::Sizes offsets_of_aggregate_states;
     std::vector<size_t> make_nullable_keys;
-
-    struct MemoryRecord {
-        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
-        int64_t used_in_arena;
-        int64_t used_in_state;
-    };
-    MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
     std::atomic<bool> ready_to_execute = false;
 

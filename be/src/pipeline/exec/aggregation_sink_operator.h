@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/exec/aggregation_sink_operator_helper.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
@@ -50,6 +51,8 @@ class AggSinkLocalState : public PipelineXSinkLocalState<AggSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AggSinkLocalState);
     using Base = PipelineXSinkLocalState<AggSharedState>;
+    using Base::_shared_state;
+    using Base::_dependency;
     AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~AggSinkLocalState() override = default;
 
@@ -59,7 +62,9 @@ public:
 
 protected:
     friend class AggSinkOperatorX;
-
+    friend class AggSinkLocalStateHelper<AggSinkLocalState, AggSinkOperatorX>;
+    friend class AggLocalStateHelper<AggSinkLocalState, AggSinkOperatorX>;
+    AggSinkLocalStateHelper<AggSinkLocalState, AggSinkOperatorX> _agg_helper;
     struct ExecutorBase {
         virtual Status execute(AggSinkLocalState* local_state, vectorized::Block* block) = 0;
         virtual void update_memusage(AggSinkLocalState* local_state) = 0;
@@ -70,47 +75,27 @@ protected:
         Status execute(AggSinkLocalState* local_state, vectorized::Block* block) override {
             if constexpr (WithoutKey) {
                 if constexpr (NeedToMerge) {
-                    return local_state->_merge_without_key(block);
+                    return local_state->_agg_helper._merge_without_key(block);
                 } else {
-                    return local_state->_execute_without_key(block);
+                    return local_state->_agg_helper._execute_without_key(block);
                 }
             } else {
                 if constexpr (NeedToMerge) {
-                    return local_state->_merge_with_serialized_key(block);
+                    return local_state->_agg_helper._merge_with_serialized_key(block);
                 } else {
-                    return local_state->_execute_with_serialized_key(block);
+                    return local_state->_agg_helper._execute_with_serialized_key(block);
                 }
             }
         }
         void update_memusage(AggSinkLocalState* local_state) override {
             if constexpr (WithoutKey) {
-                local_state->_update_memusage_without_key();
+                local_state->_agg_helper._update_memusage_without_key();
             } else {
-                local_state->_update_memusage_with_serialized_key();
+                local_state->_agg_helper._update_memusage_with_serialized_key();
             }
         }
     };
 
-    Status _execute_without_key(vectorized::Block* block);
-    Status _merge_without_key(vectorized::Block* block);
-    void _update_memusage_without_key();
-    void _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
-    Status _execute_with_serialized_key(vectorized::Block* block);
-    Status _merge_with_serialized_key(vectorized::Block* block);
-    void _update_memusage_with_serialized_key();
-    template <bool limit>
-    Status _execute_with_serialized_key_helper(vectorized::Block* block);
-    void _find_in_hash_table(vectorized::AggregateDataPtr* places,
-                             vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
-    void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
-    size_t _get_hash_table_size() const;
-
-    template <bool limit, bool for_spill = false>
-    Status _merge_with_serialized_key_helper(vectorized::Block* block);
-
-    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
-    Status _create_agg_status(vectorized::AggregateDataPtr data);
     size_t _memory_usage() const;
 
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
@@ -138,6 +123,12 @@ protected:
     vectorized::Arena* _agg_arena_pool = nullptr;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
+    struct MemoryRecord {
+        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
+        int64_t used_in_arena;
+        int64_t used_in_state;
+    };
+    MemoryRecord _mem_usage_record;
 };
 
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
@@ -183,6 +174,8 @@ public:
 protected:
     using LocalState = AggSinkLocalState;
     friend class AggSinkLocalState;
+    friend class AggSinkLocalStateHelper<AggSinkLocalState, AggSinkOperatorX>;
+    friend class AggLocalStateHelper<AggSinkLocalState, AggSinkOperatorX>;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
 
@@ -199,7 +192,7 @@ protected:
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
-    vectorized::Sizes _offsets_of_aggregate_states;
+    vectorized::Sizes offsets_of_aggregate_states;
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
