@@ -160,7 +160,7 @@ suite("test_backup_restore_index") {
                 ON (${tableName})
                 PROPERTIES ("type" = "full")
             """
-        syncer.waitAllSnapshotFinish()
+        syncer.waitSnapshotFinish()
         assertTrue(syncer.getSnapshot("${snapshotName}", "${tableName}"))
         assertTrue(syncer.restoreSnapshot(true))
         syncer.waitTargetRestoreFinish()
