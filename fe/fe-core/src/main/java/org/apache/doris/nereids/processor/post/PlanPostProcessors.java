@@ -63,7 +63,9 @@ public class PlanPostProcessors {
         builder.add(new MergeProjectPostProcessor());
         builder.add(new RecomputeLogicalPropertiesProcessor());
         builder.add(new AddOffsetIntoDistribute());
-        builder.add(new CommonSubExpressionOpt());
+        if (cascadesContext.getConnectContext().getSessionVariable().enableCommonSubExpression) {
+            builder.add(new CommonSubExpressionOpt());
+        }
         // DO NOT replace PLAN NODE from here
         builder.add(new TopNScanOpt());
         builder.add(new FragmentProcessor());
