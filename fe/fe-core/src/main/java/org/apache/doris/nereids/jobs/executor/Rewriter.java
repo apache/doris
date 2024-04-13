@@ -89,6 +89,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
+import org.apache.doris.nereids.rules.rewrite.ProjectOtherJoinConditionForNestedLoopJoin;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
@@ -263,7 +264,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // eliminate useless not null or inferred not null
                     // TODO: wait InferPredicates to infer more not null.
                     bottomUp(new EliminateNotNull()),
-                    topDown(new ConvertInnerOrCrossJoin())
+                    topDown(new ConvertInnerOrCrossJoin()),
+                    topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),

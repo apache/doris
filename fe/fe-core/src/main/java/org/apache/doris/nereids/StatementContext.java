@@ -97,7 +97,7 @@ public class StatementContext implements Closeable {
     // Thus hasUnknownColStats has higher priority than isDpHyp
     private boolean hasUnknownColStats = false;
 
-    private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
+    private final IdGenerator<ExprId> exprIdGenerator;
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
@@ -143,13 +143,21 @@ public class StatementContext implements Closeable {
     private TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
 
     public StatementContext() {
-        this(ConnectContext.get(), null);
+        this(ConnectContext.get(), null, 0);
     }
 
-    /** StatementContext */
+    public StatementContext(int initialId) {
+        this(ConnectContext.get(), null, initialId);
+    }
+
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
+        this(connectContext, originStatement, 0);
+    }
+
+    public StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
                 && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
