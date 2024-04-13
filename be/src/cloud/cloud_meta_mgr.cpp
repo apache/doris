@@ -24,8 +24,8 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
-#include <atomic>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
