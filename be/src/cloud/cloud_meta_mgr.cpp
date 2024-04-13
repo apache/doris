@@ -16,7 +16,6 @@
 // under the License.
 #include "cloud/cloud_meta_mgr.h"
 
-#include <bits/ranges_algo.h>
 #include <brpc/channel.h>
 #include <brpc/controller.h>
 #include <bthread/bthread.h>
@@ -26,6 +25,7 @@
 #include <glog/logging.h>
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -831,8 +831,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         if (vault.has_hdfs_info()) {
             vault_infos->emplace_back(vault.id(), vault.hdfs_info());
         }
-        if (vault.has_s3_obj()) {
-            add_obj_store(vault.s3_obj());
+        if (vault.has_obj_info()) {
+            add_obj_store(vault.obj_info());
         }
     });
     return Status::OK();

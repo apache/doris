@@ -198,7 +198,7 @@ message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
-    optional ObjectStoreInfoPB s3_obj = 4;
+    optional ObjectStoreInfoPB obj_info = 4;
 }
 
 message HdfsBuildConf {
