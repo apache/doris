@@ -419,6 +419,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """ create database if not exists `test_hive_db_tbl` """;
             sql """use `${catalog_name}`.`test_hive_db_tbl`"""
 
+            sql """ drop table if exists unpart_tbl_${file_format}"""
             sql """
                 CREATE TABLE unpart_tbl_${file_format}(
                   `col1` BOOLEAN COMMENT 'col1',
