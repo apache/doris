@@ -118,10 +118,11 @@ public:
         _scan_thread_pool->wait();
     }
 
-    Status start() {
+    Status start(int max_thread_num, int min_thread_num, int queue_size) {
         RETURN_IF_ERROR(ThreadPoolBuilder(_sched_name)
-                                .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                                .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                                .set_min_threads(min_thread_num)
+                                .set_max_threads(max_thread_num)
+                                .set_max_queue_size(queue_size)
                                 .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                                 .build(&_scan_thread_pool));
         return Status::OK();
