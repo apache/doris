@@ -154,6 +154,9 @@ public class StatementContext implements Closeable {
         this(connectContext, originStatement, 0);
     }
 
+    /**
+     * StatementContext
+     */
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
