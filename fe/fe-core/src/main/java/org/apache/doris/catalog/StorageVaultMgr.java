@@ -171,7 +171,7 @@ public class StorageVaultMgr {
         Cloud.ObjectStoreInfoPB.Builder objBuilder = S3Properties.getObjStoreInfoPB(vault.getCopiedProperties());
         Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
         alterObjVaultBuilder.setName(s3StorageVault.getName());
-        alterObjVaultBuilder.setS3Obj(objBuilder.build());
+        alterObjVaultBuilder.setObjInfo(objBuilder.build());
         requestBuilder.setVault(alterObjVaultBuilder.build());
         try {
             Cloud.AlterObjStoreInfoResponse response =

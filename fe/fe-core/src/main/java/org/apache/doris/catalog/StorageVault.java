@@ -184,9 +184,9 @@ public abstract class StorageVault {
             builder.mergeFrom(vault.getHdfsInfo());
             row.add(printer.shortDebugString(builder));
         }
-        if (vault.hasS3Obj()) {
+        if (vault.hasObjInfo()) {
             Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
-            builder.mergeFrom(vault.getS3Obj());
+            builder.mergeFrom(vault.getObjInfo());
             builder.clearId();
             builder.setSk("xxxxxxx");
             row.add(printer.shortDebugString(builder));
