@@ -769,7 +769,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(table.getId());
         // rows newly updated after last analyze
-        long deltaRowCount = tableMeta.updatedRows.get();
+        long deltaRowCount = tableMeta == null ? 0 : tableMeta.updatedRows.get();
         double rowCount = catalogRelation.getTable().getRowCountForNereids();
         boolean hasUnknownCol = false;
         long idxId = -1;
