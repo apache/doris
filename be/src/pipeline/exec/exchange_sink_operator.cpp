@@ -181,6 +181,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         _broadcast_dependency =
                 Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                           "BroadcastDependency", true, state->get_query_ctx());
+        _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_blocks =
                 vectorized::BroadcastPBlockHolderQueue::create_shared(_broadcast_dependency);
         for (int i = 0; i < config::num_broadcast_buffer; ++i) {
