@@ -275,7 +275,11 @@ void CloudStorageEngine::sync_storage_vault() {
         return;
     }
 
-    CHECK(!vault_infos.empty()) << "no s3 infos";
+    if (vault_infos.empty()) {
+        LOG(WARNING) << "no storage vault info";
+        return;
+    }
+
     for (auto& [id, vault_info] : vault_infos) {
         auto fs = get_filesystem(id);
         auto st = (fs == nullptr)
