@@ -56,9 +56,8 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     std::vector<TNetworkAddress> broker_addresses;
     RETURN_IF_ERROR(FileFactory::create_file_writer(
             _write_info.file_type, state->exec_env(), broker_addresses, _hadoop_conf,
-            fmt::format("{}/{}", _write_info.write_path, _file_name, _file_name_index,
-                        _get_file_extension(_file_format_type, _hive_compress_type)),
-            0, _file_writer));
+            fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()), 0,
+            _file_writer));
 
     std::vector<std::string> column_names;
     column_names.reserve(_columns.size());
@@ -195,9 +194,7 @@ THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
     location.__set_write_path(_write_info.write_path);
     location.__set_target_path(_write_info.target_path);
     hive_partition_update.__set_location(location);
-    hive_partition_update.__set_file_names(
-            {fmt::format("{}-{}{}", _file_name, _file_name_index,
-                         _get_file_extension(_file_format_type, _hive_compress_type))});
+    hive_partition_update.__set_file_names({_get_target_file_name()});
     hive_partition_update.__set_row_count(_row_count);
     hive_partition_update.__set_file_size(_input_size_in_bytes);
     return hive_partition_update;
@@ -241,6 +238,11 @@ std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file
     }
     }
     return fmt::format("{}{}", compress_name, file_format_name);
+}
+
+std::string VHivePartitionWriter::_get_target_file_name() {
+    return fmt::format("{}-{}{}", _file_name, _file_name_index,
+                       _get_file_extension(_file_format_type, _hive_compress_type));
 }
 
 } // namespace vectorized

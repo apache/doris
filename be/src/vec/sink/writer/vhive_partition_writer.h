@@ -68,6 +68,9 @@ public:
     inline size_t written_len() { return _file_format_transformer->written_len(); }
 
 private:
+    std::string _get_target_file_name();
+
+private:
     Status _projection_and_filter_block(doris::vectorized::Block& input_block,
                                         const vectorized::IColumn::Filter* filter,
                                         doris::vectorized::Block* output_block);
