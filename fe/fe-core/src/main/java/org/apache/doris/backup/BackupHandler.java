@@ -384,6 +384,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Check if backup objects are valid
         // This is just a pre-check to avoid most of invalid backup requests.
         // Also calculate the signature for incremental backup check.
+        List<TableRef> tblRefsNotSupport = Lists.newArrayList();
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
             Table tbl = db.getTableOrDdlException(tblName);
@@ -391,7 +392,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 continue;
             }
             if (tbl.getType() != TableType.OLAP) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                if (Config.ignore_backup_not_support_table_type) {
+                    LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
+                            + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
+                            tblName, tbl.getType().toString());
+                    tblRefsNotSupport.add(tblRef);
+                    continue;
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                }
             }
 
             OlapTable olapTbl = (OlapTable) tbl;
@@ -421,6 +430,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 tbl.readUnlock();
             }
         }
+
+        tblRefs.removeAll(tblRefsNotSupport);
 
         // Check if label already be used
         long repoId = -1;
