@@ -226,7 +226,7 @@ suite("parse_sql_from_sql_cache") {
             sql "alter view test_use_plan_cache9_view as select id from test_use_plan_cache9"
             assertNoCache "select * from test_use_plan_cache9_view"
         }),
-        extraThread( "testDropView", {
+        extraThread("testDropView", {
             createTestTable "test_use_plan_cache10"
 
             sql "drop view if exists test_use_plan_cache10_view"
@@ -291,6 +291,8 @@ suite("parse_sql_from_sql_cache") {
             sql "select * from test_use_plan_cache12"
             assertHasCache "select * from test_use_plan_cache12"
 
+            sql "sync"
+
 
             extraThread("test_cache_user1_thread", {
                 connect(user = "test_cache_user1", password="DORIS@2024") {
@@ -321,6 +323,8 @@ suite("parse_sql_from_sql_cache") {
             // after partition changed 10s, the sql cache can be used
             sleep(10000)
 
+            sql "sync"
+
             extraThread("test_cache_user2_thread", {
                 connect(user = "test_cache_user2", password="DORIS@2024") {
                     sql "use ${dbName}"
@@ -341,6 +345,8 @@ suite("parse_sql_from_sql_cache") {
                 AS RESTRICTIVE TO test_cache_user2
                 USING (id = 'concat(id, "**")')"""
             sql "set enable_nereids_planner=true"
+
+            sql "sync"
 
             // after row policy changed, the cache is invalidate
             extraThread("test_cache_user2_thread2", {
@@ -377,6 +383,8 @@ suite("parse_sql_from_sql_cache") {
             USING (id = 'concat(id, "**")')"""
             sql "set enable_nereids_planner=true"
 
+            sql "sync"
+
             // after partition changed 10s, the sql cache can be used
             sleep(10000)
 
@@ -399,6 +407,8 @@ suite("parse_sql_from_sql_cache") {
             ON ${dbName}.test_use_plan_cache14
             FOR test_cache_user3"""
             sql "set enable_nereids_planner=true"
+
+            sql "sync"
 
             // after row policy changed, the cache is invalidate
             extraThread("test_cache_user3_thread2", {
@@ -425,6 +435,8 @@ suite("parse_sql_from_sql_cache") {
             sql "GRANT SELECT_PRIV ON regression_test.* TO test_cache_user4"
             sql "GRANT SELECT_PRIV ON ${dbName}.test_use_plan_cache15 TO test_cache_user4"
 
+            sql "sync"
+
             extraThread("test_cache_user4_thread", {
                 connect(user = "test_cache_user4", password="DORIS@2024") {
                     sql "use ${dbName}"
@@ -439,6 +451,8 @@ suite("parse_sql_from_sql_cache") {
             }).get()
 
             sql "REVOKE SELECT_PRIV ON ${dbName}.test_use_plan_cache15 FROM test_cache_user4"
+
+            sql "sync"
 
             // after privileges changed, the cache is invalidate
             extraThread("test_cache_user4_thread2", {
@@ -484,7 +498,7 @@ suite("parse_sql_from_sql_cache") {
         extraThread("testUserVariable", {
             // make sure if the table has been dropped, the cache should invalidate,
             // so we should retry twice to check
-            for (i in 0..2) {
+            for (def i in 0..2) {
                 createTestTable "test_use_plan_cache17"
 
                 // after partition changed 10s, the sql cache can be used
