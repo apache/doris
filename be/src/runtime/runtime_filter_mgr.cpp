@@ -72,7 +72,8 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(filter_id);
     if (iter == _consumer_map.end()) {
-        return Status::InternalError("unknown filter: {}, role: CONSUMER.", filter_id);
+        return Status::InternalError("get_consume_filters meet unknown filter: {}, role: CONSUMER.",
+                                     filter_id);
     }
     for (auto& holder : iter->second) {
         consumer_filters.emplace_back(holder.filter);
@@ -153,7 +154,10 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _local_merge_producer_map.find(filter_id);
     if (iter == _local_merge_producer_map.end()) {
-        return Status::InternalError("unknown filter: {}, role: LOCAL_MERGE_PRODUCER.", filter_id);
+        return Status::InternalError(
+                "get_local_merge_producer_filters meet unknown filter: {}, role: "
+                "LOCAL_MERGE_PRODUCER.",
+                filter_id);
     }
     *local_merge_filters = &iter->second;
     DCHECK(!iter->second.filters.empty());
@@ -193,7 +197,8 @@ Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request,
         std::lock_guard<std::mutex> l(_lock);
         auto iter = _consumer_map.find(filter_id);
         if (iter == _consumer_map.end()) {
-            return Status::InternalError("unknown filter: {}, role: CONSUMER.", filter_id);
+            return Status::InternalError("update_filter meet unknown filter: {}, role: CONSUMER.",
+                                         filter_id);
         }
         for (auto& holder : iter->second) {
             filters.emplace_back(holder.filter);
