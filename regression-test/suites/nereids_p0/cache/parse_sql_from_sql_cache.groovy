@@ -226,7 +226,7 @@ suite("parse_sql_from_sql_cache") {
             sql "alter view test_use_plan_cache9_view as select id from test_use_plan_cache9"
             assertNoCache "select * from test_use_plan_cache9_view"
         }),
-        extraThread( "testDropView", {
+        extraThread("testDropView", {
             createTestTable "test_use_plan_cache10"
 
             sql "drop view if exists test_use_plan_cache10_view"
@@ -498,7 +498,7 @@ suite("parse_sql_from_sql_cache") {
         extraThread("testUserVariable", {
             // make sure if the table has been dropped, the cache should invalidate,
             // so we should retry twice to check
-            for (i in 0..2) {
+            for (def i in 0..2) {
                 createTestTable "test_use_plan_cache17"
 
                 // after partition changed 10s, the sql cache can be used
