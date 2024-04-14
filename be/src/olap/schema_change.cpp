@@ -820,6 +820,12 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 break;
             }
 
+            DBUG_EXECUTE_IF("SchemaChangeJob.process_alter_tablet.alter_fail", {
+                LOG(WARNING) << "inject alter tablet failed. base_tablet=" << request.base_tablet_id
+                             << ", new_tablet=" << request.new_tablet_id;
+                break;
+            });
+
             // should check the max_version >= request.alter_version, if not the convert is useless
             if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
                 res = Status::InternalError(
