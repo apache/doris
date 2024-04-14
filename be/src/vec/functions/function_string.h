@@ -3949,14 +3949,9 @@ public:
         ColumnString::MutablePtr col_res = ColumnString::create();
 
         if (col_const[1] && col_const[2] && col_const[3]) {
-            vector_const(col_origin, col_pos, col_len, col_insert, col_res, col_const[0],
-                         input_rows_count);
-        } else if (col_const[1]) {
-            vector<true>(col_origin, col_pos, col_len, col_insert, col_res, col_const,
-                         input_rows_count);
+            vector_const(col_origin, col_pos, col_len, col_insert, col_res, input_rows_count);
         } else {
-            vector<false>(col_origin, col_pos, col_len, col_insert, col_res, col_const,
-                          input_rows_count);
+            vector(col_origin, col_pos, col_len, col_insert, col_res, col_const, input_rows_count);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -3979,15 +3974,15 @@ private:
 
     static void vector_const(const ColumnString* col_origin, int const* col_pos, int const* col_len,
                              const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
-                             bool origin_const, size_t input_rows_count) {
+                             size_t input_rows_count) {
         auto& col_res_chars = col_res->get_chars();
         auto& col_res_offsets = col_res->get_offsets();
         StringRef origin_str;
         StringRef insert_str = col_insert->get_data_at(0);
         auto pos = col_pos[0];
-        auto len = col_len[0];
         for (size_t i = 0; i < input_rows_count; i++) {
             origin_str = col_origin->get_data_at(i);
+            auto len = col_len[0];
 
             if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
                 is_origin) {
@@ -4008,7 +4003,6 @@ private:
         }
     }
 
-    template <bool pos_const>
     static void vector(const ColumnString* col_origin, int const* col_pos, int const* col_len,
                        const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
                        bool col_const[4], size_t input_rows_count) {
@@ -4018,15 +4012,6 @@ private:
         StringRef insert_str = col_insert->get_data_at(0);
         auto pos = col_pos[0];
         auto len = col_len[0];
-        if constexpr (pos_const) {
-            if (pos < 1 || (col_const[0] && pos > origin_str.size)) {
-                for (size_t i = 0; i < input_rows_count; i++) {
-                    origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
-                    col_res->insert_data(origin_str.data, origin_str.size);
-                }
-                return;
-            }
-        }
         for (size_t i = 0; i < input_rows_count; i++) {
             origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
             pos = col_pos[index_check_const(i, col_const[1])];
