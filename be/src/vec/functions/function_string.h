@@ -4008,10 +4008,8 @@ private:
                        bool col_const[4], size_t input_rows_count) {
         auto& col_res_chars = col_res->get_chars();
         auto& col_res_offsets = col_res->get_offsets();
-        StringRef origin_str = col_origin->get_data_at(0);
-        StringRef insert_str = col_insert->get_data_at(0);
-        auto pos = col_pos[0];
-        auto len = col_len[0];
+        StringRef origin_str, insert_str;
+        int pos, len;
         for (size_t i = 0; i < input_rows_count; i++) {
             origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
             pos = col_pos[index_check_const(i, col_const[1])];
