@@ -268,7 +268,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -3084,11 +3083,8 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
-            rows = Stream.concat(
-                            resp.getObjInfoList().stream()
-                                    .map(StorageVault::convertToShowStorageVaultProperties),
-                            resp.getStorageVaultList().stream()
-                                    .map(StorageVault::convertToShowStorageVaultProperties))
+            rows = resp.getStorageVaultList().stream()
+                            .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
