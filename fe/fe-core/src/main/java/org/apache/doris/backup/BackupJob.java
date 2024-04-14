@@ -858,6 +858,9 @@ public class BackupJob extends AbstractJob {
             }
         }
 
+        // meta info and job info not need save in log when cancel, we need to clean them here
+        backupMeta = null;
+        jobInfo = null;
         releaseSnapshots();
         snapshotInfos.clear();
 

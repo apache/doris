@@ -109,9 +109,9 @@ public:
     bool compare(const VMergeIteratorContext& rhs) const;
 
     // `advanced = false` when current block finished
-    void copy_rows(Block* block, bool advanced = true);
+    Status copy_rows(Block* block, bool advanced = true);
 
-    void copy_rows(BlockView* view, bool advanced = true);
+    Status copy_rows(BlockView* view, bool advanced = true);
 
     RowLocation current_row_location() {
         DCHECK(_record_rowids);
@@ -246,7 +246,7 @@ private:
                 ctx->add_cur_batch();
                 if (pre_ctx != ctx) {
                     if (pre_ctx) {
-                        pre_ctx->copy_rows(block);
+                        RETURN_IF_ERROR(pre_ctx->copy_rows(block));
                     }
                     pre_ctx = ctx;
                 }
@@ -258,14 +258,14 @@ private:
                 if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
                     // current block finished, ctx not advance
                     // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
-                    ctx->copy_rows(block, false);
+                    RETURN_IF_ERROR(ctx->copy_rows(block, false));
                     pre_ctx = nullptr;
                 }
             } else if (_merged_rows != nullptr) {
                 (*_merged_rows)++;
                 // need skip cur row, so flush rows in pre_ctx
                 if (pre_ctx) {
-                    pre_ctx->copy_rows(block);
+                    RETURN_IF_ERROR(pre_ctx->copy_rows(block));
                     pre_ctx = nullptr;
                 }
             }

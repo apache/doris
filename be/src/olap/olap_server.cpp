@@ -1206,8 +1206,8 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                     tablet_submitted.erase(t->tablet_id());
                 }
                 if (!st.ok()) {
-                    LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                 << " err=" << st;
+                    LOG_EVERY_N(WARNING, 5)
+                            << "failed to cooldown. tablet_id=" << t->tablet_id() << " err=" << st;
                 }
             });
         }

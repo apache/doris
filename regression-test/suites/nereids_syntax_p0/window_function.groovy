@@ -192,4 +192,7 @@ suite("window_function") {
           left join adj_nullable_2 on c1 = c4
         where c6 is not null;
     """
+
+    qt_select_lead "SELECT lead(c1, 0, 111) over(partition by c3 order by c2) FROM window_test"
+    qt_select_lag "SELECT lag(c1, 0, 222) over(partition by c3 order by c2) FROM window_test"
 }

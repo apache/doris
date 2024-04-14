@@ -241,7 +241,7 @@ Status create_literal(const TypeDescriptor& type, const void* data, vectorized::
         break;
     }
     case TYPE_DATETIMEV2: {
-        create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node);
+        create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node, type.precision, type.scale);
         break;
     }
     case TYPE_DATE: {

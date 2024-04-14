@@ -45,6 +45,11 @@ Path convert_path(const Path& path, const std::string& namenode) {
     Path real_path(path);
     if (path.string().find(namenode) != std::string::npos) {
         std::string real_path_str = path.string().substr(namenode.size());
+        if (!real_path_str.starts_with("/")) {
+            // The real path must starts with "/"
+            // Or the hadoop client will add a prefix like "/user/hadoop".
+            real_path_str = "/" + real_path_str;
+        }
         real_path = real_path_str;
     }
     return real_path;

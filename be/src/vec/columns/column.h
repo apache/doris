@@ -141,9 +141,13 @@ public:
 
     // shrink the end zeros for CHAR type or ARRAY<CHAR> type
     virtual MutablePtr get_shrinked_column() {
-        LOG(FATAL) << "Cannot clone_resized() column " << get_name();
+        LOG(FATAL) << "Cannot get_shrinked_column() column " << get_name();
         return nullptr;
     }
+
+    // check the column whether could shrinked
+    // now support only in char type, or the nested type in complex type: array{char}, struct{char}, map{char}
+    virtual bool could_shrinked_column() { return false; }
 
     // Only used on ColumnDictionary
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
@@ -658,6 +662,9 @@ public:
     /// Column is ColumnVector of numbers or ColumnConst of it. Note that Nullable columns are not numeric.
     /// Implies is_fixed_and_contiguous.
     virtual bool is_numeric() const { return false; }
+
+    // Column is ColumnString/ColumnArray/ColumnMap or other variable length column at every row
+    virtual bool is_variable_length() const { return false; }
 
     virtual bool is_column_string() const { return false; }
 

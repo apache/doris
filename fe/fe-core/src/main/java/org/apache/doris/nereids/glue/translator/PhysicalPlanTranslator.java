@@ -1042,7 +1042,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanNode planNode = inputFragment.getPlanRoot();
-        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
+        Plan child = filter.child();
+        while (child instanceof PhysicalLimit) {
+            child = ((PhysicalLimit<?>) child).child();
+        }
+        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode
+                // this means we have filter->limit->project, need a SelectNode
+                || child instanceof PhysicalProject) {
             // the three nodes don't support conjuncts, need create a SelectNode to filter data
             SelectNode selectNode = new SelectNode(filter.translatePlanNodeId(), planNode);
             addConjunctsToPlanNode(filter, selectNode, context);

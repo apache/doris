@@ -95,7 +95,7 @@ Status VUnionNode::prepare(RuntimeState* state) {
 }
 
 Status VUnionNode::open(RuntimeState* state) {
-    RETURN_IF_ERROR(alloc_resource(state));
+    RETURN_IF_ERROR(ExecNode::open(state)); // exactly same with this->alloc_resource()
     // Ensures that rows are available for clients to fetch after this open() has
     // succeeded.
     if (!_children.empty()) {

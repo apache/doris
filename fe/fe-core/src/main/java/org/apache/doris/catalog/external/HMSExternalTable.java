@@ -79,7 +79,7 @@ import java.util.stream.Collectors;
 public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
-    private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
+    public static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
     private static final Set<String> SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS;
 
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
@@ -712,13 +712,13 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public boolean isDistributionColumn(String columnName) {
         return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-            .collect(Collectors.toSet()).contains(columnName.toLowerCase());
+                .collect(Collectors.toSet()).contains(columnName.toLowerCase());
     }
 
     @Override
     public Set<String> getDistributionColumnNames() {
         return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-            .collect(Collectors.toSet());
+                .collect(Collectors.toSet());
     }
 }
 

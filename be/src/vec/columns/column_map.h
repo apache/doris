@@ -93,6 +93,7 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t size) const override;
+    bool is_variable_length() const override { return true; }
 
     bool can_be_inside_nullable() const override { return true; }
 
@@ -113,6 +114,7 @@ public:
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;

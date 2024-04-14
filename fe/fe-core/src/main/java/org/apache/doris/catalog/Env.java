@@ -98,6 +98,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
+import org.apache.doris.common.DNSCache;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -475,6 +476,8 @@ public class Env {
 
     private HiveTransactionMgr hiveTransactionMgr;
 
+    private DNSCache dnsCache;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -688,6 +691,7 @@ public class Env {
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
+        this.dnsCache = new DNSCache();
     }
 
     public static void destroyCheckpoint() {
@@ -817,6 +821,10 @@ public class Env {
 
     public static HiveTransactionMgr getCurrentHiveTransactionMgr() {
         return getCurrentEnv().getHiveTransactionMgr();
+    }
+
+    public DNSCache getDnsCache() {
+        return dnsCache;
     }
 
     // Use tryLock to avoid potential dead lock
@@ -1544,6 +1552,7 @@ public class Env {
         getInternalCatalog().getEsRepository().start();
         // domain resolver
         domainResolver.start();
+        dnsCache.start();
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {

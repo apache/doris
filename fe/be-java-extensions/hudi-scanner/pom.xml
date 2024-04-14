@@ -35,7 +35,8 @@ under the License.
         <spark.version>3.2.0</spark.version>
         <sparkbundle.version>3.2</sparkbundle.version>
         <janino.version>3.0.16</janino.version>
-        <avro.version>1.11.2</avro.version>
+        <avro.version>1.11.3</avro.version>
+        <netty.version>4.1.108.Final</netty.version>
     </properties>
     
     <dependencyManagement>
@@ -51,6 +52,17 @@ under the License.
                         <artifactId>avro-tools</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.spark</groupId>
+                <artifactId>spark-core_2.12</artifactId>
+                <version>${spark.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-kqueue</artifactId>
+                <classifier>osx-x86_64</classifier>
+                <version>${netty.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -116,7 +128,7 @@ under the License.
         <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-avro</artifactId>
-            <version>1.10.1</version>
+            <version>1.13.1</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

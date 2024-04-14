@@ -69,6 +69,7 @@ public class SlotBinder extends SubExprAnalyzer {
      */
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
+    private final boolean findFirst;
 
     public SlotBinder(Scope scope, CascadesContext cascadesContext) {
         this(scope, cascadesContext, true, true);
@@ -76,9 +77,16 @@ public class SlotBinder extends SubExprAnalyzer {
 
     public SlotBinder(Scope scope, CascadesContext cascadesContext,
             boolean enableExactMatch, boolean bindSlotInOuterScope) {
+        this(scope, cascadesContext, enableExactMatch, bindSlotInOuterScope, false);
+    }
+
+    public SlotBinder(Scope scope, CascadesContext cascadesContext,
+            boolean enableExactMatch, boolean bindSlotInOuterScope,
+            boolean findFirst) {
         super(scope, cascadesContext);
         this.enableExactMatch = enableExactMatch;
         this.bindSlotInOuterScope = bindSlotInOuterScope;
+        this.findFirst = findFirst;
     }
 
     public Expression bind(Expression expression) {
@@ -168,6 +176,9 @@ public class SlotBinder extends SubExprAnalyzer {
                     if (exactMatch.size() == 1) {
                         return exactMatch.get(0);
                     }
+                }
+                if (findFirst) {
+                    return bounded.get(0);
                 }
                 throw new AnalysisException(String.format("%s is ambiguous: %s.",
                         unboundSlot.toSql(),

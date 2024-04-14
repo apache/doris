@@ -27,6 +27,8 @@
 
 namespace doris {
 
+class MemTrackerLimiter;
+
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineTask {
@@ -34,6 +36,9 @@ public:
     virtual ~EngineTask() = default;
     virtual Status execute() { return Status::OK(); }
     virtual Status finish() { return Status::OK(); }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return _mem_tracker; }
+
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // end namespace doris

@@ -229,5 +229,85 @@ suite("bind_priority") {
             group by id
             having sum(age + 1) = 11 -- bind age from s
             """
+
+
+
+
+        sql "drop table if exists test_bind_having_slots2"
+        sql """create table test_bind_having_slots2
+                (id int)
+                distributed by hash(id)
+                properties('replication_num'='1');
+                """
+        sql "insert into test_bind_having_slots2 values(1), (2), (3), (2);"
+
+        order_qt_having_bind_agg_fun """
+               select id, abs(sum(id)) as id
+                from test_bind_having_slots2
+                group by id
+                having sum(id) + id  >= 7
+                """
+
+        order_qt_having_bind_agg_fun """
+               select id, abs(sum(id)) as id
+                from test_bind_having_slots2
+                group by id
+                having sum(id) + id  >= 6
+                """
+
+
+
+
+
+        sql "drop table if exists test_bind_having_slots3"
+
+        sql """CREATE TABLE `test_bind_having_slots3`(pk int, pk2 int)
+                    DUPLICATE KEY(`pk`)
+                    DISTRIBUTED BY HASH(`pk`) BUCKETS 10
+                    properties('replication_num'='1');
+                    """
+        sql "insert into test_bind_having_slots3 values(1, 1), (2, 2), (2, 2), (3, 3), (3, 3), (3, 3);"
+
+        order_qt_having_bind_group_by """
+                SELECT pk + 6 as ps, COUNT(pk )  *  3 as pk
+                FROM test_bind_having_slots3  tbl_alias1
+                GROUP by pk
+                HAVING  pk = 1
+                """
+
+        order_qt_having_bind_group_by """
+                SELECT pk + 6 as pk, COUNT(pk )  *  3 as pk
+                FROM test_bind_having_slots3  tbl_alias1
+                GROUP by pk + 6
+                HAVING  pk = 7
+                """
+
+        order_qt_having_bind_group_by """
+                SELECT pk + 6, COUNT(pk )  *  3 as pk
+                FROM test_bind_having_slots3  tbl_alias1
+                GROUP by pk + 6
+                HAVING  pk = 3
+                """
+
+        order_qt_having_bind_group_by """
+                select pk + 1 as pk, pk + 2 as pk, count(*)
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 4;
+                """
+
+        order_qt_having_bind_group_by """
+                select count(*) pk, pk + 1 as pk
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 1;
+                """
+
+        order_qt_having_bind_group_by """
+                select pk + 1 as pk, count(*) pk
+                from test_bind_having_slots3
+                group by pk + 1, pk + 2
+                having pk = 2;
+                """
     }()
 }

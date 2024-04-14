@@ -58,11 +58,7 @@ namespace doris::vectorized {
     M(TypeIndex::Float64, Float64)
 
 JniConnector::~JniConnector() {
-    Status st = close();
-    if (!st.ok()) {
-        // Ensure successful resource release
-        LOG(FATAL) << "Failed to release jni resource: " << st.to_string();
-    }
+    static_cast<void>(close());
 }
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
@@ -200,8 +196,9 @@ Status JniConnector::close() {
         _closed = true;
         jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {
-            LOG(WARNING) << "Failed to release jni resource: "
-                         << JniUtil::GetJniExceptionMsg(env).to_string();
+            // Ensure successful resource release
+            LOG(FATAL) << "Failed to release jni resource: "
+                       << JniUtil::GetJniExceptionMsg(env).to_string();
         }
     }
     return Status::OK();

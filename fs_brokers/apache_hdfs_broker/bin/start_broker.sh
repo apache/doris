@@ -63,7 +63,7 @@ PID_DIR="$(
 )"
 export PID_DIR
 
-export JAVA_OPTS="-Xmx1024m -Dfile.encoding=UTF-8"
+export JAVA_OPTS="-Xmx1024m -Dfile.encoding=UTF-8 -Djavax.security.auth.useSubjectCredsOnly=false -Dsun.security.krb5.debug=true"
 export BROKER_LOG_DIR="${BROKER_HOME}/log"
 # java
 if [[ -z "${JAVA_HOME}" ]]; then

@@ -1198,6 +1198,10 @@ DECLARE_String(trino_connector_plugin_dir);
 // the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
 DECLARE_mString(ca_cert_file_paths);
 
+// Number of open tries, default 1 means only try to open once.
+// Retry the Open num_retries time waiting 100 milliseconds between retries.
+DECLARE_mInt32(thrift_client_open_num_tries);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
