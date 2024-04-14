@@ -943,6 +943,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             break;
         }
 
+        DCHECK_GE(real_alter_version, request.alter_version);
+
         if (new_tablet->keys_type() == UNIQUE_KEYS &&
             new_tablet->enable_unique_key_merge_on_write()) {
             res = _calc_delete_bitmap_for_mow_table(new_tablet, real_alter_version);
@@ -1061,6 +1063,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
     auto sc_procedure = get_sc_procedure(changer, sc_sorting, sc_directly);
 
     // c.Convert historical data
+    bool have_failure_rowset = false;
     for (auto& rs_reader : sc_params.ref_rowset_readers) {
         VLOG_TRACE << "begin to convert a history rowset. version=" << rs_reader->version().first
                    << "-" << rs_reader->version().second;
@@ -1113,6 +1116,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                          << "tablet=" << sc_params.new_tablet->full_name() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
+            have_failure_rowset = true;
             res = Status::OK();
         } else if (!res) {
             LOG(WARNING) << "failed to register new version. "
@@ -1126,7 +1130,9 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                         << ", version=" << rs_reader->version().first << "-"
                         << rs_reader->version().second;
         }
-        *real_alter_version = rs_reader->version().second;
+        if (!have_failure_rowset) {
+            *real_alter_version = rs_reader->version().second;
+        }
 
         VLOG_TRACE << "succeed to convert a history version."
                    << " version=" << rs_reader->version().first << "-"

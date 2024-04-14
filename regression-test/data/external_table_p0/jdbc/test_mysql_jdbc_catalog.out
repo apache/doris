@@ -441,3 +441,8 @@ year	SMALLINT	Yes	false	\N	NONE
 -- !date_sub_sec --
 2	2022-01-01
 
+-- !sql --
+1
+
+-- !sql --
+1
