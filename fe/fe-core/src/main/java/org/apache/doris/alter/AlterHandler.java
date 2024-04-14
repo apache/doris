@@ -269,6 +269,7 @@ public abstract class AlterHandler extends MasterDaemon {
             alterJob.replay(alterJob);
             alterJobsV2.put(alterJob.getJobId(), alterJob);
         } else {
+            existingJob.failedTabletBackends = alterJob.failedTabletBackends;
             existingJob.replay(alterJob);
         }
     }
