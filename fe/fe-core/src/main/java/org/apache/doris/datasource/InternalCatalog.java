@@ -958,19 +958,24 @@ public class InternalCatalog implements CatalogIf<Database> {
         return true;
     }
 
-    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-            Long recycleTime) throws MetaNotFoundException {
+    public void dropTable(Database db, long tableId, boolean isForceDrop,
+                          Long recycleTime) throws MetaNotFoundException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
         table.writeLock();
         try {
             unprotectDropTable(db, table, isForceDrop, true, recycleTime);
-            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(),
-                    tableId);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
+            //Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             table.writeUnlock();
             db.writeUnlock();
         }
+    }
+
+    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
+            Long recycleTime) throws MetaNotFoundException {
+        dropTable(db, tableId, isForceDrop, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
@@ -2600,6 +2605,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
+            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
+                LOG.info("debug point FE.createOlapTable.exception, throw e");
+                // not commit, not log edit
+                throw new DdlException("debug point FE.createOlapTable.exception");
+            }
 
             if (result.second) {
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
@@ -2632,12 +2642,18 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 TimeUtils.getCurrentFormatTime());
             }
         } catch (DdlException e) {
+            LOG.warn("create table failed {} - {}", tabletIdSet, e.getMessage());
             for (Long tabletId : tabletIdSet) {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
             // only remove from memory, because we have not persist it
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 Env.getCurrentColocateIndex().removeTable(tableId);
+            }
+            try {
+                dropTable(db, tableId, true, 0L);
+            } catch (Exception ex) {
+                LOG.warn("drop table", ex);
             }
 
             throw e;
