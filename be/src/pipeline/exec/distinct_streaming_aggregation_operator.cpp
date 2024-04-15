@@ -69,7 +69,22 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
 Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_init_timer);
+    _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
+    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
+    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
+    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
+    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
+    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
+    _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
+
+    return Status::OK();
+}
+
+Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = Base::_parent->template cast<DistinctStreamingAggOperatorX>();
     for (auto& evaluator : p._aggregate_evaluators) {
         _aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
@@ -78,14 +93,6 @@ Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo&
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
     }
-
-    _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
-    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
-    _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
 
     if (_probe_expr_ctxs.empty()) {
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
