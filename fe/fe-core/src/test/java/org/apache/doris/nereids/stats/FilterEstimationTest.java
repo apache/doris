@@ -350,7 +350,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(ge, stat);
-        Assertions.assertEquals(0, expected.getRowCount());
+        Assertions.assertEquals(1, expected.getRowCount());
     }
 
     // a < b
@@ -611,9 +611,9 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics estimated = filterEstimation.estimate(ge, stat);
         ColumnStatistic statsA = estimated.findColumnStatistics(a);
-        Assertions.assertEquals(0, statsA.ndv);
+        Assertions.assertEquals(1, statsA.ndv);
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
-        Assertions.assertEquals(0, statsB.ndv);
+        Assertions.assertEquals(1, statsB.ndv);
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
         Assertions.assertEquals(0, statsC.ndv);
         Assertions.assertTrue(Double.isInfinite(statsC.minValue));
@@ -1251,7 +1251,7 @@ class FilterEstimationTest {
         Assertions.assertEquals(100, agrtb.getRowCount());
         // (2020-2022) < (2010,2012), sel=0
         Statistics alessb = new FilterEstimation().estimate(new LessThan(a, b), baseStats);
-        Assertions.assertEquals(0, alessb.getRowCount());
+        Assertions.assertEquals(1, alessb.getRowCount());
 
         // (2020-2022) > (2010-2021), sel = DEFAULT (0.5)
         Statistics agrtc = new FilterEstimation().estimate(new GreaterThan(a, c), baseStats);
