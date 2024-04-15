@@ -128,6 +128,7 @@ protected:
     RuntimeProfile::Counter* _exec_timer = nullptr;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
 
@@ -542,6 +543,7 @@ protected:
             std::make_unique<RuntimeProfile>("faker profile");
 
     RuntimeProfile::Counter* _rows_input_counter = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
