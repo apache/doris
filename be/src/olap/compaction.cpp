@@ -437,6 +437,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         if (!allow_delete_in_cumu_compaction()) {
             missed_rows_size = missed_rows.size();
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                _tablet->tablet_state() == TABLET_RUNNING &&
                 stats.merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
@@ -911,7 +912,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 &output_rowset_delete_bitmap);
         if (!allow_delete_in_cumu_compaction()) {
             missed_rows_size = missed_rows.size();
-            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION && stats != nullptr &&
+            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                _tablet->tablet_state() == TABLET_RUNNING && stats != nullptr &&
                 stats->merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
