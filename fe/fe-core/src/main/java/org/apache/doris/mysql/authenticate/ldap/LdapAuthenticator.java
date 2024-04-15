@@ -45,6 +45,7 @@ import java.util.List;
  */
 public class LdapAuthenticator implements Authenticator {
     private static final Logger LOG = LogManager.getLogger(LdapAuthenticator.class);
+
     private PasswordResolver passwordResolver;
 
     public LdapAuthenticator() {
