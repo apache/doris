@@ -123,6 +123,7 @@ import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
+import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
@@ -409,6 +410,8 @@ public class DdlExecutor {
             env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
         } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
             env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStorageVaultStmt) ddlStmt);
+        } else if (ddlStmt instanceof UnsetDefaultStorageVaultStmt) {
+            env.getStorageVaultMgr().unsetDefaultStorageVault();
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
