@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.ConfigBase.DefaultConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
@@ -57,6 +58,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.collections.CollectionUtils;
 
+import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map.Entry;
@@ -68,15 +70,38 @@ import java.util.Set;
 public class NereidsSqlCacheManager {
     // key: <user>:<sql>
     // value: CacheAnalyzer
-    private final Cache<String, SqlCacheContext> sqlCache;
+    private volatile Cache<String, SqlCacheContext> sqlCaches;
 
     public NereidsSqlCacheManager(int sqlCacheNum, long cacheIntervalSeconds) {
-        sqlCache = Caffeine.newBuilder()
+        sqlCaches = Caffeine.newBuilder()
                 .maximumSize(sqlCacheNum)
                 .expireAfterAccess(Duration.ofSeconds(cacheIntervalSeconds))
                 // auto evict cache when jvm memory too low
                 .softValues()
                 .build();
+    }
+
+    public static synchronized void updateConfig() {
+        Env currentEnv = Env.getCurrentEnv();
+        if (currentEnv == null) {
+            return;
+        }
+        NereidsSqlCacheManager sqlCacheManager = currentEnv.getSqlCacheManager();
+        if (sqlCacheManager == null) {
+            return;
+        }
+
+        int sqlCacheManageNum = Config.sql_cache_manage_num;
+        int cacheIntervalSecond = Config.cache_last_version_interval_second;
+
+        Cache<String, SqlCacheContext> sqlCaches = Caffeine.newBuilder()
+                .maximumSize(sqlCacheManageNum)
+                .expireAfterAccess(Duration.ofSeconds(cacheIntervalSecond))
+                // auto evict cache when jvm memory too low
+                .softValues()
+                .build();
+        sqlCaches.putAll(sqlCacheManager.sqlCaches.asMap());
+        sqlCacheManager.sqlCaches = sqlCaches;
     }
 
     /** tryAddCache */
@@ -94,7 +119,7 @@ public class NereidsSqlCacheManager {
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         String key = currentUserIdentity.toString() + ":" + sql.trim();
         if (analyzer.getCache() instanceof SqlCache
-                && (currentMissParseSqlFromSqlCache || sqlCache.getIfPresent(key) == null)) {
+                && (currentMissParseSqlFromSqlCache || sqlCaches.getIfPresent(key) == null)) {
             SqlCache cache = (SqlCache) analyzer.getCache();
             sqlCacheContext.setCacheKeyMd5(cache.getOrComputeCacheMd5());
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
@@ -107,7 +132,7 @@ public class NereidsSqlCacheManager {
                 sqlCacheContext.addScanTable(scanTable);
             }
 
-            sqlCache.put(key, sqlCacheContext);
+            sqlCaches.put(key, sqlCacheContext);
         }
     }
 
@@ -116,7 +141,7 @@ public class NereidsSqlCacheManager {
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         Env env = connectContext.getEnv();
         String key = currentUserIdentity.toString() + ":" + sql.trim();
-        SqlCacheContext sqlCacheContext = sqlCache.getIfPresent(key);
+        SqlCacheContext sqlCacheContext = sqlCaches.getIfPresent(key);
         if (sqlCacheContext == null) {
             return Optional.empty();
         }
@@ -320,7 +345,7 @@ public class NereidsSqlCacheManager {
     }
 
     private Optional<LogicalSqlCache> invalidateCache(String key) {
-        sqlCache.invalidate(key);
+        sqlCaches.invalidate(key);
         return Optional.empty();
     }
 
@@ -334,5 +359,15 @@ public class NereidsSqlCacheManager {
             return null;
         }
         return db.get().getTable(fullTableName.table).orElse(null);
+    }
+
+    // used in Config.sql_cache_manage_num.callbackClassString and
+    // Config.cache_last_version_interval_second.callbackClassString, don't remove it
+    public static class UpdateConfig extends DefaultConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            super.handle(field, confVal);
+            NereidsSqlCacheManager.updateConfig();
+        }
     }
 }
