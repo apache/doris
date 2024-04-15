@@ -2390,14 +2390,25 @@ std::string Tablet::get_segment_filepath(std::string_view rowset_id, int64_t seg
 std::string Tablet::get_segment_index_filepath(std::string_view rowset_id,
                                                std::string_view segment_index,
                                                std::string_view index_id) const {
-    // TODO(qiye): support inverted index file format v2, when https://github.com/apache/doris/pull/30145 is merged
-    return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index, index_id);
+    auto format = _tablet_meta->tablet_schema()->get_inverted_index_storage_format();
+    if (format == doris::InvertedIndexStorageFormatPB::V1) {
+        return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
+                           index_id);
+    } else {
+        return fmt::format("{}/_binlog/{}_{}.idx", _tablet_path, rowset_id, segment_index);
+    }
 }
 
 std::string Tablet::get_segment_index_filepath(std::string_view rowset_id, int64_t segment_index,
                                                int64_t index_id) const {
-    // TODO(qiye): support inverted index file format v2, when https://github.com/apache/doris/pull/30145 is merged
-    return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index, index_id);
+    auto format = _tablet_meta->tablet_schema()->get_inverted_index_storage_format();
+    if (format == doris::InvertedIndexStorageFormatPB::V1) {
+        return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
+                           index_id);
+    } else {
+        DCHECK(index_id == -1);
+        return fmt::format("{}/_binlog/{}_{}.idx", _tablet_path, rowset_id, segment_index);
+    }
 }
 
 std::vector<std::string> Tablet::get_binlog_filepath(std::string_view binlog_version) const {
