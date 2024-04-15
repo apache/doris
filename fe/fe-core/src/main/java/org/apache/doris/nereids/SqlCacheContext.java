@@ -322,75 +322,81 @@ public class SqlCacheContext {
     }
 
     /** getOrComputeCacheKeyMd5 */
-    public synchronized PUniqueId getOrComputeCacheKeyMd5() {
+    public PUniqueId getOrComputeCacheKeyMd5() {
         if (cacheKeyMd5 == null && originSql != null) {
-            StringBuilder cacheKey = new StringBuilder(originSql);
-            if (!usedViews.isEmpty()) {
-                cacheKey.append("|");
+            synchronized (this) {
+                if (cacheKeyMd5 != null) {
+                    return cacheKeyMd5;
+                }
 
-                Iterator<Entry<FullTableName, String>> it = usedViews.entrySet().iterator();
-                while (it.hasNext()) {
-                    Entry<FullTableName, String> entry = it.next();
-                    cacheKey.append(entry.getKey()).append("=").append(entry.getValue());
-                    if (it.hasNext()) {
-                        cacheKey.append("|");
-                    }
-                }
-            }
-            if (!usedVariables.isEmpty()) {
-                cacheKey.append("|");
+                StringBuilder cacheKey = new StringBuilder(originSql);
+                if (!usedViews.isEmpty()) {
+                    cacheKey.append("|");
 
-                Iterator<Variable> it = usedVariables.iterator();
-                while (it.hasNext()) {
-                    Variable usedVariable = it.next();
-                    cacheKey.append(usedVariable.getType().name())
-                            .append(":").append(usedVariable.getName())
-                            .append(usedVariable.getRealExpression().toSql());
-                    if (it.hasNext()) {
-                        cacheKey.append("|");
+                    Iterator<Entry<FullTableName, String>> it = usedViews.entrySet().iterator();
+                    while (it.hasNext()) {
+                        Entry<FullTableName, String> entry = it.next();
+                        cacheKey.append(entry.getKey()).append("=").append(entry.getValue());
+                        if (it.hasNext()) {
+                            cacheKey.append("|");
+                        }
                     }
                 }
-            }
-            if (!foldNondeterministicPairs.isEmpty()) {
-                cacheKey.append("|");
-                Iterator<Pair<Expression, Expression>> it = foldNondeterministicPairs.iterator();
-                while (it.hasNext()) {
-                    Pair<Expression, Expression> pair = it.next();
-                    cacheKey.append(pair.key().toSql()).append("=")
-                            .append(pair.value().toSql());
-                    if (it.hasNext()) {
-                        cacheKey.append("|");
+                if (!usedVariables.isEmpty()) {
+                    cacheKey.append("|");
+
+                    Iterator<Variable> it = usedVariables.iterator();
+                    while (it.hasNext()) {
+                        Variable usedVariable = it.next();
+                        cacheKey.append(usedVariable.getType().name())
+                                .append(":").append(usedVariable.getName())
+                                .append(usedVariable.getRealExpression().toSql());
+                        if (it.hasNext()) {
+                            cacheKey.append("|");
+                        }
                     }
                 }
-            }
-            if (!rowPolicies.isEmpty()) {
-                cacheKey.append("|");
-                Iterator<Entry<FullTableName, List<RowFilterPolicy>>> it = rowPolicies.entrySet().iterator();
-                while (it.hasNext()) {
-                    Entry<FullTableName, List<RowFilterPolicy>> entry = it.next();
-                    cacheKey.append(entry.getKey())
-                            .append("=")
-                            .append(entry.getValue());
-                    if (it.hasNext()) {
-                        cacheKey.append("|");
+                if (!foldNondeterministicPairs.isEmpty()) {
+                    cacheKey.append("|");
+                    Iterator<Pair<Expression, Expression>> it = foldNondeterministicPairs.iterator();
+                    while (it.hasNext()) {
+                        Pair<Expression, Expression> pair = it.next();
+                        cacheKey.append(pair.key().toSql()).append("=")
+                                .append(pair.value().toSql());
+                        if (it.hasNext()) {
+                            cacheKey.append("|");
+                        }
                     }
                 }
-            }
-            if (!dataMaskPolicies.isEmpty()) {
-                cacheKey.append("|");
-                Iterator<Entry<FullColumnName, Optional<DataMaskPolicy>>> it
-                        = dataMaskPolicies.entrySet().iterator();
-                while (it.hasNext()) {
-                    Entry<FullColumnName, Optional<DataMaskPolicy>> entry = it.next();
-                    cacheKey.append(entry.getKey())
-                            .append("=")
-                            .append(entry.getValue().map(Object::toString).orElse(""));
-                    if (it.hasNext()) {
-                        cacheKey.append("|");
+                if (!rowPolicies.isEmpty()) {
+                    cacheKey.append("|");
+                    Iterator<Entry<FullTableName, List<RowFilterPolicy>>> it = rowPolicies.entrySet().iterator();
+                    while (it.hasNext()) {
+                        Entry<FullTableName, List<RowFilterPolicy>> entry = it.next();
+                        cacheKey.append(entry.getKey())
+                                .append("=")
+                                .append(entry.getValue());
+                        if (it.hasNext()) {
+                            cacheKey.append("|");
+                        }
                     }
                 }
+                if (!dataMaskPolicies.isEmpty()) {
+                    cacheKey.append("|");
+                    Iterator<Entry<FullColumnName, Optional<DataMaskPolicy>>> it
+                            = dataMaskPolicies.entrySet().iterator();
+                    while (it.hasNext()) {
+                        Entry<FullColumnName, Optional<DataMaskPolicy>> entry = it.next();
+                        cacheKey.append(entry.getKey())
+                                .append("=")
+                                .append(entry.getValue().map(Object::toString).orElse(""));
+                        if (it.hasNext()) {
+                            cacheKey.append("|");
+                        }
+                    }
+                }
+                cacheKeyMd5 = CacheProxy.getMd5(cacheKey.toString());
             }
-            cacheKeyMd5 = CacheProxy.getMd5(cacheKey.toString());
         }
         return cacheKeyMd5;
     }
