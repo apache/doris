@@ -18,12 +18,10 @@
 package org.apache.doris.common;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.datasource.CatalogIf;
@@ -111,13 +109,6 @@ public class NereidsSqlCacheManager {
 
             sqlCache.put(key, sqlCacheContext);
         }
-    }
-
-    /** invalidateCache */
-    public void invalidateCache(ConnectContext connectContext, String sql) {
-        UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String key = currentUserIdentity.toString() + ":" + sql.trim();
-        sqlCache.invalidate(key);
     }
 
     /** tryParseSql */
