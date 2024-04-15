@@ -1065,6 +1065,10 @@ class Suite implements GroovyInterceptable {
         return !getFeConfig("cloud_unique_id").isEmpty()
     }
 
+    boolean enableStoragevault() {
+        return isCloudMode() && context.config.enableStorageVault;
+    }
+
     String getFeConfig(String key) {
         return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
     }
