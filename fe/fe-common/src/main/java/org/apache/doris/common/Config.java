@@ -2020,9 +2020,9 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL,
             callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig",
             description = {
-            "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
-            "Now default set to 100, this config is used to control the number of "
-                    + "sql cache managed by NereidsSqlCacheManager"
+                "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
+                "Now default set to 100, this config is used to control the number of "
+                        + "sql cache managed by NereidsSqlCacheManager"
             }
     )
     public static int sql_cache_manage_num = 100;

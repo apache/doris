@@ -124,7 +124,6 @@ public class CacheBeProxy extends CacheProxy {
             Backend backend, int timeoutMs, Status status) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            request = request.toBuilder().setClearType(InternalService.PClearType.CLEAR_ALL).build();
             LOG.info("clear all backend cache, backendId {}", backend.getId());
             Future<InternalService.PCacheResponse> future
                     = BackendServiceProxy.getInstance().clearCache(address, request);

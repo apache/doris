@@ -22,6 +22,8 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PClearCacheRequest;
+import org.apache.doris.proto.InternalService.PClearType;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.system.Backend;
@@ -90,6 +92,15 @@ public class SqlCache extends Cache {
 
     public static Backend findCacheBe(PUniqueId cacheMd5) {
         return CacheCoordinator.getInstance().findBackend(cacheMd5);
+    }
+
+    public static void clearCache(CacheProxy proxy, PUniqueId cacheKeyMd5, PClearType clearType) {
+        PClearCacheRequest request = PClearCacheRequest.newBuilder()
+                .setSqlKey(cacheKeyMd5)
+                .setClearType(clearType)
+                .build();
+
+        proxy.clearCache(request);
     }
 
     public static InternalService.PFetchCacheResult getCacheData(CacheProxy proxy,

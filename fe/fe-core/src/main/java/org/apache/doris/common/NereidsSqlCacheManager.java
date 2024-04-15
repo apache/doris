@@ -49,10 +49,10 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PClearType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
-import org.apache.doris.service.FrontendOptions;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -151,33 +151,32 @@ public class NereidsSqlCacheManager {
 
         // check table and view and their columns authority
         if (privilegeChanged(connectContext, env, sqlCacheContext)) {
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         }
         if (tablesOrDataChanged(env, sqlCacheContext)) {
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         }
         if (viewsChanged(env, sqlCacheContext)) {
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         }
         if (usedVariablesChanged(sqlCacheContext)) {
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         }
 
         LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
         if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         }
 
         // table structure and data not changed, now check policy
         if (rowPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         }
         if (dataMaskPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         }
 
         try {
-            String localHostAddress = FrontendOptions.getLocalHostAddress();
             Status status = new Status();
             InternalService.PFetchCacheResult cacheData =
                     SqlCache.getCacheData(sqlCacheContext.getCacheProxy(),
@@ -197,9 +196,9 @@ public class NereidsSqlCacheManager {
                         sqlCacheContext.getResultExprs(), cacheValues, backendAddress, cachedPlan);
                 return Optional.of(logicalSqlCache);
             }
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         } catch (Throwable t) {
-            return invalidateCache(key);
+            return invalidateCache(key, sqlCacheContext);
         }
     }
 
@@ -346,8 +345,11 @@ public class NereidsSqlCacheManager {
         return false;
     }
 
-    private Optional<LogicalSqlCache> invalidateCache(String key) {
+    private Optional<LogicalSqlCache> invalidateCache(String key, SqlCacheContext sqlCacheContext) {
         sqlCaches.invalidate(key);
+        SqlCache.clearCache(
+                sqlCacheContext.getCacheProxy(), sqlCacheContext.getCacheKeyMd5(), PClearType.CLEAR_SQL_KEY
+        );
         return Optional.empty();
     }
 
