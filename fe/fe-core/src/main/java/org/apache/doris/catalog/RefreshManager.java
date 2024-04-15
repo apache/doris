@@ -200,7 +200,7 @@ public class RefreshManager {
             ((ExternalTable) table).unsetObjectCreated();
         }
         Env.getCurrentEnv().getExtMetaCacheMgr()
-                .invalidateTableCache(catalog.getId(), catalog.getName(), db.getFullName());
+                .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
         if (table instanceof HMSExternalTable && updateTime > 0) {
             ((HMSExternalTable) table).setEventUpdateTime(updateTime);
         }
