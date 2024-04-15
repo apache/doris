@@ -121,8 +121,8 @@ public class NereidsSqlCacheManager {
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         String key = currentUserIdentity.toString() + ":" + sql.trim();
-        if ((currentMissParseSqlFromSqlCache || sqlCaches.getIfPresent(key) == null) &&
-                sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
+        if ((currentMissParseSqlFromSqlCache || sqlCaches.getIfPresent(key) == null)
+                && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
             SqlCache cache = (SqlCache) analyzer.getCache();
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
             sqlCacheContext.setLatestPartitionId(cache.getLatestId());
