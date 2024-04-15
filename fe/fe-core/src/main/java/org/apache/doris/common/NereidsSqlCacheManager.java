@@ -328,19 +328,6 @@ public class NereidsSqlCacheManager {
         return false;
     }
 
-    private boolean isValidDbAndTable(TableIf tableIf, Env env) {
-        return getTableFromEnv(tableIf, env) != null;
-    }
-
-    private TableIf getTableFromEnv(TableIf tableIf, Env env) {
-        Optional<Database> db = env.getInternalCatalog().getDb(tableIf.getDatabase().getId());
-        if (!db.isPresent()) {
-            return null;
-        }
-        Optional<Table> table = db.get().getTable(tableIf.getId());
-        return table.orElse(null);
-    }
-
     private Optional<LogicalSqlCache> invalidateCache(String key) {
         sqlCache.invalidate(key);
         return Optional.empty();

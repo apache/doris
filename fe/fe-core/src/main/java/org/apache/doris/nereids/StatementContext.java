@@ -112,7 +112,6 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
-    private Map<TableIf, Set<String>> checkedPrivilegedTableAndUsedColumns = Maps.newLinkedHashMap();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
