@@ -15,23 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.authenticate;
+package org.apache.doris.mysql.authenticate.password;
 
-import org.apache.doris.mysql.MysqlAuthPacket;
-import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlHandshakePacket;
-import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.qe.ConnectContext;
+public abstract class Password {
 
-import java.io.IOException;
-
-public interface AuthenticateController {
-    boolean authenticate(ConnectContext context,
-            String qualifiedUser,
-            MysqlChannel channel,
-            MysqlSerializer serializer,
-            MysqlAuthPacket authPacket,
-            MysqlHandshakePacket handshakePacket) throws IOException;
-
-    boolean canDeal(String qualifiedUser);
 }

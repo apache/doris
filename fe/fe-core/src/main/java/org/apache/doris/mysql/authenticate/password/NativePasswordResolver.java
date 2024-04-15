@@ -15,13 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.authenticate;
+package org.apache.doris.mysql.authenticate.password;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -29,18 +25,13 @@ import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.List;
+import java.util.Optional;
 
-public class DefaultAuthenticateController implements AuthenticateController {
+public class NativePasswordResolver implements PasswordResolver {
     @Override
-    public boolean authenticate(ConnectContext context,
-            String qualifiedUser,
-            MysqlChannel channel,
-            MysqlSerializer serializer,
+    public Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel, MysqlSerializer serializer,
             MysqlAuthPacket authPacket,
             MysqlHandshakePacket handshakePacket) throws IOException {
         // Starting with MySQL 8.0.4, MySQL changed the default authentication plugin for MySQL client
@@ -63,7 +54,7 @@ public class DefaultAuthenticateController implements AuthenticateController {
             ByteBuffer authSwitchResponse = channel.fetchOnePacket();
             if (authSwitchResponse == null) {
                 // receive response failed.
-                return false;
+                return Optional.empty();
             }
             // 3. the client use default password plugin of Doris to dispose
             // password
@@ -75,37 +66,6 @@ public class DefaultAuthenticateController implements AuthenticateController {
         if (Config.proxy_auth_enable && authPacket.getRandomString() != null) {
             randomString = authPacket.getRandomString();
         }
-        // check authenticate
-        if (!internalAuthenticate(context, authPacket.getAuthResponse(), randomString, qualifiedUser)) {
-            MysqlProto.sendResponsePacket(context);
-            return false;
-        }
-        return true;
-    }
-
-    @Override
-    public boolean canDeal(String qualifiedUser) {
-        return true;
-    }
-
-    // scramble: data receive from server.
-    // randomString: data send by server in plugin data field
-    // user_name#HIGH@cluster_name
-    private boolean internalAuthenticate(ConnectContext context, byte[] scramble,
-            byte[] randomString, String qualifiedUser) {
-        String remoteIp = context.getMysqlChannel().getRemoteIp();
-        List<UserIdentity> currentUserIdentity = Lists.newArrayList();
-
-        try {
-            Env.getCurrentEnv().getAuth().checkPassword(qualifiedUser, remoteIp,
-                    scramble, randomString, currentUserIdentity);
-        } catch (AuthenticationException e) {
-            ErrorReport.report(e.errorCode, e.msgs);
-            return false;
-        }
-
-        context.setCurrentUserIdentity(currentUserIdentity.get(0));
-        context.setRemoteIP(remoteIp);
-        return true;
+        return Optional.of(new NativePassword(authPacket.getAuthResponse(), randomString));
     }
 }

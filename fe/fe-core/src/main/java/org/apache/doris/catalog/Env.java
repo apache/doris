@@ -183,7 +183,7 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.mysql.authenticate.AuthenticateControllerManager;
+import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -457,7 +457,7 @@ public class Env {
     private Auth auth;
     private AccessControllerManager accessManager;
 
-    private AuthenticateControllerManager authenticateManager;
+    private AuthenticatorManager authenticateManager;
 
     private DomainResolver domainResolver;
 
@@ -707,7 +707,7 @@ public class Env {
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
-        this.authenticateManager = new AuthenticateControllerManager(getAuthTypeConfig());
+        this.authenticateManager = new AuthenticatorManager(getAuthTypeConfig());
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -836,7 +836,7 @@ public class Env {
         return accessManager;
     }
 
-    public AuthenticateControllerManager getAuthenticateManager() {
+    public AuthenticatorManager getAuthenticateManager() {
         return authenticateManager;
     }
 
