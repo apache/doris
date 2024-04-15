@@ -21,6 +21,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -76,6 +77,8 @@ public class DistributionSpecHash extends DistributionSpec {
             long tableId, long selectedIndexId, Set<Long> partitionIds) {
         this.orderedShuffledColumns = ImmutableList.copyOf(
                 Objects.requireNonNull(orderedShuffledColumns, "orderedShuffledColumns should not null"));
+        Preconditions.checkArgument(!orderedShuffledColumns.isEmpty(),
+                "orderedShuffledColumns should not be empty");
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
         this.partitionIds = ImmutableSet.copyOf(
                 Objects.requireNonNull(partitionIds, "partitionIds should not null"));

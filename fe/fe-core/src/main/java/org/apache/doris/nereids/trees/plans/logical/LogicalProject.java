@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
@@ -84,14 +83,9 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> child) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
-        Preconditions.checkArgument(projects != null, "projects can not be null");
-        // only ColumnPrune rule may produce empty projects, this happens in rewrite phase
-        // so if projects is empty, all plans have been bound already.
-        Preconditions.checkArgument(!projects.isEmpty() || !(child instanceof Unbound),
-                "projects can not be empty when child plan is unbound");
-        this.projects = projects.isEmpty()
-                ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.get(0).getOutput()))
-                : projects;
+        Preconditions.checkArgument(projects != null && !projects.isEmpty(),
+                "projects can not be null or empty");
+        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
         this.excepts = Utils.fastToImmutableList(excepts);
         this.isDistinct = isDistinct;
         this.canEliminate = canEliminate;

@@ -216,7 +216,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 "qualified", qualifiedName(),
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
                 "selectedIndexId", selectedIndexId,
-                "preAgg", preAggStatus
+                "preAgg", preAggStatus,
+                "output", getOutput()
         );
     }
 

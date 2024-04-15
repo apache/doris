@@ -95,9 +95,7 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
                                                                 )
                                                         )
                                                 ),
-                                                logicalProject(
-                                                        logicalOlapScan()
-                                                )
+                                                logicalOlapScan()
                                         )
                                 )
                         )

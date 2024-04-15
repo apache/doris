@@ -150,7 +150,7 @@ class PushDownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
                                 logicalTopN(
                                         logicalProject(logicalJoin())
                                 ),
-                                logicalProject(logicalOlapScan())
+                                logicalOlapScan()
                         )
                 );
     }
@@ -166,7 +166,7 @@ class PushDownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
                                 logicalProject(
                                         logicalJoin(
                                                 logicalTopN().when(l -> l.getLimit() == 10 && l.getOffset() == 0),
-                                                logicalProject(logicalOlapScan())
+                                                logicalOlapScan()
                                         )
                                 )
                         )

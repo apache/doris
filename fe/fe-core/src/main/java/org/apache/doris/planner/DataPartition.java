@@ -55,6 +55,9 @@ public class DataPartition {
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
+        if (exprs.isEmpty()) {
+            System.out.println(exprs);
+        }
         Preconditions.checkState(!exprs.isEmpty());
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
                 || type == TPartitionType.RANGE_PARTITIONED

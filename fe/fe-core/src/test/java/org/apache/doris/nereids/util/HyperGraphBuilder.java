@@ -414,6 +414,7 @@ public class HyperGraphBuilder {
     }
 
     public Set<List<String>> evaluate(Plan plan) {
+        System.out.println(plan.treeString());
         JoinEvaluator evaluator = new JoinEvaluator(rowCounts);
         Map<Slot, List<Integer>> res = evaluator.evaluate(plan);
         int rowCount = 0;

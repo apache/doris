@@ -55,6 +55,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
         return ImmutableList.of(
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
                         logicalResultSink(logicalTopN(logicalOlapScan()))
+                                .when(r -> r.getOutput().size() > 1)
                                 .when(r -> r.child().getLimit() < getTopNOptLimitThreshold())
                                 .whenNot(r -> r.child().getOrderKeys().isEmpty())
                                 .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
@@ -65,6 +66,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                 ),
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
                         logicalResultSink(logicalTopN(logicalFilter(logicalOlapScan())))
+                                .when(r -> r.getOutput().size() > 1)
                                 .when(r -> r.child().getLimit() < getTopNOptLimitThreshold())
                                 .whenNot(r -> r.child().getOrderKeys().isEmpty())
                                 .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
