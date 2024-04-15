@@ -197,6 +197,11 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate any equal pair
+    }
+
+    @Override
     public ImmutableSet<FdItem> computeFdItems() {
         Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
