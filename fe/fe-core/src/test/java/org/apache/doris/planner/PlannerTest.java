@@ -497,7 +497,7 @@ public class PlannerTest extends TestWithFeService {
         QueryState state = connectContext.getState();
         Assertions.assertEquals(MysqlStateType.ERR, state.getStateType());
         Assertions.assertTrue(state.getErrorMessage()
-                .contains("you need (at least one of) the LOAD privilege(s) for this operation"));
+                .contains("you need (at least one of) the (LOAD) privilege(s) for this operation"));
         // set to admin user
         connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
     }
