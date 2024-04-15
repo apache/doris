@@ -71,6 +71,10 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
                 remainWindowExpression.add(expr);
                 continue;
             }
+            if (windowExpression.getPartitionKeys().stream().anyMatch((
+                    partitionKey -> partitionKey.getDataType().isOnlyMetricType()))) {
+                continue;
+            }
             // after normalize window, partition key must be slot
             List<Slot> partitionSlots = (List<Slot>) (List) windowExpression.getPartitionKeys();
             Set<Slot> partitionSlotSet = new HashSet<>(partitionSlots);
