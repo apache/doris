@@ -33,7 +33,8 @@
 namespace doris::vectorized {
 
 template <typename Derived>
-void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
+void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
+                                           size_t end) const {
     size_t num_rows = size();
 
     if (num_rows < selector.size()) {
@@ -43,8 +44,13 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
 
     res->reserve(num_rows);
 
-    for (size_t i = 0; i < selector.size(); ++i)
+    for (size_t i = begin; i < end; ++i) {
         static_cast<Derived&>(*res).insert_from(*this, selector[i]);
+    }
+}
+template <typename Derived>
+void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
+    append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());
 }
 
 template <typename Derived>

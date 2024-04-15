@@ -521,6 +521,10 @@ public:
         append_data_by_selector_impl<ColumnString>(res, selector);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnString>(res, selector, begin, end);
+    }
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     void reserve(size_t n) override;
