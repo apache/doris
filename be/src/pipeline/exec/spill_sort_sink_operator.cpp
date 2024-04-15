@@ -27,11 +27,12 @@ SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, 
             parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
             state->get_query_ctx());
 }
+
 Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
                                      doris::pipeline::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
 
     _init_counters();
 
@@ -45,6 +46,7 @@ Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
     }
     return Status::OK();
 }
+
 void SpillSortSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
@@ -72,10 +74,7 @@ void SpillSortSinkLocalState::update_profile(RuntimeProfile* child_profile) {
     UPDATE_PROFILE(_merge_block_timer, "MergeBlockTime");
     UPDATE_PROFILE(_sort_blocks_memory_usage, "SortBlocks");
 }
-Status SpillSortSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
-    return Status::OK();
-}
+
 Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
     auto& parent = Base::_parent->template cast<Parent>();
     if (parent._enable_spill) {

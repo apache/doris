@@ -105,9 +105,11 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
         query_ctx->register_query_statistics(
                 _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
-
-    _block = doris::vectorized::Block::create_unique();
-    RETURN_IF_ERROR(_extract_dependencies());
+    {
+        const auto& deps = _state->get_local_state(_source->operator_id())->filter_dependencies();
+        std::copy(deps.begin(), deps.end(),
+                  std::inserter(_filter_dependencies, _filter_dependencies.end()));
+    }
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
     _prepared = true;
@@ -138,11 +140,6 @@ Status PipelineXTask::_extract_dependencies() {
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
         }
-    }
-    {
-        const auto& deps = _state->get_local_state(_source->operator_id())->filter_dependencies();
-        std::copy(deps.begin(), deps.end(),
-                  std::inserter(_filter_dependencies, _filter_dependencies.end()));
     }
     return Status::OK();
 }
@@ -196,6 +193,8 @@ Status PipelineXTask::_open() {
         RETURN_IF_ERROR(local_state->open(_state));
     }
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
+    RETURN_IF_ERROR(_extract_dependencies());
+    _block = doris::vectorized::Block::create_unique();
     _opened = true;
     return Status::OK();
 }
