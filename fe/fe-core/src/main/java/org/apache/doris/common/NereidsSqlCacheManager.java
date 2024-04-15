@@ -49,7 +49,6 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.proto.InternalService.PClearType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
@@ -362,8 +361,9 @@ public class NereidsSqlCacheManager {
         return db.get().getTable(fullTableName.table).orElse(null);
     }
 
-    // used in Config.sql_cache_manage_num.callbackClassString and
-    // Config.cache_last_version_interval_second.callbackClassString, don't remove it
+    // NOTE: used in Config.sql_cache_manage_num.callbackClassString and
+    //       Config.cache_last_version_interval_second.callbackClassString,
+    //       don't remove it!
     public static class UpdateConfig extends DefaultConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {

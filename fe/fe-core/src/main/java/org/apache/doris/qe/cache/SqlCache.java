@@ -94,15 +94,6 @@ public class SqlCache extends Cache {
         return CacheCoordinator.getInstance().findBackend(cacheMd5);
     }
 
-    public static void clearCache(CacheProxy proxy, PUniqueId cacheKeyMd5, PClearType clearType) {
-        PClearCacheRequest request = PClearCacheRequest.newBuilder()
-                .setSqlKey(cacheKeyMd5)
-                .setClearType(clearType)
-                .build();
-
-        proxy.clearCache(request);
-    }
-
     public static InternalService.PFetchCacheResult getCacheData(CacheProxy proxy,
             PUniqueId cacheKeyMd5, long latestPartitionId, long latestPartitionVersion,
             long latestPartitionTime, long sumOfPartitionNum, Status status) {

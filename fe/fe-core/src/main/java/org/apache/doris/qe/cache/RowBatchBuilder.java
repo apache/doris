@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
-import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TResultBatch;
 
 import com.google.common.collect.Lists;
@@ -131,16 +130,9 @@ public class RowBatchBuilder {
                                 .setLastVersion(lastVersion)
                                 .setLastVersionTime(lastestTime)
                                 .setPartitionNum(partitionNum)
-                                .setCacheOwner(FrontendOptions.getLocalHostAddress())
-                                .build()
-                        )
-                        .setDataSize(dataSize)
-                        .addAllRows(
-                                rowList.stream()
-                                .map(row -> ByteString.copyFrom(row))
-                                .collect(Collectors.toList())
-                        )
-                ).build();
+                                .build()).setDataSize(dataSize).addAllRows(
+                                rowList.stream().map(row -> ByteString.copyFrom(row))
+                                        .collect(Collectors.toList()))).build();
         return updateRequest;
     }
 
