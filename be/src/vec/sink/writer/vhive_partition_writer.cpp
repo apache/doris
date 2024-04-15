@@ -53,8 +53,7 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
     io::FileDescription file_description = {
-            .path = fmt::format("{}/{}-{}{}", _write_info.write_path, _file_name, _file_name_index,
-                                _get_file_extension(_file_format_type, _hive_compress_type))};
+            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name())};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer));
 
@@ -193,9 +192,7 @@ THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
     location.__set_write_path(_write_info.write_path);
     location.__set_target_path(_write_info.target_path);
     hive_partition_update.__set_location(location);
-    hive_partition_update.__set_file_names(
-            {fmt::format("{}-{}{}", _file_name, _file_name_index,
-                         _get_file_extension(_file_format_type, _hive_compress_type))});
+    hive_partition_update.__set_file_names({_get_target_file_name()});
     hive_partition_update.__set_row_count(_row_count);
     hive_partition_update.__set_file_size(_input_size_in_bytes);
     return hive_partition_update;
@@ -239,6 +236,11 @@ std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file
     }
     }
     return fmt::format("{}{}", compress_name, file_format_name);
+}
+
+std::string VHivePartitionWriter::_get_target_file_name() {
+    return fmt::format("{}-{}{}", _file_name, _file_name_index,
+                       _get_file_extension(_file_format_type, _hive_compress_type));
 }
 
 } // namespace vectorized
