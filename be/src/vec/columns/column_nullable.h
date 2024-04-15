@@ -232,6 +232,11 @@ public:
         append_data_by_selector_impl<ColumnNullable>(res, selector);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnNullable>(res, selector, begin, end);
+    }
+
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     void for_each_subcolumn(ColumnCallback callback) override {
