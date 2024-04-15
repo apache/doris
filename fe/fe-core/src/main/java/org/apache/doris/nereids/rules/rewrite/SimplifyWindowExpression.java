@@ -38,12 +38,20 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**SimplifyWindowExpression*/
+/**
+ * rewrite func(para) over (partition by unique_keys)
+ * 1. func() is count(non-null) or rank/dense_rank/row_number -> 1
+ * 2. func(para) is min/max/sum/avg/first_value/last_value -> para
+ * e.g
+ * select max(c1) over(partition by pk) from t1;
+ * -> select c1 from t1;
+ * */
 public class SimplifyWindowExpression extends OneRewriteRuleFactory {
+    private static final String COUNT = "count";
     private static final ImmutableSet<String> REWRRITE_TO_CONST_WINDOW_FUNCTIONS =
-            ImmutableSet.of("count", "rank", "dense_rank", "row_number", "first_value", "last_value");
+            ImmutableSet.of("rank", "dense_rank", "row_number");
     private static final ImmutableSet<String> REWRRITE_TO_SLOT_WINDOW_FUNCTIONS =
-            ImmutableSet.of("min", "max", "sum", "avg");
+            ImmutableSet.of("min", "max", "sum", "avg", "first_value", "last_value");
 
     @Override
     public Rule build() {
@@ -74,8 +82,9 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             if (function instanceof BoundFunction) {
                 BoundFunction boundFunction = (BoundFunction) function;
                 String name = ((BoundFunction) function).getName();
-                if (REWRRITE_TO_CONST_WINDOW_FUNCTIONS.contains(name)) {
-                    projectionsBuilder.add(new Alias(alias.getExprId(), new TinyIntLiteral((byte)1), alias.getName()));
+                if ((name.equals(COUNT) && boundFunction.child(0).notNullable())
+                        || REWRRITE_TO_CONST_WINDOW_FUNCTIONS.contains(name)) {
+                    projectionsBuilder.add(new Alias(alias.getExprId(), new TinyIntLiteral((byte) 1), alias.getName()));
                 } else if (REWRRITE_TO_SLOT_WINDOW_FUNCTIONS.contains(name)) {
                     projectionsBuilder.add(new Alias(alias.getExprId(), boundFunction.child(0), alias.getName()));
                 } else {
@@ -86,13 +95,13 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             }
         }
         List<NamedExpression> projections = projectionsBuilder.build();
+        List<NamedExpression> remainWindow = remainWindowExpression.build();
+
         if (projections.isEmpty()) {
             return window;
+        } else if (remainWindow.isEmpty()) {
+            return new LogicalProject(projections, window.child(0));
         } else {
-            List<NamedExpression> remainWindow = remainWindowExpression.build();
-            if (remainWindow.isEmpty()) {
-                return new LogicalProject(projections, window.child(0));
-            }
             return new LogicalProject(projections, window.withExpression(remainWindow,
                     window.child(0)));
         }
