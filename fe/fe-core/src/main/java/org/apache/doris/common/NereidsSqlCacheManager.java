@@ -328,7 +328,8 @@ public class NereidsSqlCacheManager {
             return true;
         }
 
-        List<Pair<Expression, Expression>> nondeterministicFunctions = sqlCacheContext.getFoldNondeterministicPairs();
+        List<Pair<Expression, Expression>> nondeterministicFunctions
+                = sqlCacheContext.getFoldFullNondeterministicPairs();
         if (nondeterministicFunctions.isEmpty()) {
             return false;
         }

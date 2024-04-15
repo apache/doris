@@ -38,11 +38,12 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang3.StringUtils;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -67,9 +68,13 @@ public class SqlCacheContext {
     private final Map<FullTableName, List<RowFilterPolicy>> rowPolicies = Maps.newLinkedHashMap();
     private final Map<FullColumnName, Optional<DataMaskPolicy>> dataMaskPolicies = Maps.newLinkedHashMap();
     private final Set<Variable> usedVariables = Sets.newLinkedHashSet();
-    // key: the expression which contains nondeterministic function, e.g. date(now())
-    // value: the expression which already try to fold nondeterministic function, e.g. '2024-01-01'
+    // key: the expression which **contains** nondeterministic function, e.g. date_add(date_column, date(now()))
+    // value: the expression which already try to fold nondeterministic function,
+    // e.g. date_add(date_column, '2024-01-01')
     // note that value maybe contains nondeterministic function too, when fold failed
+    private final List<Pair<Expression, Expression>> foldFullNondeterministicPairs = Lists.newArrayList();
+    // key: the expression which **is** nondeterministic function, e.g. now()
+    // value: the expression which already try to fold nondeterministic function, e.g. '2024-01-01 10:01:03'
     private final List<Pair<Expression, Expression>> foldNondeterministicPairs = Lists.newArrayList();
     private volatile boolean hasUnsupportedTables;
     private final List<ScanTable> scanTables = Lists.newArrayList();
@@ -208,6 +213,14 @@ public class SqlCacheContext {
         return ImmutableList.copyOf(usedVariables);
     }
 
+    public synchronized void addFoldFullNondeterministicPair(Expression unfold, Expression fold) {
+        foldFullNondeterministicPairs.add(Pair.of(unfold, fold));
+    }
+
+    public synchronized List<Pair<Expression, Expression>> getFoldFullNondeterministicPairs() {
+        return ImmutableList.copyOf(foldFullNondeterministicPairs);
+    }
+
     public synchronized void addFoldNondeterministicPair(Expression unfold, Expression fold) {
         foldNondeterministicPairs.add(Pair.of(unfold, fold));
     }
@@ -280,10 +293,6 @@ public class SqlCacheContext {
         return ImmutableMap.copyOf(rowPolicies);
     }
 
-    public boolean isHasUnsupportedTables() {
-        return hasUnsupportedTables;
-    }
-
     public synchronized void addScanTable(ScanTable scanTable) {
         this.scanTables.add(scanTable);
     }
@@ -317,7 +326,69 @@ public class SqlCacheContext {
         if (cacheKeyMd5 == null && originSql != null) {
             StringBuilder cacheKey = new StringBuilder(originSql);
             if (!usedViews.isEmpty()) {
-                cacheKey.append(StringUtils.join(usedViews.values(), "|"));
+                cacheKey.append("|");
+
+                Iterator<Entry<FullTableName, String>> it = usedViews.entrySet().iterator();
+                while (it.hasNext()) {
+                    Entry<FullTableName, String> entry = it.next();
+                    cacheKey.append(entry.getKey()).append("=").append(entry.getValue());
+                    if (it.hasNext()) {
+                        cacheKey.append("|");
+                    }
+                }
+            }
+            if (!usedVariables.isEmpty()) {
+                cacheKey.append("|");
+
+                Iterator<Variable> it = usedVariables.iterator();
+                while (it.hasNext()) {
+                    Variable usedVariable = it.next();
+                    cacheKey.append(usedVariable.getType().name())
+                            .append(":").append(usedVariable.getName())
+                            .append(usedVariable.getRealExpression().toSql());
+                    if (it.hasNext()) {
+                        cacheKey.append("|");
+                    }
+                }
+            }
+            if (!foldNondeterministicPairs.isEmpty()) {
+                cacheKey.append("|");
+                Iterator<Pair<Expression, Expression>> it = foldNondeterministicPairs.iterator();
+                while (it.hasNext()) {
+                    Pair<Expression, Expression> pair = it.next();
+                    cacheKey.append(pair.key().toSql()).append("=")
+                            .append(pair.value().toSql());
+                    if (it.hasNext()) {
+                        cacheKey.append("|");
+                    }
+                }
+            }
+            if (!rowPolicies.isEmpty()) {
+                cacheKey.append("|");
+                Iterator<Entry<FullTableName, List<RowFilterPolicy>>> it = rowPolicies.entrySet().iterator();
+                while (it.hasNext()) {
+                    Entry<FullTableName, List<RowFilterPolicy>> entry = it.next();
+                    cacheKey.append(entry.getKey())
+                            .append("=")
+                            .append(entry.getValue());
+                    if (it.hasNext()) {
+                        cacheKey.append("|");
+                    }
+                }
+            }
+            if (!dataMaskPolicies.isEmpty()) {
+                cacheKey.append("|");
+                Iterator<Entry<FullColumnName, Optional<DataMaskPolicy>>> it
+                        = dataMaskPolicies.entrySet().iterator();
+                while (it.hasNext()) {
+                    Entry<FullColumnName, Optional<DataMaskPolicy>> entry = it.next();
+                    cacheKey.append(entry.getKey())
+                            .append("=")
+                            .append(entry.getValue().map(Object::toString).orElse(""));
+                    if (it.hasNext()) {
+                        cacheKey.append("|");
+                    }
+                }
             }
             cacheKeyMd5 = CacheProxy.getMd5(cacheKey.toString());
         }
