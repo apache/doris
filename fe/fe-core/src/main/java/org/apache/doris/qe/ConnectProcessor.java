@@ -484,21 +484,16 @@ public abstract class ConnectProcessor {
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
-                if (packet == null) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("packet == null");
-                    }
-                    return;
-                }
             }
         } else {
             packet = getResultPacket();
-            if (packet == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("packet == null");
-                }
-                return;
+        }
+
+        if (packet == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("packet == null");
             }
+            return;
         }
 
         MysqlChannel channel = ctx.getMysqlChannel();
