@@ -595,7 +595,7 @@ ColumnPtr ColumnString::index(const IColumn& indexes, size_t limit) const {
 }
 
 ColumnPtr ColumnString::convert_column_if_overflow() {
-    if (chars.size() > std::numeric_limits<Offset>::max()) {
+    if (chars.size() > 10) {
         auto new_col = MutablePtr(new ColumnLargeStringForJoin);
         std::swap(new_col->get_chars(), chars);
         const auto length = size();
@@ -605,7 +605,7 @@ ColumnPtr ColumnString::convert_column_if_overflow() {
         size_t loc = 0;
         // TODO: recheck to SIMD the code
         // if offset overflow. will be lower than offsets[loc - 1]
-        while (offsets[loc] >= offsets[loc - 1]) {
+        while (offsets[loc] >= offsets[loc - 1] && loc < length) {
             large_offsets[loc] = offsets[loc];
             loc++;
         }
