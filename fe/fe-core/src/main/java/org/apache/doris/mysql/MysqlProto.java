@@ -194,7 +194,7 @@ public class MysqlProto {
         }
 
         //  authenticate
-        if (!Env.getCurrentEnv().getAuthenticateManager()
+        if (!Env.getCurrentEnv().getAuthenticatorManager()
                 .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
             return false;
         }

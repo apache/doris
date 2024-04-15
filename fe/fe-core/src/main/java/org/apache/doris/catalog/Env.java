@@ -457,7 +457,7 @@ public class Env {
     private Auth auth;
     private AccessControllerManager accessManager;
 
-    private AuthenticatorManager authenticateManager;
+    private AuthenticatorManager authenticatorManager;
 
     private DomainResolver domainResolver;
 
@@ -707,7 +707,7 @@ public class Env {
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
-        this.authenticateManager = new AuthenticatorManager(getAuthTypeConfig());
+        this.authenticatorManager = new AuthenticatorManager(getAuthTypeConfig());
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -836,8 +836,8 @@ public class Env {
         return accessManager;
     }
 
-    public AuthenticatorManager getAuthenticateManager() {
-        return authenticateManager;
+    public AuthenticatorManager getAuthenticatorManager() {
+        return authenticatorManager;
     }
 
     public MTMVService getMtmvService() {
