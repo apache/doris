@@ -16,7 +16,8 @@
 // under the License.
 
 suite("create_vault") {
-    if (enableStoragevault()) {
+    if (!enableStoragevault()) {
+        logger.info("skip create storgage vault case")
         return
     }
     try {

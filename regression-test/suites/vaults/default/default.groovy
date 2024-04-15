@@ -16,7 +16,8 @@
 // under the License.
 
 suite("default_vault") {
-    if (enableStoragevault()) {
+    if (!enableStoragevault()) {
+        logger.info("skip create storgage vault case")
         return
     }
     try {
@@ -42,22 +43,22 @@ suite("default_vault") {
     }
 
     sql """
-        set built_in_storage_vault as default vault
+        set built_in_storage_vault as default storage vault
     """
 
-    {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """
-            CREATE TABLE ${tableName} (
-                `key` INT,
-                value INT
-            ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
-            PROPERTIES ('replication_num' = '1')
-        """
-    }
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+        CREATE TABLE ${tableName} (
+            `key` INT,
+            value INT
+        ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
+        PROPERTIES ('replication_num' = '1')
+    """
+
 
     sql """
-        set built_in_storage_vault as default vault
+        set built_in_storage_vault as default storage vault
     """
 
     sql """
@@ -70,64 +71,42 @@ suite("default_vault") {
     """
 
     sql """
-        set create_default_hdfs_vault as default vault
+        set create_default_hdfs_vault as default storage vault
     """
 
-    {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """
-            CREATE TABLE ${tableName} (
-                `key` INT,
-                value INT
-            ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
-            PROPERTIES ('replication_num' = '1')
-        """
-        sql """
-            insert into ${tableName} vaules(1. 1);
-        """
-        sql """
-            select * from ${tableName};
-        """
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+        CREATE TABLE ${tableName} (
+            `key` INT,
+            value INT
+        ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
+        PROPERTIES ('replication_num' = '1')
+    """
+    sql """
+        insert into ${tableName} values(1, 1);
+    """
+    sql """
+        select * from ${tableName};
+    """
 
-        def create_table_stmt = """
-            show create table ${tableName}
-        """
+    def create_table_stmt = sql """
+        show create table ${tableName}
+    """
 
-        assertTrue(create_table_stmt.contains("create_default_hdfs_vault"))
-
-        try {
-            sql """
-                alter table ${tableName} set("storage_vault_name" = "built_in_storage_vault");
-            """
-        } catch (Exception e) {
-        }
-    }
+    assertTrue(create_table_stmt[0][1].contains("create_default_hdfs_vault"))
 
     try {
         sql """
-            set @ as default vault
+            alter table ${tableName} set("storage_vault_name" = "built_in_storage_vault");
         """
     } catch (Exception e) {
     }
 
     try {
         sql """
-            set % as default vault
+            set null as default storage vault
         """
     } catch (Exception e) {
     }
 
-    try {
-        sql """
-            set null as default vault
-        """
-    } catch (Exception e) {
-    }
-
-    try {
-        sql """
-            set $ as default vault
-        """
-    } catch (Exception e) {
-    }
 }
