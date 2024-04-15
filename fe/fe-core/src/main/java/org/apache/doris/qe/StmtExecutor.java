@@ -106,6 +106,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
@@ -1666,14 +1667,28 @@ public class StmtExecutor {
     /**
      * Handle the SelectStmt via Cache.
      */
-    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
-        InternalService.PFetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
-        if (cacheResult == null) {
-            if (ConnectContext.get() != null
-                    && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
-                throw new UserException("The variable test_query_cache_hit is set to "
-                        + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                        + ", but the query cache is not hit.");
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel)
+            throws Exception {
+        InternalService.PFetchCacheResult cacheResult = null;
+        boolean wantToParseSqlForSqlCache = planner instanceof NereidsPlanner
+                && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());
+        try {
+            cacheResult = cacheAnalyzer.getCacheData();
+            if (cacheResult == null) {
+                if (ConnectContext.get() != null
+                        && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
+                    throw new UserException("The variable test_query_cache_hit is set to "
+                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
+                            + ", but the query cache is not hit.");
+                }
+            }
+        } finally {
+            if (wantToParseSqlForSqlCache) {
+                String originStmt = parsedStmt.getOrigStmt().originStmt;
+                NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
+                if (cacheResult != null) {
+                    sqlCacheManager.tryAddCache(context, originStmt, cacheAnalyzer, false);
+                }
             }
         }
 
