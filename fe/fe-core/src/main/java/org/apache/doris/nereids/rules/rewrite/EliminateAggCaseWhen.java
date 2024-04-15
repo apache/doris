@@ -52,7 +52,8 @@ public final class EliminateAggCaseWhen extends OneRewriteRuleFactory {
         return logicalAggregate().then(agg -> {
             Set<AggregateFunction> aggFunctions = agg.getAggregateFunctions();
             // check whether we only have one aggregate function, and only one projection of aggregate function
-            if (aggFunctions.size() != 1 || agg.getOutputExpressions().size() != 1) {
+            if (aggFunctions.size() != 1 || agg.getOutputExpressions().size() != 1
+                        || !agg.getGroupByExpressions().isEmpty()) {
                 return null;
             }
             for (AggregateFunction aggFun : aggFunctions) {
