@@ -342,8 +342,6 @@ message PCacheParam {
     optional int64 last_version = 2;
     optional int64 last_version_time = 3;
     optional int64 partition_num = 4;
-    optional string cache_owner = 5;
-    optional int64 cache_version = 6;
 };
 
 message PCacheValue {

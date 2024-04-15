@@ -70,7 +70,7 @@ import java.util.Set;
 /** NereidsSqlCacheManager */
 public class NereidsSqlCacheManager {
     // key: <user>:<sql>
-    // value: CacheAnalyzer
+    // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
 
     public NereidsSqlCacheManager(int sqlCacheNum, long cacheIntervalSeconds) {
@@ -151,29 +151,29 @@ public class NereidsSqlCacheManager {
 
         // check table and view and their columns authority
         if (privilegeChanged(connectContext, env, sqlCacheContext)) {
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         }
         if (tablesOrDataChanged(env, sqlCacheContext)) {
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         }
         if (viewsChanged(env, sqlCacheContext)) {
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         }
         if (usedVariablesChanged(sqlCacheContext)) {
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         }
 
         LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
         if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         }
 
         // table structure and data not changed, now check policy
         if (rowPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         }
         if (dataMaskPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         }
 
         try {
@@ -196,9 +196,9 @@ public class NereidsSqlCacheManager {
                         sqlCacheContext.getResultExprs(), cacheValues, backendAddress, cachedPlan);
                 return Optional.of(logicalSqlCache);
             }
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         } catch (Throwable t) {
-            return invalidateCache(key, sqlCacheContext);
+            return invalidateCache(key);
         }
     }
 
@@ -345,11 +345,8 @@ public class NereidsSqlCacheManager {
         return false;
     }
 
-    private Optional<LogicalSqlCache> invalidateCache(String key, SqlCacheContext sqlCacheContext) {
+    private Optional<LogicalSqlCache> invalidateCache(String key) {
         sqlCaches.invalidate(key);
-        SqlCache.clearCache(
-                sqlCacheContext.getCacheProxy(), sqlCacheContext.getCacheKeyMd5(), PClearType.CLEAR_SQL_KEY
-        );
         return Optional.empty();
     }
 
