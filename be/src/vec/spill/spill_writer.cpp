@@ -52,7 +52,7 @@ Status SpillWriter::close() {
     total_written_bytes_ += meta_.size();
     COUNTER_UPDATE(write_bytes_counter_, meta_.size());
 
-    data_dir_->update_usage(meta_.size());
+    data_dir_->update_spill_data_usage(meta_.size());
 
     RETURN_IF_ERROR(file_writer_->close());
 
@@ -116,14 +116,15 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
             return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                     "spill data total size exceed limit, path: {}, size limit: {}, spill data "
                     "size: {}",
-                    data_dir_->path(), PrettyPrinter::print_bytes(data_dir_->storage_limit()),
-                    PrettyPrinter::print_bytes(data_dir_->get_used_bytes()));
+                    data_dir_->path(),
+                    PrettyPrinter::print_bytes(data_dir_->get_spill_data_limit()),
+                    PrettyPrinter::print_bytes(data_dir_->get_spill_data_bytes()));
         }
 
         {
             Defer defer {[&]() {
                 if (status.ok()) {
-                    data_dir_->update_usage(buff.size());
+                    data_dir_->update_spill_data_usage(buff.size());
                 }
             }};
             {

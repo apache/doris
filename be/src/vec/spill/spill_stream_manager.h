@@ -34,76 +34,56 @@ namespace vectorized {
 class SpillStreamManager;
 class SpillDataDir {
 public:
-    SpillDataDir(std::string path, bool shared_with_storage_path, int64_t capacity_bytes,
+    SpillDataDir(std::string path, int64_t capacity_bytes,
                  TStorageMedium::type storage_medium = TStorageMedium::HDD);
 
     Status init();
 
     const std::string& path() const { return _path; }
 
-    bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
-
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
     // check if the capacity reach the limit after adding the incoming data
     // return true if limit reached, otherwise, return false.
-    // TODO(cmy): for now we can not precisely calculate the capacity Doris used,
-    // so in order to avoid running out of disk capacity, we currently use the actual
-    // disk available capacity and total capacity to do the calculation.
-    // So that the capacity Doris actually used may exceeds the user specified capacity.
     bool reach_capacity_limit(int64_t incoming_data_size);
 
     Status update_capacity();
 
-    void update_usage(int64_t incoming_data_size) {
-        if (_shared_with_storage_path) {
-            std::lock_guard<std::mutex> l(_mutex);
-            _used_bytes += incoming_data_size;
-        }
+    void update_spill_data_usage(int64_t incoming_data_size) {
+        std::lock_guard<std::mutex> l(_mutex);
+        _spill_data_bytes += incoming_data_size;
     }
 
-    int64_t get_used_bytes() {
+    int64_t get_spill_data_bytes() {
         std::lock_guard<std::mutex> l(_mutex);
-        if (_shared_with_storage_path) {
-            return _used_bytes;
-        } else {
-            return _disk_capacity_bytes - _available_bytes;
-        }
+        return _spill_data_bytes;
     }
 
-    double get_usage(int64_t incoming_data_size) {
+    int64_t get_spill_data_limit() {
         std::lock_guard<std::mutex> l(_mutex);
-        if (_shared_with_storage_path) {
-            return _limit_bytes == 0 ? 0 : _used_bytes + incoming_data_size / (double)_limit_bytes;
-
-        } else {
-            return _disk_capacity_bytes == 0
-                           ? 0
-                           : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
-                                     (double)_disk_capacity_bytes;
-        }
-    }
-
-    int64_t storage_limit() {
-        std::lock_guard<std::mutex> l(_mutex);
-        return _limit_bytes;
+        return _spill_data_limit_bytes;
     }
 
 private:
+    bool _reach_disk_capacity_limit(int64_t incoming_data_size);
+    double _get_disk_usage(int64_t incoming_data_size) const {
+        return _disk_capacity_bytes == 0
+                       ? 0
+                       : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
+                                 (double)_disk_capacity_bytes;
+    }
+
     friend class SpillStreamManager;
     std::string _path;
 
-    const bool _shared_with_storage_path;
-
-    // protect _disk_capacity_bytes, _available_bytes, _limit_bytes, _used_bytes
+    // protect _disk_capacity_bytes, _available_bytes, _spill_data_limit_bytes, _spill_data_bytes
     std::mutex _mutex;
     // the actual capacity of the disk of this data dir
     size_t _disk_capacity_bytes;
-    // used when _shared_with_storage_path = true
-    size_t _limit_bytes = 0;
+    int64_t _spill_data_limit_bytes = 0;
     // the actual available capacity of the disk of this data dir
     size_t _available_bytes = 0;
-    int64_t _used_bytes = 0;
+    int64_t _spill_data_bytes = 0;
     TStorageMedium::type _storage_medium;
 };
 class SpillStreamManager {

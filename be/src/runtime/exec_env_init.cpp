@@ -153,16 +153,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     }
     std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
     for (const auto& spill_path : spill_store_paths) {
-        bool shared_with_storage_path = false;
-        for (const auto& storage_path : store_paths) {
-            if (spill_path.path == storage_path.path) {
-                shared_with_storage_path = true;
-            }
-        }
-        spill_store_map.emplace(spill_path.path,
-                                std::make_unique<vectorized::SpillDataDir>(
-                                        spill_path.path, shared_with_storage_path,
-                                        spill_path.capacity_bytes, spill_path.storage_medium));
+        spill_store_map.emplace(spill_path.path, std::make_unique<vectorized::SpillDataDir>(
+                                                         spill_path.path, spill_path.capacity_bytes,
+                                                         spill_path.storage_medium));
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;

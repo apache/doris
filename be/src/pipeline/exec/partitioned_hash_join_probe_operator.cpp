@@ -667,7 +667,7 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
             probe_blocks.emplace_back(mutable_block->to_block());
         }
     }
-    bool in_mem_eos_ = false;
+    bool in_mem_eos = false;
     auto* runtime_state = local_state._runtime_state.get();
     while (_inner_probe_operator->need_more_input_data(runtime_state)) {
         if (probe_blocks.empty()) {
@@ -692,10 +692,10 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
     }
 
     RETURN_IF_ERROR(_inner_probe_operator->pull(local_state._runtime_state.get(), output_block,
-                                                &in_mem_eos_));
+                                                &in_mem_eos));
 
     *eos = false;
-    if (in_mem_eos_) {
+    if (in_mem_eos) {
         local_state._partition_cursor++;
         if (local_state._partition_cursor == _partition_count) {
             *eos = true;

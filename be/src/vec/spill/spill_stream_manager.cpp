@@ -32,6 +32,7 @@
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "runtime/runtime_state.h"
+#include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
@@ -46,7 +47,7 @@ SpillStreamManager::SpillStreamManager(
 
 Status SpillStreamManager::init() {
     LOG(INFO) << "init spill stream manager";
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_spill_store_map(), "_init_spill_store_map failed");
+    RETURN_IF_ERROR(_init_spill_store_map());
 
     int spill_io_thread_count = config::spill_io_thread_pool_per_disk_thread_num;
     if (spill_io_thread_count <= 0) {
@@ -82,7 +83,7 @@ Status SpillStreamManager::init() {
                 spill_data_size += dir_entry.file_size();
             }
         }
-        store->update_usage(spill_data_size);
+        store->update_spill_data_usage(spill_data_size);
 
         std::unique_ptr<ThreadPool> io_pool;
         static_cast<void>(ThreadPoolBuilder(fmt::format("SpillIOThreadPool-{}", pool_idx++))
@@ -118,12 +119,7 @@ void SpillStreamManager::_spill_gc_thread_callback() {
 
 Status SpillStreamManager::_init_spill_store_map() {
     for (const auto& store : _spill_store_map) {
-        auto st = store.second->init();
-        if (!st.ok()) {
-            LOG(WARNING) << "Store load failed, status=" << st.to_string()
-                         << ", path=" << store.second->path();
-            return st;
-        }
+        RETURN_IF_ERROR(store.second->init());
     }
 
     return Status::OK();
@@ -141,17 +137,19 @@ std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
         return stores;
     }
 
-    std::sort(stores.begin(), stores.end(),
-              [](SpillDataDir* a, SpillDataDir* b) { return a->get_usage(0) < b->get_usage(0); });
+    std::sort(stores.begin(), stores.end(), [](SpillDataDir* a, SpillDataDir* b) {
+        return a->_get_disk_usage(0) < b->_get_disk_usage(0);
+    });
 
     size_t seventy_percent_index = stores.size();
     size_t eighty_five_percent_index = stores.size();
     for (size_t index = 0; index < stores.size(); index++) {
         // If the usage of the store is less than 70%, we choose disk randomly.
-        if (stores[index]->get_usage(0) > 0.7 && seventy_percent_index == stores.size()) {
+        if (stores[index]->_get_disk_usage(0) > 0.7 && seventy_percent_index == stores.size()) {
             seventy_percent_index = index;
         }
-        if (stores[index]->get_usage(0) > 0.85 && eighty_five_percent_index == stores.size()) {
+        if (stores[index]->_get_disk_usage(0) > 0.85 &&
+            eighty_five_percent_index == stores.size()) {
             eighty_five_percent_index = index;
             break;
         }
@@ -254,7 +252,7 @@ void SpillStreamManager::gc(int64_t max_file_count) {
             }
 
             int64_t data_size = 0;
-            Defer defer {[&]() { store_dir->update_usage(-data_size); }};
+            Defer defer {[&]() { store_dir->update_spill_data_usage(-data_size); }};
 
             for (const auto& file : files) {
                 auto abs_file_path = fmt::format("{}/{}", abs_dir, file.file_name);
@@ -268,10 +266,9 @@ void SpillStreamManager::gc(int64_t max_file_count) {
     }
 }
 
-SpillDataDir::SpillDataDir(std::string path, bool shared_with_storage_path, int64_t capacity_bytes,
+SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
                            TStorageMedium::type storage_medium)
         : _path(std::move(path)),
-          _shared_with_storage_path(shared_with_storage_path),
           _disk_capacity_bytes(capacity_bytes),
           _storage_medium(storage_medium) {}
 
@@ -282,54 +279,72 @@ Status SpillDataDir::init() {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError("opendir failed, path={}", _path),
                                        "check file exist failed");
     }
-    return update_capacity();
+    RETURN_IF_ERROR(update_capacity());
+    LOG(INFO) << fmt::format(
+            "spill storage path: {}, capacity: {}, limit: {}, available: "
+            "{}",
+            _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
+            PrettyPrinter::print_bytes(_spill_data_limit_bytes),
+            PrettyPrinter::print_bytes(_available_bytes));
+    return Status::OK();
 }
+
 Status SpillDataDir::update_capacity() {
     std::lock_guard<std::mutex> l(_mutex);
     RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_disk_capacity_bytes,
                                                                   &_available_bytes));
-    if (_shared_with_storage_path) {
-        _limit_bytes = (size_t)(_disk_capacity_bytes *
-                                (config::storage_flood_stage_usage_percent / 100.0) *
-                                (config::spill_storage_usage_percent / 100.0));
-    } else {
-        _limit_bytes =
-                (size_t)(_disk_capacity_bytes * (config::spill_storage_usage_percent / 100.0));
+    auto disk_use_max_bytes = (int64_t)(_disk_capacity_bytes *
+                                        config::storage_flood_stage_usage_percent / (double)100);
+    bool is_percent = true;
+    _spill_data_limit_bytes = ParseUtil::parse_mem_spec(config::spill_storage_limit, -1,
+                                                        _disk_capacity_bytes, &is_percent);
+    if (_spill_data_limit_bytes <= 0) {
+        auto err_msg = fmt::format("Failed to parse spill storage limit from '{}'",
+                                   config::spill_storage_limit);
+        LOG(WARNING) << err_msg;
+        return Status::InvalidArgument(err_msg);
     }
+    if (is_percent) {
+        _spill_data_limit_bytes =
+                (int64_t)(_spill_data_limit_bytes * config::storage_flood_stage_usage_percent /
+                          (double)100);
+    }
+    if (_spill_data_limit_bytes > disk_use_max_bytes) {
+        _spill_data_limit_bytes = disk_use_max_bytes;
+    }
+
     return Status::OK();
+}
+
+bool SpillDataDir::_reach_disk_capacity_limit(int64_t incoming_data_size) {
+    double used_pct = _get_disk_usage(incoming_data_size);
+    int64_t left_bytes = _available_bytes - incoming_data_size;
+    if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
+        left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
+        LOG(WARNING) << "reach capacity limit. used pct: " << used_pct
+                     << ", left bytes: " << left_bytes << ", path: " << _path;
+        return true;
+    }
+    return false;
 }
 bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
     std::lock_guard<std::mutex> l(_mutex);
-    if (_shared_with_storage_path) {
-        int64_t left_bytes = _available_bytes - incoming_data_size;
-        if (_used_bytes + incoming_data_size > _limit_bytes ||
-            left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
-            LOG_EVERY_T(WARNING, 1) << fmt::format(
-                    "spill data reach limit, path: {}, limit: {}, used: {}, available: {}, "
-                    "incoming "
-                    "bytes: {}",
-                    _path, PrettyPrinter::print_bytes(_limit_bytes),
-                    PrettyPrinter::print_bytes(_used_bytes),
-                    PrettyPrinter::print_bytes(_available_bytes),
-                    PrettyPrinter::print_bytes(incoming_data_size));
-            return true;
-        }
-        return false;
-    } else {
-        double used_pct = _disk_capacity_bytes == 0
-                                  ? 0
-                                  : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
-                                            (double)_disk_capacity_bytes;
-        if (used_pct >= config::spill_storage_usage_percent / 100.0) {
-            LOG_EVERY_T(WARNING, 1) << fmt::format(
-                    "spill data reach limit, path: {}, capacity: {}, available: {}, incoming "
-                    "bytes: {}",
-                    _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
-                    PrettyPrinter::print_bytes(_available_bytes),
-                    PrettyPrinter::print_bytes(incoming_data_size));
-            return true;
-        }
-        return false;
+    if (_reach_disk_capacity_limit(incoming_data_size)) {
+        return true;
     }
+    if (_spill_data_bytes + incoming_data_size > _spill_data_limit_bytes) {
+        LOG_EVERY_T(WARNING, 1) << fmt::format(
+                "spill data reach limit, path: {}, capacity: {}, limit: {}, used: {}, available: "
+                "{}, "
+                "incoming "
+                "bytes: {}",
+                _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
+                PrettyPrinter::print_bytes(_spill_data_limit_bytes),
+                PrettyPrinter::print_bytes(_spill_data_bytes),
+                PrettyPrinter::print_bytes(_available_bytes),
+                PrettyPrinter::print_bytes(incoming_data_size));
+        return true;
+    }
+    return false;
 }
 } // namespace doris::vectorized
