@@ -159,7 +159,8 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         if (cache->lookup(cache_key, cache_handle)) {
             return Status::OK();
         }
-        std::unique_ptr<InvertedIndexFileReader> multi_compound_reader;
+
+        RETURN_IF_ERROR(check_file_exist(index_file_key));
 
         if (!dir) {
             // TODO: ugly code here, try to refact.
@@ -209,13 +210,7 @@ Status InvertedIndexReader::handle_searcher_cache(
         auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         IndexSearcherPtr searcher;
-        bool exists = false;
-        RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
-        if (!exists) {
-            LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "inverted index input file {} not found", index_file_key);
-        }
+        RETURN_IF_ERROR(check_file_exist(index_file_key));
         auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap
@@ -246,6 +241,17 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     }
     return Status::OK();
 };
+
+Status InvertedIndexReader::check_file_exist(const std::string& index_file_key) {
+    bool exists = false;
+    RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
+    if (!exists) {
+        LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "inverted index input file {} not found", index_file_key);
+    }
+    return Status::OK();
+}
 
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                          std::unique_ptr<InvertedIndexIterator>* iterator) {
