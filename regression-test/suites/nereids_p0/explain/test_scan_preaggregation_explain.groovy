@@ -45,5 +45,5 @@ suite("test_scan_preaggregation_explain") {
     }
 
     qt_right_when_preagg_on "select k1, min(k2), max(k3) from test_scan_preaggregation where k1 = 1 group by k1;"
-    qt_right_when_preagg_off "select k1, sum(v1) from test_scan_preaggregation group by k1;"
+    qt_right_when_preagg_off "select k1, sum(k2) from test_scan_preaggregation group by k1;"
 }
