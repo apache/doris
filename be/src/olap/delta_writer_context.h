@@ -47,6 +47,7 @@ struct WriteRequest {
     std::string storage_vault_id;
     ThreadPool* wg_thread_pool_ptr = nullptr;
     std::shared_ptr<const std::atomic<bool>> is_cancelled_ptr;
+    std::shared_ptr<const std::atomic<bool>> is_query_cancelled_ptr;
     std::shared_ptr<const std::string> cancel_reason_ptr;
 };
 

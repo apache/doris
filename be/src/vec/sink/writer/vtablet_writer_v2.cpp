@@ -440,6 +440,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         };
         if (_state->get_query_ctx()) {
             req.wg_thread_pool_ptr = _state->get_query_ctx()->get_non_pipe_exec_thread_pool();
+            req.is_query_cancelled_ptr = _state->get_query_ctx()->is_cancelled_ptr();
         }
         bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {

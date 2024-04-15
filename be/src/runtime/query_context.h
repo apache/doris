@@ -106,7 +106,9 @@ public:
 
     void set_ready_to_execute(bool is_cancelled);
 
-    [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
+    [[nodiscard]] bool is_cancelled() const { return _is_cancelled->load(); }
+
+    std::shared_ptr<const std::atomic<bool>> is_cancelled_ptr() const { return _is_cancelled; }
 
     void cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg);
@@ -144,10 +146,10 @@ public:
     bool wait_for_start() {
         int wait_time = config::max_fragment_start_wait_time_seconds;
         std::unique_lock<std::mutex> l(_start_lock);
-        while (!_ready_to_execute.load() && !_is_cancelled.load() && --wait_time > 0) {
+        while (!_ready_to_execute.load() && !_is_cancelled->load() && --wait_time > 0) {
             _start_cond.wait_for(l, std::chrono::seconds(1));
         }
-        return _ready_to_execute.load() && !_is_cancelled.load();
+        return _ready_to_execute.load() && !_is_cancelled->load();
     }
 
     std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
@@ -317,7 +319,7 @@ private:
     // Only valid when _need_wait_execution_trigger is set to true in PlanFragmentExecutor.
     // And all fragments of this query will start execution when this is set to true.
     std::atomic<bool> _ready_to_execute {false};
-    std::atomic<bool> _is_cancelled {false};
+    std::shared_ptr<std::atomic<bool>> _is_cancelled = std::make_shared<std::atomic<bool>>(false);
 
     void _init_query_mem_tracker();
 

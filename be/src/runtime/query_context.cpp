@@ -152,8 +152,8 @@ void QueryContext::set_ready_to_execute(bool is_cancelled) {
     set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
-        if (!_is_cancelled) {
-            _is_cancelled = is_cancelled;
+        if (!_is_cancelled->load()) {
+            _is_cancelled->store(is_cancelled);
         }
         _ready_to_execute = true;
     }
@@ -181,10 +181,10 @@ void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
     set_exec_status(new_status);
     // Just for CAS need a left value
     bool false_cancel = false;
-    if (!_is_cancelled.compare_exchange_strong(false_cancel, true)) {
+    if (!_is_cancelled->compare_exchange_strong(false_cancel, true)) {
         return;
     }
-    DCHECK(!false_cancel && _is_cancelled);
+    DCHECK(!false_cancel && _is_cancelled->load());
 
     set_ready_to_execute(true);
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
