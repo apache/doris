@@ -147,10 +147,12 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             if (wgId > 0) {
                 tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                         .getTWorkloadGroupById(wgId);
-            }
-            if (tWgList.size() == 0) {
+                if (tWgList.size() == 0) {
+                    throw new UserException("can not find workload group, id=" + wgId);
+                }
+            } else {
                 tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupForRoutineLoad(routineLoadJob.getUserIdentity());
+                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity());
             }
             if (tWgList.size() != 0) {
                 tExecPlanFragmentParams.setWorkloadGroups(tWgList);
@@ -178,10 +180,12 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             if (wgId > 0) {
                 tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                         .getTWorkloadGroupById(wgId);
-            }
-            if (tWgList.size() == 0) {
+                if (tWgList.size() == 0) {
+                    throw new UserException("can not find workload group, id=" + wgId);
+                }
+            } else {
                 tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupForRoutineLoad(routineLoadJob.getUserIdentity());
+                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity());
             }
             if (tWgList.size() != 0) {
                 tExecPlanFragmentParams.setWorkloadGroups(tWgList);
