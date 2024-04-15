@@ -62,6 +62,7 @@ private:
     Status _finish_clone(const std::string& clone_dir, const Version& version);
     std::string _mask_token(const std::string& str);
     CompactionType _compaction_type;
+
     std::vector<PendingRowsetGuard> _pending_rs_guards;
 };
 

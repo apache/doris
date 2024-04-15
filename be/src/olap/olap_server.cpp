@@ -764,6 +764,7 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
 
     auto compaction = std::make_shared<SingleReplicaCompaction>(*this, tablet, compaction_type);
     auto st = compaction->prepare_compact();
+
     auto clean_single_replica_compaction = [tablet, this]() {
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
