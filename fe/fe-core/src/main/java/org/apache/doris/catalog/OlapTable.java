@@ -669,17 +669,27 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             // entry.getKey() is the new partition id, use it to get the restore specified
             // replica allocation
             ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(entry.getKey());
+            // save the materialized indexes before create new index, to avoid ids confliction
+            // between two cluster.
+            Map<Long, MaterializedIndex> idToIndex = Maps.newHashMap();
             for (Map.Entry<Long, String> entry2 : origIdxIdToName.entrySet()) {
                 MaterializedIndex idx = partition.getIndex(entry2.getKey());
                 long newIdxId = indexNameToId.get(entry2.getValue());
-                int schemaHash = indexIdToMeta.get(newIdxId).getSchemaHash();
                 idx.setIdForRestore(newIdxId);
+                idToIndex.put(newIdxId, idx);
                 if (newIdxId != baseIndexId) {
-                    // not base table, reset
+                    // not base table, delete it.
                     partition.deleteRollupIndex(entry2.getKey());
+                }
+            }
+            for (Map.Entry<Long, MaterializedIndex> entry2 : idToIndex.entrySet()) {
+                Long idxId = entry2.getKey();
+                MaterializedIndex idx = entry2.getValue();
+                if (idxId != baseIndexId) {
+                    // not base table, add it.
                     partition.createRollupIndex(idx);
                 }
-
+                int schemaHash = indexIdToMeta.get(idxId).getSchemaHash();
                 // generate new tablets in origin tablet order
                 int tabletNum = idx.getTablets().size();
                 idx.clearTabletsForRestore();
@@ -710,6 +720,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
             // reset partition id
             partition.setIdForRestore(entry.getKey());
+        }
+
+        // reset the indexes and update the indexes in materialized index meta too.
+        List<Index> indexes = this.indexes.getIndexes();
+        for (Index idx : indexes) {
+            idx.setIndexId(env.getNextId());
+        }
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            entry.getValue().setIndexes(indexes);
         }
 
         return Status.OK;
