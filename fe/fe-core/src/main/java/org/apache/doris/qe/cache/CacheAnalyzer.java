@@ -509,7 +509,8 @@ public class CacheAnalyzer {
     }
 
     public InternalService.PFetchCacheResult getCacheData() throws UserException {
-        if (parsedStmt instanceof LogicalPlanAdapter) {
+        boolean isNereids = parsedStmt instanceof LogicalPlanAdapter;
+        if (isNereids) {
             cacheMode = innerCheckCacheModeForNereids(0);
         } else if (parsedStmt instanceof SelectStmt) {
             cacheMode = innerCheckCacheMode(0);
@@ -526,8 +527,12 @@ public class CacheAnalyzer {
             return null;
         }
         Status status = new Status();
-        InternalService.PFetchCacheResult cacheResult = cache.getCacheData(status);
-        if (status.ok() && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
+        InternalService.PFetchCacheResult cacheResult = null;
+        if (!isNereids) {
+            cacheResult = cache.getCacheData(status);
+        }
+        if (!isNereids && status.ok()
+                && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
             int rowCount = 0;
             int dataSize = 0;
             for (InternalService.PCacheValue value : cacheResult.getValuesList()) {

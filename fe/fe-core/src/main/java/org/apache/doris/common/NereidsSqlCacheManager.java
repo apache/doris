@@ -52,6 +52,7 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.service.FrontendOptions;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -176,6 +177,7 @@ public class NereidsSqlCacheManager {
         }
 
         try {
+            String localHostAddress = FrontendOptions.getLocalHostAddress();
             Status status = new Status();
             InternalService.PFetchCacheResult cacheData =
                     SqlCache.getCacheData(sqlCacheContext.getCacheProxy(),
@@ -195,9 +197,9 @@ public class NereidsSqlCacheManager {
                         sqlCacheContext.getResultExprs(), cacheValues, backendAddress, cachedPlan);
                 return Optional.of(logicalSqlCache);
             }
-            return Optional.empty();
+            return invalidateCache(key);
         } catch (Throwable t) {
-            return Optional.empty();
+            return invalidateCache(key);
         }
     }
 

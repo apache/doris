@@ -142,8 +142,10 @@ public class SqlCache extends Cache {
         }
 
         InternalService.PUpdateCacheRequest updateRequest =
-                rowBatchBuilder.buildSqlUpdateRequest(getSqlWithViewStmt(), latestTable.latestPartitionId,
-                        latestTable.latestPartitionVersion, latestTable.latestPartitionTime,
+                rowBatchBuilder.buildSqlUpdateRequest(getSqlWithViewStmt(),
+                        latestTable.latestPartitionId,
+                        latestTable.latestPartitionVersion,
+                        latestTable.latestPartitionTime,
                         latestTable.sumOfPartitionNum
                 );
         if (updateRequest.getValuesCount() > 0) {
