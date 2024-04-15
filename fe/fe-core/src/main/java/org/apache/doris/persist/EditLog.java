@@ -950,7 +950,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshCatalog(log);
+                    env.getRefreshManager().replayRefreshCatalog(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
@@ -1016,7 +1016,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalDb(log);
+                    env.getRefreshManager().replayRefreshDb(log);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
@@ -1026,7 +1026,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalTable(log);
+                    env.getRefreshManager().replayRefreshTable(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_TABLE: {
