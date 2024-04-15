@@ -62,10 +62,12 @@ public:
                                     std::vector<int32_t>* partition_ids);
 
     Status get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
-                                                 std::vector<PIntegerPair>* partition_offsets);
+                                                 std::vector<PIntegerPair>* partition_offsets,
+                                                 int timeout);
 
     Status get_kafka_latest_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
-                                                   std::vector<PIntegerPair>* partition_offsets);
+                                                   std::vector<PIntegerPair>* partition_offsets,
+                                                   int timeout);
 
 private:
     // execute the task
