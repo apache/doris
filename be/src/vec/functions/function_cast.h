@@ -1823,9 +1823,7 @@ private:
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                        const size_t result, size_t /*input_rows_count*/) -> Status {
-            //auto& from_column = block.get_by_position(arguments.front()).column;
-            ColumnPtr from_column =
-                    remove_nullable(block.get_by_position(arguments.front()).column);
+            auto& from_column = block.get_by_position(arguments.front()).column;
             const ColumnArray* from_col_array =
                     check_and_get_column<ColumnArray>(from_column.get());
 
