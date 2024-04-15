@@ -165,5 +165,6 @@ suite("test_auto_range_partition") {
     """
     sql " insert into isit_src values (20201212); "
     sql " insert into isit select * from isit_src "
+    sql " sync "
     qt_sql " select * from isit order by k "
 }
