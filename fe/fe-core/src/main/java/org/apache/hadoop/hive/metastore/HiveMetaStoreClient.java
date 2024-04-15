@@ -1089,27 +1089,28 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     List<SQLCheckConstraint> checkConstraints)
         throws AlreadyExistsException, InvalidObjectException,
         MetaException, NoSuchObjectException, TException {
-
-    if (!tbl.isSetCatName()) {
-      String defaultCat = getDefaultCatalog(conf);
-      tbl.setCatName(defaultCat);
-      if (primaryKeys != null) {
-        primaryKeys.forEach(pk -> pk.setCatName(defaultCat));
-      }
-      if (foreignKeys != null) {
-        foreignKeys.forEach(fk -> fk.setCatName(defaultCat));
-      }
-      if (uniqueConstraints != null) {
-        uniqueConstraints.forEach(uc -> uc.setCatName(defaultCat));
-      }
-      if (notNullConstraints != null) {
-        notNullConstraints.forEach(nn -> nn.setCatName(defaultCat));
-      }
-      if (defaultConstraints != null) {
-        defaultConstraints.forEach(def -> def.setCatName(defaultCat));
-      }
-      if (checkConstraints != null) {
-        checkConstraints.forEach(cc -> cc.setCatName(defaultCat));
+    if (hiveVersion == HiveVersion.V3_0) {
+      if (!tbl.isSetCatName()) {
+        String defaultCat = getDefaultCatalog(conf);
+        tbl.setCatName(defaultCat);
+        if (primaryKeys != null) {
+          primaryKeys.forEach(pk -> pk.setCatName(defaultCat));
+        }
+        if (foreignKeys != null) {
+          foreignKeys.forEach(fk -> fk.setCatName(defaultCat));
+        }
+        if (uniqueConstraints != null) {
+          uniqueConstraints.forEach(uc -> uc.setCatName(defaultCat));
+        }
+        if (notNullConstraints != null) {
+          notNullConstraints.forEach(nn -> nn.setCatName(defaultCat));
+        }
+        if (defaultConstraints != null) {
+          defaultConstraints.forEach(def -> def.setCatName(defaultCat));
+        }
+        if (checkConstraints != null) {
+          checkConstraints.forEach(cc -> cc.setCatName(defaultCat));
+        }
       }
     }
     HiveMetaHook hook = getHook(tbl);

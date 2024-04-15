@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
@@ -53,6 +54,7 @@ import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.apache.hadoop.hive.metastore.txn.TxnUtils;
@@ -60,6 +62,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.LinkedList;
@@ -153,8 +156,28 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             try {
                 // String location,
                 if (tbl instanceof HiveTableMetadata) {
+                    Table hiveTable = HiveUtil.toHiveTable((HiveTableMetadata) tbl);
+                    List<Column> tableColumns = ((HiveTableMetadata) tbl).getColumns();
+                    List<SQLDefaultConstraint> dvs = new ArrayList<>(tableColumns.size());
+                    for (Column tableColumn : tableColumns) {
+                        if (tableColumn.hasDefaultValue()) {
+                            SQLDefaultConstraint dv = new SQLDefaultConstraint();
+                            dv.setTable_db(tbl.getDbName());
+                            dv.setTable_name(tbl.getTableName());
+                            dv.setColumn_name(tableColumn.getName());
+                            dv.setDefault_value(tableColumn.getDefaultValue());
+                            dv.setDc_name(tableColumn.getName() + "_dv_constraint");
+                            dvs.add(dv);
+                        }
+                    }
                     ugiDoAs(() -> {
-                        client.client.createTable(HiveUtil.toHiveTable((HiveTableMetadata) tbl));
+                        if (!dvs.isEmpty()) {
+                            // foreignKeys, uniqueConstraints, notNullConstraints, defaultConstraints, checkConstraints
+                            client.client.createTableWithConstraints(hiveTable, null,
+                                    null, null, null, dvs, null);
+                            return null;
+                        }
+                        client.client.createTable(hiveTable);
                         return null;
                     });
                 }
