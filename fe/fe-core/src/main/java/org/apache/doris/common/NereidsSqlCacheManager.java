@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
@@ -120,8 +121,8 @@ public class NereidsSqlCacheManager {
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         String key = currentUserIdentity.toString() + ":" + sql.trim();
-        if (analyzer.getCache() instanceof SqlCache
-                && (currentMissParseSqlFromSqlCache || sqlCaches.getIfPresent(key) == null)) {
+        if ((currentMissParseSqlFromSqlCache || sqlCaches.getIfPresent(key) == null) &&
+                sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
             SqlCache cache = (SqlCache) analyzer.getCache();
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
             sqlCacheContext.setLatestPartitionId(cache.getLatestId());
@@ -178,16 +179,17 @@ public class NereidsSqlCacheManager {
 
         try {
             Status status = new Status();
+            PUniqueId cacheKeyMd5 = sqlCacheContext.getOrComputeCacheKeyMd5();
             InternalService.PFetchCacheResult cacheData =
                     SqlCache.getCacheData(sqlCacheContext.getCacheProxy(),
-                            sqlCacheContext.getCacheKeyMd5(), sqlCacheContext.getLatestPartitionId(),
+                            cacheKeyMd5, sqlCacheContext.getLatestPartitionId(),
                             sqlCacheContext.getLatestPartitionVersion(), sqlCacheContext.getLatestPartitionTime(),
                             sqlCacheContext.getSumOfPartitionNum(), status);
 
             if (status.ok() && cacheData != null && cacheData.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 List<InternalService.PCacheValue> cacheValues = cacheData.getValuesList();
                 String cachedPlan = sqlCacheContext.getPhysicalPlan();
-                String backendAddress = SqlCache.findCacheBe(sqlCacheContext.getCacheKeyMd5()).getAddress();
+                String backendAddress = SqlCache.findCacheBe(cacheKeyMd5).getAddress();
 
                 MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
 

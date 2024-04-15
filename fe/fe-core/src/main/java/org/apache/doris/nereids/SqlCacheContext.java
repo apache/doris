@@ -312,12 +312,8 @@ public class SqlCacheContext {
         return queryId;
     }
 
-    public PUniqueId getCacheKeyMd5() {
-        return cacheKeyMd5;
-    }
-
     public synchronized PUniqueId getOrComputeCacheKeyMd5() {
-        if (cacheKeyMd5 == null) {
+        if (cacheKeyMd5 == null && originSql != null) {
             StringBuilder cacheKey = new StringBuilder(originSql);
             if (!usedViews.isEmpty()) {
                 cacheKey.append(StringUtils.join(usedViews.values(), "|"));
