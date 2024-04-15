@@ -88,6 +88,8 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 
+    bool is_variable_length() const override { return true; }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
@@ -130,20 +132,16 @@ public:
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
     }
+    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector, size_t begin,
+                                 size_t end) const override {
+        return append_data_by_selector_impl<ColumnStruct>(res, selector, begin, end);
+    }
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnStruct&>(rhs);
-
-        for (size_t idx = 0; idx < columns.size(); ++idx) {
-            columns[idx]->replace_column_data(r.get_column(idx), row, self_row);
-        }
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        for (size_t idx = 0; idx < columns.size(); ++idx) {
-            columns[idx]->replace_column_data_default(self_row);
-        }
+        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;

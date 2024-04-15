@@ -106,6 +106,8 @@ public:
 
     ~VTabletWriterV2() override;
 
+    Status init_properties(ObjectPool* pool);
+
     Status write(Block& block) override;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
