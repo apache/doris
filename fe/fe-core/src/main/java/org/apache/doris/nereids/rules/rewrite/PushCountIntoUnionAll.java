@@ -42,6 +42,7 @@ import com.google.common.collect.Lists;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * LogicalAggregate  (groupByExpr=[c1#13], outputExpr=[c1#13, count(c1#13) AS `count(c1)`#15])
@@ -63,8 +64,8 @@ import java.util.Map;
 public class PushCountIntoUnionAll extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalAggregate(logicalUnion().when(this::checkoutUnion))
-                .whenNot(this::hasUnsuportedAggFunc)
+        return logicalAggregate(logicalUnion().when(this::checkUnion))
+                .when(this::checkAgg)
                 .then(this::doPush)
                 .toRule(RuleType.PUSH_COUNT_INTO_UNION_ALL);
     }
@@ -149,18 +150,30 @@ public class PushCountIntoUnionAll extends OneRewriteRuleFactory {
         });
     }
 
+    private boolean checkAgg(LogicalAggregate aggregate) {
+        Set<Count> res = ExpressionUtils.collect(aggregate.getOutputExpressions(), expr -> expr instanceof Count);
+        if (res.isEmpty()) {
+            return false;
+        }
+        return !hasUnsuportedAggFunc(aggregate);
+    }
+
     private boolean hasUnsuportedAggFunc(LogicalAggregate aggregate) {
-        // only support count, and support count(distinct)
+        // only support count, not suport sum,min... and not support count(distinct)
         return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr -> {
             if (expr instanceof AggregateFunction) {
-                return !(expr instanceof Count) || ((Count) expr).isDistinct();
+                if (!(expr instanceof Count)) {
+                    return true;
+                } else {
+                    return ((Count) expr).isDistinct();
+                }
             } else {
                 return false;
             }
         });
     }
 
-    private boolean checkoutUnion(LogicalUnion union) {
+    private boolean checkUnion(LogicalUnion union) {
         if (union.getQualifier() != Qualifier.ALL) {
             return false;
         }
