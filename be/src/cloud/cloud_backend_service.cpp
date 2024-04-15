@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_backend_service.h"
 
+#include <brpc/controller.h>
+
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -25,7 +27,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/thrift_server.h"
 
 namespace doris {
@@ -141,6 +145,49 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
         DCHECK(false);
     };
     st.to_thrift(&response.status);
+}
+
+void CloudBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
+                                          const TPreCacheAsyncRequest& request) {
+    std::string brpc_addr = fmt::format("{}:{}", request.host, request.brpc_port);
+    Status st = Status::OK();
+    TStatus t_status;
+    std::shared_ptr<PBackendService_Stub> brpc_stub =
+            _exec_env->brpc_internal_client_cache()->get_new_client_no_cache(brpc_addr);
+    if (!brpc_stub) {
+        st = Status::RpcError("Address {} is wrong", brpc_addr);
+        return;
+    }
+    brpc::Controller cntl;
+    PGetFileCacheMetaRequest brpc_request;
+    std::for_each(request.tablet_ids.cbegin(), request.tablet_ids.cend(),
+                  [&](int64_t tablet_id) { brpc_request.add_tablet_ids(tablet_id); });
+    PGetFileCacheMetaResponse brpc_response;
+    brpc_stub->get_file_cache_meta_by_tablet_id(&cntl, &brpc_request, &brpc_response, nullptr);
+    if (!cntl.Failed()) {
+        std::vector<FileCacheBlockMeta> metas;
+        std::transform(brpc_response.file_cache_segment_metas().cbegin(),
+                       brpc_response.file_cache_segment_metas().cend(), std::back_inserter(metas),
+                       [](const FileCacheBlockMeta& meta) { return meta; });
+        io::DownloadTask download_task(std::move(metas));
+        io::FileCacheBlockDownloader::instance()->submit_download_task(download_task);
+    } else {
+        st = Status::RpcError("{} isn't connected", brpc_addr);
+    }
+    st.to_thrift(&t_status);
+    response.status = t_status;
+}
+
+void CloudBackendService::check_pre_cache(TCheckPreCacheResponse& response,
+                                          const TCheckPreCacheRequest& request) {
+    std::map<int64_t, bool> task_done;
+    io::FileCacheBlockDownloader::instance()->check_download_task(request.tablets, &task_done);
+    response.__set_task_done(task_done);
+
+    Status st = Status::OK();
+    TStatus t_status;
+    st.to_thrift(&t_status);
+    response.status = t_status;
 }
 
 } // namespace doris

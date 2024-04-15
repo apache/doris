@@ -45,6 +45,12 @@ public:
     void warm_up_tablets(TWarmUpTabletsResponse& response,
                          const TWarmUpTabletsRequest& request) override;
 
+    void pre_cache_async(TPreCacheAsyncResponse& response,
+                         const TPreCacheAsyncRequest& request) override;
+
+    void check_pre_cache(TCheckPreCacheResponse& response,
+                         const TCheckPreCacheRequest& request) override;
+
 private:
     [[maybe_unused]] CloudStorageEngine& _engine;
 };
