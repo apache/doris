@@ -328,7 +328,7 @@ public class MysqlProto {
 
             // check catalog and db exists
             if (catalogName != null) {
-                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
+                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalog(catalogName);
                 if (catalogIf == null) {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
                     return false;

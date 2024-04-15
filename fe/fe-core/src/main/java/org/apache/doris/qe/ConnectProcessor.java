@@ -124,7 +124,7 @@ public abstract class ConnectProcessor {
 
         // check catalog and db exists
         if (catalogName != null) {
-            CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
+            CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalogIf == null) {
                 ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
                 return;

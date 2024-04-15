@@ -367,7 +367,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
             env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
-            env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
+            env.getRefreshManager().handleRefreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshLdapStmt) {
             env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterUserStmt) {
