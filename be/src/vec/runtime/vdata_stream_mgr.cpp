@@ -108,7 +108,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     t_finst_id.hi = finst_id.hi();
     t_finst_id.lo = finst_id.lo();
     std::shared_ptr<VDataStreamRecvr> recvr = nullptr;
-    RETURN_IF_ERROR(find_recvr(t_finst_id, request->node_id(), &recvr));
+    static_cast<void>(find_recvr(t_finst_id, request->node_id(), &recvr));
     if (recvr == nullptr) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
         // at any time without considering the remaining number of senders.
