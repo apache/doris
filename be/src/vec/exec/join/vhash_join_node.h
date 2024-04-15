@@ -246,7 +246,8 @@ private:
     friend struct ProcessHashTableProbe;
 
     void _init_short_circuit_for_probe() {
-        bool empty_block = !_build_block;
+        bool empty_block = !_build_block ||
+                           !(_build_block->rows() > 1); // build size always mock a row into block
         _short_circuit_for_probe =
                 (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                  !_is_mark_join) ||
