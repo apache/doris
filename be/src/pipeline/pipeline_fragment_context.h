@@ -79,10 +79,6 @@ public:
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
-    virtual RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId /*fragment_instance_id*/) {
-        return _runtime_state->local_runtime_filter_mgr();
-    }
-
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
