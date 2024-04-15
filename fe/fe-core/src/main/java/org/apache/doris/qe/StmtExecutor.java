@@ -1458,8 +1458,8 @@ public class StmtExecutor {
             }
             if (parsedStmt instanceof InsertStmt) {
                 QueryStmt queryStmt = ((InsertStmt) parsedStmt).getQueryStmt();
-                if (queryStmt != null && StmtRewriter.rewriteByPolicy(queryStmt, analyzer)
-                        || StmtRewriter.rewriteForRandomDistribution(queryStmt, analyzer)) {
+                if (queryStmt != null && (StmtRewriter.rewriteByPolicy(queryStmt, analyzer)
+                        || StmtRewriter.rewriteForRandomDistribution(queryStmt, analyzer))) {
                     reAnalyze = true;
                 }
             }

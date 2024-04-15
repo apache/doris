@@ -45,15 +45,34 @@ suite("select_random_distributed_tbl") {
     // test legacy planner
     sql "set enable_nereids_planner = false;"
 
-    def sql1 =  "select * from ${tableName} order by siteid;"
+    def sql1 = "select * from ${tableName} order by siteid;"
     qt_sql "${sql1}"
     def res1 = sql """ explain ${sql1} """
     assertTrue(res1.toString().contains("VAGGREGATE"))
 
-    def sql2 =  "select siteid, citycode, username, pv from ${tableName} order by siteid;"
+    def sql2 = "select siteid, citycode, username, pv from ${tableName} order by siteid;"
     qt_sql "${sql2}"
     def res2 = sql """ explain ${sql2} """
     assertTrue(res2.toString().contains("VAGGREGATE"))
+
+    def sql3 = "select siteid+1, citycode, username, pv from ${tableName} order by siteid;"
+    qt_sql "${sql3}"
+    def res3 = sql """ explain ${sql3} """
+    assertTrue(res3.toString().contains("VAGGREGATE"))
+
+    def sql4 = "select siteid, citycode, username, pv+1 from ${tableName} order by siteid;"
+    qt_sql "${sql4}"
+    def res4 = sql """ explain ${sql4} """
+    assertTrue(res4.toString().contains("VAGGREGATE"))
+
+    def sql5 =  "select siteid, sum(pv) from ${tableName} group by siteid order by siteid;"
+    qt_sql "${sql5}"
+
+    def sql6 = "select count(1) from ${tableName}"
+    qt_sql "${sql6}"
+
+    def sql7 = "select count(*) from ${tableName}"
+    qt_sql "${sql7}"
 
     sql "drop table ${tableName};"
 }

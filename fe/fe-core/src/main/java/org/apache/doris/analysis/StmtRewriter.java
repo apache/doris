@@ -44,6 +44,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Class representing a statement rewriter. A statement rewriter performs subquery
@@ -1374,17 +1375,17 @@ public class StmtRewriter {
 
     /**
      *
-     * @param ref the SlotRef to rewrite
+     * @param column the column of SlotRef
      * @param selectList new selectList for selectStmt
      * @param groupByExprs group by Exprs for selectStmt
      * @return true if ref can be rewritten
      */
-    private static boolean rewriteSelectList(SlotRef ref, SelectList selectList, ArrayList<Expr> groupByExprs,
+    private static boolean rewriteSelectList(Column column, SelectList selectList, ArrayList<Expr> groupByExprs,
                                              ArrayList<FunctionCallExpr> aggExprs) {
-        Column column = ref.getColumn();
+        SlotRef slot = new SlotRef(null, column.getName());
         if (column.isKey()) {
-            selectList.addItem(new SelectListItem(ref, null));
-            groupByExprs.add(ref);
+            selectList.addItem(new SelectListItem(slot, column.getName()));
+            groupByExprs.add(slot);
             return true;
         } else {
             AggregateType aggregateType = column.getAggregationType();
@@ -1393,15 +1394,22 @@ public class StmtRewriter {
                 return false;
             } else {
                 FunctionName funcName = new FunctionName(aggregateType.toString().toLowerCase());
-                List<Expr> arrayList = Lists.newArrayList(ref);
+                List<Expr> arrayList = Lists.newArrayList(slot);
                 FunctionCallExpr func =  new FunctionCallExpr(funcName, new FunctionParams(false, arrayList));
-                selectList.addItem(new SelectListItem(func, null));
+                selectList.addItem(new SelectListItem(func, column.getName()));
                 aggExprs.add(func);
                 return true;
             }
         }
     }
 
+    /**
+     * rewrite stmt for querying random distributed table, construct an aggregation node for pre-agg
+     * @param statementBase stmt to rewrite
+     * @param analyzer the analyzer
+     * @return true if rewritten
+     * @throws UserException
+     */
     public static boolean rewriteForRandomDistribution(StatementBase statementBase, Analyzer analyzer)
             throws UserException {
         boolean reAnalyze = false;
@@ -1419,14 +1427,11 @@ public class StmtRewriter {
                 }
                 continue;
             }
-            // already has agg and group by info
-            if (selectStmt.hasAggInfo() && selectStmt.hasGroupByClause()) {
-                continue;
-            }
             TableIf table = tableRef.getTable();
             if (!(table instanceof OlapTable)) {
                 continue;
             }
+            // only rewrite random distributed AGG_KEY table
             OlapTable olapTable = (OlapTable) table;
             if (olapTable.getKeysType() != KeysType.AGG_KEYS) {
                 continue;
@@ -1436,50 +1441,44 @@ public class StmtRewriter {
                 continue;
             }
 
-            SelectList selectList = selectStmt.getSelectList();
-            SelectList newSelectList = new SelectList();
+            // construct a new InlineViewRef for pre-agg
+            boolean canRewrite = true;
+            SelectList selectList = new SelectList();
             ArrayList<Expr> groupingExprs = new ArrayList<>();
             ArrayList<FunctionCallExpr> aggExprs = new ArrayList<>();
-            boolean canRewrite = true;
-            for (SelectListItem item : selectList.getItems()) {
-                if (item.isStar()) {
-                    TupleDescriptor desc = tableRef.getDesc();
-                    for (Column col : desc.getTable().getBaseSchema()) {
-                        SlotRef slot = new SlotRef(null, col.getName());
-                        slot.setTable(desc.getTable());
-                        slot.setTupleId(desc.getId());
-                        slot.setDesc(desc.getColumnSlot(col.getName()));
-                        if (!rewriteSelectList(slot, newSelectList, groupingExprs, aggExprs)) {
-                            canRewrite = false;
-                            break;
-                        }
-                    }
-                    if (!canRewrite) {
-                        break;
-                    }
-                } else {
-                    Expr expr = item.getExpr();
-                    // just for SlotRef
-                    if (!(expr instanceof SlotRef)) {
-                        break;
-                    }
-                    SlotRef slot = (SlotRef) expr;
-                    if (!rewriteSelectList(slot, newSelectList, groupingExprs, aggExprs)) {
-                        canRewrite = false;
-                        break;
-                    }
+            TupleDescriptor desc = tableRef.getDesc();
+            List<Column> columns = desc.getSlots().stream().map(SlotDescriptor::getColumn).collect(Collectors.toList());
+            columns = columns.isEmpty() ? olapTable.getBaseSchema() : columns;
+            for (Column col : columns) {
+                if (!rewriteSelectList(col, selectList, groupingExprs, aggExprs)) {
+                    canRewrite = false;
+                    break;
                 }
             }
             if (!canRewrite) {
                 continue;
             }
-            if (!aggExprs.isEmpty()) {
-                GroupByClause groupByClause = new GroupByClause(groupingExprs, GroupByClause.GroupingType.GROUP_BY);
-                selectStmt.setSelectList(newSelectList);
-                selectStmt.setGroupByClause(groupByClause);
-                selectStmt.analyze(analyzer);
-                reAnalyze = true;
+            Expr whereClause = selectStmt.getWhereClause() == null ? null : selectStmt.getWhereClause().clone();
+            SelectStmt newSelectSmt = new SelectStmt(selectList,
+                    new FromClause(Lists.newArrayList(tableRef)),
+                    whereClause,
+                    new GroupByClause(groupingExprs, GroupByClause.GroupingType.GROUP_BY),
+                    null,
+                    null,
+                    LimitElement.NO_LIMIT);
+            InlineViewRef inlineViewRef = new InlineViewRef(tableRef.getAliasAsName().getTbl(), newSelectSmt);
+            inlineViewRef.setJoinOp(tableRef.getJoinOp());
+            inlineViewRef.setLeftTblRef(tableRef.getLeftTblRef());
+            inlineViewRef.setOnClause(tableRef.getOnClause());
+            tableRef.setOnClause(null);
+            tableRef.setLeftTblRef(null);
+            tableRef.setOnClause(null);
+            if (selectStmt.fromClause.size() > i + 1) {
+                selectStmt.fromClause.get(i + 1).setLeftTblRef(inlineViewRef);
             }
+            selectStmt.fromClause.set(i, inlineViewRef);
+            selectStmt.analyze(analyzer);
+            reAnalyze = true;
         }
         return reAnalyze;
     }
