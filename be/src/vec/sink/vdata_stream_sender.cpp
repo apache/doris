@@ -125,6 +125,8 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
         _is_local &= state->query_options().enable_local_exchange;
     }
     if (_is_local) {
+        RETURN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                _fragment_instance_id, _dest_node_id, &_local_recvr));
         return Status::OK();
     }
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
@@ -161,11 +163,6 @@ Status Channel<Parent>::open(RuntimeState* state) {
     _brpc_request->set_be_number(_be_number);
 
     _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
-
-    if (_is_local) {
-        RETURN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id, &_local_recvr));
-    }
 
     _serializer.set_is_local(_is_local);
 
