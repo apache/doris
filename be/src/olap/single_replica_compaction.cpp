@@ -45,9 +45,11 @@ namespace doris {
 using namespace ErrorCode;
 
 SingleReplicaCompaction::SingleReplicaCompaction(StorageEngine& engine,
-                                                 const TabletSharedPtr& tablet)
+                                                 const TabletSharedPtr& tablet,
+                                                 CompactionType compaction_type)
         : CompactionMixin(engine, tablet,
-                          "SingleReplicaCompaction:" + std::to_string(tablet->tablet_id())) {}
+                          "SingleReplicaCompaction:" + std::to_string(tablet->tablet_id())),
+          _compaction_type(compaction_type) {}
 
 SingleReplicaCompaction::~SingleReplicaCompaction() = default;
 
@@ -63,6 +65,9 @@ Status SingleReplicaCompaction::prepare_compact() {
 }
 
 Status SingleReplicaCompaction::execute_compact() {
+    if (!tablet()->should_fetch_from_peer()) {
+        return Status::Aborted("compaction should be performed locally");
+    }
     std::unique_lock<std::mutex> lock_cumu(tablet()->get_cumulative_compaction_lock(),
                                            std::try_to_lock);
     if (!lock_cumu.owns_lock()) {
@@ -118,8 +123,14 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     // 5. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());
 
-    // 6. use cumu time to record single compaction time
-    tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+    // 6. update last success compaction time
+    if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+    } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+        tablet()->set_last_base_compaction_success_time(UnixMillis());
+    } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        tablet()->set_last_full_compaction_success_time(UnixMillis());
+    }
 
     tablet()->set_last_fetched_version(_output_rowset->version());
 

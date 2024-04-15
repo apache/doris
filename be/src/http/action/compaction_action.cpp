@@ -272,14 +272,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         RETURN_IF_ERROR(compaction.prepare_compact());
         return compaction.execute_compact();
     };
-    if (fetch_from_remote) {
-        SingleReplicaCompaction single_compaction(_engine, tablet);
-        res = do_compact(single_compaction);
-        if (!res) {
-            LOG(WARNING) << "failed to do single replica compaction. res=" << res
-                         << ", table=" << tablet->tablet_id();
-        }
-    } else if (compaction_type == PARAM_COMPACTION_BASE) {
+    if (compaction_type == PARAM_COMPACTION_BASE) {
         BaseCompaction base_compaction(_engine, tablet);
         res = do_compact(base_compaction);
         if (!res) {
@@ -288,17 +281,28 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        CumulativeCompaction cumulative_compaction(_engine, tablet);
-        res = do_compact(cumulative_compaction);
-        if (!res) {
-            if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
-                // Ignore this error code.
-                VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
-                            << "tablet=" << tablet->tablet_id();
-            } else {
-                DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+        if (fetch_from_remote) {
+            SingleReplicaCompaction single_compaction(_engine, tablet,
+                                                      CompactionType::CUMULATIVE_COMPACTION);
+            res = do_compact(single_compaction);
+            if (!res) {
+                LOG(WARNING) << "failed to do single compaction. res=" << res
                              << ", table=" << tablet->tablet_id();
+            }
+        } else {
+            CumulativeCompaction cumulative_compaction(_engine, tablet);
+            res = do_compact(cumulative_compaction);
+            if (!res) {
+                if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
+                    // Ignore this error code.
+                    VLOG_NOTICE
+                            << "failed to init cumulative compaction due to no suitable version,"
+                            << "tablet=" << tablet->tablet_id();
+                } else {
+                    DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+                    LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+                                 << ", table=" << tablet->tablet_id();
+                }
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_FULL) {

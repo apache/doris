@@ -161,9 +161,6 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
     case ReaderType::READER_FULL_COMPACTION:
         tablet->set_last_full_compaction_failure_time(ms);
         return;
-    case ReaderType::UNKNOWN:
-        tablet->set_last_cumu_compaction_failure_time(ms);
-        return;
     default:
         LOG(FATAL) << "invalid compaction type " << compaction.compaction_name()
                    << " tablet_id: " << tablet->tablet_id();

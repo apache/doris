@@ -743,7 +743,8 @@ void StorageEngine::_update_replica_infos_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
-Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tablet) {
+Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tablet,
+                                                             CompactionType compaction_type) {
     // For single replica compaction, the local version to be merged is determined based on the version fetched from the peer replica.
     // Therefore, it is currently not possible to determine whether it should be a base compaction or cumulative compaction.
     // As a result, the tablet needs to be pushed to both the _tablet_submitted_cumu_compaction and the _tablet_submitted_base_compaction simultaneously.
@@ -761,9 +762,8 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
                 "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
 
-    auto compaction = std::make_shared<SingleReplicaCompaction>(*this, tablet);
+    auto compaction = std::make_shared<SingleReplicaCompaction>(*this, tablet, compaction_type);
     auto st = compaction->prepare_compact();
-
     auto clean_single_replica_compaction = [tablet, this]() {
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
@@ -960,7 +960,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         should_fetch_from_peer(tablet->tablet_id())) {
         VLOG_CRITICAL << "start to submit single replica compaction task for tablet: "
                       << tablet->tablet_id();
-        Status st = _submit_single_replica_compaction_task(tablet);
+        Status st = _submit_single_replica_compaction_task(tablet, compaction_type);
         if (!st.ok()) {
             LOG(WARNING) << "failed to submit single replica compaction task for tablet: "
                          << tablet->tablet_id() << ", err: " << st;

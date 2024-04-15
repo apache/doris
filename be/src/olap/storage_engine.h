@@ -345,7 +345,8 @@ private:
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                    bool force);
 
-    Status _submit_single_replica_compaction_task(TabletSharedPtr tablet);
+    Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
+                                                  CompactionType compaction_type);
 
     void _adjust_compaction_thread_num();
 
