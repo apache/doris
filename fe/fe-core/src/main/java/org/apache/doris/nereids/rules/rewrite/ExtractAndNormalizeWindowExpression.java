@@ -123,8 +123,11 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                 .collect(Collectors.toMap(expr -> ((Alias) expr).child(), expr -> ((Alias) expr).toSlot(),
                         (oldExpr, newExpr) -> oldExpr));
 
+        // customNormalizeMap is only for alias, so we just normalize alias in outputs too
         List<NamedExpression> normalizedOutputs = context.normalizeToUseSlotRef(outputs,
-                (ctx, expr) -> customNormalizeMap.getOrDefault(expr, null));
+                (ctx, expr) -> expr instanceof Alias ? customNormalizeMap.getOrDefault(expr, null) : null);
+        // replace child exprs in normalizedOutputs by customNormalizeMap
+        normalizedOutputs = ExpressionUtils.replaceNamedExpressions(normalizedOutputs, customNormalizeMap);
         Set<WindowExpression> normalizedWindows =
                 ExpressionUtils.collect(normalizedOutputs, WindowExpression.class::isInstance);
 
