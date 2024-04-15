@@ -154,6 +154,9 @@ public class StatementContext implements Closeable {
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
             this.sqlCacheContext = new SqlCacheContext(
                     connectContext.getCurrentUserIdentity(), connectContext.queryId());
+            if (originStatement != null) {
+                this.sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+            }
         } else {
             this.sqlCacheContext = null;
         }

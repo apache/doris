@@ -312,6 +312,7 @@ public class SqlCacheContext {
         return queryId;
     }
 
+    /** getOrComputeCacheKeyMd5 */
     public synchronized PUniqueId getOrComputeCacheKeyMd5() {
         if (cacheKeyMd5 == null && originSql != null) {
             StringBuilder cacheKey = new StringBuilder(originSql);
