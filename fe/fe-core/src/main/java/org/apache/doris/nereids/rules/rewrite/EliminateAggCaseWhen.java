@@ -41,6 +41,7 @@ import java.util.Set;
  * note :
  * only If expression is needed to process cause CaseWhenToIf have already changed case when to if
  * but in sql we can still see case when so case when is reserved to explain this rule
+ * we can only have one output aggregate function cause of filter would influence other projection
  * we can only have one aggregate function cause of filter would influence other aggregate function
  * we can only have case when/if function without else cause of then can only have one branch of choice
  * we can only have one case in case when cause of then can only have one branch of choice
@@ -50,8 +51,8 @@ public final class EliminateAggCaseWhen extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalAggregate().then(agg -> {
             Set<AggregateFunction> aggFunctions = agg.getAggregateFunctions();
-            // check whether we only have one aggregate function
-            if (aggFunctions.size() != 1) {
+            // check whether we only have one aggregate function, and only one projection of aggregate function
+            if (aggFunctions.size() != 1 || agg.getOutputExpressions().size() != 1) {
                 return null;
             }
             for (AggregateFunction aggFun : aggFunctions) {
