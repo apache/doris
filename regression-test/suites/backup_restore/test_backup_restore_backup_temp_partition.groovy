@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore", "backup_restore") {
-    String suiteName = "test_backup_restore"
+suite("test_backup_restore_backup_temp_partition", "backup_restore") {
+    String suiteName = "test_backup_restore_backup_temp_partition"
     String repoName = "${suiteName}_repo"
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
@@ -32,6 +32,16 @@ suite("test_backup_restore", "backup_restore") {
             `id` LARGEINT NOT NULL,
             `count` LARGEINT SUM DEFAULT "0")
         AGGREGATE KEY(`id`)
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION p1 VALUES LESS THAN ("10"),
+            PARTITION p2 VALUES LESS THAN ("20"),
+            PARTITION p3 VALUES LESS THAN ("30"),
+            PARTITION p4 VALUES LESS THAN ("40"),
+            PARTITION p5 VALUES LESS THAN ("50"),
+            PARTITION p6 VALUES LESS THAN ("60"),
+            PARTITION p7 VALUES LESS THAN MAXVALUE
+        )
         DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES
         (
@@ -47,34 +57,19 @@ suite("test_backup_restore", "backup_restore") {
     def result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
+    // add temp partitions
     sql """
-        BACKUP SNAPSHOT ${dbName}.${snapshotName}
-        TO `${repoName}`
-        ON (${tableName})
-    """
+        ALTER TABLE ${dbName}.${tableName} ADD TEMPORARY PARTITION tp1 VALUES LESS THAN ("70")
+        """
 
-    syncer.waitSnapshotFinish(dbName)
-
-    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
-    assertTrue(snapshot != null)
-
-    sql "TRUNCATE TABLE ${dbName}.${tableName}"
-
-    sql """
-        RESTORE SNAPSHOT ${dbName}.${snapshotName}
-        FROM `${repoName}`
-        ON ( `${tableName}`)
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish(dbName)
-
-    result = sql "SELECT * FROM ${dbName}.${tableName}"
-    assertEquals(result.size(), values.size());
+    test {
+        sql """
+            BACKUP SNAPSHOT ${dbName}.${snapshotName}
+            TO `${repoName}`
+            ON (${tableName})
+        """
+        exception "Do not support backup table with temp partitions"
+    }
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
