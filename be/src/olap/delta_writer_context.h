@@ -28,6 +28,7 @@ namespace doris {
 class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
+class ThreadPool;
 
 struct WriteRequest {
     int64_t tablet_id = 0;
@@ -44,6 +45,9 @@ struct WriteRequest {
     bool is_high_priority = false;
     bool write_file_cache = false;
     std::string storage_vault_id;
+    ThreadPool* wg_thread_pool_ptr = nullptr;
+    std::shared_ptr<const std::atomic<bool>> is_cancelled_ptr;
+    std::shared_ptr<const std::string> cancel_reason_ptr;
 };
 
 } // namespace doris

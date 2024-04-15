@@ -198,11 +198,14 @@ public:
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
     [[nodiscard]] bool is_cancelled() const;
+    std::shared_ptr<const std::atomic<bool>> is_cancelled_ptr() const;
     std::string cancel_reason() const;
+    std::shared_ptr<const std::string> cancel_reason_ptr() const;
+
     int codegen_level() const { return _query_options.codegen_level; }
     void set_is_cancelled(std::string msg) {
-        if (!_is_cancelled.exchange(true)) {
-            _cancel_reason = msg;
+        if (!_is_cancelled->exchange(true)) {
+            *_cancel_reason = msg;
             // Create a error status, so that we could print error stack, and
             // we could know which path call cancel.
             LOG(WARNING) << "Task is cancelled, instance: "
@@ -211,7 +214,7 @@ public:
         } else {
             LOG(WARNING) << "Task is already cancelled, instance: "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << ", original cancel msg: " << _cancel_reason
+                         << ", original cancel msg: " << *_cancel_reason
                          << ", new cancel msg: " << Status::Error<ErrorCode::CANCELLED>(msg);
         }
     }
@@ -684,8 +687,8 @@ private:
     ExecEnv* _exec_env = nullptr;
 
     // if true, execution should stop with a CANCELLED status
-    std::atomic<bool> _is_cancelled;
-    std::string _cancel_reason;
+    std::shared_ptr<std::atomic<bool>> _is_cancelled = std::make_shared<std::atomic<bool>>(false);
+    std::shared_ptr<std::string> _cancel_reason = std::make_shared<std::string>("");
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;

@@ -39,6 +39,7 @@
 #include "olap/delta_writer_v2.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
@@ -434,7 +435,12 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
+                .is_cancelled_ptr = _state->is_cancelled_ptr(),
+                .cancel_reason_ptr = _state->cancel_reason_ptr(),
         };
+        if (_state->get_query_ctx()) {
+            req.wg_thread_pool_ptr = _state->get_query_ctx()->get_non_pipe_exec_thread_pool();
+        }
         bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {
             if (index->index_id == rows.index_id) {
@@ -449,7 +455,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return DeltaWriterV2::create_unique(&req, streams, _state);
+        return DeltaWriterV2::create_unique(&req, streams);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id

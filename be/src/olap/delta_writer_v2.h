@@ -65,8 +65,7 @@ class DeltaWriterV2 {
     ENABLE_FACTORY_CREATOR(DeltaWriterV2);
 
 public:
-    DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                  RuntimeState* state);
+    DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams);
 
     ~DeltaWriterV2();
 
@@ -94,8 +93,6 @@ private:
                                       const TabletSchema& ori_tablet_schema);
 
     void _update_profile(RuntimeProfile* profile);
-
-    RuntimeState* _state = nullptr;
 
     bool _is_init = false;
     bool _is_cancelled = false;

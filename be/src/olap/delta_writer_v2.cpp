@@ -51,7 +51,6 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
-#include "runtime/query_context.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
@@ -66,10 +65,8 @@ namespace doris {
 using namespace ErrorCode;
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
-                             const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             RuntimeState* state)
-        : _state(state),
-          _req(*req),
+                             const std::vector<std::shared_ptr<LoadStreamStub>>& streams)
+        : _req(*req),
           _tablet_schema(new TabletSchema),
           _memtable_writer(new MemTableWriter(*req)),
           _streams(streams) {}
@@ -126,12 +123,8 @@ Status DeltaWriterV2::init() {
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
-    ThreadPool* wg_thread_pool_ptr = nullptr;
-    if (_state->get_query_ctx()) {
-        wg_thread_pool_ptr = _state->get_query_ctx()->get_non_pipe_exec_thread_pool();
-    }
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
-                                           wg_thread_pool_ptr,
+                                           _req.wg_thread_pool_ptr,
                                            _streams[0]->enable_unique_mow(_req.index_id)));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
@@ -160,8 +153,8 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
         DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
                         { memtable_flush_running_count_limit = 0; });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
-            if (_state->is_cancelled()) {
-                return Status::Cancelled(_state->cancel_reason());
+            if (_req.is_cancelled_ptr && _req.is_cancelled_ptr->load()) {
+                return Status::Cancelled(_req.cancel_reason_ptr ? *_req.cancel_reason_ptr : "");
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
