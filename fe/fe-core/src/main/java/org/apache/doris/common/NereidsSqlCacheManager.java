@@ -73,12 +73,7 @@ public class NereidsSqlCacheManager {
     private volatile Cache<String, SqlCacheContext> sqlCaches;
 
     public NereidsSqlCacheManager(int sqlCacheNum, long cacheIntervalSeconds) {
-        sqlCaches = Caffeine.newBuilder()
-                .maximumSize(sqlCacheNum)
-                .expireAfterAccess(Duration.ofSeconds(cacheIntervalSeconds))
-                // auto evict cache when jvm memory too low
-                .softValues()
-                .build();
+        sqlCaches = buildSqlCaches(sqlCacheNum, cacheIntervalSeconds);
     }
 
     public static synchronized void updateConfig() {
@@ -91,17 +86,24 @@ public class NereidsSqlCacheManager {
             return;
         }
 
-        int sqlCacheManageNum = Config.sql_cache_manage_num;
-        int cacheIntervalSecond = Config.cache_last_version_interval_second;
+        Cache<String, SqlCacheContext> sqlCaches = buildSqlCaches(
+                Config.sql_cache_manage_num,
+                Config.cache_last_version_interval_second
+        );
+        sqlCaches.putAll(sqlCacheManager.sqlCaches.asMap());
+        sqlCacheManager.sqlCaches = sqlCaches;
+    }
 
-        Cache<String, SqlCacheContext> sqlCaches = Caffeine.newBuilder()
-                .maximumSize(sqlCacheManageNum)
-                .expireAfterAccess(Duration.ofSeconds(cacheIntervalSecond))
+    private static Cache<String, SqlCacheContext> buildSqlCaches(int sqlCacheNum, long cacheIntervalSeconds) {
+        sqlCacheNum = sqlCacheNum <= 0 ? 100 : sqlCacheNum;
+        cacheIntervalSeconds = cacheIntervalSeconds <= 0 ? 30 : cacheIntervalSeconds;
+
+        return Caffeine.newBuilder()
+                .maximumSize(sqlCacheNum)
+                .expireAfterAccess(Duration.ofSeconds(cacheIntervalSeconds))
                 // auto evict cache when jvm memory too low
                 .softValues()
                 .build();
-        sqlCaches.putAll(sqlCacheManager.sqlCaches.asMap());
-        sqlCacheManager.sqlCaches = sqlCaches;
     }
 
     /** tryAddCache */
