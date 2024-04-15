@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 
 public class AuthenticateResponse {
     public static AuthenticateResponse failedResponse = new AuthenticateResponse(false);
+
     private boolean success;
     private UserIdentity userIdentity;
     private boolean isTemp = false;
