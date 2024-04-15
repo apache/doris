@@ -28,7 +28,7 @@ suite("load") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHdfsFs()}",
-        "root_prefix" = "default_vault_ssb_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_hdfs_vault"
         );
     """
 
@@ -37,7 +37,7 @@ suite("load") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHdfsFs()}",
-        "root_prefix" = "default_vault_ssb_flat_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_flat_hdfs_vault"
         );
     """
 
