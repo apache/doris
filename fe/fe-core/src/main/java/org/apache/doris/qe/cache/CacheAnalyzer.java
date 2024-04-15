@@ -45,6 +45,8 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -70,6 +72,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -425,12 +428,6 @@ public class CacheAnalyzer {
             return CacheMode.NoNeed;
         }
 
-        boolean isNewAllViewExpandStmtListStr = allViewExpandStmtListStr == null;
-        if (isNewAllViewExpandStmtListStr) {
-            allViewStmtSet.addAll(((LogicalPlanAdapter) parsedStmt).getViewDdlSqls());
-            allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
-        }
-
         if (now == 0) {
             now = nowtime();
         }
@@ -442,13 +439,20 @@ public class CacheAnalyzer {
                         Config.cache_last_version_interval_second * 1000);
             }
 
-            PUniqueId existsMd5 = null;
-            if (cache instanceof SqlCache) {
-                existsMd5 = ((SqlCache) cache).getOrComputeCacheMd5();
-            }
-            cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
-                    .getOriginStatement().originStmt);
+            String originStmt = ((LogicalPlanAdapter) parsedStmt).getStatementContext()
+                    .getOriginStatement().originStmt;
+            cache = new SqlCache(this.queryId, originStmt);
             SqlCache sqlCache = (SqlCache) cache;
+            NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
+            Optional<SqlCacheContext> sqlCacheContext = nereidsPlanner
+                    .getCascadesContext()
+                    .getStatementContext()
+                    .getSqlCacheContext();
+            PUniqueId existsMd5 = null;
+            if (sqlCacheContext.isPresent()) {
+                existsMd5 = sqlCacheContext.get().getOrComputeCacheKeyMd5();
+            }
+
             sqlCache.setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             sqlCache.setCacheMd5(existsMd5);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);

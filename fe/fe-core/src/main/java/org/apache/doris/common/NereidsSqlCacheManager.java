@@ -123,7 +123,6 @@ public class NereidsSqlCacheManager {
         if (analyzer.getCache() instanceof SqlCache
                 && (currentMissParseSqlFromSqlCache || sqlCaches.getIfPresent(key) == null)) {
             SqlCache cache = (SqlCache) analyzer.getCache();
-            sqlCacheContext.setCacheKeyMd5(cache.getOrComputeCacheMd5());
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
             sqlCacheContext.setLatestPartitionId(cache.getLatestId());
             sqlCacheContext.setLatestPartitionVersion(cache.getLatestVersion());

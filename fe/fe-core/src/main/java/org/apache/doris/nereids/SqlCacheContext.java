@@ -38,6 +38,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Locale;
@@ -52,6 +53,7 @@ public class SqlCacheContext {
     private final TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
+    private volatile String originSql;
     private volatile String physicalPlan;
     private volatile long latestPartitionId = -1;
     private volatile long latestPartitionTime = -1;
@@ -314,8 +316,19 @@ public class SqlCacheContext {
         return cacheKeyMd5;
     }
 
-    public void setCacheKeyMd5(PUniqueId cacheKeyMd5) {
-        this.cacheKeyMd5 = cacheKeyMd5;
+    public synchronized PUniqueId getOrComputeCacheKeyMd5() {
+        if (cacheKeyMd5 == null) {
+            StringBuilder cacheKey = new StringBuilder(originSql);
+            if (!usedViews.isEmpty()) {
+                cacheKey.append(StringUtils.join(usedViews.values(), "|"));
+            }
+            cacheKeyMd5 = CacheProxy.getMd5(cacheKey.toString());
+        }
+        return cacheKeyMd5;
+    }
+
+    public void setOriginSql(String originSql) {
+        this.originSql = originSql.trim();
     }
 
     /** FullTableName */

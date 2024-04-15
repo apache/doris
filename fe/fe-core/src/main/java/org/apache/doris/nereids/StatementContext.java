@@ -169,6 +169,9 @@ public class StatementContext implements Closeable {
 
     public void setOriginStatement(OriginStatement originStatement) {
         this.originStatement = originStatement;
+        if (originStatement != null && sqlCacheContext != null) {
+            sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+        }
     }
 
     public OriginStatement getOriginStatement() {

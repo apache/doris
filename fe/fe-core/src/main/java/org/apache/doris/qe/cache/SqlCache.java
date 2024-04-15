@@ -141,8 +141,9 @@ public class SqlCache extends Cache {
             return;
         }
 
+        PUniqueId cacheKeyMd5 = getOrComputeCacheMd5();
         InternalService.PUpdateCacheRequest updateRequest =
-                rowBatchBuilder.buildSqlUpdateRequest(getSqlWithViewStmt(),
+                rowBatchBuilder.buildSqlUpdateRequest(cacheKeyMd5,
                         latestTable.latestPartitionId,
                         latestTable.latestPartitionVersion,
                         latestTable.latestPartitionTime,
