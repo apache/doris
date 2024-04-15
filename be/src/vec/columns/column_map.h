@@ -133,6 +133,10 @@ public:
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnMap>(res, selector);
     }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        return append_data_by_selector_impl<ColumnMap>(res, selector, begin, end);
+    }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
