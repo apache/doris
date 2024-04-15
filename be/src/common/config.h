@@ -1265,21 +1265,24 @@ DECLARE_String(trino_connector_plugin_dir);
 DECLARE_mString(ca_cert_file_paths);
 
 /** Table sink configurations(currently contains only external table types) **/
-// Minimum data processed to scale writers when non partition writing
+// Minimum data processed to scale writers in exchange when non partition writing
 DECLARE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold);
-// Minimum data processed to start rebalancing in exchange when partition writing
-DECLARE_mInt64(table_sink_partition_write_data_processed_threshold);
 // Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
-DECLARE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold);
+DECLARE_mInt64(table_sink_partition_write_min_data_processed_rebalance_threshold);
+// Minimum partition data processed to rebalance writers in exchange when partition writing
+DECLARE_mInt64(table_sink_partition_write_min_partition_data_processed_rebalance_threshold);
 // Maximum processed partition nums of per writer when partition writing
 DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
 
 /** Hive sink configurations **/
-DECLARE_mInt64(hive_sink_max_file_size); // 1GB
+DECLARE_mInt64(hive_sink_max_file_size);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
+
+// enable injection point in regression-test
+DECLARE_mBool(enable_injection_point);
 
 #ifdef BE_TEST
 // test s3

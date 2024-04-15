@@ -110,8 +110,6 @@ public:
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
 
-    bool query_is_canceled(const TUniqueId& query_id);
-
     void cancel_worker();
 
     void debug(std::stringstream& ss) override;
@@ -131,6 +129,10 @@ public:
 
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
+
+    Status send_filter_size(const PSendFilterSizeRequest* request);
+
+    Status sync_filter_size(const PSyncFilterSizeRequest* request);
 
     std::string to_http_path(const std::string& file_name);
 

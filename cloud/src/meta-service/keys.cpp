@@ -47,10 +47,10 @@ namespace doris::cloud {
 [[maybe_unused]] static const char* META_KEY_INFIX_TABLET     = "tablet";
 [[maybe_unused]] static const char* META_KEY_INFIX_TABLET_IDX = "tablet_index";
 [[maybe_unused]] static const char* META_KEY_INFIX_SCHEMA     = "schema";
-[[maybe_unused]] static const char* META_KEY_INFIX_ROWSET_SCHEMA     = "rowset_schema";
 [[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP = "delete_bitmap";
 [[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP_LOCK = "delete_bitmap_lock";
 [[maybe_unused]] static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending";
+[[maybe_unused]] static const char* META_KEY_SCHEMA_PB_DICTIONARY = "tablet_schema_pb_dict";
 
 [[maybe_unused]] static const char* RECYCLE_KEY_INFIX_INDEX   = "index";
 [[maybe_unused]] static const char* RECYCLE_KEY_INFIX_PART    = "partition";
@@ -115,7 +115,7 @@ static void encode_prefix(const T& t, std::string* key) {
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo, TableVersionKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
-        CopyJobKeyInfo, CopyFileKeyInfo, MetaRowsetSchemaKeyInfo, StorageVaultKeyInfo>);
+        CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -131,7 +131,7 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaTabletKeyInfo>
                       || std::is_same_v<T, MetaTabletIdxKeyInfo>
                       || std::is_same_v<T, MetaSchemaKeyInfo>
-                      || std::is_same_v<T, MetaRowsetSchemaKeyInfo>
+                      || std::is_same_v<T, MetaSchemaPBDictionaryInfo>
                       || std::is_same_v<T, MetaDeleteBitmapInfo>
                       || std::is_same_v<T, MetaDeleteBitmapUpdateLockInfo>
                       || std::is_same_v<T, MetaPendingDeleteBitmapInfo>) {
@@ -222,18 +222,18 @@ std::string version_key_prefix(std::string_view instance_id) {
 }
 
 void table_version_key(const TableVersionKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);               // 0x01 "version" ${instance_id}
+    encode_prefix(in, out);                     // 0x01 "version" ${instance_id}
     encode_bytes(TABLE_VERSION_KEY_INFIX, out); // "table"
-    encode_int64(std::get<1>(in), out);   // db_id
-    encode_int64(std::get<2>(in), out);   // tbl_id
+    encode_int64(std::get<1>(in), out);         // db_id
+    encode_int64(std::get<2>(in), out);         // tbl_id
 }
 
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);               // 0x01 "version" ${instance_id}
+    encode_prefix(in, out);                         // 0x01 "version" ${instance_id}
     encode_bytes(PARTITION_VERSION_KEY_INFIX, out); // "partition"
-    encode_int64(std::get<1>(in), out);   // db_id
-    encode_int64(std::get<2>(in), out);   // tbl_id
-    encode_int64(std::get<3>(in), out);   // partition_id
+    encode_int64(std::get<1>(in), out);             // db_id
+    encode_int64(std::get<2>(in), out);             // tbl_id
+    encode_int64(std::get<3>(in), out);             // partition_id
 }
 
 //==============================================================================
@@ -282,13 +282,6 @@ void meta_schema_key(const MetaSchemaKeyInfo& in, std::string* out) {
     encode_int64(std::get<2>(in), out);       // schema_version
 }
 
-void meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);                   // 0x01 "meta" ${instance_id}
-    encode_bytes(META_KEY_INFIX_ROWSET_SCHEMA, out); // "rowset_schema"
-    encode_int64(std::get<1>(in), out);       // tablet_id 
-    encode_bytes(std::get<2>(in), out);              // rowset_id 
-}
-
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out) {
     encode_prefix(in, out);                          // 0x01 "meta" ${instance_id}
     encode_bytes(META_KEY_INFIX_DELETE_BITMAP, out); // "delete_bitmap"
@@ -310,6 +303,12 @@ void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::
     encode_prefix(in, out);                                  // 0x01 "meta" ${instance_id}
     encode_bytes(META_KEY_INFIX_DELETE_BITMAP_PENDING, out); // "delete_bitmap_pending"
     encode_int64(std::get<1>(in), out);                      // table_id
+}
+
+void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out) {
+    encode_prefix(in, out);                           // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_SCHEMA_PB_DICTIONARY, out); // "tablet_schema_pb_dict"
+    encode_int64(std::get<1>(in), out);               // index_id
 }
 
 //==============================================================================

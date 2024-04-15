@@ -138,20 +138,22 @@ suite("test_index_match_phrase_select", "inverted_index_select"){
                     add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard", "support_phrase" = "true") COMMENT '${text_colume1} index';
             """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ build index ${varchar_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${varchar_colume2}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${varchar_colume3}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${int_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${string_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${char_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${text_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            if (!isCloudMode()) {
+                sql """ build index ${varchar_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${varchar_colume2}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${varchar_colume3}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${int_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${string_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${char_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${text_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            }
         }
 
         // case1: test match_phrase ""

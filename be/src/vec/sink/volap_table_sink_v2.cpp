@@ -31,8 +31,6 @@
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_stub.h"
-#include "vec/sink/load_stream_stub_pool.h"
 
 namespace doris {
 class TExpr;

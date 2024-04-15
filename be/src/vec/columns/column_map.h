@@ -113,6 +113,7 @@ public:
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
@@ -132,27 +133,17 @@ public:
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnMap>(res, selector);
     }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        return append_data_by_selector_impl<ColumnMap>(res, selector, begin, end);
+    }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnMap&>(rhs);
-        const size_t nested_row_size = r.size_at(row);
-        const size_t r_key_nested_start_off = r.offset_at(row);
-        const size_t r_val_nested_start_off = r.offset_at(row);
-
-        if (self_row == 0) {
-            keys_column->clear();
-            values_column->clear();
-        }
-        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
-        // here we use batch size to avoid many virtual call in nested column
-        keys_column->insert_range_from(r.get_keys(), r_key_nested_start_off, nested_row_size);
-        values_column->insert_range_from(r.get_values(), r_val_nested_start_off, nested_row_size);
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        get_offsets()[self_row] = get_offsets()[self_row - 1];
+        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {

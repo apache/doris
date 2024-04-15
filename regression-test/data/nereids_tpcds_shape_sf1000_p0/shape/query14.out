@@ -152,7 +152,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------hashAgg[LOCAL]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF17 i_item_sk->[ws_item_sk,ss_item_sk]
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF17 i_item_sk->[ss_item_sk,ws_item_sk]
 --------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((web_sales.ws_item_sk = cross_items.ss_item_sk)) otherCondition=()
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF16 d_date_sk->[ws_sold_date_sk]

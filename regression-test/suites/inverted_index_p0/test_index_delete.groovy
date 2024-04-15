@@ -51,11 +51,15 @@ suite("test_index_delete", "p0") {
         sql "sync"
 
         sql """ delete from ${indexTbName1} where a >= 9; """
+        sql "sync"
+
         qt_sql """ select count() from ${indexTbName1} where a >= 1 and a <= 10; """
         qt_sql """ select count() from ${indexTbName1} where a >= 1; """
         qt_sql """ select count() from ${indexTbName1} where a <= 10; """
         
         sql """ delete from ${indexTbName1} where b = '3'; """
+        sql "sync"
+
         qt_sql """ select count() from ${indexTbName1} where a >= 1; """
         qt_sql """ select count() from ${indexTbName1} where b match '3'; """
 
