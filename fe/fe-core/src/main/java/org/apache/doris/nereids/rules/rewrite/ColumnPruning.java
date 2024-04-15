@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,11 +30,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -47,6 +52,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -138,6 +144,41 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             // the filter is not OutputPrunable, we should pass through the parent required slots
             // (slot a, which in the context.requiredSlots) and the used slots currently(slot b) to child plan.
             return pruneChildren(plan, context.requiredSlots);
+        }
+    }
+
+    @Override
+    public Plan visitLogicalOlapScan(LogicalOlapScan scan, PruneContext context) {
+        Set<Slot> prunedScanOutputSlots = Sets.newHashSet();
+        if (context.requiredSlots.isEmpty()) {
+            // choose a slot to represent: count(*)
+            prunedScanOutputSlots.add(ExpressionUtils.selectMinimumColumn(scan.getOutput()));
+        } else if (scan.getOutput().size() > context.requiredSlots.size()) {
+            prunedScanOutputSlots.addAll(context.requiredSlots);
+        }
+        if (prunedScanOutputSlots.isEmpty()) {
+            return scan;
+        } else {
+            // add distribution slot. distribution slots are used in exchanged node, but exchanged node
+            // are created in optimize phase, so always add these columns here (in rewritten phase).
+            if (scan.getTable().getDefaultDistributionInfo() instanceof HashDistributionInfo) {
+                HashDistributionInfo hashDistributionInfo =
+                        (HashDistributionInfo) scan.getTable().getDefaultDistributionInfo();
+                Set<Column> distributeCols = new HashSet<>(hashDistributionInfo.getDistributionColumns());
+                for (Slot slot : scan.getOutput()) {
+                    if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()) {
+                        if (distributeCols.contains(((SlotReference) slot).getColumn().get())) {
+                            prunedScanOutputSlots.add(slot);
+                        }
+                    }
+                }
+            }
+            // replace scan output: required slots + distribution slots + count(*) replacer slot
+            LogicalProperties origLogicalProperties = scan.getLogicalProperties();
+            LogicalProperties logicalProperties = new LogicalProperties(
+                    () -> ImmutableList.copyOf(prunedScanOutputSlots),
+                    origLogicalProperties::getFunctionalDependencies);
+            return scan.withLogicalProperties(logicalProperties);
         }
     }
 
@@ -362,10 +403,14 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return child;
         }
         boolean isProject = plan instanceof LogicalProject;
+        boolean isChildOlapScan = child instanceof OlapScan;
         Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
 
         // the case 2 in the class comment, prune child's output failed
-        if (!isProject && !Sets.difference(prunedChild.getOutputSet(), childRequiredSlots).isEmpty()) {
+        // if childRequiredSlots is empty, and child is olapScan, we already pruned slots in OlapScan, so do not add
+        // project above olapScan. for example: select count(*) from region;
+        if (!isProject && !isChildOlapScan && !childRequiredSlots.isEmpty()
+                && !Sets.difference(prunedChild.getOutputSet(), childRequiredSlots).isEmpty()) {
             prunedChild = new LogicalProject<>(Utils.fastToImmutableList(childRequiredSlots), prunedChild);
         }
         return prunedChild;

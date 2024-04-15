@@ -125,7 +125,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
                     .stream().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
         }
         return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
-                "stats", statistics, "RFs", builder
+                "stats", statistics, "output", getOutput(), "RFs", builder
         );
     }
 

@@ -231,9 +231,11 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
     @Test
     void testLimitPushSort() {
         PlanChecker.from(connectContext)
-                .analyze("select k1 from t1 order by k1 limit 1")
+                .analyze("select k1, k2 from t1 order by k1 limit 1")
                 .rewrite()
-                .matches(logicalTopN());
+                .matches(logicalDeferMaterializeTopN(
+                        logicalDeferMaterializeOlapScan()
+                ));
     }
 
     @Test
@@ -254,9 +256,7 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                                 ),
                                 logicalLimit(
                                         logicalLimit(
-                                            logicalProject(
-                                                    logicalOlapScan().when(scan -> "t3".equals(scan.getTable().getName()))
-                                            )
+                                            logicalOlapScan().when(scan -> "t3".equals(scan.getTable().getName()))
                                         )
                                 )
                         )

@@ -67,8 +67,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this(projects, groupExpression, logicalProperties, PhysicalProperties.ANY, null, child);
     }
 
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,

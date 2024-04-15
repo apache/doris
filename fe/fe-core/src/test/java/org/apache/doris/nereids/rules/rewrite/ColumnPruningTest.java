@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -67,13 +68,13 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                 logicalFilter(
                                         logicalProject(
                                                 logicalJoin(
-                                                        logicalProject()
-                                                                .when(p -> getOutputQualifiedNames(p).containsAll(
+                                                        logicalOlapScan()
+                                                                .when(scan -> checkScanOutput(scan,
                                                                         ImmutableList.of(
                                                                                 "internal.test.student.id",
                                                                                 "internal.test.student.name"))),
-                                                        logicalProject().when(
-                                                                p -> getOutputQualifiedNames(p).containsAll(
+                                                        logicalOlapScan().when(
+                                                                scan -> checkScanOutput(scan,
                                                                         ImmutableList.of(
                                                                                 "internal.test.score.sid",
                                                                                 "internal.test.score.grade")))
@@ -99,8 +100,8 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                 logicalFilter(
                                         logicalProject(
                                                 logicalJoin(
-                                                        logicalProject()
-                                                                .when(p -> getOutputQualifiedNames(p).containsAll(
+                                                        logicalOlapScan()
+                                                                .when(s -> checkScanOutput(s,
                                                                         ImmutableList.of(
                                                                                 "internal.test.student.id",
                                                                                 "internal.test.student.name",
@@ -127,8 +128,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject().when(p -> getOutputQualifiedNames(p)
-                                                .containsAll(ImmutableList.of(
+                                        logicalOlapScan().when(s -> checkScanOutput(s, ImmutableList.of(
                                                         "internal.test.student.name",
                                                         "internal.test.student.id",
                                                         "internal.test.student.age")))
@@ -152,9 +152,8 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                         logicalProject(
                                                 logicalJoin(
                                                         logicalProject(logicalJoin(
-                                                                logicalProject(logicalRelation())
-                                                                        .when(p -> getOutputQualifiedNames(
-                                                                                p).containsAll(ImmutableList.of(
+                                                                logicalOlapScan()
+                                                                        .when(s -> checkScanOutput(s, ImmutableList.of(
                                                                                 "internal.test.student.id",
                                                                                 "internal.test.student.name"))),
                                                                 logicalRelation()
@@ -164,9 +163,8 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                                                         "internal.test.student.name",
                                                                         "internal.test.score.cid",
                                                                         "internal.test.score.grade"))),
-                                                        logicalProject(logicalRelation())
-                                                                .when(p -> getOutputQualifiedNames(p)
-                                                                        .containsAll(ImmutableList.of(
+                                                        logicalOlapScan()
+                                                                .when(s -> checkScanOutput(s, ImmutableList.of(
                                                                                 "internal.test.course.cid",
                                                                                 "internal.test.course.cname")))
                                                 )
@@ -186,10 +184,9 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .customRewrite(new ColumnPruning())
                 .matches(
                         logicalAggregate(
-                                logicalProject(
-                                        logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
-                                        && p.getProjects().size() == 1)
+                                logicalOlapScan()
+                                .when(s -> s.getOutput().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && s.getOutput().size() == 1)
                         )
                 );
     }
@@ -201,10 +198,9 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .customRewrite(new ColumnPruning())
                 .matches(
                         logicalAggregate(
-                                logicalProject(
-                                        logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
-                                        && p.getProjects().size() == 1)
+                                logicalOlapScan(
+                                ).when(s -> s.getOutput().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && s.getOutput().size() == 1)
                         )
                 );
     }
@@ -216,10 +212,8 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .customRewrite(new ColumnPruning())
                 .matches(
                         logicalAggregate(
-                                logicalProject(
-                                        logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
-                                        && p.getProjects().size() == 1)
+                                logicalOlapScan()
+                                .when(s -> s.getOutput().get(0).getDataType().equals(IntegerType.INSTANCE))
                         )
                 );
     }
@@ -231,10 +225,9 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .customRewrite(new ColumnPruning())
                 .matches(
                         logicalAggregate(
-                                logicalProject(
-                                        logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
-                                        && p.getProjects().size() == 1)
+                                logicalOlapScan(
+                                ).when(s -> s.getOutput().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && s.getOutput().size() == 1)
                         )
                 );
     }
@@ -277,14 +270,15 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .matches(
                         logicalProject(
                                     logicalJoin(
-                                            logicalProject(logicalRelation())
-                                                    .when(p -> getOutputQualifiedNames(p)
-                                                            .containsAll(ImmutableList.of(
-                                                                    "internal.test.student.id",
-                                                                    "internal.test.student.name"))),
-                                            logicalProject(logicalRelation())
-                                                    .when(p -> getOutputQualifiedNames(p)
-                                                            .containsAll(ImmutableList.of(
+                                            logicalOlapScan()
+                                                .when(scan -> checkScanOutput(scan,
+                                                                ImmutableList.of(
+                                                                        "internal.test.student.id",
+                                                                        "internal.test.student.name"))
+                                                        ),
+                                            logicalOlapScan()
+                                                    .when(scan -> checkScanOutput(scan,
+                                                                ImmutableList.of(
                                                                     "internal.test.score.sid")))
                                     )
                         )
@@ -320,5 +314,9 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
 
     private List<String> getOutputQualifiedNames(List<? extends NamedExpression> output) {
         return output.stream().map(NamedExpression::getQualifiedName).collect(Collectors.toList());
+    }
+
+    private boolean checkScanOutput(LogicalOlapScan scan, List<String> colFullNames) {
+        return getOutputQualifiedNames(scan.getOutput()).containsAll(colFullNames);
     }
 }

@@ -217,7 +217,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 "qualified", qualifiedName(),
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
                 "selectedIndexId", selectedIndexId,
-                "preAgg", preAggStatus
+                "preAgg", preAggStatus,
+                "output", getOutput()
         );
     }
 
@@ -306,6 +307,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     public LogicalOlapScan withPreAggStatus(PreAggStatus preAggStatus) {
         return new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName, tableSample, directMvScan, projectPulledUp);
+    }
+
+    public LogicalOlapScan withLogicalProperties(LogicalProperties logicalProperties) {
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                getGroupExpression(), Optional.of(logicalProperties),
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, tableSample, directMvScan, projectPulledUp);

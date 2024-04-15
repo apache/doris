@@ -133,7 +133,6 @@ public class DistributeHintTest extends TPCHTestBase {
                         .analyze()
                         .optimize()
                         .getBestPlanTree();
-
                 Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
                 if (!res1.equals(res2)) {
                     System.out.println(leadingPlan.treeString());

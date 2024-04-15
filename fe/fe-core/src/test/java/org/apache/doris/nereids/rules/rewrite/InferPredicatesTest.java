@@ -338,12 +338,10 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .rewrite()
                 .matches(
                         logicalJoin(
-                            logicalProject(
-                                    logicalFilter(
-                                            logicalOlapScan()
-                                    ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
-                                            & filter.getPredicate().toSql().contains("id = 1"))
-                            ),
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id = 1")),
                             logicalFilter(
                                     logicalOlapScan()
                             ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
@@ -513,9 +511,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                        )
                                     ),
                                     logicalAggregate(
-                                        logicalProject(
-                                                logicalOlapScan()
-                                        )
+                                            logicalOlapScan()
                                     )
                                 )
                             )
