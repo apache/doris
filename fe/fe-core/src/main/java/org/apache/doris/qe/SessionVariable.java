@@ -42,6 +42,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1639,16 +1640,33 @@ public class SessionVariable implements Serializable, Writable {
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
-        return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
-                .map(v -> {
-                    int res = -1;
-                    try {
-                        res = Integer.valueOf(v);
-                    } catch (Exception e) {
-                        //ignore it
+        Set<Integer> ids = Sets.newLinkedHashSet();
+        if (ignoreRuntimeFilterIds.isEmpty()) {
+            return ImmutableSet.of();
+        }
+        for (String v : ignoreRuntimeFilterIds.split(",[\\s]*")) {
+            int res = -1;
+            if (!v.isEmpty()) {
+                boolean isNumber = true;
+                for (int i = 0; i < v.length(); ++i) {
+                    char c = v.charAt(i);
+                    if (c < '0' || c > '9') {
+                        isNumber = false;
+                        break;
                     }
-                    return res;
-                }).collect(ImmutableSet.toImmutableSet());
+                }
+                if (isNumber) {
+                    try {
+                        res = Integer.parseInt(v);
+                    } catch (Throwable t){
+                        // ignore
+                    }
+                }
+
+            }
+            ids.add(res);
+        }
+        return ids;
     }
 
     public void setIgnoreRuntimeFilterIds(String ignoreRuntimeFilterIds) {
