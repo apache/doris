@@ -520,8 +520,6 @@ class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status init_properties(ObjectPool* pool);
-
     Status write(Block& block) override;
 
     Status close(Status) override;
