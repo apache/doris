@@ -1330,8 +1330,7 @@ public:
                 res_data[i] = 0;
                 continue;
             }
-            auto depth = value->base_depth();
-            res_data[i] = depth;
+            res_data[i] = value->depth();
         }
 
         block.replace_by_position(
