@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTop
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -369,6 +370,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         return CostV1.of(context.getSessionVariable(),
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
+                0
+        );
+    }
+
+    @Override
+    public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> physicalFilter, PlanContext context) {
+        Statistics statistics = context.getChildStatistics(0);
+        return CostV1.of(context.getSessionVariable(),
+                statistics.getRowCount(),
+                statistics.getRowCount(),
                 0
         );
     }
