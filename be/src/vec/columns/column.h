@@ -99,10 +99,10 @@ public:
       */
     virtual Ptr convert_to_full_column_if_const() const { return get_ptr(); }
 
-    /** If column isn't constant, returns nullptr (or itself).
-    * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
-    */
-    virtual Ptr convert_to_full_column_if_overflow() { return get_ptr(); }
+    /** If in join. the StringColumn size may overflow uint32_t, we need convert to uint64_t to ColumnLargeStringForJoin
+  * The Column: ColumnString, ColumnNullable, ColumnArray, ColumnStruct need impl the code
+  */
+    virtual Ptr convert_column_if_overflow() { return get_ptr(); }
 
     /// If column isn't ColumnLowCardinality, return itself.
     /// If column is ColumnLowCardinality, transforms is to full column.
@@ -225,6 +225,14 @@ public:
     /// Could be used to concatenate columns.
     /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
+
+    /// Appends range of elements from other column with the same type.
+    /// Do not need throw execption in ColumnString overflow uint32, only
+    /// use in join
+    virtual void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                   size_t length) {
+        insert_range_from(src, start, length);
+    }
 
     /// Appends one element from other column with the same type multiple times.
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
