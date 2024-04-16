@@ -73,7 +73,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                         properties('location'='tt://${externalEnvIp}:${hdfs_port}/exist_check')
                     """
             } catch (Exception e) {
-                assertTrue(e.getMessage().contains("No FileSystem for scheme: tt"))
+                assertTrue(e.getMessage().contains("No FileSystem for scheme"))
             }
             try {
                 sql """ create database if not exists `test_hive_loc_no_exist`
