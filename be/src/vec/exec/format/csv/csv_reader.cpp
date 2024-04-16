@@ -78,9 +78,11 @@ void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>
                            splitted_values);
         value_start_offset = idx + _value_sep_len;
     }
-    // process the last column
-    process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
-                       splitted_values);
+    if (line.size > value_start_offset) {
+        // process the last column
+        process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
+                           splitted_values);
+    }
 }
 
 void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
@@ -94,7 +96,9 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
             value_start = i + _value_sep_len;
         }
     }
-    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
+    if (size > value_start) {
+        process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
+    }
 }
 
 void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
@@ -161,7 +165,9 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
             j = next[j];
         }
     }
-    process_value_func(line.data, start, line.size - start, _trimming_char, splitted_values);
+    if (line.size > start) {
+        process_value_func(line.data, start, line.size - start, _trimming_char, splitted_values);
+    }
 }
 
 void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
