@@ -91,8 +91,9 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
         }
         return Status::RpcError("Send stats failed");
     } catch (std::exception& e) {
-        LOG_WARNING("Failed to report query profile to {}, reason: {}, you can see fe log for details.",
-                    PrintThriftNetworkAddress(coor_addr), e.what());
+        LOG_WARNING(
+                "Failed to report query profile to {}, reason: {}, you can see fe log for details.",
+                PrintThriftNetworkAddress(coor_addr), e.what());
         return Status::RpcError("Send report query profile failed");
     }
 
