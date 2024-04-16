@@ -601,6 +601,16 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (!e.getMessage().contains(errorMessage)) {
+                throw e
+            }
+        }
+    }
+
     String getBrokerName() {
         String brokerName = context.config.otherConfigs.get("brokerName")
         return brokerName
@@ -1063,6 +1073,10 @@ class Suite implements GroovyInterceptable {
 
     boolean isCloudMode() {
         return !getFeConfig("cloud_unique_id").isEmpty()
+    }
+
+    boolean enableStoragevault() {
+        return isCloudMode() && context.config.enableStorageVault;
     }
 
     String getFeConfig(String key) {
