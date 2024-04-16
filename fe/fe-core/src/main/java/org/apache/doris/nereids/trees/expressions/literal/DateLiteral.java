@@ -244,19 +244,6 @@ public class DateLiteral extends Literal {
 
         sb.append(s.substring(i));
 
-        // Zone Part
-        // while(i < s.length()) {
-        //
-        // }
-
-        // add missing :00 in Zone part
-        // int len = sb.length();
-        // int signIdx = sb.indexOf("+", 10); // from index:10, skip date part (it contains '-')
-        // signIdx = signIdx == -1 ? sb.indexOf("-", 10) : signIdx;
-        // if (signIdx != -1 && len - signIdx == 3) {
-        //     sb.append(":00");
-        // }
-
         return sb.toString();
     }
 
