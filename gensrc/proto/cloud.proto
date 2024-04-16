@@ -889,6 +889,7 @@ message PartitionRequest {
     repeated int64 index_ids = 4;
     optional int64 expiration = 5;
     optional int64 db_id = 6;
+    optional int64 need_update_table_version = 7;
 }
 
 message PartitionResponse {

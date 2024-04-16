@@ -619,6 +619,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         long tableId = -1;
         List<Long> partitionIds = Lists.newArrayList();
         Set<Long> indexIds = new HashSet<>();
+        boolean needUpdateTableVersion = false;
         for (Partition partition : partitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 indexIds.add(index.getId());
@@ -627,6 +628,10 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             }
             partitionIds.add(partition.getId());
+            if (partition.hasData()) {
+                // Update table version only when deleting non-empty partitions
+                needUpdateTableVersion = true;
+            }
         }
 
         CloudPartition partition0 = (CloudPartition) partitions.get(0);
@@ -640,7 +645,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
             try {
                 dropCloudPartition(partition0.getDbId(), tableId, partitionIds,
-                        indexIds.stream().collect(Collectors.toList()));
+                        indexIds.stream().collect(Collectors.toList()), needUpdateTableVersion);
             } catch (Exception e) {
                 LOG.warn("failed to drop partition {} of table {}, try cnt {}, execption {}",
                         partitionIds, tableId, tryCnt, e);
@@ -655,14 +660,15 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void dropCloudPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
-            throws DdlException {
+    private void dropCloudPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+                                    boolean needUpdateTableVersion) throws DdlException {
         Cloud.PartitionRequest.Builder partitionRequestBuilder =
                 Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.setTableId(tableId);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
         partitionRequestBuilder.addAllIndexIds(indexIds);
+        partitionRequestBuilder.setNeedUpdateTableVersion(needUpdateTableVersion);
         if (dbId > 0) {
             partitionRequestBuilder.setDbId(dbId);
         }
