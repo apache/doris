@@ -538,6 +538,8 @@ void ExecEnv::init_mem_tracker() {
             std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+    _point_query_executor_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
     _rowid_storage_reader_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
     _subcolumns_tree_tracker =

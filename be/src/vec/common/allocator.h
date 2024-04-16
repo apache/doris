@@ -53,6 +53,7 @@
 #define DISABLE_MREMAP 1
 #endif
 #include "common/exception.h"
+#include "jemalloc/jemalloc.h"
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
@@ -97,7 +98,8 @@ public:
     /// Allocate memory range.
     void* alloc_impl(size_t size, size_t alignment = 0) {
         memory_check(size);
-        consume_memory(size);
+        consume_memory(
+                size); // consume memory in tracker before alloc, similar to early declaration.
         void* buf;
 
         if (use_mmap && size >= doris::config::mmap_threshold) {
@@ -125,6 +127,8 @@ public:
                     release_memory(size);
                     throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
                 }
+                // correct real memory size, if alignment not equal to 0, maybe usable_size > size.
+                consume_memory(jemalloc_usable_size(buf) - size);
             } else {
                 buf = nullptr;
                 int res = posix_memalign(&buf, alignment, size);
@@ -134,6 +138,7 @@ public:
                     throw_bad_alloc(
                             fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
+                consume_memory(jemalloc_usable_size(buf) - size);
 
                 if constexpr (clear_memory) memset(buf, 0, size);
             }
@@ -147,10 +152,12 @@ public:
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             }
+            release_memory(size);
         } else {
+            release_memory(jemalloc_usable_size(
+                    buf)); // if alignment not equal to 0, maybe usable_size > size.
             ::free(buf);
         }
-        release_memory(size);
     }
 
     /** Enlarge memory range.
@@ -164,7 +171,9 @@ public:
             return buf;
         }
         memory_check(new_size);
-        consume_memory(new_size - old_size);
+        consume_memory(
+                new_size -
+                old_size); // consume memory in tracker before alloc, similar to early declaration.
 
         if (!use_mmap ||
             (old_size < doris::config::mmap_threshold && new_size < doris::config::mmap_threshold &&
@@ -176,6 +185,9 @@ public:
                 throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
                                             new_size));
             }
+            // correct real memory size, if alignment not equal to 0, maybe usable_size > size.
+            consume_memory(jemalloc_usable_size(new_buf) - jemalloc_usable_size(buf) + old_size +
+                           new_size);
 
             buf = new_buf;
             if constexpr (clear_memory)
@@ -205,6 +217,8 @@ public:
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));
+            consume_memory(jemalloc_usable_size(new_buf) - jemalloc_usable_size(buf) + old_size +
+                           new_size);
             free(buf, old_size);
             buf = new_buf;
         }

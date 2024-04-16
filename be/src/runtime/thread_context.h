@@ -447,7 +447,7 @@ private:
 // must call create_thread_local_if_not_exits() before use thread_context().
 #define CONSUME_THREAD_MEM_TRACKER(size)                                                           \
     do {                                                                                           \
-        if (doris::use_mem_hook || size == 0) {                                                    \
+        if (size == 0 || doris::use_mem_hook) {                                                    \
             break;                                                                                 \
         }                                                                                          \
         if (doris::pthread_context_ptr_init) {                                                     \
