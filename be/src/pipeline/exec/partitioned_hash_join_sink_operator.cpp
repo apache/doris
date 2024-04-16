@@ -93,6 +93,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
     DCHECK_EQ(_spilling_streams_count, 0);
 
     if (!_shared_state->need_to_spill) {
+        profile()->add_info_string("Spilled", "true");
+        _shared_state->need_to_spill = true;
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         _shared_state->inner_shared_state->hash_table_variants.reset();
         auto row_desc = p._child_x->row_desc();
@@ -172,7 +174,6 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
     }
 
     if (_spilling_streams_count > 0) {
-        _shared_state->need_to_spill = true;
         std::unique_lock<std::mutex> lock(_spill_lock);
         if (_spilling_streams_count > 0) {
             _dependency->block();
@@ -202,7 +203,8 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     SCOPED_TIMER(_partition_shuffle_timer);
     auto* channel_ids = reinterpret_cast<uint64_t*>(_partitioner->get_channel_ids());
     std::vector<uint32_t> partition_indexes[p._partition_count];
-    for (uint32_t i = 0; i != rows; ++i) {
+    DCHECK_LT(begin, end);
+    for (size_t i = begin; i != end; ++i) {
         partition_indexes[channel_ids[i]].emplace_back(i);
     }
 
