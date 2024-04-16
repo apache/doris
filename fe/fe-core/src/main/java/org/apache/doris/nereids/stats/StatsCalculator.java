@@ -157,8 +157,6 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
-    public static double DEFAULT_AGGREGATE_EXPAND_RATIO = 1.05;
-
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 
@@ -778,6 +776,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (olapScan.getTable().getBaseIndexId() != olapScan.getSelectedIndexId()) {
                 idxId = olapScan.getSelectedIndexId();
             }
+        }
+        if (deltaRowCount > 0) {
+            LOG.info(catalogRelation.getTable().getName()
+                    + " is partially analyzed, clear min/max values in column stats");
         }
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getColumn().isPresent()
