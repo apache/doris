@@ -120,7 +120,13 @@ public class MetadataGenerator {
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getMetadataTable() start.");
+        }
         if (!request.isSetMetadaTableParams() || !request.getMetadaTableParams().isSetMetadataType()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Metadata table params is not set.");
+            }
             return errorResult("Metadata table params is not set. ");
         }
         TFetchSchemaTableDataResult result;
@@ -158,6 +164,9 @@ public class MetadataGenerator {
         }
         if (result.getStatus().getStatusCode() == TStatusCode.OK) {
             filterColumns(result, params.getColumnsName(), params.getMetadataType(), params);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getMetadataTable() end.");
         }
         return result;
     }
@@ -613,6 +622,9 @@ public class MetadataGenerator {
 
     private static void filterColumns(TFetchSchemaTableDataResult result,
             List<String> columnNames, TMetadataType type, TMetadataTableRequestParams params) throws TException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("filterColumns() start.");
+        }
         List<TRow> fullColumnsRow = result.getDataBatch();
         List<TRow> filterColumnsRows = Lists.newArrayList();
         for (TRow row : fullColumnsRow) {
@@ -628,6 +640,9 @@ public class MetadataGenerator {
             filterColumnsRows.add(filterRow);
         }
         result.setDataBatch(filterColumnsRows);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("filterColumns() end.");
+        }
     }
 
     private static void filterColumns(TFetchSchemaTableDataResult result,
@@ -658,14 +673,26 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult mtmvMetadataResult(TMetadataTableRequestParams params) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmvMetadataResult() start");
+        }
         if (!params.isSetMaterializedViewsMetadataParams()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MaterializedViews metadata params is not set.");
+            }
             return errorResult("MaterializedViews metadata params is not set.");
         }
 
         TMaterializedViewsMetadataParams mtmvMetadataParams = params.getMaterializedViewsMetadataParams();
         String dbName = mtmvMetadataParams.getDatabase();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("dbName: " + dbName);
+        }
         TUserIdentity currentUserIdent = mtmvMetadataParams.getCurrentUserIdent();
         UserIdentity userIdentity = UserIdentity.fromThrift(currentUserIdent);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("userIdentity: " + userIdentity);
+        }
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<Table> tables;
@@ -674,6 +701,7 @@ public class MetadataGenerator {
                     .getCatalogOrAnalysisException(InternalCatalog.INTERNAL_CATALOG_NAME)
                     .getDbOrAnalysisException(dbName).getTables();
         } catch (AnalysisException e) {
+            LOG.warn(e.getMessage());
             return errorResult(e.getMessage());
         }
 
@@ -686,6 +714,9 @@ public class MetadataGenerator {
                     continue;
                 }
                 MTMV mv = (MTMV) table;
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("mv: " + mv);
+                }
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
@@ -699,11 +730,17 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().toNameString()));
                 trow.addToColumnValue(new TCell().setBoolVal(MTMVPartitionUtil.isMTMVSync(mv)));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("mvend: " + mv.getName());
+                }
                 dataBatch.add(trow);
             }
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmvMetadataResult() end");
+        }
         return result;
     }
 

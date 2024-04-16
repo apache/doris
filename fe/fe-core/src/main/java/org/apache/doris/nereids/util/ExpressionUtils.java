@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -428,32 +427,6 @@ public class ExpressionUtils {
         }
     }
 
-    private static class ExpressionReplacerContext {
-        private final Map<? extends Expression, ? extends Expression> replaceMap;
-        // if the key of replaceMap is named expr and withAlias is true, we should
-        // add alias after replaced
-        private final boolean withAliasIfKeyNamed;
-
-        private ExpressionReplacerContext(Map<? extends Expression, ? extends Expression> replaceMap,
-                boolean withAliasIfKeyNamed) {
-            this.replaceMap = replaceMap;
-            this.withAliasIfKeyNamed = withAliasIfKeyNamed;
-        }
-
-        public static ExpressionReplacerContext of(Map<? extends Expression, ? extends Expression> replaceMap,
-                boolean withAliasIfKeyNamed) {
-            return new ExpressionReplacerContext(replaceMap, withAliasIfKeyNamed);
-        }
-
-        public Map<? extends Expression, ? extends Expression> getReplaceMap() {
-            return replaceMap;
-        }
-
-        public boolean isWithAliasIfKeyNamed() {
-            return withAliasIfKeyNamed;
-        }
-    }
-
     /**
      * merge arguments into an expression array
      *
@@ -738,7 +711,8 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    public static boolean isInjectiveAgg(AggregateFunction agg) {
+    // if the input is unique,  the output of agg is unique, too
+    public static boolean isInjectiveAgg(Expression agg) {
         return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
     }
 
@@ -831,13 +805,6 @@ public class ExpressionUtils {
             set.addAll(expr.getInputSlots());
         }
         return set;
-    }
-
-    public static boolean checkTypeSkipCast(Expression expression, Class<? extends Expression> cls) {
-        while (expression instanceof Cast) {
-            expression = ((Cast) expression).child();
-        }
-        return cls.isInstance(expression);
     }
 
     public static Expression getExpressionCoveredByCast(Expression expression) {

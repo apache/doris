@@ -216,6 +216,10 @@ public class ScalarType extends Type {
                 return DEFAULT_DECIMALV2;
             case LARGEINT:
                 return LARGEINT;
+            case IPV4:
+                return IPV4;
+            case IPV6:
+                return IPV6;
             case ALL:
                 return ALL;
             default:
