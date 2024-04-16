@@ -1089,28 +1089,30 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     List<SQLCheckConstraint> checkConstraints)
         throws AlreadyExistsException, InvalidObjectException,
         MetaException, NoSuchObjectException, TException {
-    if (hiveVersion == HiveVersion.V3_0) {
-      if (!tbl.isSetCatName()) {
-        String defaultCat = getDefaultCatalog(conf);
-        tbl.setCatName(defaultCat);
-        if (primaryKeys != null) {
-          primaryKeys.forEach(pk -> pk.setCatName(defaultCat));
-        }
-        if (foreignKeys != null) {
-          foreignKeys.forEach(fk -> fk.setCatName(defaultCat));
-        }
-        if (uniqueConstraints != null) {
-          uniqueConstraints.forEach(uc -> uc.setCatName(defaultCat));
-        }
-        if (notNullConstraints != null) {
-          notNullConstraints.forEach(nn -> nn.setCatName(defaultCat));
-        }
-        if (defaultConstraints != null) {
-          defaultConstraints.forEach(def -> def.setCatName(defaultCat));
-        }
-        if (checkConstraints != null) {
-          checkConstraints.forEach(cc -> cc.setCatName(defaultCat));
-        }
+    if (hiveVersion != HiveVersion.V3_0) {
+      throw new MetaException("Table with default values is not supported "
+          + "if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties.");
+    }
+    if (!tbl.isSetCatName()) {
+      String defaultCat = getDefaultCatalog(conf);
+      tbl.setCatName(defaultCat);
+      if (primaryKeys != null) {
+        primaryKeys.forEach(pk -> pk.setCatName(defaultCat));
+      }
+      if (foreignKeys != null) {
+        foreignKeys.forEach(fk -> fk.setCatName(defaultCat));
+      }
+      if (uniqueConstraints != null) {
+        uniqueConstraints.forEach(uc -> uc.setCatName(defaultCat));
+      }
+      if (notNullConstraints != null) {
+        notNullConstraints.forEach(nn -> nn.setCatName(defaultCat));
+      }
+      if (defaultConstraints != null) {
+        defaultConstraints.forEach(def -> def.setCatName(defaultCat));
+      }
+      if (checkConstraints != null) {
+        checkConstraints.forEach(cc -> cc.setCatName(defaultCat));
       }
     }
     HiveMetaHook hook = getHook(tbl);
@@ -2173,6 +2175,10 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   @Override
   public List<SQLDefaultConstraint> getDefaultConstraints(DefaultConstraintsRequest req)
       throws MetaException, NoSuchObjectException, TException {
+    if (hiveVersion != HiveVersion.V3_0) {
+      throw new MetaException("Table writing with the default value is not supported "
+          + "if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties.");
+    }
     if (!req.isSetCatName()) {
       req.setCatName(getDefaultCatalog(conf));
     }

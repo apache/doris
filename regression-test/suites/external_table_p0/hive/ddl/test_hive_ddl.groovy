@@ -189,12 +189,15 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                   'file_format'='${file_format}'
                 )
                 """
-            // need support default insert:
+            // only hive3 support insert table with default values
             //            sql """ INSERT INTO all_default_values_${file_format}
             //                    VALUES(null, null, null, null, null, null, null, null, null, null, null, null, null)
             //                """
             //            sql """ INSERT INTO all_default_values_${file_format} (col1, col3, col5, col7, col12)
-            //                    VALUES(null, null, null, null)
+            //                    VALUES(false, null, 3.4, null, null)
+            //                """
+            //            sql """ INSERT INTO all_default_values_${file_format} (col2, col4, col6, col9, col11)
+            //                    VALUES(-128, null, 'A', null, '2024-07-30')
             //                """
             //            order_qt_default_val01 """ SELECT * FROM all_default_values_${file_format} """
             sql """DROP TABLE `all_default_values_${file_format}`"""
