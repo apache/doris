@@ -27,11 +27,14 @@ import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.mysql.authenticate.password.PasswordResolver;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
 
 public class DefaultAuthenticator implements Authenticator {
+    private static final Logger LOG = LogManager.getLogger(DefaultAuthenticator.class);
     private PasswordResolver passwordResolver;
 
     public DefaultAuthenticator() {
@@ -40,6 +43,9 @@ public class DefaultAuthenticator implements Authenticator {
 
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("user:{} start to default authenticate.", request.getUserName());
+        }
         Password password = request.getPassword();
         if (!(password instanceof NativePassword)) {
             return AuthenticateResponse.failedResponse;

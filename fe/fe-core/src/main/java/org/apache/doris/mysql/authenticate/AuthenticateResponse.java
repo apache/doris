@@ -64,4 +64,13 @@ public class AuthenticateResponse {
     public void setTemp(boolean temp) {
         isTemp = temp;
     }
+
+    @Override
+    public String toString() {
+        return "AuthenticateResponse{"
+                + "success=" + success
+                + ", userIdentity=" + userIdentity
+                + ", isTemp=" + isTemp
+                + '}';
+    }
 }

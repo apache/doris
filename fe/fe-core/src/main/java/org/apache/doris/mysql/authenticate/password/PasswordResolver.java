@@ -27,7 +27,7 @@ import java.io.IOException;
 import java.util.Optional;
 
 public interface PasswordResolver {
-    Optional<Password> resolvePassword(ConnectContext context,MysqlChannel channel,
+    Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel,
             MysqlSerializer serializer,
             MysqlAuthPacket authPacket,
             MysqlHandshakePacket handshakePacket) throws IOException;

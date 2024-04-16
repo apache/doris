@@ -17,7 +17,7 @@
 
 package org.apache.doris.mysql.authenticate.password;
 
-public class ClearPassword extends Password{
+public class ClearPassword extends Password {
     private String password;
 
     public ClearPassword(String password) {
