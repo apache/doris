@@ -191,14 +191,17 @@ ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, ssize_t result_size_
         return ColumnStr<T>::create();
     }
 
-    auto res = ColumnStr<T>::create();
+    if constexpr (std::is_same_v<UInt32, T>) {
+        auto res = ColumnStr<T>::create();
+        Chars &res_chars = res->chars;
+        IColumn::Offsets &res_offsets = res->offsets;
 
-    Chars& res_chars = res->chars;
-    IColumn::Offsets& res_offsets = res->offsets;
-
-    filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filt,
-                                               result_size_hint);
-    return res;
+        filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filt,
+                                                   result_size_hint);
+        return res;
+    } else {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "should not call filter in ColumnStr<UInt64>");
+    }
 }
 
 template <typename T>
@@ -209,22 +212,30 @@ size_t ColumnStr<T>::filter(const IColumn::Filter& filter) {
         return 0;
     }
 
-    return filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, filter);
+    if constexpr (std::is_same_v<UInt32, T>) {
+        return filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, filter);
+    } else {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "should not call filter in ColumnStr<UInt64>");
+    }
 }
 
 template <typename T>
 Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto* col = static_cast<ColumnStr<T>*>(col_ptr);
-    Chars& res_chars = col->chars;
-    IColumn::Offsets& res_offsets = col->offsets;
-    IColumn::Filter filter;
-    filter.resize_fill(offsets.size(), 0);
-    for (size_t i = 0; i < sel_size; i++) {
-        filter[sel[i]] = 1;
+    if constexpr (std::is_same_v<UInt32, T>) {
+        auto *col = static_cast<ColumnStr<T> *>(col_ptr);
+        Chars &res_chars = col->chars;
+        IColumn::Offsets &res_offsets = col->offsets;
+        IColumn::Filter filter;
+        filter.resize_fill(offsets.size(), 0);
+        for (size_t i = 0; i < sel_size; i++) {
+            filter[sel[i]] = 1;
+        }
+        filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filter,
+                                                   sel_size);
+        return Status::OK();
+    } else {
+        return Status::InternalError("should not call filter_by_selector in ColumnStr<UInt64>");
     }
-    filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filter,
-                                               sel_size);
-    return Status::OK();
 }
 
 template <typename T>
@@ -248,7 +259,7 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
     auto res = ColumnStr<T>::create();
 
     Chars& res_chars = res->chars;
-    IColumn::Offsets& res_offsets = res->offsets;
+    auto& res_offsets = res->offsets;
 
     if (limit == size) {
         res_chars.resize(chars.size());
@@ -262,7 +273,7 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
 
     res_offsets.resize(limit);
 
-    IColumn::Offset current_new_offset = 0;
+    T current_new_offset = 0;
 
     for (size_t i = 0; i < limit; ++i) {
         size_t j = perm[i];
@@ -384,7 +395,7 @@ ColumnPtr ColumnStr<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t l
     auto res = ColumnStr<T>::create();
 
     Chars& res_chars = res->chars;
-    IColumn::Offsets& res_offsets = res->offsets;
+    auto& res_offsets = res->offsets;
 
     size_t new_chars_size = 0;
     for (size_t i = 0; i < limit; ++i) {
@@ -395,7 +406,7 @@ ColumnPtr ColumnStr<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t l
 
     res_offsets.resize(limit);
 
-    IColumn::Offset current_new_offset = 0;
+    T current_new_offset = 0;
 
     for (size_t i = 0; i < limit; ++i) {
         size_t j = indexes[i];
@@ -466,13 +477,13 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
     }
 
     Chars& res_chars = res->chars;
-    IColumn::Offsets& res_offsets = res->offsets;
+    auto& res_offsets = res->offsets;
     res_chars.reserve(chars.size() / col_size * replicate_offsets.back());
     res_offsets.reserve(replicate_offsets.back());
 
-    IColumn::Offset prev_replicate_offset = 0;
-    IColumn::Offset prev_string_offset = 0;
-    IColumn::Offset current_new_offset = 0;
+    T prev_replicate_offset = 0;
+    T prev_string_offset = 0;
+    T current_new_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
         size_t size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
@@ -556,18 +567,18 @@ ColumnPtr ColumnStr<T>::convert_to_full_column_if_overflow() {
         const auto length = offsets.size();
         std::swap(new_col->get_chars(), chars);
         new_col->get_offsets().resize(length);
+        auto& large_offsets = new_col->get_offsets();
 
-        size_t base = 0;
-        size_t start = 0;
-        size_t end = length;
-
-        while (start < end) {
-            size_t mid = find_first_overflow_point(_offsets, start, end);
-            for (size_t i = start; i < mid; i++) {
-                new_column->get_offset()[i] = static_cast<uint64_t>(_offsets[i]) + base;
-            }
-            base += Column::MAX_CAPACITY_LIMIT;
-            start = mid;
+        size_t loc = 0;
+        // TODO: recheck to SIMD the code
+        // if offset overflow. will be lower than offsets[loc - 1]
+        while (offsets[loc] >= offsets[loc - 1] && loc < length) {
+            large_offsets[loc] = offsets[loc];
+            loc++;
+        }
+        while (loc < length) {
+            large_offsets[loc] = (offsets[loc] - offsets[loc - 1]) + large_offsets[loc - 1];
+            loc++;
         }
 
         offsets.clear();
