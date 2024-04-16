@@ -392,7 +392,6 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         RETURN_IF_ERROR(
                 _filter_data_and_build_output(state, output_block, eos, &temp_block, false));
         temp_block.clear();
-        release_block_memory(_probe_block);
         return Status::OK();
     }
     _join_block.clear_column_data();
