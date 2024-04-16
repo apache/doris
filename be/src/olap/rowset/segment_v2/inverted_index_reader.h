@@ -72,6 +72,7 @@ namespace segment_v2 {
 class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
+struct InvertedIndexQueryInfo;
 
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
@@ -174,8 +175,8 @@ public:
 
 private:
     Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
-                              InvertedIndexQueryType query_type, const std::wstring& field_ws,
-                              const std::vector<std::string>& analyse_result,
+                              InvertedIndexQueryType query_type,
+                              const InvertedIndexQueryInfo& query_info,
                               const FulltextIndexSearcherPtr& index_searcher,
                               const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 };

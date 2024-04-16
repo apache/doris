@@ -88,5 +88,25 @@ Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     return Status::OK();
 }
 
+Status DataTypeIPv4SerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                             int end) const {
+    const auto& column_data = assert_cast<const ColumnIPv4&>(column).get_data();
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::IPV4);
+    auto* values = result.mutable_uint32_value();
+    values->Reserve(end - start);
+    values->Add(column_data.begin() + start, column_data.begin() + end);
+    return Status::OK();
+}
+
+Status DataTypeIPv4SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& col_data = static_cast<ColumnIPv4&>(column).get_data();
+    auto old_column_size = column.size();
+    column.resize(old_column_size + arg.uint32_value_size());
+    for (int i = 0; i < arg.uint32_value_size(); ++i) {
+        col_data[old_column_size + i] = arg.uint32_value(i);
+    }
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

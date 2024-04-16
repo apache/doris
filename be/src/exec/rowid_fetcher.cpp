@@ -327,8 +327,6 @@ struct IteratorItem {
 
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                           PMultiGetResponse* response) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-            ExecEnv::GetInstance()->rowid_storage_reader_tracker());
     // read from storage engine row id by row id
     OlapReaderStatistics stats;
     vectorized::Block result_block;

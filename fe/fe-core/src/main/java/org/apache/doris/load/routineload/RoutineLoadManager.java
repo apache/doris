@@ -42,6 +42,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -158,6 +159,7 @@ public class RoutineLoadManager implements Writable {
             throws UserException {
         // check load auth
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                InternalCatalog.INTERNAL_CATALOG_NAME,
                 createRoutineLoadStmt.getDBName(),
                 createRoutineLoadStmt.getTableName(),
                 PrivPredicate.LOAD)) {
@@ -254,6 +256,7 @@ public class RoutineLoadManager implements Writable {
         }
         if (routineLoadJob.isMultiTable()) {
             if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    InternalCatalog.INTERNAL_CATALOG_NAME,
                     dbFullName,
                     PrivPredicate.LOAD)) {
                 // todo add new error code
@@ -265,6 +268,7 @@ public class RoutineLoadManager implements Writable {
             return routineLoadJob;
         }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                InternalCatalog.INTERNAL_CATALOG_NAME,
                 dbFullName,
                 tableName,
                 PrivPredicate.LOAD)) {
@@ -294,7 +298,8 @@ public class RoutineLoadManager implements Writable {
                 if (!job.getState().isFinalState()) {
                     String tableName = job.getTableName();
                     if (!job.isMultiTable() && !Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    tableName, PrivPredicate.LOAD)) {
                         continue;
                     }
                     result.add(job);

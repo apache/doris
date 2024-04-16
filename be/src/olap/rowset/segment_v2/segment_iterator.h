@@ -381,6 +381,8 @@ private:
 
     bool _has_delete_predicate(ColumnId cid);
 
+    bool _can_opt_topn_reads() const;
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 

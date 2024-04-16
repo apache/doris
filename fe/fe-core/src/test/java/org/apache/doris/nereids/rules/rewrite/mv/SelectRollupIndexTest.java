@@ -263,11 +263,10 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 }));
     }
 
-    @Disabled("reopen it if we fix rollup select bugs")
     @Test
     public void testMaxCanUseKeyColumn() {
         PlanChecker.from(connectContext)
-                .analyze("select k2, max(k3) from t group by k3")
+                .analyze("select k2, max(k3) from t group by k2")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
                 .matches(logicalOlapScan().when(scan -> {
@@ -278,17 +277,44 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 }));
     }
 
-    @Disabled("reopen it if we fix rollup select bugs")
     @Test
     public void testMinCanUseKeyColumn() {
         PlanChecker.from(connectContext)
-                .analyze("select k2, min(k3) from t group by k3")
+                .analyze("select k2, min(k3) from t group by k2")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOn());
                     Assertions.assertEquals("r4", scan.getSelectedMaterializedIndexName().get());
+                    return true;
+                }));
+    }
+
+    @Test
+    public void testMinMaxCanUseKeyColumnWithBaseTable() {
+        PlanChecker.from(connectContext)
+                .analyze("select k1, min(k2), max(k2) from t group by k1")
+                .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .matches(logicalOlapScan().when(scan -> {
+                    PreAggStatus preAgg = scan.getPreAggStatus();
+                    Assertions.assertTrue(preAgg.isOn());
+                    Assertions.assertEquals("t", scan.getSelectedMaterializedIndexName().get());
+                    return true;
+                }));
+    }
+
+    @Test
+    public void testFilterAggWithBaseTable() {
+        PlanChecker.from(connectContext)
+                .analyze("select k1 from t where k1 = 0 group by k1")
+                .applyTopDown(new SelectMaterializedIndexWithAggregate())
+                .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
+                .matches(logicalOlapScan().when(scan -> {
+                    PreAggStatus preAgg = scan.getPreAggStatus();
+                    Assertions.assertTrue(preAgg.isOn());
+                    Assertions.assertEquals("t", scan.getSelectedMaterializedIndexName().get());
                     return true;
                 }));
     }

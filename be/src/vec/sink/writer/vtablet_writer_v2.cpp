@@ -135,12 +135,8 @@ Status VTabletWriterV2::_init_row_distribution() {
     return _row_distribution.open(_output_row_desc);
 }
 
-Status VTabletWriterV2::init_properties(ObjectPool* pool) {
-    _pool = pool;
-    return Status::OK();
-}
-
 Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
+    _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
@@ -249,6 +245,8 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
 
 Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_init(state, profile));
+    LOG(INFO) << "opening olap table sink, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id;
     _timeout_watch.start();
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
@@ -465,7 +463,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
 
 Status VTabletWriterV2::_cancel(Status status) {
     LOG(INFO) << "canceled olap table sink. load_id=" << print_id(_load_id)
-              << ", txn_id=" << _txn_id << ", due to error: " << status;
+              << ", txn_id=" << _txn_id << ", sink_id=" << _sender_id
+              << ", due to error: " << status;
     if (_delta_writer_for_tablet) {
         _delta_writer_for_tablet->cancel(status);
         _delta_writer_for_tablet.reset();
@@ -506,6 +505,8 @@ Status VTabletWriterV2::close(Status exec_status) {
     if (_is_closed) {
         return _close_status;
     }
+    LOG(INFO) << "closing olap table sink, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id << ", status=" << exec_status.to_string();
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
 
@@ -628,6 +629,8 @@ Status VTabletWriterV2::close(Status exec_status) {
 }
 
 void VTabletWriterV2::_calc_tablets_to_commit() {
+    LOG(INFO) << "saving close load info, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id;
     for (const auto& [dst_id, tablets] : _tablets_for_node) {
         std::vector<PTabletID> tablets_to_commit;
         std::vector<int64_t> partition_ids;

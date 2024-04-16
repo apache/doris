@@ -23,6 +23,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "recycler/obj_store_accessor.h"
 
 namespace doris::cloud {
 namespace {
@@ -90,7 +91,7 @@ private:
 
         if (conf.has_hdfs_kerberos_principal()) {
             kerberos_login = true;
-            hdfsBuilderSetPrincipal(hdfs_builder_, conf.hdfs_kerberos_keytab().c_str());
+            hdfsBuilderSetPrincipal(hdfs_builder_, conf.hdfs_kerberos_principal().c_str());
         } else if (conf.has_user()) {
             hdfsBuilderSetUserName(hdfs_builder_, conf.user().c_str());
 #ifdef USE_HADOOP_HDFS
@@ -157,7 +158,8 @@ private:
     hdfsBuilder* hdfs_builder_ = nullptr;
 };
 
-HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info) : info_(info), prefix_(info.prefix()) {
+HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info)
+        : ObjStoreAccessor(AccessorType::HDFS), info_(info), prefix_(info.prefix()) {
     if (!prefix_.empty() && prefix_[0] != '/') {
         prefix_.insert(prefix_.begin(), '/');
     }
@@ -302,7 +304,7 @@ int HdfsAccessor::list(const std::string& relative_path, std::vector<ObjectMeta>
     for (int idx = 0; idx < num_entries; ++idx) {
         auto& file = hdfs_file_info[idx];
         std::string_view fname(file.mName);
-        fname = fname.substr(fname.rfind('/') + 1);
+        fname.remove_prefix(uri_.size() + 1);
         files->push_back({.path = std::string(fname), .size = file.mSize});
     }
 

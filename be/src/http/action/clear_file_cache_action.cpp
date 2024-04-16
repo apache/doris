@@ -32,12 +32,9 @@ const std::string SYNC = "sync";
 void ClearFileCacheAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "application/json");
     std::string sync = req->param(SYNC);
-    if (to_lower(sync) == "true") {
-        io::FileCacheFactory::instance()->clear_file_caches(true);
-    } else {
-        io::FileCacheFactory::instance()->clear_file_caches(false);
-    }
-    HttpChannel::send_reply(req, HttpStatus::OK, Status::OK().to_json());
+    auto ret =
+            io::FileCacheFactory::instance()->clear_file_caches(sync == "TRUE" || sync == "true");
+    HttpChannel::send_reply(req, HttpStatus::OK, ret);
 }
 
 } // namespace doris

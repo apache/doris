@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_unique_table_new_sequence") {
-    for (def enable_fall_back : [false, true]) {
+    for (def enable_nereids_planner : [false, true]) {
         def tableName = "test_uniq_new_sequence"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -36,7 +36,9 @@ suite("test_unique_table_new_sequence") {
         "light_schema_change" = "true"
         );
         """
-        sql "set enable_fallback_to_original_planner=${enable_fall_back}"
+        sql """ set enable_nereids_dml = ${enable_nereids_planner}; """
+        sql """ set enable_nereids_planner=${enable_nereids_planner}; """
+        sql "set enable_fallback_to_original_planner=false; "
         // test streamload with seq col
         streamLoad {
             table "${tableName}"
@@ -141,13 +143,13 @@ suite("test_unique_table_new_sequence") {
           `v1` tinyint NULL,
           `v2` int,
           `v3` int,
-          `v4` int
+          `or` int
         ) ENGINE=OLAP
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(`k1`) BUCKETS 3
         PROPERTIES (
         "enable_unique_key_merge_on_write" = "false",
-        "function_column.sequence_col" = "v4",
+        "function_column.sequence_col" = "or",
         "replication_allocation" = "tag.location.default: 1",
         "light_schema_change" = "true"
         );
@@ -170,13 +172,13 @@ suite("test_unique_table_new_sequence") {
         qt_1 "select * from ${tableName} order by k1;"
 
         sql "begin;"
-        sql "insert into ${tableName} (k1, v1, v2, v3, v4) values (2,20,20,20,20);"
+        sql "insert into ${tableName} (k1, v1, v2, v3, `OR`) values (2,20,20,20,20);"
         sql "commit;"
 
         qt_2 "select * from ${tableName} order by k1;"
 
         sql "begin;"
-        sql "insert into ${tableName} (k1, v1, v2, v3, v4) values (3,30,30,30,1);"
+        sql "insert into ${tableName} (k1, v1, v2, v3, `or`) values (3,30,30,30,1);"
         sql "commit;"
 
         qt_3 "select * from ${tableName} order by k1"

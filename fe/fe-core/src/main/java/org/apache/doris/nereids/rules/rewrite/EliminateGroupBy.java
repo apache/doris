@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -79,7 +80,8 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                         if (ne instanceof Alias && ne.child(0) instanceof AggregateFunction) {
                             AggregateFunction f = (AggregateFunction) ne.child(0);
                             if (f instanceof Sum || f instanceof Min || f instanceof Max) {
-                                newOutput.add(new Alias(ne.getExprId(), f.child(0), ne.getName()));
+                                newOutput.add(new Alias(ne.getExprId(), TypeCoercionUtils
+                                        .castIfNotSameType(f.child(0), f.getDataType()), ne.getName()));
                             } else if (f instanceof Count) {
                                 newOutput.add((NamedExpression) ne.withChildren(
                                         new If(

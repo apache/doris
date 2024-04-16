@@ -1181,14 +1181,15 @@ DEFINE_mString(ca_cert_file_paths,
                "/etc/ssl/ca-bundle.pem");
 
 /** Table sink configurations(currently contains only external table types) **/
-// Minimum data processed to scale writers when non partition writing
+// Minimum data processed to scale writers in exchange when non partition writing
 DEFINE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold,
-              "125829120"); // 120MB
-// Minimum data processed to start rebalancing in exchange when partition writing
-DEFINE_mInt64(table_sink_partition_write_data_processed_threshold, "209715200"); // 200MB
+              "26214400"); // 25MB
 // Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
-DEFINE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold,
-              "209715200"); // 200MB
+DEFINE_mInt64(table_sink_partition_write_min_data_processed_rebalance_threshold,
+              "26214400"); // 25MB
+// Minimum partition data processed to rebalance writers in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_min_partition_data_processed_rebalance_threshold,
+              "15728640"); // 15MB
 // Maximum processed partition nums of per writer when partition writing
 DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 
@@ -1196,6 +1197,11 @@ DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
+
+DEFINE_Bool(enable_index_compaction, "false");
+
+// enable injection point in regression-test
+DEFINE_mBool(enable_injection_point, "false");
 
 // clang-format off
 #ifdef BE_TEST

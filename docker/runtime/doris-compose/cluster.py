@@ -424,7 +424,7 @@ class BE(Node):
                 "cloud_unique_id = " + self.cloud_unique_id(),
                 "meta_service_endpoint = {}".format(
                     self.cluster.get_meta_server_addr()),
-                'tmp_file_dirs = [ {"path":"./storage/tmp","max_cache_bytes":10240000," "max_upload_bytes":10240000}]',
+                'tmp_file_dirs = [ {"path":"./storage/tmp","max_cache_bytes":10240000, "max_upload_bytes":10240000}]',
                 'enable_file_cache = true',
                 'file_cache_path = [ {{"path": "{}/storage/file_cache", "total_size":53687091200, "query_limit": 10737418240}}]'
                 .format(self.docker_home_dir()),
@@ -515,7 +515,10 @@ class CLOUD(Node):
         return [MS_PORT]
 
     def conf_file_name(self):
-        return "doris_cloud.conf"
+        for file in os.listdir(os.path.join(self.get_path(), "conf")):
+            if file == "doris_cloud.conf" or file == "selectdb_cloud.conf":
+                return file
+        return "Not found conf file for ms or recycler"
 
 
 class MS(CLOUD):

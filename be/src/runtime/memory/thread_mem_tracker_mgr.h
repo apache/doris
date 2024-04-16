@@ -88,6 +88,10 @@ public:
 
     bool is_attach_query() { return _query_id != TUniqueId(); }
 
+    bool is_query_cancelled() const { return _is_query_cancelled; }
+
+    void reset_query_cancelled_flag(bool new_val) { _is_query_cancelled = new_val; }
+
     std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
         CHECK(init());
         return _limiter_tracker;
@@ -136,6 +140,7 @@ private:
     // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
     bool _stop_consume = false;
     TUniqueId _query_id = TUniqueId();
+    bool _is_query_cancelled = false;
 };
 
 inline bool ThreadMemTrackerMgr::init() {

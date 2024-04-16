@@ -160,6 +160,7 @@ public:
     }
 
     static void refresh_global_counter();
+    static void clean_tracker_limiter_group();
 
     Snapshot make_snapshot() const override;
     // Returns a list of all the valid tracker snapshots.
@@ -241,7 +242,6 @@ public:
     }
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
-    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tracker_limiter_group_it;
     std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tg_tracker_limiter_group_it;
 
 private:
