@@ -109,7 +109,7 @@ public:
     bool is_variable_length() const final { return true; }
     const char* get_family_name() const final { return "String"; }
 
-    size_t size() const override { return offsets.size(); }
+    virtual size_t size() const override { return offsets.size(); }
 
     size_t byte_size() const final { return chars.size() + offsets.size() * sizeof(offsets[0]); }
 

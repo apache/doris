@@ -447,7 +447,7 @@ public:
                 batch_insert(nullmap, col.size(), col.get_chars().data(), col.get_offsets().data());
             }
         } else {
-            const auto& col = reinterpret_cast<const vectorized::ColumnString&>(column);
+            const auto& col = reinterpret_cast<const vectorized::ColumnString&>(*column);
             if (col.is_large_string()) {
                 batch_insert(nullptr, col.size(), col.get_chars().data(),
                              reinterpret_cast<uint64_t*>(col.get_offsets_ptr()));
@@ -610,7 +610,7 @@ public:
                 batch_insert(nullmap, col.size(), col.get_chars().data(), col.get_offsets().data());
             }
         } else {
-            const auto& col = reinterpret_cast<const vectorized::ColumnString&>(column);
+            const auto& col = reinterpret_cast<const vectorized::ColumnString&>(*column);
             if (col.is_large_string()) {
                 batch_insert(nullptr, col.size(), col.get_chars().data(),
                              reinterpret_cast<uint64_t*>(col.get_offsets_ptr()));
