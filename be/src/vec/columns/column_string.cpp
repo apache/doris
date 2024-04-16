@@ -193,14 +193,15 @@ ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, ssize_t result_size_
 
     if constexpr (std::is_same_v<UInt32, T>) {
         auto res = ColumnStr<T>::create();
-        Chars &res_chars = res->chars;
-        IColumn::Offsets &res_offsets = res->offsets;
+        Chars& res_chars = res->chars;
+        IColumn::Offsets& res_offsets = res->offsets;
 
         filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filt,
                                                    result_size_hint);
         return res;
     } else {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "should not call filter in ColumnStr<UInt64>");
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "should not call filter in ColumnStr<UInt64>");
     }
 }
 
@@ -215,16 +216,17 @@ size_t ColumnStr<T>::filter(const IColumn::Filter& filter) {
     if constexpr (std::is_same_v<UInt32, T>) {
         return filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, filter);
     } else {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "should not call filter in ColumnStr<UInt64>");
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "should not call filter in ColumnStr<UInt64>");
     }
 }
 
 template <typename T>
 Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     if constexpr (std::is_same_v<UInt32, T>) {
-        auto *col = static_cast<ColumnStr<T> *>(col_ptr);
-        Chars &res_chars = col->chars;
-        IColumn::Offsets &res_offsets = col->offsets;
+        auto* col = static_cast<ColumnStr<T>*>(col_ptr);
+        Chars& res_chars = col->chars;
+        IColumn::Offsets& res_offsets = col->offsets;
         IColumn::Filter filter;
         filter.resize_fill(offsets.size(), 0);
         for (size_t i = 0; i < sel_size; i++) {
@@ -560,8 +562,8 @@ ColumnPtr ColumnStr<T>::index(const IColumn& indexes, size_t limit) const {
 }
 
 template <typename T>
-ColumnPtr ColumnStr<T>::convert_to_full_column_if_overflow() {
-    if (std::is_same_v<T, UInt32> && chars.size() > std::numeric_limits<UInt32>::max()) {
+ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
+    if (std::is_same_v<T, UInt32> && chars.size() > 10) {
         auto new_col = ColumnStr<uint64_t>::create();
 
         const auto length = offsets.size();

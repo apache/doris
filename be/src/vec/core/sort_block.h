@@ -333,7 +333,8 @@ private:
             if constexpr (std::is_same_v<ColumnType, ColumnVector<T>> ||
                           std::is_same_v<ColumnType, ColumnDecimal<T>>) {
                 permutation_for_column[i].inline_value = column.get_data()[row_id];
-            } else if constexpr (std::is_same_v<ColumnType, ColumnString> || std::is_same_v<ColumnType, ColumnString64>) {
+            } else if constexpr (std::is_same_v<ColumnType, ColumnString> ||
+                                 std::is_same_v<ColumnType, ColumnString64>) {
                 permutation_for_column[i].inline_value = column.get_data_at(row_id);
             } else {
                 static_assert(always_false_v<ColumnType>);

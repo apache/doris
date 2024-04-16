@@ -523,9 +523,8 @@ public:
 
     void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
                                  size_t begin, size_t end) const override {
-        append_data_by_selector_impl<ColumnString>(res, selector, begin, end);
+        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector, begin, end);
     }
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     void reserve(size_t n) override;
 
@@ -549,12 +548,12 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        LOG(FATAL) << "Method replace_column_data is not supported for ColumnString";
     }
 
     // should replace according to 0,1,2... ,size,0,1,2...
     void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
+        LOG(FATAL) << "Method replace_column_data_default is not supported for ColumnString";
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
@@ -582,7 +581,7 @@ public:
         return this->template get_ratio_of_default_rows_impl<ColumnStr<T>>(sample_ratio);
     }
 
-    ColumnPtr convert_to_full_column_if_overflow() override;
+    ColumnPtr convert_column_if_overflow() override;
 };
 
 using ColumnString = ColumnStr<UInt32>;
