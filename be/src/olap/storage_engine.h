@@ -474,6 +474,9 @@ private:
     std::mutex _running_cooldown_mutex;
     std::unordered_set<int64_t> _running_cooldown_tablets;
 
+    std::mutex _cold_compaction_tablet_submitted_mtx;
+    std::unordered_set<int64_t> _cold_compaction_tablet_submitted;
+
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
