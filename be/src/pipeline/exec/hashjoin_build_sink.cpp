@@ -22,6 +22,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -460,9 +461,24 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
-        vectorized::VExprContextSPtr ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, ctx));
-        _build_expr_ctxs.push_back(ctx);
+        vectorized::VExprContextSPtr build_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, build_ctx));
+        {
+            // for type check
+            vectorized::VExprContextSPtr probe_ctx;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, probe_ctx));
+            auto build_side_expr_type = build_ctx->root()->data_type();
+            auto probe_side_expr_type = probe_ctx->root()->data_type();
+            if (!vectorized::make_nullable(build_side_expr_type)
+                         ->equals(*vectorized::make_nullable(probe_side_expr_type))) {
+                return Status::InternalError(
+                        "build side type {}, not match probe side type {} , node info "
+                        "{}",
+                        build_side_expr_type->get_name(), probe_side_expr_type->get_name(),
+                        this->debug_string(0));
+            }
+        }
+        _build_expr_ctxs.push_back(build_ctx);
 
         const auto vexpr = _build_expr_ctxs.back()->root();
 

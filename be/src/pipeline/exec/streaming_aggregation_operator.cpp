@@ -1145,7 +1145,8 @@ StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_merge(false),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
-          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) {}
+          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
+          _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
 Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::init(tnode, state));
@@ -1235,7 +1236,11 @@ Status StreamingAggOperatorX::prepare(RuntimeState* state) {
                     alignment_of_next_state * alignment_of_next_state;
         }
     }
-
+    // check output type
+    if (_needs_finalize) {
+        RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
+                _probe_expr_ctxs.size(), _aggregate_evaluators, _agg_fn_output_row_descriptor));
+    }
     return Status::OK();
 }
 
