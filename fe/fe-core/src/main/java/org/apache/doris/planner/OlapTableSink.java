@@ -45,6 +45,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -132,6 +133,9 @@ public class OlapTableSink extends DataSink {
         tSink.setBaseSchemaVersion(dstTable.getBaseSchemaVersion());
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
+        tSink.setWriteFileCache(ConnectContext.get() != null
+                ? !ConnectContext.get().getSessionVariable().isDisableFileCache()
+                : false);
         this.isStrictMode = isStrictMode;
         this.txnId = txnId;
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
@@ -140,6 +144,10 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
+        String vaultId = dstTable.getStorageVaultId();
+        if (vaultId != null && !vaultId.isEmpty()) {
+            tSink.setStorageVaultId(vaultId);
+        }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
 
@@ -180,6 +188,14 @@ public class OlapTableSink extends DataSink {
 
     public void setAutoPartition(boolean var) {
         tDataSink.getOlapTableSink().getPartition().setEnableAutomaticPartition(var);
+    }
+
+    public void setAutoDetectOverwite(boolean var) {
+        tDataSink.getOlapTableSink().getPartition().setEnableAutoDetectOverwrite(var);
+    }
+
+    public void setOverwriteGroupId(long var) {
+        tDataSink.getOlapTableSink().getPartition().setOverwriteGroupId(var);
     }
 
     // must called after tupleDescriptor is computed
@@ -461,16 +477,19 @@ public class OlapTableSink extends DataSink {
         return partitionParam;
     }
 
-    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
+    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum)
+            throws UserException {
         if (partitionItem instanceof RangePartitionItem) {
             Range<PartitionKey> range = partitionItem.getItems();
-            // set start keys
+            // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
                     tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
-            // set end keys
+            // TODO: support real MaxLiteral in thrift.
+            // now we dont send it to BE. if BE meet it, treat it as default value.
+            // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
@@ -510,11 +529,14 @@ public class OlapTableSink extends DataSink {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
                         String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                + " < quorum replica num " + loadRequiredReplicaNum
-                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
-                        errMsg += " or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null) {
-                            errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
+                                + " < load required replica num " + loadRequiredReplicaNum
+                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
+                                + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
+                        if (Config.isCloudMode()) {
+                            errMsg += ", or you may not have permission to access the current cluster";
+                            if (ConnectContext.get() != null) {
+                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster(false);
+                            }
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }

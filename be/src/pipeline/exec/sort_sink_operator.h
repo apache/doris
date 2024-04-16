@@ -51,12 +51,13 @@ class SortSinkOperatorX;
 
 class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
+    using Base = PipelineXSinkLocalState<SortSharedState>;
 
 public:
-    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<SortSharedState>(parent, state) {}
+    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class SortSinkOperatorX;
@@ -95,6 +96,16 @@ public:
         }
         return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
+
+    bool is_full_sort() const { return _algorithm == SortAlgorithm::FULL_SORT; }
+
+    size_t get_revocable_mem_size(RuntimeState* state) const;
+
+    Status prepare_for_spill(RuntimeState* state);
+
+    Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+                                     int batch_size, bool* eos);
+    void reset(RuntimeState* state);
 
 private:
     friend class SortSinkLocalState;

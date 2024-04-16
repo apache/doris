@@ -60,6 +60,7 @@ public:
     int32_t schema_hash() const { return _tablet_meta->schema_hash(); }
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
+    int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
     std::mutex& get_schema_change_lock() { return _schema_change_lock; }
     bool enable_unique_key_merge_on_write() const {
 #ifdef BE_TEST
@@ -229,9 +230,16 @@ public:
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
 
+    static Status update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
+                                                    const RowsetSharedPtr& rowset);
+
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
     ////////////////////////////////////////////////////////////////////////////
+
+    RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
+
+    std::vector<RowsetSharedPtr> get_snapshot_rowset(bool include_stale_rowset = false) const;
 
 protected:
     // Find the missed versions until the spec_version.

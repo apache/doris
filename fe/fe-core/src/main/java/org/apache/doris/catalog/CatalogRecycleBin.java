@@ -352,7 +352,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long tableId = table.getId();
 
                 if (isExpire(tableId, currentTimeMs)) {
-                    if (table.getType() == TableType.OLAP) {
+                    if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
                         Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
                     }
 
@@ -569,7 +569,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime.remove(partitionId);
 
         if (partitionInfo == null) {
-            LOG.error("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+            LOG.warn("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+            return;
         }
 
         Partition partition = partitionInfo.getPartition();
@@ -1415,6 +1416,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             dataProperty.write(out);
             replicaAlloc.write(out);
             out.writeBoolean(isInMemory);
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     out.writeBoolean(isPersistent);
+                //
+                // keep the compatibility here.
+                out.writeBoolean(false);
+            }
             out.writeBoolean(isMutable);
         }
 
@@ -1432,6 +1441,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 replicaAlloc = ReplicaAllocation.read(in);
             }
             isInMemory = in.readBoolean();
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     isPersistent = in.readBoolean();
+                //
+                // keep the compatibility here.
+                in.readBoolean();
+            }
             if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
                 isMutable = in.readBoolean();
             }

@@ -40,6 +40,8 @@ public class CloudPropertyAnalyzer extends PropertyAnalyzer {
                         String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),
                 RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                         ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt()),
+                RewriteProperty.delete("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM),
+                RewriteProperty.delete("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION),
                 RewriteProperty.delete(DynamicPartitionProperty.STORAGE_MEDIUM),
                 RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_NUM,
                         String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),

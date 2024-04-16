@@ -21,16 +21,18 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -39,16 +41,19 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.test.TestExternalDatabase;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -84,6 +89,8 @@ public abstract class ExternalCatalog
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
 
     public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
+    public static final String DORIS_VERSION = "doris.version";
+    public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -108,6 +115,7 @@ public abstract class ExternalCatalog
     private boolean objectCreated = false;
     protected boolean invalidCacheInInit = true;
     protected ExternalMetadataOps metadataOps;
+    protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
     private String comment;
@@ -133,6 +141,11 @@ public abstract class ExternalCatalog
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
+    }
+
+    // only for test
+    public void setInitialized() {
+        initialized = true;
     }
 
     /**
@@ -281,10 +294,12 @@ public abstract class ExternalCatalog
 
         allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
         allDatabases.add(InfoSchemaDb.DATABASE_NAME);
+        allDatabases.remove(MysqlDb.DATABASE_NAME);
+        allDatabases.add(MysqlDb.DATABASE_NAME);
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         for (String dbName : allDatabases) {
-            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
                 // Exclude database map take effect with higher priority over include database map
                 if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
                     continue;
@@ -390,6 +405,16 @@ public abstract class ExternalCatalog
         }
     }
 
+    public TableName getTableNameByTableId(Long tableId) {
+        for (DatabaseIf<?> db : idToDb.values()) {
+            TableIf table = db.getTableNullable(tableId);
+            if (table != null) {
+                return new TableName(getName(), db.getFullName(), table.getName());
+            }
+        }
+        return null;
+    }
+
     @Override
     public String getResource() {
         return catalogProperty.getResource();
@@ -417,6 +442,9 @@ public abstract class ExternalCatalog
             // and finally get information_schema db from the name map.
             if (realDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
                 return idToDb.get(dbNameToId.get(InfoSchemaDb.DATABASE_NAME));
+            }
+            if (realDbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
+                return idToDb.get(dbNameToId.get(MysqlDb.DATABASE_NAME));
             }
         }
         return null;
@@ -529,6 +557,9 @@ public abstract class ExternalCatalog
         if (dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
             return new ExternalInfoSchemaDatabase(this, dbId);
         }
+        if (dbName.equals(MysqlDb.DATABASE_NAME)) {
+            return new ExternalMysqlDatabase(this, dbId);
+        }
         switch (logType) {
             case HMS:
                 return new HMSExternalDatabase(this, dbId, dbName);
@@ -546,6 +577,8 @@ public abstract class ExternalCatalog
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
                 return new PaimonExternalDatabase(this, dbId, dbName);
+            case TRINO_CONNECTOR:
+                return new TrinoConnectorExternalDatabase(this, dbId, dbName);
             default:
                 break;
         }
@@ -593,9 +626,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createDb not implemented");
@@ -611,9 +641,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropDb not implemented");
@@ -629,9 +656,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void createTable(CreateTableStmt stmt) throws UserException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createTable not implemented");
@@ -647,9 +671,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        if (!Config.enable_external_ddl) {
-            throw new DdlException("Experimental. The config enable_external_ddl needs to be set to true.");
-        }
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropTable not implemented");

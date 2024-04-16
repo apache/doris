@@ -438,8 +438,5 @@ under the License.
                       default="checkstyle-xpath-suppressions.xml" />
             <property name="optional" value="true"/>
         </module>
-        <module name="IllegalImport">
-            <property name="illegalPkgs" value="io.trino"/>
-        </module>
     </module>
 </module>

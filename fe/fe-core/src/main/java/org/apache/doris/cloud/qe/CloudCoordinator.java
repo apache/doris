@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -49,7 +50,8 @@ public class CloudCoordinator extends Coordinator {
         super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
     }
 
-    protected void prepare() {
+    @Override
+    protected void prepare() throws UserException {
         String cluster = null;
         ConnectContext context = ConnectContext.get();
         if (context != null) {
@@ -77,16 +79,14 @@ public class CloudCoordinator extends Coordinator {
         }
 
         this.idToBackend = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudIdToBackend(cluster);
-        super.prepare();
-    }
 
-    protected void processFragmentAssignmentAndParams() throws Exception {
-        super.processFragmentAssignmentAndParams();
+        super.prepare();
+
         if (idToBackend == null || idToBackend.isEmpty()) {
             LOG.warn("no available backends, idToBackend {}", idToBackend);
             String clusterName = ConnectContext.get() != null
                     ? ConnectContext.get().getCloudCluster() : "ctx empty cant get clusterName";
-            throw new Exception("no available backends, the cluster maybe not be set or been dropped clusterName = "
+            throw new UserException("no available backends, the cluster maybe not be set or been dropped clusterName = "
                 + clusterName);
         }
     }

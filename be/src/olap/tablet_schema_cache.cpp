@@ -28,10 +28,10 @@ bvar::Adder<int64_t> g_tablet_schema_cache_columns_count("tablet_schema_cache_co
 namespace doris {
 
 std::pair<Cache::Handle*, TabletSchemaSPtr> TabletSchemaCache::insert(const std::string& key) {
-    auto* lru_handle = cache()->lookup(key);
+    auto* lru_handle = lookup(key);
     TabletSchemaSPtr tablet_schema_ptr;
     if (lru_handle) {
-        auto* value = (CacheValue*)cache()->value(lru_handle);
+        auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
         tablet_schema_ptr = value->tablet_schema;
     } else {
         auto* value = new CacheValue;
@@ -40,14 +40,8 @@ std::pair<Cache::Handle*, TabletSchemaSPtr> TabletSchemaCache::insert(const std:
         pb.ParseFromString(key);
         tablet_schema_ptr->init_from_pb(pb);
         value->tablet_schema = tablet_schema_ptr;
-        auto deleter = [](const doris::CacheKey& key, void* value) {
-            auto* cache_value = (CacheValue*)value;
-            g_tablet_schema_cache_count << -1;
-            g_tablet_schema_cache_columns_count << -cache_value->tablet_schema->num_columns();
-            delete cache_value;
-        };
-        lru_handle = cache()->insert(key, value, tablet_schema_ptr->num_columns(), deleter,
-                                     CachePriority::NORMAL, 0);
+        lru_handle = LRUCachePolicy::insert(key, value, tablet_schema_ptr->num_columns(), 0,
+                                            CachePriority::NORMAL);
         g_tablet_schema_cache_count << 1;
         g_tablet_schema_cache_columns_count << tablet_schema_ptr->num_columns();
     }
@@ -56,7 +50,12 @@ std::pair<Cache::Handle*, TabletSchemaSPtr> TabletSchemaCache::insert(const std:
 }
 
 void TabletSchemaCache::release(Cache::Handle* lru_handle) {
-    cache()->release(lru_handle);
+    LRUCachePolicy::release(lru_handle);
+}
+
+TabletSchemaCache::CacheValue::~CacheValue() {
+    g_tablet_schema_cache_count << -1;
+    g_tablet_schema_cache_columns_count << -tablet_schema->num_columns();
 }
 
 } // namespace doris

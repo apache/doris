@@ -37,6 +37,7 @@ import org.antlr.v4.runtime.ParserRuleContext;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -69,6 +70,14 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
     public void remove(FuncNameInfo procedureName) {
         funcMap.remove(procedureName.toString());
         procMap.remove(procedureName.toString());
+    }
+
+    public void showProcedure(List<List<String>> columns) {
+
+    }
+
+    public void showCreateProcedure(FuncNameInfo procedureName, List<List<String>> columns) {
+
     }
 
     @Override
@@ -134,7 +143,7 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
         visit(procCtx.procedure_block());
         exec.callStackPop();
         exec.leaveScope();
-        for (Map.Entry<String, Var> i : out.entrySet()) {      // Set OUT parameters, related to prepare statement.
+        for (Map.Entry<String, Var> i : out.entrySet()) { // Set OUT parameters, related to prepare statement.
             exec.setVariable(i.getKey(), i.getValue());
         }
         return true;
@@ -143,9 +152,8 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
     /**
      * Set parameters for user-defined function call
      */
-    public static void setCallParameters(String procName, Expr_func_paramsContext actual,
-            ArrayList<Var> actualValues, Create_routine_paramsContext formal, HashMap<String, Var> out,
-            Exec exec) {
+    public static void setCallParameters(String procName, Expr_func_paramsContext actual, ArrayList<Var> actualValues,
+            Create_routine_paramsContext formal, HashMap<String, Var> out, Exec exec) {
         if (actual == null || actual.func_param() == null || actualValues == null) {
             return;
         }
@@ -169,8 +177,8 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
             }
             Var var = setCallParameter(name, type, len, scale, actualValues.get(i), exec);
             exec.trace(actual, "SET PARAM " + name + " = " + var.toString());
-            if (out != null && a.expr_atom() != null && a.expr_atom().qident() != null && (p.OUT() != null
-                    || p.INOUT() != null)) {
+            if (out != null && a.expr_atom() != null && a.expr_atom().qident() != null
+                    && (p.OUT() != null || p.INOUT() != null)) {
                 String actualName = a.expr_atom().qident().getText();
                 if (actualName != null) {
                     out.put(actualName, var);

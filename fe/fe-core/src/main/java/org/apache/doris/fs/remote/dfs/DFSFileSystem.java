@@ -29,13 +29,17 @@ import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,9 +54,14 @@ import java.nio.ByteBuffer;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -69,8 +78,9 @@ public class DFSFileSystem extends RemoteFileSystem {
         this.properties.putAll(properties);
     }
 
+    @VisibleForTesting
     @Override
-    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
+    public FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem != null) {
             return dfsFileSystem;
         }
@@ -192,7 +202,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             try {
                 currentStreamOffset = fsDataInputStream.getPos();
             } catch (IOException e) {
-                LOG.error("errors while get file pos from output stream", e);
+                LOG.warn("errors while get file pos from output stream", e);
                 throw new IOException("errors while get file pos from output stream", e);
             }
             if (currentStreamOffset != readOffset) {
@@ -230,7 +240,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
                 return ByteBuffer.wrap(buf, 0, readLength);
             } catch (IOException e) {
-                LOG.error("errors while read data from stream", e);
+                LOG.warn("errors while read data from stream", e);
                 throw new IOException("errors while read data from stream " + e.getMessage());
             }
         }
@@ -261,7 +271,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             }
             return Status.OK;
         } catch (Exception e) {
-            LOG.error("errors while check path exist " + remotePath, e);
+            LOG.warn("errors while check path exist " + remotePath, e);
             return new Status(Status.ErrCode.COMMON_ERROR,
                     "failed to check remote path exist: " + remotePath + ". msg: " + e.getMessage());
         }
@@ -281,7 +291,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             fsDataOutputStream.writeBytes(content);
         } catch (IOException e) {
-            LOG.error("errors while write data to output stream", e);
+            LOG.warn("errors while write data to output stream", e);
             status = new Status(Status.ErrCode.COMMON_ERROR, "write exception: " + e.getMessage());
         } finally {
             Status closeStatus = operations.closeWriter(OpParams.of(fsDataOutputStream));
@@ -324,7 +334,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                 try {
                     fsDataOutputStream.write(readBuf, 0, bytesRead);
                 } catch (IOException e) {
-                    LOG.error("errors while write data to output stream", e);
+                    LOG.warn("errors while write data to output stream", e);
                     lastErrMsg = String.format(
                             "failed to write hdfs. current write offset: %d, write length: %d, "
                                     + "file length: %d, file: %s, msg: errors while write data to output stream",
@@ -377,12 +387,76 @@ public class DFSFileSystem extends RemoteFileSystem {
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         } catch (IOException e) {
-            LOG.error("errors while rename path from " + srcPath + " to " + destPath);
+            LOG.warn("errors while rename path from " + srcPath + " to " + destPath);
             return new Status(Status.ErrCode.COMMON_ERROR,
                     "failed to rename remote " + srcPath + " to " + destPath + ", msg: " + e.getMessage());
         }
         LOG.info("finished to rename {} to  {}. cost: {} ms", srcPath, destPath, (System.currentTimeMillis() - start));
         return Status.OK;
+    }
+
+    @Override
+    public void asyncRename(
+            Executor executor,
+            List<CompletableFuture<?>> renameFileFutures,
+            AtomicBoolean cancelled,
+            String origFilePath,
+            String destFilePath,
+            List<String> fileNames) {
+
+        for (String fileName : fileNames) {
+            Path source = new Path(origFilePath, fileName);
+            Path target = new Path(destFilePath, fileName);
+            renameFileFutures.add(CompletableFuture.runAsync(() -> {
+                if (cancelled.get()) {
+                    return;
+                }
+                Status status = rename(source.toString(), target.toString());
+                if (!status.ok()) {
+                    throw new RuntimeException(status.getErrMsg());
+                }
+            }, executor));
+        }
+    }
+
+    public Status renameDir(String origFilePath,
+                            String destFilePath,
+                            Runnable runWhenPathNotExist) {
+        Status status = exists(destFilePath);
+        if (status.ok()) {
+            throw new RuntimeException("Destination directory already exists: " + destFilePath);
+        }
+
+        String targetParent = new Path(destFilePath).getParent().toString();
+        status = exists(targetParent);
+        if (Status.ErrCode.NOT_FOUND.equals(status.getErrCode())) {
+            status = makeDir(targetParent);
+        }
+        if (!status.ok()) {
+            throw new RuntimeException(status.getErrMsg());
+        }
+
+        runWhenPathNotExist.run();
+
+        return rename(origFilePath, destFilePath);
+    }
+
+    @Override
+    public void asyncRenameDir(Executor executor,
+                        List<CompletableFuture<?>> renameFileFutures,
+                        AtomicBoolean cancelled,
+                        String origFilePath,
+                        String destFilePath,
+                        Runnable runWhenPathNotExist) {
+        renameFileFutures.add(CompletableFuture.runAsync(() -> {
+            if (cancelled.get()) {
+                return;
+            }
+            Status status = renameDir(origFilePath, destFilePath, runWhenPathNotExist);
+            if (!status.ok()) {
+                throw new RuntimeException(status.getErrMsg());
+            }
+        }, executor));
     }
 
     @Override
@@ -395,7 +469,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         } catch (IOException e) {
-            LOG.error("errors while delete path " + remotePath);
+            LOG.warn("errors while delete path " + remotePath);
             return new Status(Status.ErrCode.COMMON_ERROR,
                     "failed to delete remote path: " + remotePath + ", msg: " + e.getMessage());
         }
@@ -433,7 +507,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             LOG.info("file not found: " + e.getMessage());
             return new Status(Status.ErrCode.NOT_FOUND, "file not found: " + e.getMessage());
         } catch (Exception e) {
-            LOG.error("errors while get file status ", e);
+            LOG.warn("errors while get file status ", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         LOG.info("finish list path {}", remotePath);
@@ -442,6 +516,56 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     public Status makeDir(String remotePath) {
-        return new Status(Status.ErrCode.COMMON_ERROR, "mkdir is not implemented.");
+        try {
+            FileSystem fileSystem = nativeFileSystem(remotePath);
+            if (!fileSystem.mkdirs(new Path(remotePath))) {
+                LOG.warn("failed to make dir for " + remotePath);
+                return new Status(Status.ErrCode.COMMON_ERROR, "failed to make dir for " + remotePath);
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to make dir for " + remotePath);
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
+    @Override
+    public Status listFiles(String remotePath, List<RemoteFile> result) {
+        RemoteIterator<LocatedFileStatus> iterator;
+        try {
+            FileSystem fileSystem = nativeFileSystem(remotePath);
+            Path dirPath = new Path(remotePath);
+            iterator = fileSystem.listFiles(dirPath, true);
+            while (iterator.hasNext()) {
+                LocatedFileStatus next = iterator.next();
+                String location = next.getPath().toString();
+                String child = location.substring(dirPath.toString().length());
+                while (child.startsWith("/")) {
+                    child = child.substring(1);
+                }
+                if (!child.contains("/")) {
+                    result.add(new RemoteFile(location, next.isFile(), next.getLen(), next.getBlockSize()));
+                }
+            }
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
+    @Override
+    public Status listDirectories(String remotePath, Set<String> result) {
+        try {
+            FileSystem fileSystem = nativeFileSystem(remotePath);
+            FileStatus[] fileStatuses = fileSystem.listStatus(new Path(remotePath));
+            result.addAll(
+                    Arrays.stream(fileStatuses)
+                        .filter(FileStatus::isDirectory)
+                        .map(file -> file.getPath().toString() + "/")
+                        .collect(ImmutableSet.toImmutableSet()));
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
     }
 }

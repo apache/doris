@@ -167,6 +167,9 @@ PREPARE_TRY_AGAIN:
 Status CloudCumulativeCompaction::execute_compact() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudCumulativeCompaction::execute_compact_impl",
                                       Status::OK(), this);
+
+    SCOPED_ATTACH_TASK(_mem_tracker);
+
     using namespace std::chrono;
     auto start = steady_clock::now();
     RETURN_IF_ERROR(CloudCompactionMixin::execute_compact());
@@ -197,8 +200,11 @@ Status CloudCumulativeCompaction::execute_compact() {
 Status CloudCumulativeCompaction::modify_rowsets() {
     // calculate new cumulative point
     int64_t input_cumulative_point = cloud_tablet()->cumulative_layer_point();
-    int64_t new_cumulative_point = _engine.cumu_compaction_policy()->new_cumulative_point(
-            cloud_tablet(), _output_rowset, _last_delete_version, input_cumulative_point);
+    auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
+    int64_t new_cumulative_point =
+            _engine.cumu_compaction_policy(compaction_policy)
+                    ->new_cumulative_point(cloud_tablet(), _output_rowset, _last_delete_version,
+                                           input_cumulative_point);
     // commit compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -230,8 +236,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator =
-                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
+        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
+                            std::numeric_limits<int64_t>::max();
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaciton(
                 _input_rowsets, _output_rowset, _rowid_conversion, compaction_type(),
                 _stats.merged_rows, initiator, output_rowset_delete_bitmap));
@@ -294,7 +300,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
 }
 
 void CloudCumulativeCompaction::garbage_collection() {
-    //file_cache_garbage_collection();
+    CloudCompactionMixin::garbage_collection();
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());
@@ -308,8 +314,8 @@ void CloudCumulativeCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::CUMULATIVE);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator =
-                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
+        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
+                            std::numeric_limits<int64_t>::max();
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
@@ -349,10 +355,12 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
     }
 
     size_t compaction_score = 0;
-    _engine.cumu_compaction_policy()->pick_input_rowsets(
-            cloud_tablet(), candidate_rowsets, config::cumulative_compaction_max_deltas,
-            config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
-            &compaction_score);
+    auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
+    _engine.cumu_compaction_policy(compaction_policy)
+            ->pick_input_rowsets(cloud_tablet(), candidate_rowsets,
+                                 config::cumulative_compaction_max_deltas,
+                                 config::cumulative_compaction_min_deltas, &_input_rowsets,
+                                 &_last_delete_version, &compaction_score);
 
     if (_input_rowsets.empty()) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");

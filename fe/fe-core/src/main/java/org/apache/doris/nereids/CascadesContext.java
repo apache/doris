@@ -42,6 +42,7 @@ import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -71,8 +72,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -91,13 +95,14 @@ import javax.annotation.Nullable;
  * Context used in memo.
  */
 public class CascadesContext implements ScheduleContext {
+    private static final Logger LOG = LogManager.getLogger(CascadesContext.class);
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
-    private final StatementContext statementContext;
+    private StatementContext statementContext;
 
     private final CTEContext cteContext;
     private final RuleSet ruleSet;
@@ -107,6 +112,7 @@ public class CascadesContext implements ScheduleContext {
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
+    private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
     private Map<Long, TableIf> tables = null;
 
@@ -128,6 +134,11 @@ public class CascadesContext implements ScheduleContext {
     // This list is used to listen the change event of the plan which
     // trigger by rule and show by `explain plan process` statement
     private final List<PlanProcess> planProcesses = new ArrayList<>();
+
+    // this field is modified by FoldConstantRuleOnFE, it matters current traverse
+    // into AggregateFunction with distinct, we can not fold constant in this case
+    private int distinctAggLevel;
+    private final boolean isEnableExprTrace;
 
     /**
      * Constructor of OptimizerContext.
@@ -151,6 +162,13 @@ public class CascadesContext implements ScheduleContext {
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.materializationContexts = new ArrayList<>();
+        if (statementContext.getConnectContext() != null) {
+            ConnectContext connectContext = statementContext.getConnectContext();
+            SessionVariable sessionVariable = connectContext.getSessionVariable();
+            this.isEnableExprTrace = sessionVariable != null && sessionVariable.isEnableExprTrace();
+        } else {
+            this.isEnableExprTrace = false;
+        }
     }
 
     /**
@@ -247,11 +265,15 @@ public class CascadesContext implements ScheduleContext {
         return memo;
     }
 
+    public void releaseMemo() {
+        this.memo = null;
+    }
+
     public void setTables(List<TableIf> tables) {
         this.tables = tables.stream().collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1));
     }
 
-    public ConnectContext getConnectContext() {
+    public final ConnectContext getConnectContext() {
         return statementContext.getConnectContext();
     }
 
@@ -278,6 +300,10 @@ public class CascadesContext implements ScheduleContext {
 
     public RuntimeFilterContext getRuntimeFilterContext() {
         return runtimeFilterContext;
+    }
+
+    public TopnFilterContext getTopnFilterContext() {
+        return topnFilterContext;
     }
 
     public void setCurrentJobContext(JobContext currentJobContext) {
@@ -357,12 +383,18 @@ public class CascadesContext implements ScheduleContext {
             return defaultValue;
         }
 
-        StatementContext statementContext = getStatementContext();
-        if (statementContext == null) {
-            return defaultValue;
-        }
-        return statementContext.getOrRegisterCache(cacheName,
+        return getStatementContext().getOrRegisterCache(cacheName,
                 () -> variableSupplier.apply(connectContext.getSessionVariable()));
+    }
+
+    /** getAndCacheDisableRules */
+    public final BitSet getAndCacheDisableRules() {
+        ConnectContext connectContext = getConnectContext();
+        StatementContext statementContext = getStatementContext();
+        if (connectContext == null || statementContext == null) {
+            return new BitSet();
+        }
+        return statementContext.getOrCacheDisableRules(connectContext.getSessionVariable());
     }
 
     private CascadesContext execute(Job job) {
@@ -706,5 +738,31 @@ public class CascadesContext implements ScheduleContext {
         } else {
             task.run();
         }
+    }
+
+    public void printPlanProcess() {
+        printPlanProcess(this.planProcesses);
+    }
+
+    public static void printPlanProcess(List<PlanProcess> planProcesses) {
+        for (PlanProcess row : planProcesses) {
+            LOG.info("RULE: " + row.ruleName + "\nBEFORE:\n" + row.beforeShape + "\nafter:\n" + row.afterShape);
+        }
+    }
+
+    public void incrementDistinctAggLevel() {
+        this.distinctAggLevel++;
+    }
+
+    public void decrementDistinctAggLevel() {
+        this.distinctAggLevel--;
+    }
+
+    public int getDistinctAggLevel() {
+        return distinctAggLevel;
+    }
+
+    public boolean isEnableExprTrace() {
+        return isEnableExprTrace;
     }
 }

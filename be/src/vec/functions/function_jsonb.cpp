@@ -1080,7 +1080,8 @@ struct JsonbLengthUtil {
         MutableColumnPtr res = return_type->create_column();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i)) {
+            if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i) ||
+                (jsonb_data_column->get_data_at(i).size == 0)) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
@@ -1100,7 +1101,7 @@ struct JsonbLengthUtil {
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
             JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
-            if (UNLIKELY(jsonb_value.size == 0 || !value)) {
+            if (UNLIKELY(!value)) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;

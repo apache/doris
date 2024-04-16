@@ -20,7 +20,6 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -63,8 +62,8 @@ private:
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
-    std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<ResultWriter> _writer;
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultWriter> _writer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };

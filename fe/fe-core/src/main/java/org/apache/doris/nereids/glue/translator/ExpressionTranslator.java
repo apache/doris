@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
@@ -608,6 +609,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
                 .collect(ImmutableList.toImmutableList());
         return Function.convertToUnionCombinator(
+                new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
+                        new FunctionParams(false, arguments)));
+    }
+
+    @Override
+    public Expr visitForEachCombinator(ForEachCombinator combinator, PlanTranslatorContext context) {
+        List<Expr> arguments = combinator.children().stream()
+                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
+                .collect(ImmutableList.toImmutableList());
+        return Function.convertForEachCombinator(
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
                         new FunctionParams(false, arguments)));
     }

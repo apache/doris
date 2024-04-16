@@ -18,7 +18,7 @@
 suite("test_analyze_mv") {
 
     def wait_mv_finish = { db, table ->
-        while(true) {
+        for (int loop = 0; loop < 300; loop++) {
             Thread.sleep(1000)
             boolean finished = true;
             def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db} WHERE tableName="${table}";"""
@@ -29,9 +29,10 @@ suite("test_analyze_mv") {
                 }
             }
             if (finished) {
-                break;
+                return;
             }
         }
+        throw new Exception("Wait mv finish timeout.")
     }
 
     def wait_row_count_reported = { db, table, expected ->
@@ -66,7 +67,7 @@ suite("test_analyze_mv") {
     }
 
     def wait_analyze_finish = { table ->
-        while(true) {
+        for (int loop = 0; loop < 300; loop++) {
             Thread.sleep(1000)
             boolean finished = true;
             def result = sql """SHOW ANALYZE ${table};"""
@@ -82,9 +83,10 @@ suite("test_analyze_mv") {
                 }
             }
             if (finished) {
-                break;
+                return;
             }
         }
+        throw new Exception("Wait analyze finish timeout.")
     }
 
     def verify_column_stats = { all_column_result, one_column_result ->
@@ -109,6 +111,7 @@ suite("test_analyze_mv") {
     sql """drop database if exists test_analyze_mv"""
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
+    sql """set global force_sample_analyze=false"""
 
     sql """CREATE TABLE mvTestDup (
             key1 bigint NOT NULL,
@@ -116,12 +119,12 @@ suite("test_analyze_mv") {
             value1 int NOT NULL,
             value2 int NOT NULL,
             value3 int NOT NULL
-        )ENGINE=OLAP 
+        )ENGINE=OLAP
         DUPLICATE KEY(`key1`, `key2`)
         COMMENT "OLAP"
         DISTRIBUTED BY HASH(`key1`) BUCKETS 2
         PROPERTIES (
-            "replication_num" = "1" 
+            "replication_num" = "1"
         )
     """
     sql """create materialized view mv1 as select key1 from mvTestDup;"""
@@ -143,7 +146,7 @@ suite("test_analyze_mv") {
     def result_sample = sql """show column stats mvTestDup(key1)"""
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestDup", result_sample[0][1])
     assertEquals("6.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("1", result_sample[0][7])
@@ -155,7 +158,7 @@ suite("test_analyze_mv") {
     result_sample = sql """show column stats mvTestDup(value1)"""
     assertEquals(1, result_sample.size())
     assertEquals("value1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestDup", result_sample[0][1])
     assertEquals("6.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("3", result_sample[0][7])
@@ -224,13 +227,13 @@ suite("test_analyze_mv") {
             key2 bigint NOT NULL,
             value1 int SUM NOT NULL,
             value2 int MAX NOT NULL,
-            value3 int MIN NOT NULL 
+            value3 int MIN NOT NULL
         )ENGINE=OLAP
         AGGREGATE KEY(`key1`, `key2`)
         COMMENT "OLAP"
         DISTRIBUTED BY HASH(`key1`) BUCKETS 2
         PROPERTIES (
-            "replication_num" = "1" 
+            "replication_num" = "1"
         );
     """
 
@@ -250,9 +253,9 @@ suite("test_analyze_mv") {
 
     result_sample = sql """show column stats mvTestAgg(key1)"""
     assertEquals(2, result_sample.size())
-    if (result_sample[0][1] == "N/A") {
+    if (result_sample[0][1] == "mvTestAgg") {
         assertEquals("key1", result_sample[0][0])
-        assertEquals("N/A", result_sample[0][1])
+        assertEquals("mvTestAgg", result_sample[0][1])
         assertEquals("5.0", result_sample[0][2])
         assertEquals("4.0", result_sample[0][3])
         assertEquals("1", result_sample[0][7])
@@ -265,7 +268,7 @@ suite("test_analyze_mv") {
         assertEquals("1001", result_sample[1][8])
     } else {
         assertEquals("key1", result_sample[1][0])
-        assertEquals("N/A", result_sample[1][1])
+        assertEquals("mvTestAgg", result_sample[1][1])
         assertEquals("5.0", result_sample[1][2])
         assertEquals("4.0", result_sample[1][3])
         assertEquals("1", result_sample[1][7])
@@ -280,9 +283,9 @@ suite("test_analyze_mv") {
 
     result_sample = sql """show column stats mvTestAgg(value1)"""
     assertEquals(2, result_sample.size())
-    if (result_sample[0][1] == "N/A") {
+    if (result_sample[0][1] == "mvTestAgg") {
         assertEquals("value1", result_sample[0][0])
-        assertEquals("N/A", result_sample[0][1])
+        assertEquals("mvTestAgg", result_sample[0][1])
         assertEquals("5.0", result_sample[0][2])
         assertEquals("5.0", result_sample[0][3])
         assertEquals("6", result_sample[0][7])
@@ -295,7 +298,7 @@ suite("test_analyze_mv") {
         assertEquals("3001", result_sample[1][8])
     } else {
         assertEquals("value1", result_sample[1][0])
-        assertEquals("N/A", result_sample[1][1])
+        assertEquals("mvTestAgg", result_sample[1][1])
         assertEquals("5.0", result_sample[1][2])
         assertEquals("5.0", result_sample[1][3])
         assertEquals("6", result_sample[1][7])
@@ -311,7 +314,7 @@ suite("test_analyze_mv") {
     result_sample = sql """show column stats mvTestAgg(key2)"""
     assertEquals(1, result_sample.size())
     assertEquals("key2", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestAgg", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("5.0", result_sample[0][3])
     assertEquals("2", result_sample[0][7])
@@ -321,7 +324,7 @@ suite("test_analyze_mv") {
     result_sample = sql """show column stats mvTestAgg(value2)"""
     assertEquals(1, result_sample.size())
     assertEquals("value2", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestAgg", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("5.0", result_sample[0][3])
     assertEquals("4", result_sample[0][7])
@@ -360,7 +363,7 @@ suite("test_analyze_mv") {
 
 
     sql """
-        CREATE TABLE mvTestUni ( 
+        CREATE TABLE mvTestUni (
             key1 bigint NOT NULL,
             key2 bigint NOT NULL,
             value1 int NOT NULL,
@@ -389,7 +392,7 @@ suite("test_analyze_mv") {
     result_sample = sql """show column stats mvTestUni(key1)"""
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestUni", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("1", result_sample[0][7])
@@ -442,7 +445,7 @@ suite("test_analyze_mv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestDup", result_sample[0][1])
     assertEquals("6.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("1", result_sample[0][7])
@@ -460,7 +463,7 @@ suite("test_analyze_mv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("value1", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mvTestDup", result_sample[0][1])
     assertEquals("6.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
     assertEquals("3", result_sample[0][7])
@@ -556,11 +559,11 @@ suite("test_analyze_mv") {
         logger.info("col " + colName + " in index " + indexName + " found ? " + found)
         assertTrue(found)
     }
-    verifyTaskStatus(result_sample, "key1", "N/A")
-    verifyTaskStatus(result_sample, "key2", "N/A")
-    verifyTaskStatus(result_sample, "value1", "N/A")
-    verifyTaskStatus(result_sample, "value2", "N/A")
-    verifyTaskStatus(result_sample, "value3", "N/A")
+    verifyTaskStatus(result_sample, "key1", "mvTestDup")
+    verifyTaskStatus(result_sample, "key2", "mvTestDup")
+    verifyTaskStatus(result_sample, "value1", "mvTestDup")
+    verifyTaskStatus(result_sample, "value2", "mvTestDup")
+    verifyTaskStatus(result_sample, "value3", "mvTestDup")
     verifyTaskStatus(result_sample, "mv_key1", "mv1")
     verifyTaskStatus(result_sample, "mv_key1", "mv3")
     verifyTaskStatus(result_sample, "mv_key2", "mv2")
@@ -578,7 +581,7 @@ suite("test_analyze_mv") {
     def result = sql """show column cached stats mvTestDup(key1)"""
     assertEquals(1, result.size())
     assertEquals("key1", result[0][0])
-    assertEquals("N/A", result[0][1])
+    assertEquals("mvTestDup", result[0][1])
     assertEquals("50.0", result[0][2])
     assertEquals("1.0", result[0][3])
     assertEquals("1.0", result[0][4])

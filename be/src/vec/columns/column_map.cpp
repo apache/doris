@@ -58,10 +58,12 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with key_column";
+            LOG(FATAL) << "offsets_column has data inconsistent with key_column "
+                       << keys_column->size() << " " << last_offset;
         }
         if (values_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with value_column";
+            LOG(FATAL) << "offsets_column has data inconsistent with value_column "
+                       << values_column->size() << " " << last_offset;
         }
     }
 }
@@ -455,18 +457,20 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
+bool ColumnMap::could_shrinked_column() {
+    return keys_column->could_shrinked_column() || values_column->could_shrinked_column();
+}
+
 MutableColumnPtr ColumnMap::get_shrinked_column() {
     MutableColumns new_columns(2);
 
-    if (keys_column->is_column_string() || keys_column->is_column_array() ||
-        keys_column->is_column_map() || keys_column->is_column_struct()) {
+    if (keys_column->could_shrinked_column()) {
         new_columns[0] = keys_column->get_shrinked_column();
     } else {
         new_columns[0] = keys_column->get_ptr();
     }
 
-    if (values_column->is_column_string() || values_column->is_column_array() ||
-        values_column->is_column_map() || values_column->is_column_struct()) {
+    if (values_column->could_shrinked_column()) {
         new_columns[1] = values_column->get_shrinked_column();
     } else {
         new_columns[1] = values_column->get_ptr();

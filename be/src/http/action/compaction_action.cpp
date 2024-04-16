@@ -49,9 +49,11 @@
 namespace doris {
 using namespace ErrorCode;
 
-namespace {}
+namespace {
 
-const static std::string HEADER_JSON = "application/json";
+constexpr std::string_view HEADER_JSON = "application/json";
+
+} // namespace
 
 CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
                                    StorageEngine& engine, TPrivilegeHier::type hier,
@@ -61,10 +63,10 @@ CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env
 /// check param and fetch tablet_id from req
 static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
     // req tablet id and table id, we have to set only one of them.
-    std::string req_tablet_id = req->param(TABLET_ID_KEY);
-    std::string req_table_id = req->param(TABLE_ID_KEY);
-    if (req_tablet_id == "") {
-        if (req_table_id == "") {
+    const auto& req_tablet_id = req->param(TABLET_ID_KEY);
+    const auto& req_table_id = req->param(TABLE_ID_KEY);
+    if (req_tablet_id.empty()) {
+        if (req_table_id.empty()) {
             // both tablet id and table id are empty, return error.
             return Status::InternalError(
                     "tablet id and table id can not be empty at the same time!");
@@ -76,18 +78,16 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* tabl
             }
             return Status::OK();
         }
-    } else {
-        if (req_table_id == "") {
-            try {
-                *tablet_id = std::stoull(req_tablet_id);
-            } catch (const std::exception& e) {
-                return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
-            }
-            return Status::OK();
-        } else {
-            // both tablet id and table id are not empty, return err.
-            return Status::InternalError("tablet id and table id can not be set at the same time!");
+    } else if (req_table_id.empty()) {
+        try {
+            *tablet_id = std::stoull(req_tablet_id);
+        } catch (const std::exception& e) {
+            return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
         }
+        return Status::OK();
+    } else {
+        // both tablet id and table id are not empty, return err.
+        return Status::InternalError("tablet id and table id can not be set at the same time!");
     }
 }
 
@@ -287,7 +287,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
 }
 
 void CompactionAction::handle(HttpRequest* req) {
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
 
     if (_type == CompactionActionType::SHOW_INFO) {
         std::string json_result;

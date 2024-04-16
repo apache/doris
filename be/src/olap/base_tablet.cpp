@@ -1162,16 +1162,16 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 
-    auto rowset_writer = DORIS_TRY(self->create_transient_rowset_writer(
-            *rowset, txn_info->partial_update_info, txn_expiration));
-
+    std::unique_ptr<RowsetWriter> transient_rs_writer;
     DeleteBitmapPtr delete_bitmap = txn_info->delete_bitmap;
-    // Partial update might generate new segments when there is conflicts while publish, and mark
-    // the same key in original segments as delete.
-    // When the new segment flush fails or the rowset build fails, the deletion marker for the
-    // duplicate key of the original segment should not remain in `txn_info->delete_bitmap`,
-    // so we need to make a copy of `txn_info->delete_bitmap` and make changes on it.
     if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+        transient_rs_writer = DORIS_TRY(self->create_transient_rowset_writer(
+                *rowset, txn_info->partial_update_info, txn_expiration));
+        // Partial update might generate new segments when there is conflicts while publish, and mark
+        // the same key in original segments as delete.
+        // When the new segment flush fails or the rowset build fails, the deletion marker for the
+        // duplicate key of the original segment should not remain in `txn_info->delete_bitmap`,
+        // so we need to make a copy of `txn_info->delete_bitmap` and make changes on it.
         delete_bitmap = std::make_shared<DeleteBitmap>(*(txn_info->delete_bitmap));
     }
 
@@ -1209,12 +1209,13 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
     // Otherwise, it will be submitted to the thread pool for calculation.
     if (segments.size() <= 1) {
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                           cur_version - 1, nullptr, rowset_writer.get()));
+                                           cur_version - 1, nullptr, transient_rs_writer.get()));
 
     } else {
         auto token = self->calc_delete_bitmap_executor()->create_token();
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                           cur_version - 1, token.get(), rowset_writer.get()));
+                                           cur_version - 1, token.get(),
+                                           transient_rs_writer.get()));
         RETURN_IF_ERROR(token->wait());
     }
 
@@ -1247,7 +1248,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
         self->_remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
 
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+    if (transient_rs_writer) {
         DBUG_EXECUTE_IF("Tablet.update_delete_bitmap.partial_update_write_rowset_fail", {
             if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
                 LOG_WARNING("Tablet.update_delete_bitmap.partial_update_write_rowset random failed")
@@ -1257,17 +1258,17 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
             }
         });
         // build rowset writer and merge transient rowset
-        RETURN_IF_ERROR(rowset_writer->flush());
+        RETURN_IF_ERROR(transient_rs_writer->flush());
         RowsetSharedPtr transient_rowset;
-        RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
-        rowset->merge_rowset_meta(transient_rowset->rowset_meta());
+        RETURN_IF_ERROR(transient_rs_writer->build(transient_rowset));
+        rowset->rowset_meta()->merge_rowset_meta(*transient_rowset->rowset_meta());
 
         // erase segment cache cause we will add a segment to rowset
         SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
     }
 
-    RETURN_IF_ERROR(self->save_delete_bitmap(txn_info, txn_id, delete_bitmap, rowset_writer.get(),
-                                             cur_rowset_ids));
+    RETURN_IF_ERROR(self->save_delete_bitmap(txn_info, txn_id, delete_bitmap,
+                                             transient_rs_writer.get(), cur_rowset_ids));
     return Status::OK();
 }
 
@@ -1373,6 +1374,88 @@ Status BaseTablet::check_rowid_conversion(
         }
     }
     return Status::OK();
+}
+
+// The caller should hold _rowset_update_lock and _meta_lock lock.
+Status BaseTablet::update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
+                                                     const RowsetSharedPtr& rowset) {
+    DBUG_EXECUTE_IF("Tablet.update_delete_bitmap_without_lock.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
+            LOG_WARNING("Tablet.update_delete_bitmap_without_lock.random_failed");
+            return Status::InternalError(
+                    "debug tablet update delete bitmap without lock random failed");
+        }
+    });
+    int64_t cur_version = rowset->end_version();
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    RETURN_IF_ERROR(std::dynamic_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
+
+    // If this rowset does not have a segment, there is no need for an update.
+    if (segments.empty()) {
+        LOG(INFO) << "[Schema Change or Clone] skip to construct delete bitmap tablet: "
+                  << self->tablet_id() << " cur max_version: " << cur_version;
+        return Status::OK();
+    }
+    RowsetIdUnorderedSet cur_rowset_ids;
+    RETURN_IF_ERROR(self->get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(self->tablet_id());
+    RETURN_IF_ERROR(self->calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
+
+    std::vector<RowsetSharedPtr> specified_rowsets = self->get_rowset_by_ids(&cur_rowset_ids);
+    OlapStopWatch watch;
+    auto token = self->calc_delete_bitmap_executor()->create_token();
+    RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
+                                       cur_version - 1, token.get()));
+    RETURN_IF_ERROR(token->wait());
+    size_t total_rows = std::accumulate(
+            segments.begin(), segments.end(), 0,
+            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    LOG(INFO) << "[Schema Change or Clone] construct delete bitmap tablet: " << self->tablet_id()
+              << ", rowset_ids: " << cur_rowset_ids.size() << ", cur max_version: " << cur_version
+              << ", transaction_id: " << -1 << ", cost: " << watch.get_elapse_time_us()
+              << "(us), total rows: " << total_rows;
+    if (config::enable_merge_on_write_correctness_check) {
+        // check if all the rowset has ROWSET_SENTINEL_MARK
+        auto st = self->check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
+                                                        cur_rowset_ids, &specified_rowsets);
+        if (!st.ok()) {
+            LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
+        }
+        self->_remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
+    }
+    for (auto& iter : delete_bitmap->delete_bitmap) {
+        self->_tablet_meta->delete_bitmap().merge(
+                {std::get<0>(iter.first), std::get<1>(iter.first), cur_version}, iter.second);
+    }
+
+    return Status::OK();
+}
+
+RowsetSharedPtr BaseTablet::get_rowset(const RowsetId& rowset_id) {
+    std::shared_lock rdlock(_meta_lock);
+    for (auto& version_rowset : _rs_version_map) {
+        if (version_rowset.second->rowset_id() == rowset_id) {
+            return version_rowset.second;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_id) {
+            return stale_version_rowset.second;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_rowset) const {
+    std::shared_lock rdlock(_meta_lock);
+    std::vector<RowsetSharedPtr> rowsets;
+    std::transform(_rs_version_map.cbegin(), _rs_version_map.cend(), std::back_inserter(rowsets),
+                   [](auto& kv) { return kv.second; });
+    if (include_stale_rowset) {
+        std::transform(_stale_rs_version_map.cbegin(), _stale_rs_version_map.cend(),
+                       std::back_inserter(rowsets), [](auto& kv) { return kv.second; });
+    }
+    return rowsets;
 }
 
 } // namespace doris

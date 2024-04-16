@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
@@ -36,6 +35,7 @@ public:
             : Base(state, parent) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
 
 private:

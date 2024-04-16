@@ -30,26 +30,6 @@ suite("test_grouping_sets_combination") {
         insert into mal_test1 values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6);
      """
 
-    sql "drop table if exists test_window_table2"
-
-    sql """
-        create table test_window_table2
-         (
-             a varchar(100) null,
-             b decimalv3(18,10) null,
-             c int,
-         ) ENGINE=OLAP
-         DUPLICATE KEY(a)
-         DISTRIBUTED BY HASH(a) BUCKETS 1
-         PROPERTIES (
-         "replication_allocation" = "tag.location.default: 1"
-         );
-    """
-
-    sql """
-        insert into test_window_table2 values("1", 1, 1),("1", 1, 2),("1", 2, 1),("1", 2, 2),("2", 11, 1),("2", 11, 2),("2", 12, 1),("2", 12, 2);
-    """
-
 
     sql """drop table if exists test_sql;"""
     sql """

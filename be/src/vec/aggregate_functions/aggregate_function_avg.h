@@ -140,7 +140,7 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
 #ifdef __clang__
 #pragma clang fp reassociate(on)

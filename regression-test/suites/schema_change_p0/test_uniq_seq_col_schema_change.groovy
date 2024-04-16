@@ -43,7 +43,9 @@ suite("test_uniq_seq_col_schema_change", "schema_change") {
         qt_sql "select * from ${tbName1} order by k1;"
 
         // alter and test light schema change
-        sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+        if (!isCloudMode()) {
+            sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+        }
 
         sql "ALTER TABLE ${tbName1} ADD COLUMN value4 INT;"
         qt_sql "select * from ${tbName1} order by k1;"

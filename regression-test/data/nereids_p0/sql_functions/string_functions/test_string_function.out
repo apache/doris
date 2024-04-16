@@ -171,6 +171,30 @@ ab d
 1,123.40
 
 -- !sql --
+1.12
+
+-- !sql_decimal32 --
+1.12
+
+-- !sql_decimal64 --
+1.12
+
+-- !sql_decimal64 --
+1.12
+
+-- !sql_decimal128 --
+1.12
+
+-- !sql_decimal128 --
+1.12
+
+-- !sql_float64 --
+1.12
+
+-- !sql_float64 --
+1.12
+
+-- !sql --
 true
 
 -- !sql --

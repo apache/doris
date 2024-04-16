@@ -47,6 +47,14 @@ suite("view_authorization") {
     sql "grant SELECT_PRIV on ${db}.${view1} to '${user1}'@'%';"
     sql "grant SELECT_PRIV on ${db}.${view3} to '${user1}'@'%';"
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
+    }    
+
     sql 'sync'
 
     def defaultDbUrl = context.config.jdbcUrl.substring(0, context.config.jdbcUrl.lastIndexOf("/"))

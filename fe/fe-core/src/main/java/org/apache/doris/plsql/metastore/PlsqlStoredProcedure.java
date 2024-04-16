@@ -51,14 +51,22 @@ public class PlsqlStoredProcedure implements Writable {
     @SerializedName(value = "source")
     private String source;
 
+    @SerializedName(value = "createTime")
+    private String createTime;
+
+    @SerializedName(value = "modifyTime")
+    private String modifyTime;
+
     public TPlsqlStoredProcedure toThrift() {
         return new TPlsqlStoredProcedure().setName(name).setCatalogId(catalogId).setDbId(dbId)
-                .setPackageName(packageName).setOwnerName(ownerName).setSource(source);
+                .setPackageName(packageName).setOwnerName(ownerName).setSource(source)
+                .setCreateTime(createTime).setModifyTime(modifyTime);
     }
 
     public static PlsqlStoredProcedure fromThrift(TPlsqlStoredProcedure procedure) {
         return new PlsqlStoredProcedure(procedure.getName(), procedure.getCatalogId(), procedure.getDbId(),
-                procedure.getPackageName(), procedure.getOwnerName(), procedure.source);
+                procedure.getPackageName(), procedure.getOwnerName(), procedure.source,
+                procedure.getCreateTime(), procedure.getModifyTime());
     }
 
     @Override

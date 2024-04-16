@@ -100,7 +100,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // children should have been folded at this point.
         for (Expr child : expr.getChildren()) {
             if (!child.isLiteral() && !(child instanceof CastExpr) && !((child instanceof FunctionCallExpr
-                    || child instanceof ArithmeticExpr || child instanceof TimestampArithmeticExpr))) {
+                    || child instanceof ArithmeticExpr || child instanceof TimestampArithmeticExpr
+                    || child instanceof VariableExpr))) {
                 return expr;
             }
         }
@@ -383,6 +384,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             tParams.setVecExec(true);
             tParams.setQueryOptions(tQueryOptions);
             tParams.setQueryId(context.queryId());
+            tParams.setIsNereids(false);
 
             Future<InternalService.PConstantExprResult> future
                     = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);

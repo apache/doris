@@ -19,7 +19,6 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -36,6 +35,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -66,7 +66,7 @@ public class Group {
 
     // Map of cost lower bounds
     // Map required plan props to cost lower bound of corresponding plan
-    private final Map<PhysicalProperties, Pair<Cost, GroupExpression>> lowestCostPlans = Maps.newHashMap();
+    private final Map<PhysicalProperties, Pair<Cost, GroupExpression>> lowestCostPlans = Maps.newLinkedHashMap();
 
     private boolean isExplored = false;
 
@@ -77,6 +77,8 @@ public class Group {
     private int chosenGroupExpressionId = -1;
 
     private List<StructInfo> structInfos = new ArrayList<>();
+
+    private StructInfoMap structInfoMap = new StructInfoMap();
 
     /**
      * Constructor for Group.
@@ -225,6 +227,12 @@ public class Group {
             chosenGroupExpressionId = costAndGroupExpression.get().second.getId().asInt();
         }
         return costAndGroupExpression;
+    }
+
+    public Map<PhysicalProperties, Cost> getLowestCosts() {
+        return lowestCostPlans.entrySet()
+                .stream()
+                .collect(ImmutableMap.toImmutableMap(Entry::getKey, kv -> kv.getValue().first));
     }
 
     public GroupExpression getBestPlan(PhysicalProperties properties) {
@@ -418,8 +426,8 @@ public class Group {
         return false;
     }
 
-    public List<HyperGraph> getHyperGraphs() {
-        return new ArrayList<>();
+    public StructInfoMap getstructInfoMap() {
+        return structInfoMap;
     }
 
     public boolean isProjectGroup() {
@@ -488,9 +496,18 @@ public class Group {
     public String treeString() {
         Function<Object, String> toString = obj -> {
             if (obj instanceof Group) {
-                return "Group[" + ((Group) obj).groupId + "]";
+                Group group = (Group) obj;
+                Map<PhysicalProperties, Cost> lowestCosts = group.getLowestCosts();
+                return "Group[" + group.groupId + ", lowestCosts: " + lowestCosts + "]";
             } else if (obj instanceof GroupExpression) {
-                return ((GroupExpression) obj).getPlan().toString();
+                GroupExpression groupExpression = (GroupExpression) obj;
+                Map<PhysicalProperties, Pair<Cost, List<PhysicalProperties>>> lowestCostTable
+                        = groupExpression.getLowestCostTable();
+                Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap
+                        = groupExpression.getRequestPropertiesMap();
+                Cost cost = groupExpression.getCost();
+                return groupExpression.getPlan().toString() + " [cost: " + cost + ", lowestCostTable: "
+                        + lowestCostTable + ", requestPropertiesMap: " + requestPropertiesMap + "]";
             } else if (obj instanceof Pair) {
                 // print logicalExpressions or physicalExpressions
                 // first is name, second is group expressions

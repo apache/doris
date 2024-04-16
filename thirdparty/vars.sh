@@ -253,10 +253,10 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-13.0.0.tar.gz"
-ARROW_NAME="apache-arrow-13.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-13.0.0"
-ARROW_MD5SUM="8ec1ec6a119514bcaea1cf7aabc9df1f"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-15.0.2.tar.gz"
+ARROW_NAME="apache-arrow-15.0.2.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-15.0.2"
+ARROW_MD5SUM="d5d051b2698be901e5ad84e36d64e7ab"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
@@ -313,7 +313,7 @@ JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # libunwind
-LIBUNWIND_DOWNLOAD="http://download.savannah.nongnu.org/releases/libunwind/libunwind-1.6.2.tar.gz"
+LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"
 LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
 LIBUNWIND_SOURCE="libunwind-1.6.2"
 LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
@@ -508,6 +508,12 @@ ALI_SDK_NAME="1.36.1586.tar.gz"
 ALI_SDK_SOURCE="aliyun-openapi-cpp-sdk-1.36.1586"
 ALI_SDK_MD5SUM="14623ee8e87c89615477d9bf8cb30bea"
 
+# base64
+BASE64_DOWNLOAD="https://github.com/aklomp/base64/archive/refs/tags/v0.5.2.tar.gz"
+BASE64_NAME="v0.5.2.tar.gz"
+BASE64_SOURCE="base64-0.5.2"
+BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -583,6 +589,7 @@ export TP_ARCHIVES=(
     'JSONCPP'
     'LIBUUID'
     'ALI_SDK'
+    'BASE64'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

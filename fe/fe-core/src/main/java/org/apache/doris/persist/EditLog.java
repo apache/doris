@@ -38,6 +38,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -479,6 +481,11 @@ public class EditLog {
                     env.getAuth().replayCreateRole(privInfo);
                     break;
                 }
+                case OperationType.OP_ALTER_ROLE: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    env.getAuth().replayAlterRole(privInfo);
+                    break;
+                }
                 case OperationType.OP_DROP_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     env.getAuth().replayDropRole(privInfo);
@@ -801,7 +808,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
-                case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
@@ -943,7 +950,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshCatalog(log);
+                    env.getRefreshManager().replayRefreshCatalog(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
@@ -1009,7 +1016,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalDb(log);
+                    env.getRefreshManager().replayRefreshDb(log);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
@@ -1019,7 +1026,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalTable(log);
+                    env.getRefreshManager().replayRefreshTable(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_TABLE: {
@@ -1193,6 +1200,16 @@ public class EditLog {
                 }
                 case OperationType.OP_LOG_ALTER_COLUMN_STATS: {
                     // TODO: implement this while statistics finished related work.
+                    break;
+                }
+                case OperationType.OP_UPDATE_CLOUD_REPLICA: {
+                    UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
+                    ((CloudEnv) env).replayUpdateCloudReplica(info);
+                    break;
+                }
+                case OperationType.OP_MODIFY_TTL_SECONDS:
+                case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
+                    // TODO: support cloud replated operation type.
                     break;
                 }
                 default: {
@@ -1504,6 +1521,10 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_ROLE, info);
     }
 
+    public void logAlterRole(PrivInfo info) {
+        logEdit(OperationType.OP_ALTER_ROLE, info);
+    }
+
     public void logDropRole(PrivInfo info) {
         logEdit(OperationType.OP_DROP_ROLE, info);
     }
@@ -1546,6 +1567,10 @@ public class EditLog {
 
     public void logExportCreate(ExportJob job) {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
+    }
+
+    public void logUpdateCloudReplica(UpdateCloudReplicaInfo info) {
+        logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, info);
     }
 
     public void logExportUpdateState(long jobId, ExportJobState newState) {
@@ -1816,8 +1841,8 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM, info);
     }
 
-    public long logModifyInMemory(ModifyTablePropertyOperationLog info) {
-        return logModifyTableProperty(OperationType.OP_MODIFY_IN_MEMORY, info);
+    public long logModifyTableProperties(ModifyTablePropertyOperationLog info) {
+        return logModifyTableProperty(OperationType.OP_MODIFY_TABLE_PROPERTIES, info);
     }
 
     public long logUpdateBinlogConfig(ModifyTablePropertyOperationLog info) {

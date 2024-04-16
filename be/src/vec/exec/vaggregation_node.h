@@ -41,7 +41,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_vector_helper.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/allocator.h"
 #include "vec/common/arena.h"
@@ -417,9 +416,15 @@ public:
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
     Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
+    bool is_probe_expr_ctxs_empty() const { return _probe_expr_ctxs.empty(); }
     bool is_streaming_preagg() const { return _is_streaming_preagg; }
     bool is_aggregate_evaluators_empty() const { return _aggregate_evaluators.empty(); }
     void _make_nullable_output_key(Block* block);
+    /// Return true if we should keep expanding hash tables in the preagg. If false,
+    /// the preagg should pass through any rows it can't fit in its tables.
+    bool _should_expand_preagg_hash_tables();
+
+    TupleDescriptor* agg_output_desc() { return _output_tuple_desc; }
 
 protected:
     bool _is_streaming_preagg;
@@ -498,14 +503,11 @@ private:
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
     void _release_self_resource(RuntimeState* state);
-    /// Return true if we should keep expanding hash tables in the preagg. If false,
-    /// the preagg should pass through any rows it can't fit in its tables.
-    bool _should_expand_preagg_hash_tables();
 
     size_t _get_hash_table_size();
 
     Status _create_agg_status(AggregateDataPtr data);
-    Status _destroy_agg_status(AggregateDataPtr data);
+    void _destroy_agg_status(AggregateDataPtr data);
 
     Status _get_without_key_result(RuntimeState* state, Block* block, bool* eos);
     Status _serialize_without_key(RuntimeState* state, Block* block, bool* eos);

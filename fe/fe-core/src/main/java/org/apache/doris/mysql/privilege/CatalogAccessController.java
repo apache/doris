@@ -21,6 +21,8 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthorizationException;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public interface CatalogAccessController {
@@ -77,4 +79,9 @@ public interface CatalogAccessController {
 
     // ==== Cloud ====
     boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted, ResourceTypeEnum type);
+
+    Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+            String col);
+
+    List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db, String tbl);
 }

@@ -147,7 +147,7 @@ private:
 
                 if (is_decimal) {
                     DecimalV2Value decimal_value =
-                            (DecimalV2Value)(src_data_concrete->get_data()[j]);
+                            (DecimalV2Value)(int128_t(src_data_concrete->get_data()[j]));
                     std::string decimal_str = decimal_value.to_string();
                     _fill_result_string(decimal_str, sep_str, result_str, is_first_elem);
                 } else {

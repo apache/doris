@@ -23,29 +23,19 @@ import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import sun.management.VMManagement;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
-import java.lang.management.RuntimeMXBean;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.LinkedList;
 import java.util.List;
 
 public class Utils {
     public static long getCurrentProcId() {
         try {
-            RuntimeMXBean mxbean = ManagementFactory.getRuntimeMXBean();
-            Field jvmField = mxbean.getClass().getDeclaredField("jvm");
-            jvmField.setAccessible(true);
-            VMManagement management = (VMManagement) jvmField.get(mxbean);
-            Method method = management.getClass().getDeclaredMethod("getProcessId");
-            method.setAccessible(true);
-            return (long) (Integer) method.invoke(management);
+            return ManagementFactory.getRuntimeMXBean().getPid();
         } catch (Exception e) {
             throw new RuntimeException("Couldn't find PID of current JVM process.", e);
         }

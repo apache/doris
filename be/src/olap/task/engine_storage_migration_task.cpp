@@ -53,6 +53,8 @@ EngineStorageMigrationTask::EngineStorageMigrationTask(StorageEngine& engine,
                                                        TabletSharedPtr tablet, DataDir* dest_store)
         : _engine(engine), _tablet(std::move(tablet)), _dest_store(dest_store) {
     _task_start_time = time(nullptr);
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "EngineStorageMigrationTask");
 }
 
 EngineStorageMigrationTask::~EngineStorageMigrationTask() = default;
@@ -312,7 +314,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
-        static_cast<void>(io::global_local_filesystem()->delete_directory(full_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(full_path));
     }
     return res;
 }

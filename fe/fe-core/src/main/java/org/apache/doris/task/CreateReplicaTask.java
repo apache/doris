@@ -31,6 +31,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
@@ -89,6 +90,8 @@ public class CreateReplicaTask extends AgentTask {
     // TODO should unify the naming of v1(alpha rowset), v2(beta rowset), it is very confused to read code
     private TStorageFormat storageFormat = TStorageFormat.V2;
 
+    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.V1;
+
     // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
     private boolean isRecoverTask = false;
 
@@ -112,6 +115,8 @@ public class CreateReplicaTask extends AgentTask {
     private long timeSeriesCompactionTimeThresholdSeconds;
 
     private long timeSeriesCompactionEmptyRowsetsThreshold;
+
+    private long timeSeriesCompactionLevelThreshold;
 
     private boolean storeRowColumn;
 
@@ -137,6 +142,7 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionFileCountThreshold,
                              long timeSeriesCompactionTimeThresholdSeconds,
                              long timeSeriesCompactionEmptyRowsetsThreshold,
+                             long timeSeriesCompactionLevelThreshold,
                              boolean storeRowColumn,
                              BinlogConfig binlogConfig) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
@@ -179,6 +185,7 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
         this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
         this.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
+        this.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
     }
@@ -227,6 +234,10 @@ public class CreateReplicaTask extends AgentTask {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
+        this.invertedIndexStorageFormat = invertedIndexStorageFormat;
     }
 
     public void setClusterKeyIndexes(List<Integer> clusterKeyIndexes) {
@@ -325,6 +336,9 @@ public class CreateReplicaTask extends AgentTask {
             createTabletReq.setStorageFormat(storageFormat);
         }
 
+        if (invertedIndexStorageFormat != null) {
+            createTabletReq.setInvertedIndexStorageFormat(invertedIndexStorageFormat);
+        }
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
@@ -333,6 +347,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
+        createTabletReq.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
 
         if (binlogConfig != null) {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());

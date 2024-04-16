@@ -49,6 +49,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
@@ -165,8 +166,8 @@ Status RowsetBuilder::check_tablet_version_count() {
 }
 
 Status RowsetBuilder::prepare_txn() {
-    std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::try_to_lock);
-    if (!base_migration_lock.owns_lock()) {
+    std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::defer_lock);
+    if (!base_migration_lock.try_lock_for(std::chrono::milliseconds(30))) {
         return Status::Error<TRY_LOCK_FAILED>("try migration lock failed");
     }
     std::lock_guard<std::mutex> push_lock(tablet()->get_push_lock());
@@ -188,6 +189,12 @@ Status RowsetBuilder::init() {
 
     RETURN_IF_ERROR(prepare_txn());
 
+    DBUG_EXECUTE_IF("BaseRowsetBuilder::init.check_partial_update_column_num", {
+        if (_req.table_schema_param->partial_update_input_columns().size() !=
+            dp->param<int>("column_num")) {
+            return Status::InternalError("partial update input column num wrong!");
+        };
+    })
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                  *_tablet->tablet_schema());
@@ -197,7 +204,6 @@ Status RowsetBuilder::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
-    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _req.tablet_id;
     context.index_id = _req.index_id;
@@ -374,7 +380,8 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
     _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
                                table_schema_param->partial_update_input_columns(),
-                               table_schema_param->is_strict_mode());
+                               table_schema_param->is_strict_mode(),
+                               table_schema_param->timestamp_ms(), table_schema_param->timezone());
 }
 
 } // namespace doris

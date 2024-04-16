@@ -49,6 +49,7 @@ Usage: $0 <options>
      --run              build and run all ut
      --coverage         coverage after run ut
      --run --filter=xx  build and run specified ut
+     --fdb              run with a specific fdb connection string, e.g fdb_cluster0:cluster0@192.168.1.100:4500
      -j                 build parallel
      -h                 print this help message
 
@@ -61,6 +62,8 @@ Usage: $0 <options>
     $0 --run --filter=-*DeathTest.*                                 runs all non-death tests
     $0 --run --filter=FooTest.*-FooTest.Bar                         runs everything in test suite FooTest except FooTest.Bar
     $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo   runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
+    $0 --run --fdb=fdb_cluster0:cluster0@192.168.1.100:4500         run with specific fdb
+    $0 --run --coverage                                             run with coverage report
     $0 --clean                                                      clean and build tests
     $0 --clean --run                                                clean, build and run all tests
     "
@@ -129,8 +132,11 @@ CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
+    FILTER              -- ${FILTER}
+    COVERAGE            -- ${ENABLE_CLANG_COVERAGE}
+    FDB                 -- ${FDB}
 "
-echo "Build SelectDB Cloud UT"
+echo "Build Doris Cloud UT"
 
 if [[ "_${ENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     sed -i "s/DORIS_TOOLCHAIN=gcc/DORIS_TOOLCHAIN=clang/g" env.sh
@@ -180,6 +186,14 @@ find . -name "*.gcda" -exec rm {} \;
 "${BUILD_SYSTEM}" install
 
 mkdir -p "${CMAKE_BUILD_DIR}/test/log"
+
+# prepare java jars
+LIB_DIR="${CMAKE_BUILD_DIR}/test/lib"
+rm -rf "${LIB_DIR}"
+mkdir "${LIB_DIR}"
+if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
+    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+fi
 
 if [[ "${RUN}" -ne 1 ]]; then
     echo "Finished"

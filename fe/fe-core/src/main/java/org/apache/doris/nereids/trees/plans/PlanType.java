@@ -27,6 +27,7 @@ public enum PlanType {
 
     // logical plans
     // logical relations
+    LOGICAL_SQL_CACHE,
     LOGICAL_BOUND_RELATION,
     LOGICAL_CTE_CONSUMER,
     LOGICAL_FILE_SCAN,
@@ -46,8 +47,10 @@ public enum PlanType {
     // logical sinks
     LOGICAL_FILE_SINK,
     LOGICAL_OLAP_TABLE_SINK,
+    LOGICAL_HIVE_TABLE_SINK,
     LOGICAL_RESULT_SINK,
     LOGICAL_UNBOUND_OLAP_TABLE_SINK,
+    LOGICAL_UNBOUND_HIVE_TABLE_SINK,
     LOGICAL_UNBOUND_RESULT_SINK,
 
     // logical others
@@ -81,6 +84,7 @@ public enum PlanType {
 
     // physical plans
     // physical relations
+    PHYSICAL_SQL_CACHE,
     PHYSICAL_CTE_CONSUMER,
     PHYSICAL_EMPTY_RELATION,
     PHYSICAL_ES_SCAN,
@@ -144,5 +148,8 @@ public enum PlanType {
     CANCEL_MTMV_TASK_COMMAND,
     CALL_COMMAND,
     CREATE_PROCEDURE_COMMAND,
-    DROP_PROCEDURE_COMMAND
+    DROP_PROCEDURE_COMMAND,
+    SHOW_PROCEDURE_COMMAND,
+    SHOW_CREATE_PROCEDURE_COMMAND,
+    CREATE_VIEW_COMMAND
 }

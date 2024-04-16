@@ -34,6 +34,6 @@ public class LogicalRepeatToPhysicalRepeat extends OneImplementationRuleFactory 
                 repeat.getLogicalProperties(),
                 repeat.child()
             )
-        ).toRule(RuleType.LOGICAL_TOP_N_TO_PHYSICAL_TOP_N_RULE);
+        ).toRule(RuleType.LOGICAL_REPEAT_TO_PHYSICAL_REPEAT_RULE);
     }
 }

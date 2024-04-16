@@ -74,6 +74,7 @@ suite("test_set_operators", "query,p0,arrow_flight_sql") {
     sql """insert into t2 values('6',5,3,4);"""
     sql """insert into t2 values('9',8,0,7);"""
 
+    sql 'sync'
     order_qt_select """
         select
             col1

@@ -30,12 +30,10 @@ public class InferTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                    logicalProject(
                         innerLogicalJoin(
                             logicalFilter().when(f -> f.getPredicate().toString().equals("(id#0 = 4)")),
                             logicalFilter().when(f -> f.getPredicate().toString().equals("(id#2 = 4)"))
                         )
-                    )
                 );
     }
 
@@ -66,7 +64,6 @@ public class InferTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                    logicalProject(
                         logicalFilter(
                             leftOuterLogicalJoin(
                                 logicalFilter().when(
@@ -75,7 +72,6 @@ public class InferTest extends SqlTestBase {
                             )
                         ).when(f -> f.getPredicate().toString()
                                 .equals("((id#0 = 4) OR ((id#0 > 4) AND score#3 IS NULL))"))
-                    )
                 );
     }
 

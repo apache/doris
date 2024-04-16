@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // to describe the key list partition's information in create table stmt
 public class ListPartitionDesc extends PartitionDesc {
@@ -37,6 +38,9 @@ public class ListPartitionDesc extends PartitionDesc {
         super(partitionColNames, allPartitionDescs);
         type = PartitionType.LIST;
         this.isAutoCreatePartitions = false;
+        this.partitionExprs = new ArrayList<>(partitionColNames.stream()
+            .map(col -> new SlotRef(null, col))
+            .collect(Collectors.toList()));
     }
 
     public ListPartitionDesc(ArrayList<Expr> exprs, List<String> partitionColNames,
@@ -52,7 +56,7 @@ public class ListPartitionDesc extends PartitionDesc {
 
     public static ListPartitionDesc createListPartitionDesc(ArrayList<Expr> exprs,
             List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
-        List<String> colNames = getColNamesFromExpr(exprs, true);
+        List<String> colNames = getColNamesFromExpr(exprs, true, true);
         return new ListPartitionDesc(exprs, colNames, allPartitionDescs);
     }
 
@@ -68,12 +72,12 @@ public class ListPartitionDesc extends PartitionDesc {
         StringBuilder sb = new StringBuilder();
         sb.append("PARTITION BY LIST(");
         int idx = 0;
-        for (String column : partitionColNames) {
-            if (idx != 0) {
+        for (Expr e : partitionExprs) {
+            if (idx > 0) {
                 sb.append(", ");
             }
-            sb.append("`").append(column).append("`");
             idx++;
+            sb.append(e.toSql());
         }
         sb.append(")\n(\n");
 

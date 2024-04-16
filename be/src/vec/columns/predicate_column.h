@@ -429,14 +429,12 @@ public:
         __builtin_unreachable();
     }
 
-    [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                                        const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "scatter not supported in PredicateColumnType";
-        __builtin_unreachable();
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
     }
 

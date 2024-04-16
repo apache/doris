@@ -52,12 +52,12 @@ public:
     Schema(TabletSchemaSPtr tablet_schema) {
         size_t num_columns = tablet_schema->num_columns();
         // ignore this column
-        if (tablet_schema->columns().back().name() == BeConsts::ROW_STORE_COL) {
+        if (tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
             --num_columns;
         }
         std::vector<ColumnId> col_ids(num_columns);
         _unique_ids.resize(num_columns);
-        std::vector<TabletColumn> columns;
+        std::vector<TabletColumnPtr> columns;
         columns.reserve(num_columns);
 
         size_t num_key_columns = 0;
@@ -74,7 +74,7 @@ public:
             if (column.name() == VERSION_COL) {
                 _version_col_idx = cid;
             }
-            columns.push_back(column);
+            columns.push_back(std::make_shared<TabletColumn>(column));
         }
         _delete_sign_idx = tablet_schema->delete_sign_idx();
         if (tablet_schema->has_sequence_col()) {
@@ -84,34 +84,34 @@ public:
     }
 
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
-    Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
+    Schema(const std::vector<TabletColumnPtr>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());
         for (size_t i = 0; i < columns.size(); ++i) {
-            if (columns[i].is_key()) {
+            if (columns[i]->is_key()) {
                 ++num_key_columns;
             }
-            if (columns[i].name() == DELETE_SIGN) {
+            if (columns[i]->name() == DELETE_SIGN) {
                 _delete_sign_idx = i;
             }
-            if (columns[i].name() == BeConsts::ROWID_COL) {
+            if (columns[i]->name() == BeConsts::ROWID_COL) {
                 _rowid_col_idx = i;
             }
-            if (columns[i].name() == VERSION_COL) {
+            if (columns[i]->name() == VERSION_COL) {
                 _version_col_idx = i;
             }
-            _unique_ids[i] = columns[i].unique_id();
+            _unique_ids[i] = columns[i]->unique_id();
         }
         _init(columns, col_ids, num_key_columns);
     }
 
     // Only for UT
-    Schema(const std::vector<TabletColumn>& columns, size_t num_key_columns) {
+    Schema(const std::vector<TabletColumnPtr>& columns, size_t num_key_columns) {
         std::vector<ColumnId> col_ids(columns.size());
         _unique_ids.resize(columns.size());
         for (uint32_t cid = 0; cid < columns.size(); ++cid) {
             col_ids[cid] = cid;
-            _unique_ids[cid] = columns[cid].unique_id();
+            _unique_ids[cid] = columns[cid]->unique_id();
         }
 
         _init(columns, col_ids, num_key_columns);
@@ -183,7 +183,7 @@ public:
     int64_t mem_size() const { return _mem_size; }
 
 private:
-    void _init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,
+    void _init(const std::vector<TabletColumnPtr>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
     void _init(const std::vector<const Field*>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);

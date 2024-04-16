@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
@@ -69,6 +70,8 @@ public abstract class LoadTask extends MasterTask {
     protected TaskAttachment attachment;
     protected FailMsg failMsg = new FailMsg();
     protected int retryTime = 1;
+    private volatile boolean done = false;
+    protected long startTimeMs = 0;
     protected final Priority priority;
 
     public LoadTask(LoadTaskCallback callback, TaskType taskType, Priority priority) {
@@ -82,6 +85,17 @@ public abstract class LoadTask extends MasterTask {
     protected void exec() {
         boolean isFinished = false;
         try {
+            if (Config.isCloudMode()) {
+                while (startTimeMs > System.currentTimeMillis()) {
+                    try {
+                        Thread.sleep(1000);
+                        LOG.info("LoadTask:{} backoff startTimeMs:{} now:{}",
+                                signature, startTimeMs, System.currentTimeMillis());
+                    } catch (InterruptedException e) {
+                        LOG.info("ignore InterruptedException: ", e);
+                    }
+                }
+            }
             // execute pending task
             executeTask();
             // callback on pending task finished
@@ -100,6 +114,7 @@ public abstract class LoadTask extends MasterTask {
                 // callback on pending task failed
                 callback.onTaskFailed(signature, failMsg);
             }
+            done = true;
         }
     }
 
@@ -129,6 +144,14 @@ public abstract class LoadTask extends MasterTask {
 
     public TaskType getTaskType() {
         return taskType;
+    }
+
+    public boolean isDone() {
+        return done;
+    }
+
+    public void setStartTimeMs(long startTimeMs) {
+        this.startTimeMs = startTimeMs;
     }
 
     public int getPriorityValue() {

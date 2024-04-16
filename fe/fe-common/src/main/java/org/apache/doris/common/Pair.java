@@ -43,6 +43,10 @@ public class Pair<F, S> {
         this.second = second;
     }
 
+    public static <P, K extends P> Pair<K, K> ofSame(K same) {
+        return new Pair<>(same, same);
+    }
+
     public static <F, S> Pair<F, S> of(F first, S second) {
         return new Pair<>(first, second);
     }

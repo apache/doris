@@ -46,6 +46,11 @@ public:
     QuantileState();
     explicit QuantileState(float compression);
     explicit QuantileState(const Slice& slice);
+    QuantileState& operator=(const QuantileState& other) noexcept = default;
+    QuantileState(const QuantileState& other) noexcept = default;
+    QuantileState& operator=(QuantileState&& other) noexcept = default;
+    QuantileState(QuantileState&& other) noexcept = default;
+
     void set_compression(float compression);
     bool deserialize(const Slice& slice);
     size_t serialize(uint8_t* dst) const;

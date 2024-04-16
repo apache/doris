@@ -22,7 +22,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[web_page] apply RFs: RF7
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF4 cd_marital_status->[cd_marital_status];RF5 cd_education_status->[cd_education_status];RF6 wr_returning_cdemo_sk->[cd_demo_sk]
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF4 wr_returning_cdemo_sk->[cd_demo_sk];RF5 cd_marital_status->[cd_marital_status];RF6 cd_education_status->[cd_education_status]
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF4 RF5 RF6
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]

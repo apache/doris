@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -34,7 +33,7 @@ import com.google.common.collect.ImmutableList;
 // show data skew from tbl [partition(p1, p2, ...)]
 public class ShowDataSkewStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BucketIdx").add("AvgRowCount").add("AvgDataSize")
+            .add("PartitionName").add("BucketIdx").add("AvgRowCount").add("AvgDataSize")
             .add("Graph").add("Percent")
             .build();
 
@@ -50,17 +49,14 @@ public class ShowDataSkewStmt extends ShowStmt {
         tblRef.getName().analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(tblRef.getName().getCtl(), this.getClass().getSimpleName());
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
-                tblRef.getName().getTbl(),
-                PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tblRef.getName().getCtl(), tblRef.getName().getDb(),
+                        tblRef.getName().getTbl(),
+                        PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA SKEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     tblRef.getName().getDb() + "." + tblRef.getName().getTbl());
-        }
-        PartitionNames partitionNames = tblRef.getPartitionNames();
-        if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
-            throw new AnalysisException("Should specify one and only one partition");
         }
     }
 

@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.analyzer.ComplexDataType;
 
 import java.util.Objects;
 
 /**
  * Array type in Nereids.
  */
-public class ArrayType extends DataType {
+public class ArrayType extends DataType implements ComplexDataType {
 
     public static final ArrayType SYSTEM_DEFAULT = new ArrayType(NullType.INSTANCE, true);
 

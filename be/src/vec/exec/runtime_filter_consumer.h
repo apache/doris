@@ -38,15 +38,18 @@ public:
 
     bool runtime_filters_are_ready_or_timeout();
 
-    void init_runtime_filter_dependency(doris::pipeline::RuntimeFilterDependency*);
+    void init_runtime_filter_dependency(
+            std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
+                    runtime_filter_dependencies,
+            const int id, const int node_id, const std::string& name);
 
 protected:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter(bool need_local_merge);
     // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter();
+    Status _acquire_runtime_filter(bool pipeline_x);
     // Append late-arrival runtime filters to the vconjunct_ctx.
-    Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
+    Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
 
     void _init_profile(RuntimeProfile* profile);
 
@@ -54,10 +57,11 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
+        RuntimeFilterContext(IRuntimeFilter* rf) : runtime_filter(rf) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
-        bool apply_mark;
+        bool apply_mark = false;
         IRuntimeFilter* runtime_filter = nullptr;
+        pipeline::RuntimeFilterDependency* runtime_filter_dependency = nullptr;
     };
 
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;

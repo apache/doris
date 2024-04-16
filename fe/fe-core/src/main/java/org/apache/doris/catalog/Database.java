@@ -213,6 +213,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return fullQualifiedName;
     }
 
+    public String getName() {
+        String[] strs = fullQualifiedName.split(":");
+        return strs.length == 2 ? strs[1] : strs[0];
+    }
+
     public void setNameWithLock(String newName) {
         writeLock();
         try {
@@ -496,7 +501,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
             if (table == null) {
-                throw new MetaNotFoundException("unknown table, tableId=" + tableId);
+                throw new MetaNotFoundException("table not found, tableId=" + tableId);
             }
             tableList.add(table);
         }
