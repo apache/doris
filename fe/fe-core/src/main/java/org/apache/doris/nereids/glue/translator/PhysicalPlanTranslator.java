@@ -65,6 +65,7 @@ import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.processor.post.ExpressionOrderOpt;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
@@ -210,6 +211,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -1176,9 +1178,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
             DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
                     multiCastDataSink.getDataStreamSinks().size() - 1);
-            filter.getConjuncts().stream()
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .forEach(dataStreamSink::addConjunct);
+            if (filter.getConjuncts().size() == 3 && filter.getConjuncts().stream().anyMatch(
+                    conj -> conj.getInputSlots().stream().anyMatch(slot -> slot.getDataType().isDecimalV3Type()))) {
+                filter.getConjuncts().stream()
+                        .sorted(Comparator.comparingInt(ExpressionOrderOpt::estimateCostByDataType))
+                        .map(e -> ExpressionTranslator.translate(e, context))
+                        .forEach(dataStreamSink::addConjunct);
+            } else {
+                filter.getConjuncts().stream()
+                        .map(e -> ExpressionTranslator.translate(e, context))
+                        .forEach(dataStreamSink::addConjunct);
+            }
             return inputFragment;
         }
 
