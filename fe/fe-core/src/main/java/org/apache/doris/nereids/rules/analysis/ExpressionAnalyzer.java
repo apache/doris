@@ -101,6 +101,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** ExpressionAnalyzer */
@@ -423,7 +424,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
                 return boundFunction;
             }
-            Slot slot = boundFunction.getInputSlots().stream().findFirst().get();
+            // TODO: push down logic here is very tricky, we will refactor it later
+            Set<Slot> inputSlots = boundFunction.getInputSlots();
+            if (inputSlots.isEmpty()) {
+                return boundFunction;
+            }
+            Slot slot = inputSlots.iterator().next();
             if (slot.hasUnbound()) {
                 slot = (Slot) slot.accept(this, context);
             }
