@@ -134,42 +134,48 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
 }
 
 // `advanced = false` when current block finished
-void VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
+Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     Block& src = *_block;
     Block& dst = *block;
     if (_cur_batch_num == 0) {
-        return;
+        return Status::OK();
     }
 
     // copy a row to dst block column by column
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
-    for (size_t i = 0; i < _num_columns; ++i) {
-        auto& s_col = src.get_by_position(i);
-        auto& d_col = dst.get_by_position(i);
+    RETURN_IF_CATCH_EXCEPTION({
+        for (size_t i = 0; i < _num_columns; ++i) {
+            auto& s_col = src.get_by_position(i);
+            auto& d_col = dst.get_by_position(i);
 
-        ColumnPtr& s_cp = s_col.column;
-        ColumnPtr& d_cp = d_col.column;
+            ColumnPtr& s_cp = s_col.column;
+            ColumnPtr& d_cp = d_col.column;
 
-        d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
-    }
+            d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
+        }
+    });
     const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
     dst.set_same_bit(tmp_pre_ctx_same_bit.begin(), tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
     _cur_batch_num = 0;
+    return Status::OK();
 }
 
-void VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
+Status VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
     if (_cur_batch_num == 0) {
-        return;
+        return Status::OK();
     }
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
     const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
-    for (size_t i = 0; i < _cur_batch_num; ++i) {
-        view->push_back({_block, static_cast<int>(start + i), tmp_pre_ctx_same_bit[i]});
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (size_t i = 0; i < _cur_batch_num; ++i) {
+            view->push_back({_block, static_cast<int>(start + i), tmp_pre_ctx_same_bit[i]});
+        }
+    });
 
     _cur_batch_num = 0;
+    return Status::OK();
 }
 
 // This iterator will generate ordered data. For example for schema
