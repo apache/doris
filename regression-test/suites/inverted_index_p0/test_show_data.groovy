@@ -21,6 +21,8 @@ suite("test_show_data", "p0") {
     def testTableWithIndex = "test_show_data_httplogs_with_index"
     def delta_time = 5000
     def timeout = 60000
+    def alter_res = "null"
+    def useTime = 0
     String database = context.config.getDbNameByFile(context.file)
 
     def create_httplogs_table_without_index = {testTablex ->
@@ -99,7 +101,6 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -117,9 +118,8 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
@@ -133,9 +133,8 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
             if (alter_res.size() == 0) {
                 return "FINISHED"
@@ -198,6 +197,8 @@ suite("test_show_data_for_bkd", "p0") {
     def testTableWithBKDIndex = "test_show_data_httplogs_with_bkd_index"
     def delta_time = 5000
     def timeout = 60000
+    def alter_res = "null"
+    def useTime = 0
     String database = context.config.getDbNameByFile(context.file)
 
     def create_httplogs_table_without_bkd_index = {testTablex ->
@@ -276,7 +277,6 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -294,9 +294,8 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
@@ -310,9 +309,8 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
             if (alter_res.size() == 0) {
                 return "FINISHED"
@@ -374,6 +372,8 @@ suite("test_show_data_multi_add", "p0") {
     def testTableWithIndex = "test_show_data_httplogs_multi_add_with_index"
     def delta_time = 5000
     def timeout = 60000
+    def alter_res = "null"
+    def useTime = 0
     String database = context.config.getDbNameByFile(context.file)
 
     def create_httplogs_table_without_index = {testTablex ->
@@ -453,7 +453,6 @@ suite("test_show_data_multi_add", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -471,9 +470,8 @@ suite("test_show_data_multi_add", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
@@ -487,9 +485,8 @@ suite("test_show_data_multi_add", "p0") {
     }
 
     def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
             if (alter_res.size() == 0) {
                 return "FINISHED"
