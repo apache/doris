@@ -104,6 +104,10 @@ public class DateTimeLiteral extends DateLiteral {
         if (!s.contains("-") && !s.contains(":")) {
             return 0;
         }
+        // means basic format with timezone
+        if (s.indexOf("-") == s.lastIndexOf("-") && s.indexOf(":") == s.lastIndexOf(":")) {
+            return 0;
+        }
         s = normalize(s);
         if (s.length() <= 19 || s.charAt(19) != '.') {
             return 0;
