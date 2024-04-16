@@ -73,7 +73,7 @@ public:
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
-    virtual Status open(RuntimeState* state) { return Status::OK(); }
+    virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
@@ -403,6 +403,7 @@ public:
     ~PipelineXLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
     virtual std::string name_suffix() const {
         return " (id=" + std::to_string(_parent->node_id()) + ")";
