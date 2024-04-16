@@ -53,7 +53,11 @@
 #define DISABLE_MREMAP 1
 #endif
 #include "common/exception.h"
+#ifdef USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
+#else
+#include <malloc.h>
+#endif
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
@@ -92,6 +96,14 @@ public:
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
 
+    size_t allocator_malloc_usable_size(void* ptr) {
+#ifdef USE_JEMALLOC
+        return jemalloc_usable_size(ptr);
+#else
+        return malloc_usable_size(ptr);
+#endif
+    }
+
     void* alloc(size_t size, size_t alignment = 0);
     void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
 
@@ -128,7 +140,7 @@ public:
                     throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
                 }
                 // correct real memory size, if alignment not equal to 0, maybe usable_size > size.
-                consume_memory(jemalloc_usable_size(buf) - size);
+                consume_memory(allocator_malloc_usable_size(buf) - size);
             } else {
                 buf = nullptr;
                 int res = posix_memalign(&buf, alignment, size);
@@ -138,7 +150,7 @@ public:
                     throw_bad_alloc(
                             fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
-                consume_memory(jemalloc_usable_size(buf) - size);
+                consume_memory(allocator_malloc_usable_size(buf) - size);
 
                 if constexpr (clear_memory) memset(buf, 0, size);
             }
@@ -154,7 +166,7 @@ public:
             }
             release_memory(size);
         } else {
-            release_memory(jemalloc_usable_size(
+            release_memory(allocator_malloc_usable_size(
                     buf)); // if alignment not equal to 0, maybe usable_size > size.
             ::free(buf);
         }
@@ -186,8 +198,8 @@ public:
                                             new_size));
             }
             // correct real memory size, if alignment not equal to 0, maybe usable_size > size.
-            consume_memory(jemalloc_usable_size(new_buf) - jemalloc_usable_size(buf) + old_size +
-                           new_size);
+            consume_memory(allocator_malloc_usable_size(new_buf) -
+                           allocator_malloc_usable_size(buf) + old_size + new_size);
 
             buf = new_buf;
             if constexpr (clear_memory)
@@ -217,8 +229,8 @@ public:
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));
-            consume_memory(jemalloc_usable_size(new_buf) - jemalloc_usable_size(buf) + old_size +
-                           new_size);
+            consume_memory(allocator_malloc_usable_size(new_buf) -
+                           allocator_malloc_usable_size(buf) + old_size + new_size);
             free(buf, old_size);
             buf = new_buf;
         }
