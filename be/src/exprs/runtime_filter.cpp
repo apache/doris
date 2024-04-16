@@ -347,6 +347,9 @@ public:
             // BloomFilter may be not init
             RETURN_IF_ERROR(bf->init_with_fixed_length());
             insert_to_bloom_filter(bf);
+        } else {
+            DCHECK(_context->hybrid_set == nullptr || _context->hybrid_set->size() == 0)
+                    << "set size: " << (_context->hybrid_set ? _context->hybrid_set->size() : 0);
         }
         // release in filter
         _context->hybrid_set.reset();
