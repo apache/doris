@@ -24,9 +24,12 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 
@@ -38,35 +41,42 @@ import java.util.List;
 public class CountDistinctRewrite extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalAggregate().then(agg -> {
-            List<NamedExpression> output = agg.getOutputExpressions()
-                    .stream()
-                    .map(CountDistinctRewriter::rewrite)
-                    .map(NamedExpression.class::cast)
-                    .collect(ImmutableList.toImmutableList());
-            return agg.withAggOutput(output);
+        return logicalAggregate().when(CountDistinctRewrite::containsCountObject).then(agg -> {
+            List<NamedExpression> outputExpressions = agg.getOutputExpressions();
+            Builder<NamedExpression> newOutputs
+                    = ImmutableList.builderWithExpectedSize(outputExpressions.size());
+            for (NamedExpression outputExpression : outputExpressions) {
+                NamedExpression newOutput = (NamedExpression) outputExpression.rewriteUp(expr -> {
+                    if (expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() == 1) {
+                        Expression child = expr.child(0);
+                        if (child.getDataType().isBitmapType()) {
+                            return new BitmapUnionCount(child);
+                        }
+                        if (child.getDataType().isHllType()) {
+                            return new HllUnionAgg(child);
+                        }
+                    }
+                    return expr;
+                });
+                newOutputs.add(newOutput);
+            }
+            return agg.withAggOutput(newOutputs.build());
         }).toRule(RuleType.COUNT_DISTINCT_REWRITE);
     }
 
-    private static class CountDistinctRewriter extends DefaultExpressionRewriter<Void> {
-        private static final CountDistinctRewriter INSTANCE = new CountDistinctRewriter();
-
-        public static Expression rewrite(Expression expr) {
-            return expr.accept(INSTANCE, null);
-        }
-
-        @Override
-        public Expression visitCount(Count count, Void context) {
-            if (count.isDistinct() && count.arity() == 1) {
-                Expression child = count.child(0);
-                if (child.getDataType().isBitmapType()) {
-                    return new BitmapUnionCount(child);
+    private static boolean containsCountObject(LogicalAggregate<Plan> agg) {
+        for (NamedExpression ne : agg.getOutputExpressions()) {
+            boolean needRewrite = ne.anyMatch(expr -> {
+                if (expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() == 1) {
+                    DataType dataType = expr.child(0).getDataType();
+                    return dataType.isBitmapType() || dataType.isHllType();
                 }
-                if (child.getDataType().isHllType()) {
-                    return new HllUnionAgg(child);
-                }
+                return false;
+            });
+            if (needRewrite) {
+                return true;
             }
-            return count;
         }
+        return false;
     }
 }

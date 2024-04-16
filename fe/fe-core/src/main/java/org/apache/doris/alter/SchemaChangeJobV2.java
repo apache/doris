@@ -131,8 +131,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
-    // save failed task after retry three times, tabletId -> agentTask
-    private Map<Long, List<AgentTask>> failedAgentTasks = Maps.newHashMap();
 
     protected SchemaChangeJobV2() {
         super(JobType.SCHEMA_CHANGE);
@@ -421,6 +419,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         tbl.readLock();
         Map<Object, List<TColumn>> tcloumnsPool  = Maps.newHashMap();
+        String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Map<String, Column> indexColumnMap = Maps.newHashMap();
@@ -432,6 +431,29 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
+            Map<String, Expr> defineExprs = Maps.newHashMap();
+            List<Column> fullSchema = tbl.getBaseSchema(true);
+            DescriptorTable descTable = new DescriptorTable();
+            TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+            for (Column column : fullSchema) {
+                SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
+                destSlotDesc.setIsMaterialized(true);
+                destSlotDesc.setColumn(column);
+                destSlotDesc.setIsNullable(column.isAllowNull());
+
+                if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
+                    Column newColumn = indexColumnMap.get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
+                    if (newColumn.getType() != column.getType()) {
+                        try {
+                            SlotRef slot = new SlotRef(destSlotDesc);
+                            slot.setCol(column.getName());
+                            defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
+                        } catch (AnalysisException e) {
+                            throw new AlterCancelException(e.getMessage());
+                        }
+                    }
+                }
+            }
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -444,34 +466,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
-
-                    Map<String, Expr> defineExprs = Maps.newHashMap();
-
-                    List<Column> fullSchema = tbl.getBaseSchema(true);
-                    DescriptorTable descTable = new DescriptorTable();
-                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-                    for (Column column : fullSchema) {
-                        SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                        destSlotDesc.setIsMaterialized(true);
-                        destSlotDesc.setColumn(column);
-                        destSlotDesc.setIsNullable(column.isAllowNull());
-
-                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
-                            Column newColumn = indexColumnMap
-                                    .get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                            if (newColumn.getType() != column.getType()) {
-                                try {
-                                    SlotRef slot = new SlotRef(destSlotDesc);
-                                    slot.setCol(column.getName());
-                                    defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
-                                } catch (AnalysisException e) {
-                                    throw new AlterCancelException(e.getMessage());
-                                }
-                            }
-                        }
-
-                    }
-
                     long originIdxId = indexIdMap.get(shadowIdxId);
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
@@ -485,7 +479,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, tcloumnsPool,
-                                    null, expiration);
+                                    null, expiration, vaultId);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -536,17 +530,18 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
                     LOG.warn("schema change task failed: " + task.getErrorMsg());
-                    if (!failedAgentTasks.containsKey(task.getTabletId())) {
-                        failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
-                    } else {
-                        failedAgentTasks.get(task.getTabletId()).add(task);
+                    List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
+                    if (failedBackends == null) {
+                        failedBackends = Lists.newArrayList();
+                        failedTabletBackends.put(task.getTabletId(), failedBackends);
                     }
+                    failedBackends.add(task.getBackendId());
                     int expectSucceedTaskNum = tbl.getPartitionInfo()
                             .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
-                    int failedTaskCount = failedAgentTasks.get(task.getTabletId()).size();
+                    int failedTaskCount = failedBackends.size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
                         throw new AlterCancelException("schema change tasks failed on same tablet reach threshold "
-                                + failedAgentTasks.get(task.getTabletId()));
+                                + failedTaskCount);
                     }
                 }
             }
@@ -564,9 +559,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-            for (List<AgentTask> tasks : failedAgentTasks.values()) {
-                for (AgentTask task : tasks) {
-                    invertedIndex.getReplica(task.getTabletId(), task.getBackendId()).setBad(true);
+            for (Map.Entry<Long, List<Long>> entry : failedTabletBackends.entrySet()) {
+                long tabletId = entry.getKey();
+                List<Long> failedBackends = entry.getValue();
+                for (long backendId : failedBackends) {
+                    invertedIndex.getReplica(tabletId, backendId).setBad(true);
                 }
             }
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -643,8 +640,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                 // set replica state
                 for (Tablet tablet : shadowIdx.getTablets()) {
+                    List<Long> failedBackends = failedTabletBackends.get(tablet.getId());
                     for (Replica replica : tablet.getReplicas()) {
                         replica.setState(ReplicaState.NORMAL);
+                        if (failedBackends != null && failedBackends.contains(replica.getBackendId())) {
+                            replica.setBad(true);
+                        }
                     }
                 }
 

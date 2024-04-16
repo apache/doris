@@ -103,5 +103,7 @@ suite("agg_window_project") {
         contains "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
     }
 
+    sql """select a, a aa, row_number() over (partition by b) from test_window_table2;"""
+
     sql "DROP TABLE IF EXISTS test_window_table2;"
 }

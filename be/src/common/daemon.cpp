@@ -211,6 +211,7 @@ void Daemon::memory_maintenance_thread() {
         // Update and print memory stat when the memory changes by 256M.
         if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
             last_print_proc_mem = PerfCounters::get_vm_rss();
+            doris::MemTrackerLimiter::clean_tracker_limiter_group();
             doris::MemTrackerLimiter::enable_print_log_process_usage();
 
             // Refresh mem tracker each type counter.
@@ -380,6 +381,14 @@ void Daemon::je_purge_dirty_pages_thread() const {
     } while (true);
 }
 
+void Daemon::wg_mem_used_refresh_thread() {
+    // Refresh memory usage and limit of workload groups
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::wg_mem_refresh_interval_ms))) {
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_memory_info();
+    }
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -412,6 +421,11 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "query_runtime_statistics_thread",
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+
+    st = Thread::create(
+            "Daemon", "wg_mem_refresh_thread", [this]() { this->wg_mem_used_refresh_thread(); },
+            &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }
 

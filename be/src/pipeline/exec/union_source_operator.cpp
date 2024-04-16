@@ -110,7 +110,7 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
     if (p.get_child_count() != 0) {
         ((UnionSharedState*)_dependency->shared_state())
@@ -124,6 +124,18 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
     }
 
+    if (p.get_child_count() == 0) {
+        _dependency->set_ready();
+    }
+    return Status::OK();
+}
+
+Status UnionSourceLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+
+    auto& p = _parent->cast<Parent>();
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
@@ -143,9 +155,6 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         }
     }
 
-    if (p.get_child_count() == 0) {
-        _dependency->set_ready();
-    }
     return Status::OK();
 }
 

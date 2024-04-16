@@ -110,14 +110,6 @@ public:
     void build(TDescriptorTableBuilder* tb) {
         // build slot desc
         _tuple_id = tb->next_tuple_id();
-        int num_nullables = 0;
-        for (int i = 0; i < _slot_descs.size(); ++i) {
-            auto& slot_desc = _slot_descs[i];
-            if (slot_desc.nullIndicatorByte >= 0) {
-                num_nullables++;
-            }
-        }
-        int null_bytes = (num_nullables + 7) / 8;
         int null_offset = 0;
         for (int i = 0; i < _slot_descs.size(); ++i) {
             auto& slot_desc = _slot_descs[i];
@@ -137,7 +129,7 @@ public:
         _tuple_desc.id = _tuple_id;
         // Useless not set it.
         _tuple_desc.byteSize = 0;
-        _tuple_desc.numNullBytes = null_bytes;
+        _tuple_desc.numNullBytes = 0;
         _tuple_desc.numNullSlots = _slot_descs.size();
 
         tb->add_slots(_slot_descs);

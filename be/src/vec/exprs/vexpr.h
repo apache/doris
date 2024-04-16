@@ -162,6 +162,9 @@ public:
 
     static Status create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                           VExprSPtr& root_expr, VExprContextSPtr& ctx);
+
+    static Status check_expr_output_type(const VExprContextSPtrs& ctxs,
+                                         const RowDescriptor& output_row_desc);
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
     void set_children(VExprSPtrs&& children) { _children = std::move(children); }

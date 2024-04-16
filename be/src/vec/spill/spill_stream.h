@@ -34,9 +34,13 @@ class SpillDataDir;
 
 class SpillStream {
 public:
+    // to avoid too many small file writes
+    static constexpr int MIN_SPILL_WRITE_BATCH_MEM = 32 * 1024;
     SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                 std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                 RuntimeProfile* profile);
+
+    ~SpillStream();
 
     int64_t id() const { return stream_id_; }
 
@@ -49,7 +53,7 @@ public:
 
     Status prepare_spill();
 
-    Status spill_block(const Block& block, bool eof);
+    Status spill_block(RuntimeState* state, const Block& block, bool eof);
 
     void end_spill(const Status& status);
 
@@ -62,15 +66,19 @@ public:
     void set_write_counters(RuntimeProfile::Counter* serialize_timer,
                             RuntimeProfile::Counter* write_block_counter,
                             RuntimeProfile::Counter* write_bytes_counter,
-                            RuntimeProfile::Counter* write_timer) {
+                            RuntimeProfile::Counter* write_timer,
+                            RuntimeProfile::Counter* wait_io_timer) {
         writer_->set_counters(serialize_timer, write_block_counter, write_bytes_counter,
                               write_timer);
+        write_wait_io_timer_ = wait_io_timer;
     }
 
     void set_read_counters(RuntimeProfile::Counter* read_timer,
                            RuntimeProfile::Counter* deserialize_timer,
-                           RuntimeProfile::Counter* read_bytes) {
+                           RuntimeProfile::Counter* read_bytes,
+                           RuntimeProfile::Counter* wait_io_timer) {
         reader_->set_counters(read_timer, deserialize_timer, read_bytes);
+        read_wait_io_timer_ = wait_io_timer;
     }
 
 private:
@@ -98,6 +106,8 @@ private:
     SpillReaderUPtr reader_;
 
     RuntimeProfile* profile_ = nullptr;
+    RuntimeProfile::Counter* write_wait_io_timer_ = nullptr;
+    RuntimeProfile::Counter* read_wait_io_timer_ = nullptr;
 };
 using SpillStreamSPtr = std::shared_ptr<SpillStream>;
 } // namespace vectorized

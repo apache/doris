@@ -144,6 +144,7 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
 
     _publish_runtime_filter_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _runtime_filter_compute_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterComputeTime");
+    _runtime_filter_init_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterInitTime");
 
     return Status::OK();
 }
@@ -185,8 +186,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
         // and you could see a 'todo' in the Thrift definition.
         //  Here, we have refactored it, but considering upgrade compatibility, we still need to retain the old code.
         if (!output_block->mem_reuse()) {
-            MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc()));
-            output_block->swap(tmp.to_block());
+            output_block->swap(origin_block->clone_empty());
         }
         output_block->swap(*origin_block);
         return Status::OK();

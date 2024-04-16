@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.types.DataType;
@@ -132,8 +133,8 @@ public class SlotReference extends Slot {
      */
     public static SlotReference fromColumn(TableIf table, Column column, List<String> qualifier, Relation relation) {
         DataType dataType = DataType.fromCatalogType(column.getType());
-        SlotReference slot = new SlotReference(StatementScopeIdGenerator.newExprId(), column.getName(), dataType,
-                column.isAllowNull(), qualifier, table, column, Optional.empty(), null);
+        SlotReference slot = new SlotReference(StatementScopeIdGenerator.newExprId(), () -> column.getName(), dataType,
+                column.isAllowNull(), qualifier, table, column, () -> Optional.of(column.getName()), null);
         if (relation != null && ConnectContext.get() != null
                 && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().addSlotToRelation(slot, relation);
@@ -260,6 +261,9 @@ public class SlotReference extends Slot {
 
     @Override
     public SlotReference withName(String name) {
+        if (this.name.get().equals(name)) {
+            return this;
+        }
         return new SlotReference(
                 exprId, () -> name, dataType, nullable, qualifier, table, column, internalName, subColPath);
     }
@@ -292,5 +296,9 @@ public class SlotReference extends Slot {
             return Suppliers.memoize(() ->
                     internalName.isPresent() ? internalName : Optional.of(name.get()));
         }
+    }
+
+    public String getQualifiedNameWithBackquote() throws UnboundException {
+        return Utils.qualifiedNameWithBackquote(getQualifier(), getName());
     }
 }

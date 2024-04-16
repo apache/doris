@@ -49,6 +49,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggr
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
+import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
@@ -153,7 +154,8 @@ public class RuleSet {
             new MergeLimits(),
             new PushDownAliasThroughJoin(),
             new PushDownFilterThroughWindow(),
-            new PushDownFilterThroughPartitionTopN()
+            new PushDownFilterThroughPartitionTopN(),
+            new ExpressionOptimization()
     );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()

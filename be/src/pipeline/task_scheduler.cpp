@@ -135,7 +135,7 @@ void BlockedTaskScheduler::_schedule() {
                              << ", instance_id=" << print_id(task->instance_id())
                              << ", task info: " << task->debug_string();
 
-                task->query_context()->cancel(true, "", Status::Cancelled(""));
+                task->query_context()->cancel("", Status::Cancelled(""));
                 _make_task_run(local_blocked_tasks, iter);
             } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
                 if (task->has_dependency()) {
@@ -227,6 +227,10 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 
 // after _close_task, task maybe destructed.
 void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status) {
+    // Has to attach memory tracker here, because the close task will also release some memory.
+    // Should count the memory to the query or the query's memory will not decrease when part of
+    // task finished.
+    SCOPED_ATTACH_TASK(task->runtime_state());
     // close_a_pipeline may delete fragment context and will core in some defer
     // code, because the defer code will access fragment context it self.
     auto lock_for_context = task->fragment_context()->shared_from_this();
@@ -241,7 +245,7 @@ void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status
             task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                              std::string(status.msg()));
         } else {
-            task->query_context()->cancel(true, status.to_string(),
+            task->query_context()->cancel(status.to_string(),
                                           Status::Cancelled(status.to_string()));
         }
         state = PipelineTaskState::CANCELED;
@@ -271,10 +275,6 @@ void TaskScheduler::_do_work(size_t index) {
         bool canceled = fragment_ctx->is_canceled();
 
         auto state = task->get_state();
-        // Has to attach memory tracker here, because the close task will also release some memory.
-        // Should count the memory to the query or the query's memory will not decrease when part of
-        // task finished.
-        SCOPED_ATTACH_TASK(task->runtime_state());
         // If the state is PENDING_FINISH, then the task is come from blocked queue, its is_pending_finish
         // has to return false. The task is finished and need to close now.
         if (state == PipelineTaskState::PENDING_FINISH) {
@@ -313,6 +313,10 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = Status::OK();
 
         try {
+            // This will enable exception handling logic in allocator.h when memory allocate
+            // failed or sysem memory is not sufficient.
+            doris::enable_thread_catch_bad_alloc++;
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
             //TODO: use a better enclose to abstracting these
             if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
                 TUniqueId query_id = task->query_context()->query_id();

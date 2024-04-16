@@ -96,6 +96,11 @@ public:
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
 
+    void outfile_write_success(google::protobuf::RpcController* controller,
+                               const POutfileWriteSuccessRequest* request,
+                               POutfileWriteSuccessResult* result,
+                               google::protobuf::Closure* done) override;
+
     void fetch_table_schema(google::protobuf::RpcController* controller,
                             const PFetchTableSchemaRequest* request,
                             PFetchTableSchemaResult* result,
@@ -147,6 +152,16 @@ public:
                       const ::doris::PMergeFilterRequest* request,
                       ::doris::PMergeFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
+
+    void send_filter_size(::google::protobuf::RpcController* controller,
+                          const ::doris::PSendFilterSizeRequest* request,
+                          ::doris::PSendFilterSizeResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
+    void sync_filter_size(::google::protobuf::RpcController* controller,
+                          const ::doris::PSyncFilterSizeRequest* request,
+                          ::doris::PSyncFilterSizeResponse* response,
+                          ::google::protobuf::Closure* done) override;
 
     void apply_filter(::google::protobuf::RpcController* controller,
                       const ::doris::PPublishFilterRequest* request,

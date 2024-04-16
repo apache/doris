@@ -7,7 +7,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF19 cs_item_sk->[ss_item_sk,i_item_sk,sr_item_sk]
+--------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF19 cs_item_sk->[i_item_sk,sr_item_sk,ss_item_sk]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF18 p_promo_sk->[ss_promo_sk]
@@ -30,7 +30,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = ad1.ca_address_sk)) otherCondition=() build RFs:RF12 ca_address_sk->[ss_addr_sk]
 --------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF10 sr_item_sk->[ss_item_sk,i_item_sk];RF11 sr_ticket_number->[ss_ticket_number]
+------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF10 sr_item_sk->[i_item_sk,ss_item_sk];RF11 sr_ticket_number->[ss_ticket_number]
 --------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = hd1.hd_demo_sk)) otherCondition=() build RFs:RF9 hd_demo_sk->[ss_hdemo_sk]
@@ -112,7 +112,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF0 cr_order_number->[cs_order_number];RF1 cr_item_sk->[cs_item_sk]
+----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF0 cr_item_sk->[cs_item_sk];RF1 cr_order_number->[cs_order_number]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
 ------------------------------PhysicalProject

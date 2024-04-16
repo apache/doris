@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -44,7 +43,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
     /*
      *        topSemi                   newTopSemi
      *        /     \                   /       \
-     *    aProject   C              aProject     B
+     *    abProject   C              acProject     B
      *      |            ──►          |
      * bottomSemi                newBottomSemi
      *    /   \                     /   \
@@ -59,13 +58,17 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(join -> join.left().isAllSlots())
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
-                    LogicalProject abProject = topSemi.left();
+                    LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> abProject = topSemi.left();
                     GroupPlan a = bottomSemi.left();
                     GroupPlan b = bottomSemi.right();
                     GroupPlan c = topSemi.right();
                     Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
-                    Set<NamedExpression> acProjects = (Set<NamedExpression>) abProject.getProjects()
-                            .stream().filter(slot -> !(slot instanceof MarkJoinSlotReference))
+                    // if bottom semi join is mark join, we need remove the mark join slot creating by bottom semi join
+                    // from the project list before swapping the bottom semi to top semi
+                    Set<NamedExpression> acProjects = abProject.getProjects().stream()
+                            .filter(slot -> !(abProject.child().isMarkJoin()
+                                    && abProject.child().getMarkJoinSlotReference().get()
+                                            .getExprId() == slot.getExprId()))
                             .collect(Collectors.toSet());
 
                     bottomSemi.getConditionSlot()

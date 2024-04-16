@@ -56,8 +56,10 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private Map<Long, List<Long>> taskGroups = Maps.newConcurrentMap();
     // for one task group, there may be different requests about changing a partition to new.
     // but we only change one time and save the relations in partitionPairs. they're protected by taskLocks
+    @SerializedName(value = "taskLocks")
     private Map<Long, ReentrantLock> taskLocks = Maps.newConcurrentMap();
     // <groupId, <oldPartId, newPartId>>
+    @SerializedName(value = "partitionPairs")
     private Map<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
 
     public InsertOverwriteManager() {

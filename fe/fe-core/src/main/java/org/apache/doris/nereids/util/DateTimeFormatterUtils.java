@@ -41,7 +41,6 @@ import java.time.temporal.ChronoField;
 public class DateTimeFormatterUtils {
     public static final DateTimeFormatter ZONE_FORMATTER = new DateTimeFormatterBuilder()
             .optionalStart()
-            // .appendZoneText(TextStyle.FULL)
             .appendZoneOrOffsetId()
             .optionalEnd()
             .toFormatter()

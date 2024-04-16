@@ -90,8 +90,7 @@ public class BrokerUtil {
                     brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
             Status st = fileSystem.list(path, rfiles, false);
             if (!st.ok()) {
-                throw new UserException(brokerDesc.getName() + " list path failed. path=" + path
-                        + ",msg=" + st.getErrMsg());
+                throw new UserException(st.getErrMsg());
             }
         } catch (Exception e) {
             LOG.warn("{} list path exception, path={}", brokerDesc.getName(), path, e);

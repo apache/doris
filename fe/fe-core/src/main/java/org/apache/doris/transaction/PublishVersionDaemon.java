@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
@@ -45,7 +46,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -225,8 +225,8 @@ public class PublishVersionDaemon extends MasterDaemon {
                 .flatMap(Collection::stream)
                 .flatMap(tablet ->
                         tablet.getBackendIds()
-                                .stream().map(backendId -> Map.entry(backendId, tablet.getId())))
-                .collect(Collectors.groupingBy(Entry::getKey,
-                        Collectors.mapping(Entry::getValue, Collectors.toSet())));
+                                .stream().map(backendId -> Pair.of(backendId, tablet.getId())))
+                .collect(Collectors.groupingBy(p -> p.first,
+                        Collectors.mapping(p -> p.second, Collectors.toSet())));
     }
 }

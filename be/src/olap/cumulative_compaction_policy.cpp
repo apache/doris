@@ -121,7 +121,7 @@ void SizeBasedCumulativeCompactionPolicy::_calc_promotion_size(Tablet* tablet,
                                                                RowsetMetaSharedPtr base_rowset_meta,
                                                                int64_t* promotion_size) {
     int64_t base_size = base_rowset_meta->total_disk_size();
-    *promotion_size = base_size * _promotion_ratio;
+    *promotion_size = int64_t(base_size * _promotion_ratio);
 
     // promotion_size is between _promotion_size and _promotion_min_size
     if (*promotion_size >= _promotion_size) {

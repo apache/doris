@@ -50,7 +50,7 @@ suite("test_unique_table") {
           `v1` tinyint NULL,
           `v2` int,
           `v3` int,
-          `v4` int
+          `or` int
         ) ENGINE=OLAP
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(`k1`) BUCKETS 3
@@ -61,19 +61,19 @@ suite("test_unique_table") {
     sql "SET show_hidden_columns=true"
     qt_0 "desc ${tbName}"
     sql "begin;"
-    sql "insert into ${tbName} (k1, v1, v2, v3, v4, __DORIS_DELETE_SIGN__) values (1,1,1,1,1,0),(2,2,2,2,2,0),(3,3,3,3,3,0);"
+    sql "insert into ${tbName} (k1, v1, v2, v3, `or`, __doris_delete_sign__) values (1,1,1,1,1,0),(2,2,2,2,2,0),(3,3,3,3,3,0);"
     sql "commit;"
 
     qt_1 "select * from ${tbName} order by k1;"
 
     sql "begin;"
-    sql "insert into ${tbName} (k1, v1, v2, v3, v4, __DORIS_DELETE_SIGN__) values (2,20,20,20,20,0);"
+    sql "insert into ${tbName} (k1, v1, v2, v3, `or`, __DORIS_DELETE_SIGN__) values (2,20,20,20,20,0);"
     sql "commit;"
 
     qt_2 "select * from ${tbName} order by k1;"
 
     sql "begin;"
-    sql "insert into ${tbName} (k1, v1, v2, v3, v4, __DORIS_DELETE_SIGN__) values (3,30,30,30,30,1);"
+    sql "insert into ${tbName} (k1, v1, v2, v3, `or`, __DORIS_DELETE_SIGN__) values (3,30,30,30,30,1);"
     sql "commit;"
 
     qt_3 "select * from ${tbName} order by k1"

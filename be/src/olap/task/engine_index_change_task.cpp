@@ -27,7 +27,7 @@ namespace doris {
 EngineIndexChangeTask::EngineIndexChangeTask(
         StorageEngine& engine, const TAlterInvertedIndexReq& alter_inverted_index_request)
         : _engine(engine), _alter_inverted_index_req(alter_inverted_index_request) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
+    _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::SCHEMA_CHANGE,
             fmt::format("EngineIndexChangeTask#tabletId={}",
                         std::to_string(_alter_inverted_index_req.tablet_id)),

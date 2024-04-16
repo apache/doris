@@ -119,6 +119,7 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.RevokeStmt;
+import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
@@ -380,7 +381,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
             env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
-            env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
+            env.getRefreshManager().handleRefreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshLdapStmt) {
             env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterUserStmt) {
@@ -424,6 +425,8 @@ public class DdlExecutor {
             env.dropStage((DropStageStmt) ddlStmt);
         } else if (ddlStmt instanceof CopyStmt) {
             executeCopyStmt(env, (CopyStmt) ddlStmt);
+        } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
+            env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStorageVaultStmt) ddlStmt);
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");

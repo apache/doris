@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -31,11 +32,15 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Eliminate GroupBy.
@@ -45,39 +50,54 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate()
-                .when(agg -> agg.getGroupByExpressions().stream().allMatch(expr -> expr instanceof Slot))
+                .when(agg -> ExpressionUtils.allMatch(agg.getGroupByExpressions(), Slot.class::isInstance))
                 .then(agg -> {
-                    Set<Slot> groupby = agg.getGroupByExpressions().stream().map(e -> (Slot) e)
-                            .collect(Collectors.toSet());
+                    List<Expression> groupByExpressions = agg.getGroupByExpressions();
+                    Builder<Slot> groupBySlots
+                            = ImmutableSet.builderWithExpectedSize(groupByExpressions.size());
+                    for (Expression groupByExpression : groupByExpressions) {
+                        groupBySlots.add((Slot) groupByExpression);
+                    }
                     Plan child = agg.child();
-                    boolean unique = child.getLogicalProperties().getFunctionalDependencies()
-                            .isUniqueAndNotNull(groupby);
+                    boolean unique = child.getLogicalProperties()
+                            .getFunctionalDependencies()
+                            .isUniqueAndNotNull(groupBySlots.build());
                     if (!unique) {
                         return null;
                     }
-                    Set<AggregateFunction> aggregateFunctions = agg.getAggregateFunctions();
-                    if (!aggregateFunctions.stream().allMatch(
-                            f -> (f instanceof Sum || f instanceof Count || f instanceof Min || f instanceof Max)
-                                    && (f.arity() == 1 && f.child(0) instanceof Slot))) {
-                        return null;
+                    for (AggregateFunction f : agg.getAggregateFunctions()) {
+                        if (!((f instanceof Sum || f instanceof Count || f instanceof Min || f instanceof Max)
+                                && (f.arity() == 1 && f.child(0) instanceof Slot))) {
+                            return null;
+                        }
                     }
+                    List<NamedExpression> outputExpressions = agg.getOutputExpressions();
 
-                    List<NamedExpression> newOutput = agg.getOutputExpressions().stream().map(ne -> {
+                    ImmutableList.Builder<NamedExpression> newOutput
+                            = ImmutableList.builderWithExpectedSize(outputExpressions.size());
+
+                    for (NamedExpression ne : outputExpressions) {
                         if (ne instanceof Alias && ne.child(0) instanceof AggregateFunction) {
                             AggregateFunction f = (AggregateFunction) ne.child(0);
                             if (f instanceof Sum || f instanceof Min || f instanceof Max) {
-                                return new Alias(ne.getExprId(), f.child(0), ne.getName());
+                                newOutput.add(new Alias(ne.getExprId(), TypeCoercionUtils
+                                        .castIfNotSameType(f.child(0), f.getDataType()), ne.getName()));
                             } else if (f instanceof Count) {
-                                return (NamedExpression) ne.withChildren(
-                                        new If(new IsNull(f.child(0)), Literal.of(0), Literal.of(1)));
+                                newOutput.add((NamedExpression) ne.withChildren(
+                                        new If(
+                                            new IsNull(f.child(0)),
+                                            Literal.of(0),
+                                            Literal.of(1)
+                                        )
+                                ));
                             } else {
                                 throw new IllegalStateException("Unexpected aggregate function: " + f);
                             }
                         } else {
-                            return ne;
+                            newOutput.add(ne);
                         }
-                    }).collect(Collectors.toList());
-                    return PlanUtils.projectOrSelf(newOutput, child);
+                    }
+                    return PlanUtils.projectOrSelf(newOutput.build(), child);
                 }).toRule(RuleType.ELIMINATE_GROUP_BY);
     }
 }

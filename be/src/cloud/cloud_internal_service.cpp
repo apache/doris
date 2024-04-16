@@ -17,11 +17,21 @@
 
 #include "cloud/cloud_internal_service.h"
 
+#include "cloud/cloud_storage_engine.h"
+
 namespace doris {
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
 
 CloudInternalServiceImpl::~CloudInternalServiceImpl() = default;
+
+void CloudInternalServiceImpl::alter_vault_sync(google::protobuf::RpcController* controller,
+                                                const doris::PAlterVaultSyncRequest* request,
+                                                PAlterVaultSyncResponse* response,
+                                                google::protobuf::Closure* done) {
+    LOG(INFO) << "alter be to sync vault info from Meta Service";
+    _engine.sync_storage_vault();
+}
 
 } // namespace doris

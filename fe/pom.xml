@@ -206,6 +206,13 @@ under the License.
                 </plugin>
             </plugins>
         </pluginManagement>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.0</version>
+            </extension>
+        </extensions>
     </build>
     <modules>
         <module>fe-common</module>
@@ -305,7 +312,7 @@ under the License.
         <iceberg.version>1.4.3</iceberg.version>
         <maxcompute.version>0.45.2-public</maxcompute.version>
         <avro.version>1.11.3</avro.version>
-        <arrow.version>15.0.0</arrow.version>
+        <arrow.version>15.0.2</arrow.version>
         <!-- hudi -->
         <hudi.version>0.14.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>

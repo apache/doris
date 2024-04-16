@@ -9,9 +9,9 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((tmp.time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF4 t_time_sk->[ws_sold_time_sk,cs_sold_time_sk,ss_sold_time_sk]
+------------------hashJoin[INNER_JOIN] hashCondition=((tmp.time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF4 t_time_sk->[cs_sold_time_sk,ss_sold_time_sk,ws_sold_time_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((tmp.sold_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ws_item_sk,cs_item_sk,ss_item_sk]
+----------------------hashJoin[INNER_JOIN] hashCondition=((tmp.sold_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[cs_item_sk,ss_item_sk,ws_item_sk]
 ------------------------PhysicalUnion
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject

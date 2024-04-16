@@ -993,8 +993,26 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        boolean needCleanCtx = false;
         table.readLock();
         try {
+            if (Config.isCloudMode()) {
+                String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
+                if (Strings.isNullOrEmpty(clusterName)) {
+                    String err = String.format("cluster name is empty, cluster id is %s", cloudClusterId);
+                    LOG.warn(err);
+                    throw new UserException(err);
+                }
+                if (ConnectContext.get() == null) {
+                    ConnectContext ctx = new ConnectContext();
+                    ctx.setThreadLocalInfo();
+                    ctx.setCloudCluster(clusterName);
+                    needCleanCtx = true;
+                } else {
+                    ConnectContext.get().setCloudCluster(clusterName);
+                }
+            }
             TPipelineFragmentParams planParams = planner.planForPipeline(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
@@ -1008,6 +1026,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
             return planParams;
         } finally {
+            if (needCleanCtx) {
+                ConnectContext.remove();
+            }
             table.readUnlock();
         }
     }
@@ -1081,6 +1102,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
+        if (Config.isCloudMode()) {
+            writeLock();
+        }
         try {
             if (txnOperated) {
                 // find task in job
@@ -1292,7 +1316,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public void replayOnAborted(TransactionState txnState) {
         // attachment may be null if this task is aborted by FE
-        if (txnState.getTxnCommitAttachment() != null) {
+        // it need check commit info before update progress
+        // for follower FE node progress may exceed correct progress
+        // the data will lost if FE leader change at this moment
+        if (txnState.getTxnCommitAttachment() != null
+                && checkCommitInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(),
+                        txnState,
+                        TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
             replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         }
         this.jobStatistic.abortedTaskNum++;

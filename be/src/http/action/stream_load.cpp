@@ -475,8 +475,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
     }
+    // timezone first. if not, try time_zone
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
+    } else if (!http_req->header(HTTP_TIME_ZONE).empty()) {
+        request.__set_timezone(http_req->header(HTTP_TIME_ZONE));
     }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {
@@ -626,6 +629,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             // used for wait_internal_group_commit_finish
             request.__set_group_commit_mode("sync_mode");
         }
+    }
+
+    if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
+        request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
     }
 
 #ifndef BE_TEST

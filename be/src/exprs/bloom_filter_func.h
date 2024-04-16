@@ -42,12 +42,12 @@ public:
     Status merge(BloomFilterAdaptor* other) { return _bloom_filter->merge(*other->_bloom_filter); }
 
     Status init(int len) {
-        int log_space = log2(len);
+        int log_space = (int)log2(len);
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }
 
     Status init(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
-        int log_space = log2(data_size);
+        int log_space = (int)log2(data_size);
         return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
     }
 
@@ -108,7 +108,9 @@ public:
 
     Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
 
-    Status init_with_cardinality(const size_t build_bf_cardinality, int id = 0) {
+    bool get_build_bf_cardinality() const { return _build_bf_exactly; }
+
+    Status init_with_cardinality(const size_t build_bf_cardinality) {
         if (_build_bf_exactly) {
             // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
             constexpr double fpp = 0.05;
