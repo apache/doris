@@ -100,7 +100,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
         /// This will also prevent possible overflow in offset.
         if (data->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with nested_column";
+            LOG(FATAL) << "offsets_column has data inconsistent with nested_column " << data->size()
+                       << " " << last_offset;
         }
     }
 
@@ -118,8 +119,16 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nest
     offsets = ColumnOffsets::create();
 }
 
+bool ColumnArray::could_shrinked_column() {
+    return data->could_shrinked_column();
+}
+
 MutableColumnPtr ColumnArray::get_shrinked_column() {
-    return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
+    if (could_shrinked_column()) {
+        return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
+    } else {
+        return ColumnArray::create(data->assume_mutable(), offsets->assume_mutable());
+    }
 }
 
 std::string ColumnArray::get_name() const {

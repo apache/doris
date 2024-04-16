@@ -100,8 +100,10 @@ suite ("test_uniq_rollup_schema_change") {
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)
         """
 
-        // alter and test light schema change
-    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+    // alter and test light schema change
+    if (!isCloudMode()) {
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+    }
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20)

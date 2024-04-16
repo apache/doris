@@ -166,6 +166,10 @@ public class Statistics {
         return zero;
     }
 
+    public static double getValidSelectivity(double nullSel) {
+        return nullSel < 0 ? 0 : (nullSel > 1 ? 1 : nullSel);
+    }
+
     /**
      * merge this and other colStats.ndv, choose min
      */

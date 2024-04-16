@@ -458,7 +458,6 @@ public:
             const std::vector<std::pair<int64_t, int64_t>>& tablets_filtered_rows, int64_t node_id);
 
     int64_t num_rows_filtered() {
-        DCHECK(!_tablets_filtered_rows.empty());
         // the Unique table has no roll up or materilized view
         // we just add up filtered rows from all partitions
         return std::accumulate(_tablets_filtered_rows.cbegin(), _tablets_filtered_rows.cend(), 0,
@@ -520,8 +519,6 @@ namespace doris::vectorized {
 class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
-
-    Status init_properties(ObjectPool* pool);
 
     Status write(Block& block) override;
 
@@ -654,6 +651,7 @@ private:
     // for non-pipeline, if close() did something, close_wait() should wait it.
     bool _close_wait = false;
     bool _inited = false;
+    bool _write_file_cache = false;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;

@@ -31,7 +31,7 @@ suite('test_alter_force_property') {
         );
     """
 
-    if (isCloudCluster()) {
+    if (isCloudMode()) {
         test {
             sql "ALTER TABLE ${tbl} SET ('default.replication_num' = '1')"
             exception "Cann't modify property 'default.replication_allocation' in cloud mode."

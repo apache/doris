@@ -40,7 +40,7 @@ Status DataGenOperator::open(RuntimeState* state) {
 
 Status DataGenOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(SourceOperator::close(state));
-    static_cast<void>(_node->close(state));
+    RETURN_IF_ERROR(_node->close(state));
     return Status::OK();
 }
 
@@ -108,7 +108,7 @@ Status DataGenLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    static_cast<void>(_table_func->close(state));
+    RETURN_IF_ERROR(_table_func->close(state));
     return PipelineXLocalState<>::close(state);
 }
 

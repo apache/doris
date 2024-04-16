@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
@@ -323,6 +324,7 @@ public class Util {
         StringBuilder sb = new StringBuilder();
         InputStream stream = null;
         try {
+            SecurityChecker.getInstance().startSSRFChecking(urlStr);
             URL url = new URL(urlStr);
             URLConnection conn = url.openConnection();
             if (encodedAuthInfo != null) {
@@ -350,6 +352,7 @@ public class Util {
                     return null;
                 }
             }
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("get result from url {}: {}", urlStr, sb.toString());
@@ -471,14 +474,26 @@ public class Util {
     // If no auth info, pass a null.
     public static InputStream getInputStreamFromUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
             int readTimeoutMs) throws IOException {
-        URL url = new URL(urlStr);
-        URLConnection conn = url.openConnection();
-        if (encodedAuthInfo != null) {
-            conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+        boolean needSecurityCheck = !(urlStr.startsWith("/") || urlStr.startsWith("file://"));
+        try {
+            if (needSecurityCheck) {
+                SecurityChecker.getInstance().startSSRFChecking(urlStr);
+            }
+            URL url = new URL(urlStr);
+            URLConnection conn = url.openConnection();
+            if (encodedAuthInfo != null) {
+                conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+            }
+            conn.setConnectTimeout(connectTimeoutMs);
+            conn.setReadTimeout(readTimeoutMs);
+            return conn.getInputStream();
+        } catch (Exception e) {
+            throw new IOException(e);
+        } finally {
+            if (needSecurityCheck) {
+                SecurityChecker.getInstance().stopSSRFChecking();
+            }
         }
-        conn.setConnectTimeout(connectTimeoutMs);
-        conn.setReadTimeout(readTimeoutMs);
-        return conn.getInputStream();
     }
 
     public static boolean showHiddenColumns() {

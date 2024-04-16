@@ -88,7 +88,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
 
         // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkProbeSlot(ctx, probeSlot)) {
             return false;
         }
 
@@ -149,7 +149,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         return this;
     }
 
-    public <T extends AbstractPhysicalPlan> T copyStatsAndGroupIdFrom(T from) {
+    public <T extends AbstractPhysicalPlan> AbstractPhysicalPlan copyStatsAndGroupIdFrom(T from) {
         T newPlan = (T) withPhysicalPropertiesAndStats(
                 from.getPhysicalProperties(), from.getStats());
         newPlan.setMutableState(MutableState.KEY_GROUP, from.getGroupIdAsString());

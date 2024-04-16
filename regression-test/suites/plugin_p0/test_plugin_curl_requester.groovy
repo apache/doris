@@ -22,9 +22,12 @@ suite('test_plugin_curl_requester') {
 
     backendId_to_backendIP.each { beId, beIp ->
         def port = backendId_to_backendHttpPort.get(beId) as int
-        be_report_disk(beIp, port)
+        if (!isCloudMode()) {
+            be_report_disk(beIp, port)
+            be_report_tablet(beIp, port)
+
+        }
         be_report_task(beIp, port)
-        be_report_tablet(beIp, port)
     }
 }
 

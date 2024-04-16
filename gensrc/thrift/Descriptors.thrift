@@ -49,7 +49,7 @@ struct TSlotDescriptor {
   2: required Types.TTupleId parent
   3: required Types.TTypeDesc slotType
   4: required i32 columnPos   // in originating table
-  5: required i32 byteOffset  // into tuple
+  5: required i32 byteOffset  // deprecated
   6: required i32 nullIndicatorByte
   7: required i32 nullIndicatorBit
   8: required string colName;
@@ -69,10 +69,10 @@ struct TSlotDescriptor {
 
 struct TTupleDescriptor {
   1: required Types.TTupleId id
-  2: required i32 byteSize
-  3: required i32 numNullBytes
+  2: required i32 byteSize // deprecated
+  3: required i32 numNullBytes // deprecated
   4: optional Types.TTableId tableId
-  5: optional i32 numNullSlots
+  5: optional i32 numNullSlots // deprecated
 }
 
 enum THdfsFileFormat {
@@ -125,7 +125,12 @@ enum TSchemaTableType {
     SCH_COLUMN_STATISTICS,
     SCH_PARAMETERS,
     SCH_METADATA_NAME_IDS,
-    SCH_PROFILING;
+    SCH_PROFILING,
+    SCH_BACKEND_ACTIVE_TASKS,
+    SCH_ACTIVE_QUERIES,
+    SCH_WORKLOAD_GROUPS,
+    SCH_USER,
+    SCH_PROCS_PRIV;
 }
 
 enum THdfsCompression {
@@ -202,6 +207,9 @@ struct TOlapTablePartitionParam {
     8: optional list<Exprs.TExpr> partition_function_exprs
     9: optional bool enable_automatic_partition
     10: optional Partitions.TPartitionType partition_type
+    // insert overwrite partition(*)
+    11: optional bool enable_auto_detect_overwrite
+    12: optional i64 overwrite_group_id
 }
 
 struct TOlapTableIndex {
@@ -344,6 +352,12 @@ struct TMCTable {
   8: optional string tunnel_url
 }
 
+struct TTrinoConnectorTable {
+  1: optional string db_name
+  2: optional string table_name
+  3: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -367,6 +381,7 @@ struct TTableDescriptor {
   19: optional THudiTable hudiTable
   20: optional TJdbcTable jdbcTable
   21: optional TMCTable mcTable
+  22: optional TTrinoConnectorTable trinoConnectorTable
 }
 
 struct TDescriptorTable {

@@ -34,9 +34,10 @@ PhysicalResultSink
 ----------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[cs_bill_hdemo_sk]
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk) and (catalog_sales.cs_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_ship_date_sk];RF1 d_date_sk->[cs_sold_date_sk]
-----------------------------------------------------------PhysicalProject
-------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
-----------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
+----------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------NestedLoopJoin[INNER_JOIN](d3.d_date > days_add(d_date, INTERVAL 5 DAY))
 ----------------------------------------------------------------PhysicalProject
@@ -67,7 +68,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[warehouse]
 
 Hint log:
-Used:  leading(inventory { catalog_returns shuffle { catalog_sales shuffle { d3 broadcast d1 } broadcast household_demographics shuffle customer_demographics broadcast promotion shuffle item } broadcast d2 } broadcast warehouse )
-UnUsed: [shuffle]_2
+Used:  leading(inventory shuffle { catalog_returns shuffle { catalog_sales shuffle { d3 d1 } broadcast household_demographics shuffle customer_demographics broadcast promotion shuffle item } broadcast d2 } broadcast warehouse )
+UnUsed: 
 SyntaxError:
 

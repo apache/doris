@@ -17,6 +17,7 @@
 
 package org.apache.doris.jdbc;
 
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.UdfUtils;
@@ -150,6 +151,26 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return false;
     }
 
+    public void cleanDataSource() {
+        if (druidDataSource != null) {
+            druidDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+            druidDataSource = null;
+        }
+    }
+
+    public void testConnection() throws UdfRuntimeException {
+        try {
+            resultSet = ((PreparedStatement) stmt).executeQuery();
+            if (!resultSet.next()) {
+                throw new UdfRuntimeException(
+                        "Failed to test connection in BE: query executed but returned no results.");
+            }
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("Failed to test connection in BE: ", e);
+        }
+    }
+
     public int read() throws UdfRuntimeException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
@@ -209,6 +230,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
             throw new UdfRuntimeException("jdbc get block address: ", e);
+        } finally {
+            block.clear();
         }
         return outputTable.getMetaAddress();
     }
@@ -294,7 +317,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                         DruidDataSource ds = new DruidDataSource();
                         ds.setDriverClassLoader(classLoader);
                         ds.setDriverClassName(config.getJdbcDriverClass());
-                        ds.setUrl(config.getJdbcUrl());
+                        ds.setUrl(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()));
                         ds.setUsername(config.getJdbcUser());
                         ds.setPassword(config.getJdbcPassword());
                         ds.setMinIdle(config.getConnectionPoolMinSize()); // default 1

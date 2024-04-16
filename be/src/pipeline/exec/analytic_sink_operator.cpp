@@ -29,14 +29,20 @@ OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _blocks_memory_usage =
+            _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
+    return Status::OK();
+}
+
+Status AnalyticSinkLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::open(state));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     _shared_state->partition_by_column_idxs.resize(p._partition_by_eq_expr_ctxs.size());
     _shared_state->ordey_by_column_idxs.resize(p._order_by_eq_expr_ctxs.size());
-
-    _blocks_memory_usage =
-            _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     size_t agg_size = p._agg_expr_ctxs.size();
     _agg_expr_ctxs.resize(agg_size);
@@ -226,7 +232,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 
 Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     for (const auto& ctx : _agg_expr_ctxs) {
-        static_cast<void>(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;

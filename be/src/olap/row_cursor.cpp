@@ -28,6 +28,7 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_schema.h"
 #include "util/slice.h"
 
 using std::nothrow;
@@ -78,7 +79,7 @@ Status RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
     return _init(columns);
 }
 
-Status RowCursor::_init(const std::vector<TabletColumn>& schema,
+Status RowCursor::_init(const std::vector<TabletColumnPtr>& schema,
                         const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(schema, columns));
     return _init(columns);
@@ -137,7 +138,7 @@ Status RowCursor::init(TabletSchemaSPtr schema) {
     return init(schema->columns(), schema->num_columns());
 }
 
-Status RowCursor::init(const std::vector<TabletColumn>& schema) {
+Status RowCursor::init(const std::vector<TabletColumnPtr>& schema) {
     return init(schema, schema.size());
 }
 
@@ -157,7 +158,7 @@ Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
     return Status::OK();
 }
 
-Status RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_count) {
+Status RowCursor::init(const std::vector<TabletColumnPtr>& schema, size_t column_count) {
     if (column_count > schema.size()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "Input param are invalid. Column count is bigger than num_columns of schema. "

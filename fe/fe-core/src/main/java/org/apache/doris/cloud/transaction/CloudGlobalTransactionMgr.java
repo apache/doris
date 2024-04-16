@@ -20,11 +20,15 @@ package org.apache.doris.cloud.transaction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnRequest;
@@ -45,6 +49,7 @@ import org.apache.doris.cloud.proto.Cloud.LoadJobSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
@@ -108,6 +113,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -226,7 +233,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("beginTxn KV_TXN_CONFLICT, retryTime:{}", retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(beginTxnResponse);
@@ -313,6 +319,82 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }
 
+    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse) {
+        long dbId = commitTxnResponse.getTxnInfo().getDbId();
+        long txnId = commitTxnResponse.getTxnInfo().getTxnId();
+        // 1. update rowCountfor AnalysisManager
+        Map<Long, Long> updatedRows = new HashMap<>();
+        for (TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
+            LOG.info("Update RowCount for AnalysisManager. transactionId:{}, table_id:{}, updated_row_count:{}",
+                    txnId, tableStats.getTableId(), tableStats.getUpdatedRowCount());
+            updatedRows.put(tableStats.getTableId(), tableStats.getUpdatedRowCount());
+        }
+        Env env = Env.getCurrentEnv();
+        env.getAnalysisManager().updateUpdatedRows(updatedRows);
+        // 2. notify partition first load
+        int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
+        // a map to record <tableId, [firstLoadPartitionIds]>
+        Map<Long, List<Long>> tablePartitionMap = Maps.newHashMap();
+        for (int idx = 0; idx < totalPartitionNum; ++idx) {
+            long version = commitTxnResponse.getVersions(idx);
+            long tableId = commitTxnResponse.getTableIds(idx);
+            if (version == 2) {
+                // inform AnalysisManager first load partitions
+                tablePartitionMap.computeIfAbsent(tableId, k -> Lists.newArrayList());
+                tablePartitionMap.get(tableId).add(commitTxnResponse.getPartitionIds(idx));
+            }
+            // 3. update CloudPartition
+            OlapTable olapTable = (OlapTable) env.getInternalCatalog().getDb(dbId)
+                    .flatMap(db -> db.getTable(tableId)).filter(t -> t.getType() == TableType.OLAP)
+                    .orElse(null);
+            if (olapTable == null) {
+                continue;
+            }
+            CloudPartition partition = (CloudPartition) olapTable.getPartition(
+                    commitTxnResponse.getPartitionIds(idx));
+            if (partition == null) {
+                continue;
+            }
+            partition.setCachedVisibleVersion(version);
+        }
+        env.getAnalysisManager().setNewPartitionLoaded(
+                tablePartitionMap.keySet().stream().collect(Collectors.toList()));
+        // tablePartitionMap to string
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<Long, List<Long>> entry : tablePartitionMap.entrySet()) {
+            sb.append(entry.getKey()).append(":[");
+            for (Long partitionId : entry.getValue()) {
+                sb.append(partitionId).append(",");
+            }
+            sb.append("];");
+        }
+        if (sb.length() > 0) {
+            LOG.info("notify partition first load. {}", sb);
+        }
+    }
+
+    private Set<Long> getBaseTabletsFromTables(List<Table> tableList, List<TabletCommitInfo> tabletCommitInfos)
+            throws MetaNotFoundException {
+        Set<Long> baseTabletIds = Sets.newHashSet();
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
+            return baseTabletIds;
+        }
+        for (Table table : tableList) {
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.getPartitions().stream()
+                    .map(Partition::getBaseIndex)
+                    .map(MaterializedIndex::getTablets)
+                    .flatMap(Collection::stream)
+                    .map(Tablet::getId)
+                    .forEach(baseTabletIds::add);
+        }
+        Set<Long> tabletIds = tabletCommitInfos.stream().map(TabletCommitInfo::getTabletId).collect(Collectors.toSet());
+        baseTabletIds.retainAll(tabletIds);
+        LOG.debug("baseTabletIds: {}", baseTabletIds);
+
+        return baseTabletIds;
+    }
+
     private void commitTransaction(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC)
             throws UserException {
@@ -332,7 +414,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         builder.setDbId(dbId)
                 .setTxnId(transactionId)
                 .setIs2Pc(is2PC)
-                .setCloudUniqueId(Config.cloud_unique_id);
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .addAllBaseTabletIds(getBaseTabletsFromTables(tableList, tabletCommitInfos));
 
         // if tablet commit info is empty, no need to pass mowTableList to meta service.
         if (tabletCommitInfos != null && !tabletCommitInfos.isEmpty()) {
@@ -375,7 +458,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commitTxn KV_TXN_CONFLICT, transactionId:{}, retryTime:{}", transactionId, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(commitTxnResponse);
@@ -414,6 +496,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
+        afterCommitTxnResp(commitTxnResponse);
     }
 
     private List<OlapTable> getMowTableList(List<Table> tableList) {
@@ -705,7 +788,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("abortTxn KV_TXN_CONFLICT, transactionId:{}, retryTime:{}", transactionId, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
             Preconditions.checkNotNull(abortTxnResponse);
             Preconditions.checkNotNull(abortTxnResponse.getStatus());
@@ -758,7 +840,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("abortTxn KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
             Preconditions.checkNotNull(abortTxnResponse);
             Preconditions.checkNotNull(abortTxnResponse.getStatus());
@@ -910,7 +991,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("cleanTxnLabel KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
                 backoff();
                 retryTime++;
-                continue;
             }
 
             Preconditions.checkNotNull(cleanTxnLabelResponse);
@@ -931,7 +1011,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void updateMultiTableRunningTransactionTableIds(Long dbId, Long transactionId, List<Long> tableIds)
             throws UserException {
-        throw new UserException(NOT_SUPPORTED_MSG);
+        //throw new UserException(NOT_SUPPORTED_MSG);
     }
 
     @Override

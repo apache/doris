@@ -32,13 +32,19 @@
 #include "io/fs/path.h"
 #include "util/slice.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 struct IOContext;
 
-class HdfsFileReader : public FileReader {
+class HdfsFileReader final : public FileReader {
 public:
-    HdfsFileReader(Path path, const std::string& name_node, FileHandleCache::Accessor accessor,
+    // Accepted path format:
+    // - fs_name/path_to_file
+    // - /path_to_file
+    // TODO(plat1ko): Support related path for cloud mode
+    static Result<FileReaderSPtr> create(Path path, const hdfsFS& fs, std::string fs_name,
+                                         const FileReaderOptions& opts, RuntimeProfile* profile);
+
+    HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,
                    RuntimeProfile* profile);
 
     ~HdfsFileReader() override;
@@ -51,11 +57,11 @@ public:
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
-    FileSystemSPtr fs() const override { return _accessor.fs(); }
-
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
+
+    void _collect_profile_before_close() override;
 
 private:
 #ifdef USE_HADOOP_HDFS
@@ -72,7 +78,7 @@ private:
 #endif
 
     Path _path;
-    const std::string& _name_node;
+    std::string _fs_name;
     FileHandleCache::Accessor _accessor;
     CachedHdfsFileHandle* _handle = nullptr; // owned by _cached_file_handle
     std::atomic<bool> _closed = false;
@@ -81,5 +87,4 @@ private:
     HDFSProfile _hdfs_profile;
 #endif
 };
-} // namespace io
-} // namespace doris
+} // namespace doris::io

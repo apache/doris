@@ -138,7 +138,9 @@ enum TFileCompressType {
     DEFLATE,
     LZOP,
     LZ4BLOCK,
-    SNAPPYBLOCK
+    SNAPPYBLOCK,
+    ZLIB,
+    ZSTD
 }
 
 struct THdfsConf {
@@ -152,6 +154,8 @@ struct THdfsParams {
     3: optional string hdfs_kerberos_principal
     4: optional string hdfs_kerberos_keytab
     5: optional list<THdfsConf> hdfs_conf
+    // Used for Cold Heat Separation to specify the root path
+    6: optional string root_path
 }
 
 // One broker range information.
@@ -316,6 +320,20 @@ struct TPaimonFileDesc {
     11: optional string file_format
 }
 
+struct TTrinoConnectorFileDesc {
+    1: optional string catalog_name
+    2: optional string db_name
+    3: optional string table_name
+    4: optional map<string, string> trino_connector_options
+    5: optional string trino_connector_table_handle
+    6: optional string trino_connector_column_handles
+    7: optional string trino_connector_column_metadata
+    8: optional string trino_connector_column_names // not used
+    9: optional string trino_connector_split
+    10: optional string trino_connector_predicate
+    11: optional string trino_connector_trascation_handle
+}
+
 struct TMaxComputeFileDesc {
     1: optional string partition_spec
 }
@@ -350,6 +368,7 @@ struct TTableFormatFileDesc {
     4: optional TPaimonFileDesc paimon_params
     5: optional TTransactionalHiveDesc transactional_hive_params
     6: optional TMaxComputeFileDesc max_compute_params
+    7: optional TTrinoConnectorFileDesc trino_connector_params
 }
 
 enum TTextSerdeType {
@@ -496,7 +515,7 @@ struct TTasksMetadataParams {
 
 struct TQueriesMetadataParams {
   1: optional string cluster_name
-  2: optional bool   relay_to_other_fe
+  2: optional bool relay_to_other_fe
   3: optional TMaterializedViewsMetadataParams materialized_views_params
   4: optional TJobsMetadataParams jobs_params
   5: optional TTasksMetadataParams tasks_params
@@ -777,6 +796,8 @@ struct THashJoinNode {
   11: optional bool is_mark
   12: optional TJoinDistributionType dist_type
   13: optional list<Exprs.TExpr> mark_join_conjuncts
+  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  14: optional bool use_specific_projections
 }
 
 struct TNestedLoopJoinNode {
@@ -798,6 +819,8 @@ struct TNestedLoopJoinNode {
   8: optional list<Exprs.TExpr> join_conjuncts
 
   9: optional list<Exprs.TExpr> mark_join_conjuncts
+  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  10: optional bool use_specific_projections
 }
 
 struct TMergeJoinNode {
@@ -1119,6 +1142,7 @@ struct TAssertNumRowsNode {
     1: optional i64 desired_num_rows;
     2: optional string subquery_string;
     3: optional TAssertion assertion;
+    4: optional bool should_convert_output_to_nullable;
 }
 
 enum TRuntimeFilterType {
@@ -1192,6 +1216,8 @@ struct TRuntimeFilterDesc {
  
   // true, if join type is null aware like <=>. rf should dispose the case
   15: optional bool null_aware;
+
+  16: optional bool sync_filter_size;
 }
 
 
@@ -1270,10 +1296,13 @@ struct TPlanNode {
   49: optional i64 push_down_count
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
-  
+  // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
   103: optional TPartitionSortNode partition_sort_node
+  // Intermediate projections will not materialize into the output block.
+  104: optional list<list<Exprs.TExpr>> intermediate_projections_list
+  105: optional list<Types.TTupleId> intermediate_output_tuple_id_list
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

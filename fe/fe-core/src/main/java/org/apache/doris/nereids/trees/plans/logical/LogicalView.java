@@ -18,9 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.View;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -29,14 +30,12 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /** LogicalView */
 public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
@@ -46,7 +45,9 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     public LogicalView(View view, BODY body) {
         super(PlanType.LOGICAL_VIEW, Optional.empty(), Optional.empty(), body);
         this.view = Objects.requireNonNull(view, "catalog can not be null");
-        Preconditions.checkArgument(body instanceof LogicalPlan);
+        if (!(body instanceof LogicalPlan)) {
+            throw new AnalysisException("Child of LogicalView should be LogicalPlan, but meet: " + body.getClass());
+        }
     }
 
     @Override
@@ -127,17 +128,22 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        return ((LogicalPlan) child()).computeFuncDeps(outputSupplier);
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        return ((LogicalPlan) child()).computeFdItems(outputSupplier);
+    public ImmutableSet<FdItem> computeFdItems() {
+        return ((LogicalPlan) child()).computeFdItems();
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new LogicalView<>(view, (LogicalPlan) children.get(0));
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 }

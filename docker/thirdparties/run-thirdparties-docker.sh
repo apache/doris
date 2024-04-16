@@ -285,8 +285,8 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
         declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone")
 
         for topic in "${topics[@]}"; do
-            echo "docker exec "${container_id}" bash -c echo '/opt/kafka/bin/kafka-topics.sh --create --broker-list '${ip_host}:19193' --partitions 10' --topic '${topic}'" 
-            docker exec "${container_id}" bash -c "/opt/kafka/bin/kafka-topics.sh --create --broker-list '${ip_host}:19193' --partitions 10' --topic '${topic}'"
+            echo "docker exec "${container_id}" bash -c echo '/opt/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'" 
+            docker exec "${container_id}" bash -c "/opt/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
         done
 
     }
@@ -307,6 +307,7 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
     if [ "_${IP_HOST}" == "_" ];then
         echo "please set IP_HOST according to your actual situation"
+        exit -1
     fi
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh

@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.constants;
 
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.credentials.CloudCredential;
@@ -26,6 +28,10 @@ import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
+import com.amazonaws.auth.InstanceProfileCredentialsProvider;
+import com.amazonaws.auth.SystemPropertiesCredentialsProvider;
+import com.amazonaws.auth.WebIdentityTokenCredentialsProvider;
+import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
@@ -44,6 +50,7 @@ public class S3Properties extends BaseProperties {
 
     public static final String CREDENTIALS_PROVIDER = "s3.credentials.provider";
     public static final String ENDPOINT = "s3.endpoint";
+    public static final String EXTERNAL_ENDPOINT = "s3.external_endpoint";
     public static final String REGION = "s3.region";
     public static final String ACCESS_KEY = "s3.access_key";
     public static final String SECRET_KEY = "s3.secret_key";
@@ -56,6 +63,7 @@ public class S3Properties extends BaseProperties {
     public static final String ROOT_PATH = "s3.root.path";
     public static final String BUCKET = "s3.bucket";
     public static final String VALIDITY_CHECK = "s3_validity_check";
+    public static final String PROVIDER = "provider";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
     public static final List<String> TVF_REQUIRED_FIELDS = Arrays.asList(ACCESS_KEY, SECRET_KEY);
     public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN,
@@ -66,6 +74,10 @@ public class S3Properties extends BaseProperties {
             TemporaryAWSCredentialsProvider.class.getName(),
             SimpleAWSCredentialsProvider.class.getName(),
             EnvironmentVariableCredentialsProvider.class.getName(),
+            SystemPropertiesCredentialsProvider.class.getName(),
+            ProfileCredentialsProvider.class.getName(),
+            InstanceProfileCredentialsProvider.class.getName(),
+            WebIdentityTokenCredentialsProvider.class.getName(),
             IAMInstanceCredentialsProvider.class.getName());
 
     public static Map<String, String> credentialToMap(CloudCredentialWithEndpoint credential) {
@@ -268,5 +280,18 @@ public class S3Properties extends BaseProperties {
         String usePathStyle = properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
         return s3Info;
+    }
+
+    public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
+        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
+        builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
+        builder.setRegion(properties.get(S3Properties.REGION));
+        builder.setAk(properties.get(S3Properties.ACCESS_KEY));
+        builder.setSk(properties.get(S3Properties.SECRET_KEY));
+        builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
+        builder.setBucket(properties.get(S3Properties.BUCKET));
+        builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
+        builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
+        return builder;
     }
 }

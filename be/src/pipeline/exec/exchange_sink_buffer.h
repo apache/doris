@@ -216,6 +216,10 @@ public:
         _finish_dependency = finish_dependency;
     }
 
+    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
+        _broadcast_dependency = broadcast_dependency;
+    }
+
     void set_should_stop() {
         _should_stop = true;
         _set_ready_to_finish(_busy_channels == 0);
@@ -270,9 +274,9 @@ private:
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    static constexpr int QUEUE_CAPACITY_FACTOR = 64;
-    std::shared_ptr<Dependency> _queue_dependency;
-    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<Dependency> _queue_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
     std::atomic<bool> _should_stop {false};
 };
 

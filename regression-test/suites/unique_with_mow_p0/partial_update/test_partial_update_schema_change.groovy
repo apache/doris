@@ -590,7 +590,9 @@ suite("test_partial_update_schema_change", "p0") {
 
     qt_sql12 " select * from ${tableName} order by c0 "
     
-    sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    if (!isCloudMode()) {
+        sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    }
 
     streamLoad {
         table "${tableName}"
@@ -1178,7 +1180,9 @@ suite("test_partial_update_schema_change", "p0") {
 
     qt_sql25 " select * from ${tableName} order by c0 "
     
-    sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    if (!isCloudMode()) {
+        sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
+    }
 
     streamLoad {
         table "${tableName}"

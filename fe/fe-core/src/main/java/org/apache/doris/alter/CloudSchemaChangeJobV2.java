@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -54,12 +55,17 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
 
     public static AlterJobV2 buildCloudSchemaChangeJobV2(SchemaChangeJobV2 job) throws IOException {
+        // deep copy to save repeated assignments
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream dos = new DataOutputStream(baos);
         job.write(dos);
         ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
         DataInputStream dis = new DataInputStream(bais);
-        return CloudSchemaChangeJobV2.read(dis);
+        // partitionIndexMap cannot be deep-copied because it is referenced
+        // by `SchemaChangeJobV2#addShadowIndexToCatalog` and `SchemaChangeHandler.createJob`
+        CloudSchemaChangeJobV2 ret = (CloudSchemaChangeJobV2) CloudSchemaChangeJobV2.read(dis);
+        ret.partitionIndexMap = job.partitionIndexMap;
+        return ret;
     }
 
     public CloudSchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId,
@@ -82,8 +88,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 indexIdMap.keySet().stream().collect(Collectors.toList());
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .commitMaterializedIndex(tableId,
-                    shadowIdxList);
+                    .commitMaterializedIndex(dbId, tableId, shadowIdxList, false);
         } catch (Exception e) {
             LOG.warn("commitMaterializedIndex exception:", e);
             throw new AlterCancelException(e.getMessage());
@@ -109,7 +114,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         while (true) {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .dropMaterializedIndex(tableId, idxList);
+                    .dropMaterializedIndex(tableId, idxList, false);
                 break;
             } catch (Exception e) {
                 LOG.warn("tryTimes:{}, dropIndex exception:", tryTimes, e);
@@ -182,6 +187,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
                 long originIndexId = indexIdMap.get(shadowIdxId);
                 KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
+                List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
 
                 Cloud.CreateTabletsRequest.Builder requestBuilder =
                         Cloud.CreateTabletsRequest.newBuilder();
@@ -191,11 +197,16 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                 .createTabletMetaBuilder(tableId, shadowIdxId,
                                 partitionId, shadowTablet, tbl.getPartitionInfo().getTabletType(partitionId),
                                 shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
-                                bfFpp, indexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
+                                bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
                                 tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                 tbl.getName(), tbl.getTTLSeconds(),
                                 tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                shadowSchemaVersion);
+                                shadowSchemaVersion, tbl.getCompactionPolicy(),
+                                tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                tbl.getTimeSeriesCompactionFileCountThreshold(),
+                                tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                tbl.getTimeSeriesCompactionLevelThreshold());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

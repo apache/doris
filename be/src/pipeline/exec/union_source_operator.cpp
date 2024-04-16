@@ -71,7 +71,7 @@ Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* bl
     } else {
         std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
-        static_cast<void>(_data_queue->get_block_from_queue(&output_block, &child_idx));
+        RETURN_IF_ERROR(_data_queue->get_block_from_queue(&output_block, &child_idx));
         if (!output_block) {
             return Status::OK();
         }
@@ -110,7 +110,7 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
     if (p.get_child_count() != 0) {
         ((UnionSharedState*)_dependency->shared_state())
@@ -124,6 +124,18 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
     }
 
+    if (p.get_child_count() == 0) {
+        _dependency->set_ready();
+    }
+    return Status::OK();
+}
+
+Status UnionSourceLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+
+    auto& p = _parent->cast<Parent>();
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
@@ -143,9 +155,6 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         }
     }
 
-    if (p.get_child_count() == 0) {
-        _dependency->set_ready();
-    }
     return Status::OK();
 }
 
@@ -165,8 +174,10 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     Defer set_eos {[&]() {
         //have executing const expr, queue have no data anymore, and child could be closed
         *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
-               (_child_size > 0 && local_state._shared_state->data_queue.is_all_finish() &&
-                !_has_data(state));
+               // here should check `_has_data` first, or when `is_all_finish` is false,
+               // the data queue will have no chance to change the `_flag_queue_idx`.
+               (!_has_data(state) && _child_size > 0 &&
+                local_state._shared_state->data_queue.is_all_finish());
     }};
 
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -198,7 +209,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
-    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
+    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
          ++_const_expr_list_idx) {
         vectorized::Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),

@@ -205,6 +205,10 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _master_info, config::report_task_interval_seconds,
             [&master_info = _master_info] { report_task_callback(master_info); }));
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds,
+            [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
@@ -257,6 +261,12 @@ void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,
                                         const TAgentPublishRequest& request) {
     Status status = Status::NotSupported("deprecated method(publish_cluster_state) was invoked");
     status.to_thrift(&t_agent_result.status);
+}
+
+void AgentServer::stop_report_workers() {
+    for (auto& work : _report_workers) {
+        work->stop();
+    }
 }
 
 } // namespace doris

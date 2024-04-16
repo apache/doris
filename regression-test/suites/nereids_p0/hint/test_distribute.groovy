@@ -104,7 +104,7 @@ suite("test_distribute") {
     qt_select5_1 """explain shape plan select count(*) from t1 join [shuffle] t2 on c1 > c2;"""
     qt_select5_2 """explain shape plan select count(*) from t1 join [broadcast] t2 on c1 > c2;"""
 
-    qt_select6_1 """explain shape plan select count(*) from t1 join [shuffle] t2 on c1 > c2 join t3 on c2 > c3 where c1 < 100;"""
+    qt_select6_1 """explain shape plan select /*+ leading(t3 {t1 t2}) */ count(*) from t1 join [shuffle] t2 on c1 > c2 join t3 on c2 > c3 where c1 < 100;"""
     qt_select6_2 """explain shape plan select count(*) from t1 join t2 on c1 > c2 join t3 on c2 > c3 where c1 < 100;"""
 
     // (A leftjoin B on (Pab)) leftjoin C on (Pac) = (A leftjoin C on (Pac)) leftjoin B on (Pab)

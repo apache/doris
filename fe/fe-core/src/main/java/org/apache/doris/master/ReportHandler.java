@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -121,6 +122,7 @@ public class ReportHandler extends Daemon {
     }
 
     public ReportHandler() {
+        super("report-thread");
         GaugeMetric<Long> gauge = new GaugeMetric<Long>(
                 "report_queue_size", MetricUnit.NOUNIT, "report queue size") {
             @Override
@@ -829,6 +831,8 @@ public class ReportHandler extends Daemon {
                                     MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
                                     Set<String> bfColumns = olapTable.getCopiedBfColumns();
                                     double bfFpp = olapTable.getBfFpp();
+                                    List<Index> indexes = indexId == olapTable.getBaseIndexId()
+                                                            ? olapTable.getCopiedIndexes() : null;
                                     CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
                                             tableId, partitionId, indexId, tabletId, replica.getId(),
                                             indexMeta.getShortKeyColumnCount(),
@@ -836,7 +840,7 @@ public class ReportHandler extends Daemon {
                                             indexMeta.getKeysType(),
                                             TStorageType.COLUMN,
                                             TStorageMedium.HDD, indexMeta.getSchema(), bfColumns, bfFpp, null,
-                                            olapTable.getCopiedIndexes(),
+                                            indexes,
                                             olapTable.isInMemory(),
                                             olapTable.getPartitionInfo().getTabletType(partitionId),
                                             null,
@@ -849,6 +853,7 @@ public class ReportHandler extends Daemon {
                                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
                                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
                                             olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                            olapTable.getTimeSeriesCompactionLevelThreshold(),
                                             olapTable.storeRowColumn(),
                                             binlogConfig);
 

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
@@ -79,7 +78,10 @@ public enum ExpressionEvaluator {
         } else if (expression instanceof BoundFunction) {
             BoundFunction function = ((BoundFunction) expression);
             fnName = function.getName();
-            args = function.children().stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new);
+            args = new DataType[function.arity()];
+            for (int i = 0; i < function.children().size(); i++) {
+                args[i] = function.child(i).getDataType();
+            }
         }
 
         if ((Env.getCurrentEnv().isNullResultWithOneNullParamFunction(fnName))) {
@@ -166,8 +168,11 @@ public enum ExpressionEvaluator {
             for (String type : annotation.argTypes()) {
                 argTypes.add(TypeCoercionUtils.replaceDecimalV3WithWildcard(DataType.convertFromString(type)));
             }
-            FunctionSignature signature = new FunctionSignature(name,
-                    argTypes.toArray(new DataType[0]), returnType);
+            DataType[] array = new DataType[argTypes.size()];
+            for (int i = 0; i < argTypes.size(); i++) {
+                array[i] = argTypes.get(i);
+            }
+            FunctionSignature signature = new FunctionSignature(name, array, returnType);
             mapBuilder.put(name, new FunctionInvoker(method, signature));
         }
     }

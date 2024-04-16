@@ -25,6 +25,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -184,7 +185,11 @@ public interface TableIf {
 
     boolean needReAnalyzeTable(TableStatsMeta tblStats);
 
-    Map<String, Set<String>> findReAnalyzeNeededPartitions();
+    /**
+     * @param columns Set of column names.
+     * @return List of pairs. Each pair is <IndexName, ColumnName>. For external table, index name is table name.
+     */
+    List<Pair<String, String>> getColumnIndexPairs(Set<String> columns);
 
     // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
     // For HMS external table, the return result is a list of all the files' size.
@@ -420,7 +425,7 @@ public interface TableIf {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {

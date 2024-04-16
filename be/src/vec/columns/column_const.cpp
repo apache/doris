@@ -126,22 +126,6 @@ void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& selector) const {
-    if (s != selector.size()) {
-        LOG(FATAL) << fmt::format("Size of selector ({}) doesn't match size of column ({})",
-                                  selector.size(), s);
-    }
-
-    std::vector<size_t> counts = count_columns_size_in_selector(num_columns, selector);
-
-    MutableColumns res(num_columns);
-    for (size_t i = 0; i < num_columns; ++i) {
-        res[i] = clone_resized(counts[i]);
-    }
-
-    return res;
-}
-
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
                                   Permutation& res) const {
     res.resize(s);
@@ -172,7 +156,7 @@ ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
 }
 
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
-                                                                const size_t row_num) noexcept {
+                                                                size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;
     if (is_column_const(column)) {
         result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();

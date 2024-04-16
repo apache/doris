@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeRes
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -125,6 +126,16 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink, PlanContext context) {
+        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(hiveTableSink.getRequirePhysicalProperties());
         }
         return null;
     }

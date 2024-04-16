@@ -129,8 +129,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
                 qualifiedTableName.get(2));
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tblName.getDb(), tblName.getTbl(),
-                PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ctx, tblName.getCtl(), tblName.getDb(), tblName.getTbl(),
+                        PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
                     ctx.getQualifiedUser(),
                     ctx.getRemoteIP(),
@@ -313,14 +314,16 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
 
         // set data consistency
-        String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
-        if (dataConsistencyStr != null) {
-            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_PARTITION)) {
-                throw new AnalysisException("The value of data_consistency is invalid, only partition is allowed!");
+        if (fileProperties.containsKey(DATA_CONSISTENCY)) {
+            String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
+            if (ExportJob.CONSISTENT_NONE.equalsIgnoreCase(dataConsistencyStr)) {
+                exportJob.setDataConsistency(ExportJob.CONSISTENT_NONE);
+            } else if (ExportJob.CONSISTENT_PARTITION.equalsIgnoreCase(dataConsistencyStr)) {
+                exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
+            } else {
+                throw new AnalysisException("The value of data_consistency is invalid, please use `"
+                        + ExportJob.CONSISTENT_PARTITION + "`/`" + ExportJob.CONSISTENT_NONE + "`");
             }
-            exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
-        } else {
-            exportJob.setDataConsistency(ExportJob.CONSISTENT_ALL);
         }
 
         // Must copy session variable, because session variable may be changed during export job running.

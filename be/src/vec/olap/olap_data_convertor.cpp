@@ -57,7 +57,7 @@ OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema
     assert(tablet_schema);
     const auto& columns = tablet_schema->columns();
     for (const auto& col : columns) {
-        _convertors.emplace_back(create_olap_column_data_convertor(col));
+        _convertors.emplace_back(create_olap_column_data_convertor(*col));
     }
 }
 

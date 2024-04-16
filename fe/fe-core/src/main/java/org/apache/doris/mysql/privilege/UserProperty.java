@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetUserPropertyVar;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
@@ -622,6 +623,12 @@ public class UserProperty implements Writable {
             DppConfig dppConfig = new DppConfig();
             dppConfig.readFields(in);
             clusterToDppConfig.put(cluster, dppConfig);
+        }
+
+        if (Config.isCloudMode()) {
+            if (in.readBoolean()) {
+                defaultCloudCluster = Text.readString(in);
+            }
         }
 
         // whiteList

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -56,14 +57,18 @@ public class InitMaterializationContextHook implements PlannerHook {
         initMaterializationContext(planner.getCascadesContext());
     }
 
-    private void initMaterializationContext(CascadesContext cascadesContext) {
+    /**
+     * init materialization context
+     */
+    @VisibleForTesting
+    public void initMaterializationContext(CascadesContext cascadesContext) {
         if (!cascadesContext.getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
             return;
         }
         Plan rewritePlan = cascadesContext.getRewritePlan();
-        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet());
+        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), true);
         rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
-        List<TableIf> collectedTables = collectorContext.getCollectedTables();
+        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         if (collectedTables.isEmpty()) {
             return;
         }
@@ -74,7 +79,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         if (availableMTMVs.isEmpty()) {
             return;
         }
-        availableMTMVs.forEach(materializedView -> {
+        for (MTMV materializedView : availableMTMVs) {
             // generate outside, maybe add partition filter in the future
             LogicalOlapScan mvScan = new LogicalOlapScan(
                     cascadesContext.getStatementContext().getNextRelationId(),
@@ -91,6 +96,6 @@ public class InitMaterializationContextHook implements PlannerHook {
             Plan projectScan = new LogicalProject<Plan>(mvProjects, mvScan);
             cascadesContext.addMaterializationContext(
                     MaterializationContext.fromMaterializedView(materializedView, projectScan, cascadesContext));
-        });
+        }
     }
 }

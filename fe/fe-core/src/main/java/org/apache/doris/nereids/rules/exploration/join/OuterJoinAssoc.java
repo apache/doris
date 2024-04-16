@@ -59,7 +59,6 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left()))
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().left().getOutputSet()))
-                .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin())
                 .thenApply(ctx -> {
                     LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin = ctx.root;
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();

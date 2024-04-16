@@ -29,7 +29,9 @@ suite("test_alter_table_column") {
         """
 
     // alter and test light schema change
-    sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+    if (!isCloudMode()) {
+        sql """ALTER TABLE ${tbName1} SET ("light_schema_change" = "true");"""
+    }
 
     sql """
             ALTER TABLE ${tbName1} 

@@ -46,7 +46,7 @@ public class MysqlErrPacketTest {
         // assert indicator
         Assert.assertEquals(0xff, MysqlProto.readInt1(buffer));
         // error code
-        Assert.assertEquals(1064, MysqlProto.readInt2(buffer));
+        Assert.assertEquals(1105, MysqlProto.readInt2(buffer));
         // sql state marker
         Assert.assertEquals('#', MysqlProto.readInt1(buffer));
         // sql state

@@ -87,8 +87,7 @@ void serialize_and_deserialize_mysql_test() {
     // make desc and generate block
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     _output_vexpr_ctxs.resize(cols.size());
-    doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
-                                     doris::TQueryGlobals(), nullptr);
+    doris::RuntimeState runtime_stat;
     ObjectPool object_pool;
     int col_idx = 0;
     for (auto t : cols) {
@@ -158,7 +157,7 @@ void serialize_and_deserialize_mysql_test() {
                                       decimal_column.get())
                                      ->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+                    auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                     data.push_back(value);
                 }
                 vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
@@ -304,7 +303,6 @@ void serialize_and_deserialize_mysql_test() {
         doris::DescriptorTbl* desc_tbl = builder.build();
         auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
         doris::RowDescriptor row_desc(tuple_desc, false);
-        runtime_stat.init_mem_trackers();
         runtime_stat.set_desc_tbl(desc_tbl);
         st = ctx->prepare(&runtime_stat, row_desc);
         std::cout << st.to_string() << std::endl;

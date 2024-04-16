@@ -161,15 +161,21 @@ bool AnalyticLocalState::_whether_need_next_partition(
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _blocks_memory_usage =
+            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
+    return Status::OK();
+}
+
+Status AnalyticLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::open(state));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
-
-    _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     _agg_functions.resize(p._agg_functions.size());
     for (size_t i = 0; i < _agg_functions.size(); i++) {
@@ -236,7 +242,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             std::bind<void>(&AnalyticLocalState::_execute_for_win_func, this, std::placeholders::_1,
                             std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
-    RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status()));
+    _create_agg_status();
     return Status::OK();
 }
 
@@ -248,7 +254,7 @@ void AnalyticLocalState::_reset_agg_status() {
     }
 }
 
-Status AnalyticLocalState::_create_agg_status() {
+void AnalyticLocalState::_create_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         try {
             _agg_functions[i]->create(
@@ -264,19 +270,17 @@ Status AnalyticLocalState::_create_agg_status() {
         }
     }
     _agg_functions_created = true;
-    return Status::OK();
 }
 
-Status AnalyticLocalState::_destroy_agg_status() {
+void AnalyticLocalState::_destroy_agg_status() {
     if (UNLIKELY(_fn_place_ptr == nullptr || !_agg_functions_created)) {
-        return Status::OK();
+        return;
     }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->destroy(
                 _fn_place_ptr +
                 _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
 //now is execute for lead/lag row_number/rank/dense_rank/ntile functions
@@ -417,7 +421,7 @@ void AnalyticLocalState::_update_order_by_range() {
     }
 }
 
-Status AnalyticLocalState::init_result_columns() {
+void AnalyticLocalState::init_result_columns() {
     if (!_window_end_position) {
         _result_window_columns.resize(_agg_functions_size);
         for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -425,7 +429,6 @@ Status AnalyticLocalState::init_result_columns() {
                     _agg_functions[i]->data_type()->create_column(); //return type
         }
     }
-    return Status::OK();
 }
 
 //calculate pos have arrive partition end, so it's needed to init next partition, and update the boundary of partition
@@ -536,7 +539,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         }
         local_state._next_partition =
                 local_state.init_next_partition(local_state._shared_state->found_partition_end);
-        static_cast<void>(local_state.init_result_columns());
+        local_state.init_result_columns();
         size_t current_block_rows =
                 local_state._shared_state->input_blocks[local_state._output_block_index].rows();
         static_cast<void>(local_state._executor.get_next(current_block_rows));
@@ -558,7 +561,7 @@ Status AnalyticLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    static_cast<void>(_destroy_agg_status());
+    _destroy_agg_status();
     _agg_arena_pool = nullptr;
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;

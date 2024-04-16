@@ -99,7 +99,9 @@ suite ("test_uniq_mv_schema_change") {
     waitForJob(tableName, 3000)
 
     // alter and test light schema change
-    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+    if (!isCloudMode()) {
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+    }
 
     //add materialized view
     def mvName2 = "mv2"

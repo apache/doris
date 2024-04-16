@@ -222,6 +222,7 @@ public class MTMVTask extends AbstractTask {
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         ctx.setExecutor(executor);
         ctx.setQueryId(queryId);
+        ctx.getState().setNereids(true);
         command.run(ctx, executor);
         if (ctx.getState().getStateType() != MysqlStateType.OK) {
             throw new JobException(ctx.getState().getErrorMessage());
@@ -275,9 +276,8 @@ public class MTMVTask extends AbstractTask {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
             if (tableIf instanceof HMSExternalTable) {
                 HMSExternalTable hmsTable = (HMSExternalTable) tableIf;
-                Env.getCurrentEnv().getCatalogMgr()
-                        .refreshExternalTable(hmsTable.getDbName(), hmsTable.getName(), hmsTable.getCatalog().getName(),
-                                true);
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshTable(hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), true);
             }
 
         }
@@ -407,6 +407,10 @@ public class MTMVTask extends AbstractTask {
                 return MTMVPartitionUtil.getPartitionsIdsByNames(mtmv, taskContext.getPartitions());
             }
         }
+        // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh
+        if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
+            return mtmv.getPartitionIds();
+        }
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
@@ -417,10 +421,6 @@ public class MTMVTask extends AbstractTask {
         }
         // current, if partitionType is SELF_MANAGE, we can only FULL refresh
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return mtmv.getPartitionIds();
-        }
-        // if refreshMethod is COMPLETE, we only FULL refresh
-        if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return mtmv.getPartitionIds();
         }
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()

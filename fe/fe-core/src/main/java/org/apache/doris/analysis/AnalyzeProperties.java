@@ -123,6 +123,10 @@ public class AnalyzeProperties {
         return Integer.parseInt(properties.get(PROPERTY_SAMPLE_ROWS));
     }
 
+    public void setSampleRows(long sampleRows) {
+        properties.put(PROPERTY_SAMPLE_ROWS, String.valueOf(sampleRows));
+    }
+
     public int getNumBuckets() {
         if (!properties.containsKey(PROPERTY_NUM_BUCKETS)) {
             return 0;
