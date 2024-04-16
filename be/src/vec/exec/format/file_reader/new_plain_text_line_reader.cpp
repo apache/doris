@@ -87,7 +87,7 @@ size_t EncloseCsvLineReaderContext::update_reading_bound(const uint8_t* start) {
     if (_result == nullptr) {
         return _total_len;
     }
-    return _result - start + line_delimiter_len;
+    return _result - start;
 }
 
 template <bool SingleChar>
