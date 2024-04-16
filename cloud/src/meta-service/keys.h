@@ -44,6 +44,7 @@
 // 0x01 "meta" ${instance_id} "delete_bitmap_lock" ${table_id} ${partition_id}               -> DeleteBitmapUpdateLockPB
 // 0x01 "meta" ${instance_id} "delete_bitmap_pending" ${table_id}                            -> PendingDeleteBitmapPB 
 // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+// 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                            -> SchemaCloudDictionary
 //
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletStatsPB
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"   -> int64
@@ -163,9 +164,6 @@ using JobRecycleKeyInfo    = BasicKeyInfo<20 , std::tuple<std::string>>;
 //                                                      0:instance_id  1:index_id  2:schema_version
 using MetaSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t,    int64_t>>;
 
-//                                                      0:instance_id  1:tablet_id       2:rowset_id
-using MetaRowsetSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t,    std::string>>;
-
 //                                                      0:instance_id  1:tablet_id  2:rowest_id  3:version  4:seg_id 
 using MetaDeleteBitmapInfo = BasicKeyInfo<22 , std::tuple<std::string, int64_t,     std::string, int64_t, int64_t>>;
 
@@ -184,6 +182,9 @@ using StorageVaultKeyInfo = BasicKeyInfo<26, std::tuple<std::string, std::string
 
 //                                                      0:instance_id 1:db_id 2:table_id
 using TableVersionKeyInfo = BasicKeyInfo<27, std::tuple<std::string, int64_t, int64_t>>;
+//                                                      0:instance_id  1:index_id
+using MetaSchemaPBDictionaryInfo = BasicKeyInfo<28 , std::tuple<std::string,  int64_t>>;
+
 
 void instance_key(const InstanceKeyInfo& in, std::string* out);
 static inline std::string instance_key(const InstanceKeyInfo& in) { std::string s; instance_key(in, &s); return s; }
@@ -213,19 +214,19 @@ void meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in, std::string* out);
 void meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in, std::string* out);
 void meta_tablet_key(const MetaTabletKeyInfo& in, std::string* out);
 void meta_schema_key(const MetaSchemaKeyInfo& in, std::string* out);
-void meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in, std::string* out);
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out);
 void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in, std::string* out);
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out);
+void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
 static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
 static inline std::string meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in) { std::string s; meta_rowset_tmp_key(in, &s); return s; }
 static inline std::string meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in) { std::string s; meta_tablet_idx_key(in, &s); return s; }
 static inline std::string meta_tablet_key(const MetaTabletKeyInfo& in) { std::string s; meta_tablet_key(in, &s); return s; }
 static inline std::string meta_schema_key(const MetaSchemaKeyInfo& in) { std::string s; meta_schema_key(in, &s); return s; }
-static inline std::string meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in) { std::string s; meta_rowset_schema_key(in, &s); return s; }
 static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in) { std::string s; meta_delete_bitmap_key(in, &s); return s; }
 static inline std::string meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in) { std::string s; meta_delete_bitmap_update_lock_key(in, &s); return s; }
 static inline std::string meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in) { std::string s; meta_pending_delete_bitmap_key(in, &s); return s; }
+static inline std::string meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in) { std::string s; meta_schema_pb_dictionary_key(in, &s); return s; }
 
 std::string recycle_key_prefix(std::string_view instance_id);
 void recycle_index_key(const RecycleIndexKeyInfo& in, std::string* out);

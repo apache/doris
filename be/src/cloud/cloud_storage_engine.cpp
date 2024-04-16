@@ -267,32 +267,40 @@ Status CloudStorageEngine::start_bg_threads() {
     return Status::OK();
 }
 
+void CloudStorageEngine::sync_storage_vault() {
+    cloud::StorageVaultInfos vault_infos;
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to get storage vault info. err=" << st;
+        return;
+    }
+
+    if (vault_infos.empty()) {
+        LOG(WARNING) << "no storage vault info";
+        return;
+    }
+
+    for (auto& [id, vault_info] : vault_infos) {
+        auto fs = get_filesystem(id);
+        auto st = (fs == nullptr)
+                          ? std::visit(VaultCreateFSVisitor {id}, vault_info)
+                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs)}, vault_info);
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
+        }
+    }
+
+    if (auto& id = std::get<0>(vault_infos.back());
+        latest_fs() == nullptr || latest_fs()->id() != id) {
+        set_latest_fs(get_filesystem(id));
+    }
+}
+
 // We should enable_java_support if we want to use hdfs vault
 void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::refresh_s3_info_interval_s))) {
-        cloud::StorageVaultInfos vault_infos;
-        auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to get storage vault info. err=" << st;
-            continue;
-        }
-
-        CHECK(!vault_infos.empty()) << "no s3 infos";
-        for (auto& [id, vault_info] : vault_infos) {
-            auto fs = get_filesystem(id);
-            auto st = (fs == nullptr)
-                              ? std::visit(VaultCreateFSVisitor {id}, vault_info)
-                              : std::visit(RefreshFSVaultVisitor {id, std::move(fs)}, vault_info);
-            if (!st.ok()) [[unlikely]] {
-                LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
-            }
-        }
-
-        if (auto& id = std::get<0>(vault_infos.back());
-            latest_fs() == nullptr || latest_fs()->id() != id) {
-            set_latest_fs(get_filesystem(id));
-        }
+        sync_storage_vault();
     }
 }
 
