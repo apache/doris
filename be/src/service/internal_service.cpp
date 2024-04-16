@@ -728,7 +728,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         const TFileScanRangeParams& params = file_scan_range.params;
 
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                MemTrackerLimiter::Type::OTHER,
                 fmt::format("{}#{}", params.format_type, params.file_type));
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
 
