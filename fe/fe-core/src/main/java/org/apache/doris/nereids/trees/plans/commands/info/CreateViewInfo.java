@@ -106,10 +106,6 @@ public class CreateViewInfo {
 
     /**validate*/
     public void validate(ConnectContext ctx) throws UserException {
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
-        viewName.analyze(ctx);
-        FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
         Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewStmt");
         // check privilege
@@ -118,6 +114,10 @@ public class CreateViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
         }
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
+        viewName.analyze(ctx);
+        FeNameFormat.checkTableName(viewName.getTbl());
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : finalCols) {
             if (!colSets.add(col.getName())) {
