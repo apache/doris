@@ -46,7 +46,8 @@ suite("select_with_tablets") {
 
     def res = sql_return_maparray """ show tablets from ${table_name1} where version = 2 """
     res = deduplicate_tablets(res)
-    assertTrue(res.size() == 1)
+    log.info("res: " + res.toString())
+    assertEquals(res.size(), 1)
     assertEquals("2", res[0].Version)
 
     order_qt_select2 """ SELECT * FROM ${table_name1} TABLET(${res[0].TabletId}) """
