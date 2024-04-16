@@ -493,7 +493,7 @@ public class HiveMetaStoreCache {
                 fileLists = fileCacheRef.get().getAll(keys).values().stream().collect(Collectors.toList());
             } else {
                 List<Pair<FileCacheKey, Future<FileCacheValue>>> pList = keys.stream()
-                        .map(key -> Pair.of(key, refreshExecutor.submit(() -> loadFiles(key))))
+                        .map(key -> Pair.of(key, fileListingExecutor.submit(() -> loadFiles(key))))
                         .collect(Collectors.toList());
 
                 fileLists = Lists.newArrayListWithExpectedSize(keys.size());

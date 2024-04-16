@@ -94,13 +94,15 @@ public class ExternalMetaCacheMgr {
 
         commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size,
-                "CommonRefreshExecutor", 0, true);
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "CommonRefreshExecutor", 10, true);
 
+        // The queue size should be large enough,
+        // because there may be thousands of partitions being queried at the same time.
         fileListingExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size,
-                "FileListingExecutor", 0, true);
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "FileListingExecutor", 10, true);
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
@@ -108,6 +110,10 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr = new HudiPartitionMgr(commonRefreshExecutor);
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr(commonRefreshExecutor);
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
+    }
+
+    public ExecutorService getFileListingExecutor() {
+        return fileListingExecutor;
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {

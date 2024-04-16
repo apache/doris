@@ -59,10 +59,6 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), executor);
     }
 
-    public Executor getExecutor() {
-        return executor;
-    }
-
     @Override
     public void cleanUp() {
         partitionCache.cleanUp();
