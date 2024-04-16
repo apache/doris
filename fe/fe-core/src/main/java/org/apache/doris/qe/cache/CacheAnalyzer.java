@@ -404,7 +404,7 @@ public class CacheAnalyzer {
             }
             return CacheMode.NoNeed;
         }
-        if (!(parsedStmt instanceof LogicalPlanAdapter) || scanNodes.size() == 0) {
+        if (!(parsedStmt instanceof LogicalPlanAdapter) || scanNodes.isEmpty()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
             }

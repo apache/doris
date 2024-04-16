@@ -1658,7 +1658,7 @@ public class SessionVariable implements Serializable, Writable {
                 if (isNumber) {
                     try {
                         res = Integer.parseInt(v);
-                    } catch (Throwable t){
+                    } catch (Throwable t) {
                         // ignore
                     }
                 }

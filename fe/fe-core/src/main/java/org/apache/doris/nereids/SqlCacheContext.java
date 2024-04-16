@@ -39,7 +39,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -330,70 +329,44 @@ public class SqlCacheContext {
                 }
 
                 StringBuilder cacheKey = new StringBuilder(originSql);
-                if (!usedViews.isEmpty()) {
-                    cacheKey.append("|");
-
-                    Iterator<Entry<FullTableName, String>> it = usedViews.entrySet().iterator();
-                    while (it.hasNext()) {
-                        Entry<FullTableName, String> entry = it.next();
-                        cacheKey.append(entry.getKey()).append("=").append(entry.getValue());
-                        if (it.hasNext()) {
-                            cacheKey.append("|");
-                        }
-                    }
+                for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
+                    cacheKey.append("|")
+                            .append(entry.getKey())
+                            .append("=")
+                            .append(entry.getValue());
                 }
-                if (!usedVariables.isEmpty()) {
-                    cacheKey.append("|");
-
-                    Iterator<Variable> it = usedVariables.iterator();
-                    while (it.hasNext()) {
-                        Variable usedVariable = it.next();
-                        cacheKey.append(usedVariable.getType().name())
-                                .append(":").append(usedVariable.getName())
-                                .append(usedVariable.getRealExpression().toSql());
-                        if (it.hasNext()) {
-                            cacheKey.append("|");
-                        }
-                    }
+                for (Variable usedVariable : usedVariables) {
+                    cacheKey.append("|")
+                            .append(usedVariable.getType().name())
+                            .append(":")
+                            .append(usedVariable.getName())
+                            .append("=")
+                            .append(usedVariable.getRealExpression().toSql());
                 }
-                if (!foldNondeterministicPairs.isEmpty()) {
-                    cacheKey.append("|");
-                    Iterator<Pair<Expression, Expression>> it = foldNondeterministicPairs.iterator();
-                    while (it.hasNext()) {
-                        Pair<Expression, Expression> pair = it.next();
-                        cacheKey.append(pair.key().toSql()).append("=")
-                                .append(pair.value().toSql());
-                        if (it.hasNext()) {
-                            cacheKey.append("|");
-                        }
-                    }
+                for (Pair<Expression, Expression> pair : foldNondeterministicPairs) {
+                    cacheKey.append("|")
+                            .append(pair.key().toSql())
+                            .append("=")
+                            .append(pair.value().toSql());
                 }
-                if (!rowPolicies.isEmpty()) {
-                    cacheKey.append("|");
-                    Iterator<Entry<FullTableName, List<RowFilterPolicy>>> it = rowPolicies.entrySet().iterator();
-                    while (it.hasNext()) {
-                        Entry<FullTableName, List<RowFilterPolicy>> entry = it.next();
-                        cacheKey.append(entry.getKey())
-                                .append("=")
-                                .append(entry.getValue());
-                        if (it.hasNext()) {
-                            cacheKey.append("|");
-                        }
+                for (Entry<FullTableName, List<RowFilterPolicy>> entry : rowPolicies.entrySet()) {
+                    List<RowFilterPolicy> policy = entry.getValue();
+                    if (policy.isEmpty()) {
+                        continue;
                     }
+                    cacheKey.append("|")
+                            .append(entry.getKey())
+                            .append("=")
+                            .append(policy);
                 }
-                if (!dataMaskPolicies.isEmpty()) {
-                    cacheKey.append("|");
-                    Iterator<Entry<FullColumnName, Optional<DataMaskPolicy>>> it
-                            = dataMaskPolicies.entrySet().iterator();
-                    while (it.hasNext()) {
-                        Entry<FullColumnName, Optional<DataMaskPolicy>> entry = it.next();
-                        cacheKey.append(entry.getKey())
-                                .append("=")
-                                .append(entry.getValue().map(Object::toString).orElse(""));
-                        if (it.hasNext()) {
-                            cacheKey.append("|");
-                        }
+                for (Entry<FullColumnName, Optional<DataMaskPolicy>> entry : dataMaskPolicies.entrySet()) {
+                    if (!entry.getValue().isPresent()) {
+                        continue;
                     }
+                    cacheKey.append("|")
+                            .append(entry.getKey())
+                            .append("=")
+                            .append(entry.getValue().map(Object::toString).orElse(""));
                 }
                 cacheKeyMd5 = CacheProxy.getMd5(cacheKey.toString());
             }
@@ -412,6 +385,11 @@ public class SqlCacheContext {
         public final String catalog;
         public final String db;
         public final String table;
+
+        @Override
+        public String toString() {
+            return catalog + "." + db + "." + table;
+        }
     }
 
     /** FullColumnName */
@@ -422,6 +400,11 @@ public class SqlCacheContext {
         public final String db;
         public final String table;
         public final String column;
+
+        @Override
+        public String toString() {
+            return catalog + "." + db + "." + table + "." + column;
+        }
     }
 
     /** ScanTable */
