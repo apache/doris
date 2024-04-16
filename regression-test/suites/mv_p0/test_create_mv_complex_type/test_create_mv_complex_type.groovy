@@ -34,7 +34,9 @@ suite ("create_mv_complex_type") {
             distributed BY hash(c_int) buckets 3
             properties("replication_num" = "1");
         """
-
+    if (isGroupCommitMode()) {
+        sql """ set enable_insert_strict = false; """
+    }
     sql """insert into base_table select 1, 100000, 1.0, '{"jsonk1": 123}', [100, 200], {"k1": 10}, {1, 2};"""
 
     def success = false

@@ -232,25 +232,27 @@ suite("test_group_commit_http_stream") {
         }
 
         // stream load with label
-        streamLoad {
-            set 'version', '1'
-            def label = 'l_' + System.currentTimeMillis()
-            set 'sql', """
+        if (!isGroupCommitMode()) {
+            streamLoad {
+                set 'version', '1'
+                def label = 'l_' + System.currentTimeMillis()
+                set 'sql', """
                     insert into ${db}.${tableName} with label ${label} select * from http_stream
                     ("format"="csv", "column_separator"="|")
-            """
+                """
 
-            set 'group_commit', 'async_mode'
-            file "test_stream_load2.csv"
+                set 'group_commit', 'async_mode'
+                file "test_stream_load2.csv"
 
-            time 10000 // limit inflight 10s
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
+                time 10000 // limit inflight 10s
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
                 }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("fail", json.Status.toLowerCase())
             }
         }
 

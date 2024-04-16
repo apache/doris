@@ -17,6 +17,9 @@
 // under the License.
 
 suite("test_ip_implicit_cast") {
+    if (isGroupCommitMode()) {
+        return
+    }
     def tableName = "test_ip_implicit_cast"
     sql """ DROP TABLE IF EXISTS ${tableName} """
 

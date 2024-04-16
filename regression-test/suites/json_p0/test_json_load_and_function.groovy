@@ -41,7 +41,7 @@ suite("test_json_load_and_function", "p0") {
     // load the json data from csv file
     streamLoad {
         table testTable
-        
+
         file dataFile // import csv file
         time 10000 // limit inflight 10s
         set 'strict_mode', 'true'
@@ -72,7 +72,7 @@ suite("test_json_load_and_function", "p0") {
     // success with header 'max_filter_ratio: 0.3'
     streamLoad {
         table testTable
-        
+
         // set http request header params
         set 'max_filter_ratio', '0.3'
         file dataFile // import csv file
@@ -118,42 +118,45 @@ suite("test_json_load_and_function", "p0") {
     // insert into invalid json rows with enable_insert_strict=true
     // expect excepiton and no rows not changed
     sql """ set enable_insert_strict = true """
-    def success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, '')"""
-    } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
-    }
-    assertEquals(false, success)
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
-    } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
-    }
-    assertEquals(false, success)
 
-    // insert into invalid json rows with enable_insert_strict=false
-    // expect no excepiton but no rows not changed
-    sql """ set enable_insert_strict = false """
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, '')"""
-    } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
+    if (!isGroupCommitMode()) {
+        def success = true
+        try {
+            sql """INSERT INTO ${testTable} VALUES(26, '')"""
+        } catch (Exception ex) {
+            logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+            success = false
+        }
+        assertEquals(false, success)
+        success = true
+        try {
+            sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+        } catch (Exception ex) {
+            logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+            success = false
+        }
+        assertEquals(false, success)
+
+        // insert into invalid json rows with enable_insert_strict=false
+        // expect no excepiton but no rows not changed
+        sql """ set enable_insert_strict = false """
+        success = true
+        try {
+            sql """INSERT INTO ${testTable} VALUES(26, '')"""
+        } catch (Exception ex) {
+            logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+            success = false
+        }
+        assertEquals(true, success)
+        success = true
+        try {
+            sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+        } catch (Exception ex) {
+            logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+            success = false
+        }
+        assertEquals(true, success)
     }
-    assertEquals(true, success)
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
-    } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
-    }
-    assertEquals(true, success)
 
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 

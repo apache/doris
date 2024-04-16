@@ -199,23 +199,25 @@ suite("test_group_commit_stream_load") {
         }
 
         // stream load with label
-        streamLoad {
-            table "${tableName}"
+        if (!isGroupCommitMode()) {
+            streamLoad {
+                table "${tableName}"
 
-            // set 'label', 'test_stream_load'
-            set 'column_separator', '|'
-            set 'group_commit', 'async_mode'
-            // set 'label', 'l_' + System.currentTimeMillis()
-            file "test_stream_load2.csv"
+                // set 'label', 'test_stream_load'
+                set 'column_separator', '|'
+                set 'group_commit', 'async_mode'
+                // set 'label', 'l_' + System.currentTimeMillis()
+                file "test_stream_load2.csv"
 
-            time 10000 // limit inflight 10s
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
+                time 10000 // limit inflight 10s
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
                 }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("fail", json.Status.toLowerCase())
             }
         }
 

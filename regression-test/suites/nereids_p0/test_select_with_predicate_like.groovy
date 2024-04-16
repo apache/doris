@@ -18,6 +18,9 @@ suite("test_select_with_predicate_like") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     def tables=["test_basic_agg"]
+    if (isGroupCommitMode()) {
+        sql """ set enable_insert_strict=false; """
+    }
 
     for (String table in tables) {
         sql """drop table if exists ${table};"""
