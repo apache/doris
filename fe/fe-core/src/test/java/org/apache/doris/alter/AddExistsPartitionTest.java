@@ -47,7 +47,7 @@ public class AddExistsPartitionTest extends TestWithFeService {
         }
 
         String addPartitionSql = "ALTER TABLE test.tbl  ADD PARTITION  IF NOT EXISTS tbl"
-            + " DISTRIBUTED BY HASH(k) BUCKETS 5";
+                + " DISTRIBUTED BY HASH(k) BUCKETS 5";
         Assertions.assertNotNull(getSqlStmtExecutor(addPartitionSql));
         for (long backendId : backendIds) {
             Assertions.assertEquals(5, Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId).size());
