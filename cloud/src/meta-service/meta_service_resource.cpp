@@ -801,9 +801,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         break;
     }
     case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT: {
+        LOG_INFO("unset instance's default vault, instance id {}, previoud default vault {}, id {}",
+                 instance.instance_id(), instance.default_storage_vault_name(),
+                 instance.default_storage_vault_id());
         instance.clear_default_storage_vault_id();
         instance.clear_default_storage_vault_name();
-        LOG_INFO("unset instance's default vault, instance id {}", instance.instance_id());
         break;
     }
     default: {
