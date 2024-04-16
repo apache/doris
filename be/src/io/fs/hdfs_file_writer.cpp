@@ -27,9 +27,13 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+<<<<<<< HEAD
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
+=======
+#include "common/sync_point.h"
+>>>>>>> 5e3ee5dcbf (add inject)
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/hdfs_util.h"
@@ -110,7 +114,9 @@ Status HdfsFileWriter::close() {
         ret = hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
     }
     _hdfs_file = nullptr;
+    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::close_hdfsCloseFile", &ret);
     if (ret != 0) {
+        std::string err_msg = hdfs_error();
         return Status::InternalError(
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
                 BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error());
