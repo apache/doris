@@ -980,7 +980,6 @@ Status IRuntimeFilter::publish(bool publish_local) {
     auto send_to_local = [&](RuntimePredicateWrapper* wrapper) {
         std::vector<IRuntimeFilter*> filters;
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
-        DCHECK(!filters.empty());
         // push down
         for (auto* filter : filters) {
             filter->_wrapper = wrapper;
@@ -997,7 +996,7 @@ Status IRuntimeFilter::publish(bool publish_local) {
         RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper));
         local_merge_filters->merge_time--;
         if (local_merge_filters->merge_time == 0) {
-            if (_has_local_target) {
+            if (!_has_remote_target) {
                 RETURN_IF_ERROR(send_to_local(local_merge_filters->filters[0]->_wrapper));
             } else {
                 RETURN_IF_ERROR(send_to_remote(local_merge_filters->filters[0]));
@@ -1006,9 +1005,9 @@ Status IRuntimeFilter::publish(bool publish_local) {
         return Status::OK();
     };
 
-    if (_need_local_merge && _has_local_target) {
+    if (_need_local_merge && !_has_remote_target) {
         RETURN_IF_ERROR(do_local_merge());
-    } else if (_has_local_target) {
+    } else if (!_has_remote_target) {
         RETURN_IF_ERROR(send_to_local(_wrapper));
     } else if (!publish_local) {
         if (_is_broadcast_join || _state->be_exec_version < USE_NEW_SERDE) {
@@ -1037,7 +1036,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
         if (local_merge_filters->merge_size_times) {
             return Status::OK();
         } else {
-            if (_has_local_target) {
+            if (!_has_remote_target) {
                 for (auto* filter : local_merge_filters->filters) {
                     filter->set_synced_size(local_merge_filters->local_merged_size);
                 }
@@ -1046,7 +1045,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
                 local_filter_size = local_merge_filters->local_merged_size;
             }
         }
-    } else if (_has_local_target) {
+    } else if (!_has_remote_target) {
         set_synced_size(local_filter_size);
         return Status::OK();
     }
