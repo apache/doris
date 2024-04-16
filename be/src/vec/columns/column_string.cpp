@@ -408,6 +408,22 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
     }
 }
 
+void ColumnLargeStringForJoin::serialize_vec_with_null_map(std::vector<StringRef>& keys,
+                                                           size_t num_rows,
+                                                           const uint8_t* null_map) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            auto offset = large_offsets[i - 1];
+            auto string_size = large_offsets[i] - large_offsets[i - 1];
+
+            auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+            memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
+            memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
+            keys[i].size += sizeof(string_size) + string_size;
+        }
+    }
+}
+
 void ColumnString::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto original_ptr = keys[i].data;

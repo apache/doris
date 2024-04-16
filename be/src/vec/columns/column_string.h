@@ -400,7 +400,7 @@ public:
                        size_t max_row_byte_size) const override;
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map) const final;
+                                     const uint8_t* null_map) const override;
 
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                        const uint8_t* null_map) final;
@@ -596,6 +596,7 @@ public:
 // * 3. `serialize_value_in_into_arena`
 // * 4. `is_large_string`
 // * 5. `size`
+// * 6. `serialize_vec_with_null_map`
 class ColumnLargeStringForJoin final : public ColumnString {
 public:
     PaddedPODArray<UInt64> large_offsets;
@@ -612,5 +613,8 @@ public:
     virtual void* get_offsets_ptr() const override { return (void*)large_offsets.data(); }
 
     size_t size() const override { return large_offsets.size(); }
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map) const override;
 };
 } // namespace doris::vectorized
