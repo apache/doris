@@ -901,7 +901,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         return Status::OK();
     } else {
         auto pre_and_submit = [&](int i) {
-            SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
             const auto& local_params = params.local_params[i];
 
             const TUniqueId& fragment_instance_id = local_params.fragment_instance_id;
@@ -984,7 +983,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             for (size_t i = 0; i < target_size; i++) {
                 RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
-                    prepare_status[i] = pre_and_submit(i);
+                    {
+                        SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
+                        prepare_status[i] = pre_and_submit(i);
+                    }
                     std::unique_lock<std::mutex> lock(m);
                     prepare_done++;
                     if (prepare_done == target_size) {
