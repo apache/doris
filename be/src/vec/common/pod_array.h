@@ -509,7 +509,7 @@ public:
 
             /// arr1 takes ownership of the heap memory of arr2.
             arr1.c_start = arr2.c_start;
-            arr1.c_end_of_storage = arr1.c_start + heap_allocated - arr1.pad_right;
+            arr1.c_end_of_storage = arr1.c_start + heap_allocated - arr2.pad_right - arr2.pad_left;
             arr1.c_end = arr1.c_start + this->byte_size(heap_size);
 
             /// Allocate stack space for arr2.
@@ -524,7 +524,7 @@ public:
                 dest.dealloc();
                 dest.alloc(src.allocated_bytes());
                 memcpy(dest.c_start, src.c_start, this->byte_size(src.size()));
-                dest.c_end = dest.c_start + (src.c_end - src.c_start);
+                dest.c_end = dest.c_start + this->byte_size(src.size());
 
                 src.c_start = Base::null;
                 src.c_end = Base::null;
@@ -564,8 +564,9 @@ public:
             size_t rhs_size = rhs.size();
             size_t rhs_allocated = rhs.allocated_bytes();
 
-            this->c_end_of_storage = this->c_start + rhs_allocated - Base::pad_right;
-            rhs.c_end_of_storage = rhs.c_start + lhs_allocated - Base::pad_right;
+            this->c_end_of_storage =
+                    this->c_start + rhs_allocated - Base::pad_right - Base::pad_left;
+            rhs.c_end_of_storage = rhs.c_start + lhs_allocated - Base::pad_right - Base::pad_left;
 
             this->c_end = this->c_start + this->byte_size(rhs_size);
             rhs.c_end = rhs.c_start + this->byte_size(lhs_size);
@@ -617,9 +618,10 @@ public:
     bool operator!=(const PODArray& other) const { return !operator==(other); }
 };
 
-template <typename T, size_t initial_bytes, typename TAllocator, size_t pad_right_>
-void swap(PODArray<T, initial_bytes, TAllocator, pad_right_>& lhs,
-          PODArray<T, initial_bytes, TAllocator, pad_right_>& rhs) {
+template <typename T, size_t initial_bytes, typename TAllocator, size_t pad_right_,
+          size_t pad_left_>
+void swap(PODArray<T, initial_bytes, TAllocator, pad_right_, pad_left_>& lhs,
+          PODArray<T, initial_bytes, TAllocator, pad_right_, pad_left_>& rhs) {
     lhs.swap(rhs);
 }
 
