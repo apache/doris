@@ -347,6 +347,9 @@ public:
             // BloomFilter may be not init
             RETURN_IF_ERROR(bf->init_with_fixed_length());
             insert_to_bloom_filter(bf);
+        } else {
+            DCHECK(_context->hybrid_set == nullptr || _context->hybrid_set->size() == 0)
+                    << "set size: " << (_context->hybrid_set ? _context->hybrid_set->size() : 0);
         }
         // release in filter
         _context->hybrid_set.reset();
@@ -522,7 +525,7 @@ public:
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
-                    RETURN_IF_ERROR(change_to_bloom_filter(false));
+                    RETURN_IF_ERROR(change_to_bloom_filter(!_build_bf_exactly));
                     RETURN_IF_ERROR(_context->bloom_filter_func->merge(
                             wrapper->_context->bloom_filter_func.get()));
                 }
@@ -1322,8 +1325,9 @@ bool IRuntimeFilter::get_ignored() {
 std::string IRuntimeFilter::formatted_state() const {
     return fmt::format(
             "[IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
-            "HasLocalTarget = {}]",
-            _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target);
+            "HasLocalTarget = {}, Ignored = {}]",
+            _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target,
+            _wrapper->_context->ignored);
 }
 
 BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
