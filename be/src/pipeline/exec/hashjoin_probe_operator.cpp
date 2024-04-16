@@ -292,6 +292,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &temp_block, false));
         temp_block.clear();
+        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
         return Status::OK();
     }
 
