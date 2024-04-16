@@ -3936,6 +3936,14 @@ public:
             std::tie(argument_columns[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
         }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+
+        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2, 3}, block,
+                                             arguments);
+
         const auto* col_origin = assert_cast<const ColumnString*>(argument_columns[0].get());
 
         const auto* col_pos = assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
@@ -3951,7 +3959,7 @@ public:
         if (col_const[1] && col_const[2] && col_const[3]) {
             vector_const(col_origin, col_pos, col_len, col_insert, col_res, input_rows_count);
         } else {
-            vector(col_origin, col_pos, col_len, col_insert, col_res, col_const, input_rows_count);
+            vector(col_origin, col_pos, col_len, col_insert, col_res, input_rows_count);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -4005,16 +4013,16 @@ private:
 
     static void vector(const ColumnString* col_origin, int const* col_pos, int const* col_len,
                        const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
-                       bool col_const[4], size_t input_rows_count) {
+                       size_t input_rows_count) {
         auto& col_res_chars = col_res->get_chars();
         auto& col_res_offsets = col_res->get_offsets();
         StringRef origin_str, insert_str;
         int pos, len;
         for (size_t i = 0; i < input_rows_count; i++) {
-            origin_str = col_origin->get_data_at(index_check_const(i, col_const[0]));
-            pos = col_pos[index_check_const(i, col_const[1])];
-            len = col_len[index_check_const(i, col_const[2])];
-            insert_str = col_insert->get_data_at(index_check_const(i, col_const[3]));
+            origin_str = col_origin->get_data_at(i);
+            pos = col_pos[i];
+            len = col_len[i];
+            insert_str = col_insert->get_data_at(i);
 
             if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
                 is_origin) {
