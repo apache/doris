@@ -27,7 +27,7 @@ suite("create_vault") {
             PROPERTIES (
             "type"="S3",
             "fs.defaultFS"="${getHdfsFs()}",
-            "root_prefix" = "ssb_sf1_p2"
+            "path_prefix" = "ssb_sf1_p2"
             );
         """
     }, "Missing")
@@ -38,7 +38,7 @@ suite("create_vault") {
             PROPERTIES (
             "type"="hdfs",
             "s3.bucket"="${getHdfsFs()}",
-            "root_prefix" = "ssb_sf1_p2"
+            "path_prefix" = "ssb_sf1_p2"
             );
         """
     }, "invalid fs_name")
@@ -57,7 +57,7 @@ suite("create_vault") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHdfsFs()}",
-        "root_prefix" = "default_vault_ssb_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_hdfs_vault"
         );
     """
 
@@ -67,7 +67,7 @@ suite("create_vault") {
             PROPERTIES (
             "type"="hdfs",
             "fs.defaultFS"="${getHdfsFs()}",
-            "root_prefix" = "default_vault_ssb_hdfs_vault"
+            "path_prefix" = "default_vault_ssb_hdfs_vault"
             );
         """
     }, "already created")

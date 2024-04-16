@@ -63,7 +63,7 @@ suite("default_vault") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHdfsFs()}",
-        "root_prefix" = "default_vault_ssb_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_hdfs_vault"
         );
     """
 
