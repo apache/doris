@@ -20,16 +20,15 @@ suite("default_vault") {
         logger.info("skip create storgage vault case")
         return
     }
-    try {
+    expectExceptionLike({
         sql """
-            set not_exist as default vault
+            set not_exist as default storage vault
         """
-    } catch (Exception e) {
-    }
+    }, "invalid storage vault name")
 
     def tableName = "table_use_vault"
 
-    try {
+    expectExceptionLike({
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
             CREATE TABLE ${tableName} (
@@ -38,9 +37,7 @@ suite("default_vault") {
             ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
             PROPERTIES ('replication_num' = '1')
         """
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains('supply'))
-    }
+    }, "supply")
 
     sql """
         set built_in_storage_vault as default storage vault
@@ -95,12 +92,11 @@ suite("default_vault") {
 
     assertTrue(create_table_stmt[0][1].contains("create_default_hdfs_vault"))
 
-    try {
+    expectExceptionLike({
         sql """
             alter table ${tableName} set("storage_vault_name" = "built_in_storage_vault");
         """
-    } catch (Exception e) {
-    }
+    }, "You can not modify")
 
     try {
         sql """

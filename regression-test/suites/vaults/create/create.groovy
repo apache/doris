@@ -20,7 +20,8 @@ suite("create_vault") {
         logger.info("skip create storgage vault case")
         return
     }
-    try {
+
+    expectExceptionLike({
         sql """
             CREATE STORAGE VAULT IF NOT EXISTS failed_vault
             PROPERTIES (
@@ -29,9 +30,9 @@ suite("create_vault") {
             "root_prefix" = "ssb_sf1_p2"
             );
         """
-    } catch (Exception e) {
-    }
-    try {
+    }, "Missing")
+
+    expectExceptionLike({
         sql """
             CREATE STORAGE VAULT IF NOT EXISTS failed_vault
             PROPERTIES (
@@ -40,16 +41,15 @@ suite("create_vault") {
             "root_prefix" = "ssb_sf1_p2"
             );
         """
-    } catch (Exception e) {
-    }
-    try {
+    }, "invalid fs_name")
+
+    expectExceptionLike({
         sql """
             CREATE STORAGE VAULT IF NOT EXISTS failed_vault
             PROPERTIES (
             );
         """
-    } catch (Exception e) {
-    }
+    }, "Encountered")
 
 
     sql """
@@ -61,17 +61,16 @@ suite("create_vault") {
         );
     """
 
-    try {
+    expectExceptionLike({
         sql """
-            CREATE STORAGE VAULT IF NOT EXISTS create_hdfs_vault
+            CREATE STORAGE VAULT create_hdfs_vault
             PROPERTIES (
             "type"="hdfs",
             "fs.defaultFS"="${getHdfsFs()}",
             "root_prefix" = "default_vault_ssb_hdfs_vault"
             );
         """
-    } catch (Exception e) {
-    }
+    }, "already created")
 
 
     sql """
@@ -89,7 +88,7 @@ suite("create_vault") {
         );
     """
 
-    try {
+    expectExceptionLike({
         sql """
             CREATE STORAGE VAULT create_s3_vault
             PROPERTIES (
@@ -104,8 +103,7 @@ suite("create_vault") {
             "provider" = "${getS3Provider()}"
             );
         """
-    } catch (Exception e) {
-    }
+    }, "already created")
 
     def vaults_info = try_sql """
         show storage vault
@@ -131,7 +129,7 @@ suite("create_vault") {
     assertTrue(create_s3_vault_exist)
     assertTrue(built_in_storage_vault_exist)
 
-    try {
+    expectExceptionLike({
         sql """
             CREATE STORAGE VAULT IF NOT EXISTS built_in_storage_vault
             PROPERTIES (
@@ -146,6 +144,5 @@ suite("create_vault") {
             "provider" = "${getS3Provider()}"
             );
         """
-    } catch (Exception e) {
-    }
+    }, "already created")
 }
