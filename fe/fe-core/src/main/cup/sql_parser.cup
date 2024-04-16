@@ -48,6 +48,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
@@ -3881,7 +3882,11 @@ opt_index_type ::=
     :}
     | KW_USING KW_BITMAP
     {:
-        RESULT = IndexDef.IndexType.INVERTED;
+        if (Config.enable_create_bitmap_index_as_inverted_index) {
+            RESULT = IndexDef.IndexType.INVERTED;
+        } else {
+            RESULT = IndexDef.IndexType.BITMAP;
+        }
     :}
     | KW_USING KW_NGRAM_BF
     {:
@@ -4086,11 +4091,11 @@ show_param ::=
         RESULT = new ShowCreateTableStmt(table, true, false);
     :}
     /* Create database */
-    | KW_CREATE KW_DATABASE ident:db
+    | KW_CREATE KW_DATABASE db_name:db
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
-    | KW_CREATE KW_SCHEMA ident:db
+    | KW_CREATE KW_SCHEMA db_name:db
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}

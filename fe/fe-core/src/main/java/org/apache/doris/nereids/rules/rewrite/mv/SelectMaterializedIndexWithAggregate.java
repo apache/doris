@@ -262,6 +262,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                 filter.getExpressions(), project.getExpressions()
                                         ))
                                 );
+                                if (mvPlanWithoutAgg.getSelectedIndexId() == result.indexId) {
+                                    mvPlanWithoutAgg = mvPlanWithoutAgg.withPreAggStatus(result.preAggStatus);
+                                }
                                 SlotContext slotContextWithoutAgg = generateBaseScanExprToMvExpr(mvPlanWithoutAgg);
 
                                 return agg.withChildren(new LogicalProject(
@@ -745,22 +748,22 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
         @Override
         public PreAggStatus visitAggregateFunction(AggregateFunction aggregateFunction, CheckContext context) {
-            return checkAggFunc(aggregateFunction, AggregateType.NONE, context);
+            return checkAggFunc(aggregateFunction, AggregateType.NONE, context, false);
         }
 
         @Override
         public PreAggStatus visitMax(Max max, CheckContext context) {
-            return checkAggFunc(max, AggregateType.MAX, context);
+            return checkAggFunc(max, AggregateType.MAX, context, true);
         }
 
         @Override
         public PreAggStatus visitMin(Min min, CheckContext context) {
-            return checkAggFunc(min, AggregateType.MIN, context);
+            return checkAggFunc(min, AggregateType.MIN, context, true);
         }
 
         @Override
         public PreAggStatus visitSum(Sum sum, CheckContext context) {
-            return checkAggFunc(sum, AggregateType.SUM, context);
+            return checkAggFunc(sum, AggregateType.SUM, context, false);
         }
 
         @Override
@@ -829,7 +832,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         private PreAggStatus checkAggFunc(
                 AggregateFunction aggFunc,
                 AggregateType matchingAggType,
-                CheckContext ctx) {
+                CheckContext ctx,
+                boolean canUseKeyColumn) {
             String childNameWithFuncName = ctx.isBaseIndex()
                     ? normalizeName(aggFunc.child(0).toSql())
                     : normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
@@ -837,7 +841,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
             boolean contains = containsAllColumn(aggFunc.child(0), ctx.keyNameToColumn.keySet());
             if (contains || ctx.keyNameToColumn.containsKey(childNameWithFuncName)) {
-                if (ctx.isDupKeysOrMergeOnWrite || (!ctx.isBaseIndex() && contains)) {
+                if (canUseKeyColumn || ctx.isDupKeysOrMergeOnWrite || (!ctx.isBaseIndex() && contains)) {
                     return PreAggStatus.on();
                 } else {
                     Column column = ctx.keyNameToColumn.get(childNameWithFuncName);

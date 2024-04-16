@@ -104,11 +104,6 @@ public:
 
     Status send_report(bool) override;
 
-    RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId fragment_instance_id) override {
-        DCHECK(_runtime_filter_mgr_map.contains(fragment_instance_id));
-        return _runtime_filter_mgr_map[fragment_instance_id].get();
-    }
-
     [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
     [[nodiscard]] int max_operator_id() const { return _operator_id; }

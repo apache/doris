@@ -27,10 +27,13 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.plugin.audit.StreamLoadAuditEvent;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -184,6 +187,13 @@ public class StreamLoadRecordMgr extends MasterDaemon {
             for (StreamLoadRecord streamLoadRecord : streamLoadRecordList) {
                 try {
                     if (state != null && !String.valueOf(state).equalsIgnoreCase(streamLoadRecord.getStatus())) {
+                        continue;
+                    }
+                    // check auth
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    streamLoadRecord.getDb(), streamLoadRecord.getTable(),
+                                    PrivPredicate.LOAD)) {
                         continue;
                     }
                     streamLoadRecords.add(streamLoadRecord.getStreamLoadInfo());

@@ -69,7 +69,7 @@ std::string ExchangeSourceOperatorX::debug_string(int indentation_level) const {
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
@@ -77,19 +77,16 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
+    static const std::string timer_name = "WaitForDependencyTime";
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                             "SHUFFLE_DATA_DEPENDENCY", state->get_query_ctx());
         queues[i]->set_dependency(deps[i]);
+        metrics[i] = _runtime_profile->add_nonzero_counter(fmt::format("WaitForData{}", i),
+                                                           TUnit ::TIME_NS, timer_name, 1);
     }
-    static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
-    for (size_t i = 0; i < queues.size(); i++) {
-        metrics[i] = ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, fmt::format("WaitForData{}", i),
-                                                timer_name, 1);
-    }
-    RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
-            state, vsort_exec_exprs));
+
     return Status::OK();
 }
 
@@ -97,6 +94,9 @@ Status ExchangeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
+
+    RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
+            state, vsort_exec_exprs));
     return Status::OK();
 }
 

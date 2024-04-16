@@ -23,6 +23,8 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
+import org.apache.doris.proto.InternalService.PAlterVaultSyncResponse;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
@@ -524,6 +526,18 @@ public class BackendServiceProxy {
             LOG.warn("failed to get wal queue size from address={}:{}", address.getHostname(),
                     address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PAlterVaultSyncResponse> alterVaultSync(TNetworkAddress address,
+            PAlterVaultSyncRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.alterVaultSync(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to alter vault sync from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.getHostname(), e.getMessage());
         }
     }
 

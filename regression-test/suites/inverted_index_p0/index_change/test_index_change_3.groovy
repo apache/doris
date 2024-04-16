@@ -113,8 +113,10 @@ suite("test_index_change_3") {
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED PROPERTIES("parser"="english") """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // build index
-    sql """ BUILD INDEX idx_city ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        sql """ BUILD INDEX idx_city ON ${tableName} """
+        wait_for_latest_op_on_table_finish(tableName, timeout)
+    }
 
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_city ON ${tableName} """
@@ -186,8 +188,10 @@ suite("test_index_change_3") {
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED PROPERTIES("parser"="english") """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // build index
-    sql """ BUILD INDEX idx_city ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        sql """ BUILD INDEX idx_city ON ${tableName} """
+        wait_for_latest_op_on_table_finish(tableName, timeout)
+    }
 
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_city ON ${tableName} """

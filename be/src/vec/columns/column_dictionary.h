@@ -195,6 +195,11 @@ public:
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
     }
 
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
+    }
+
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
         __builtin_unreachable();

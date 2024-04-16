@@ -149,8 +149,7 @@ TEST_F(VDataStreamTest, BasicTest) {
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
     doris::RowDescriptor row_desc(tuple_desc, false);
 
-    doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
-                                     doris::TQueryGlobals(), nullptr, nullptr);
+    doris::RuntimeState runtime_stat;
     std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
     runtime_stat.set_task_execution_context(task_ctx_lock);
     runtime_stat.set_desc_tbl(desc_tbl);

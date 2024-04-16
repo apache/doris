@@ -128,6 +128,23 @@ public class Utils {
         return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
     }
 
+    /** get qualified name with Backtick */
+    public static String qualifiedNameWithBackquote(List<String> qualifiers, String name) {
+        List<String> fullName = new ArrayList<>(qualifiers);
+        fullName.add(name);
+        return qualifiedNameWithBackquote(fullName);
+    }
+
+    /** get qualified name with Backtick */
+    public static String qualifiedNameWithBackquote(List<String> qualifiers) {
+        List<String> qualifierWithBackquote = Lists.newArrayListWithCapacity(qualifiers.size());
+        for (String qualifier : qualifiers) {
+            String escapeQualifier = qualifier.replace("`", "``");
+            qualifierWithBackquote.add('`' + escapeQualifier + '`');
+        }
+        return StringUtils.join(qualifierWithBackquote, ".");
+    }
+
     /**
      * Get sql string for plan.
      *

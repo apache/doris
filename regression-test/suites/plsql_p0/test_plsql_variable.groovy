@@ -108,8 +108,35 @@ suite("test_plsql_variable") {
         """
     qt_select """call plsql_variable3()"""
 
+    sql """
+        CREATE OR REPLACE PROCEDURE plsql_variable4()
+        BEGIN
+            select 1;     
+            select now();
+            select to_date("2024-04-07 00:00:00");
+            select 9999 * 999 + 99 / 9;
+        END;
+        """
+    // qt_select """call plsql_variable4()""" // Groovy jdbc not support procedure return select results.
+
+    sql "DROP TABLE IF EXISTS plsql_variable2"
+    sql """
+        create table plsql_variable2 (k1 int, k2 varchar(20), k3 double) DUPLICATE key(`k1`) distributed by hash (`k1`) buckets 1
+        properties ("replication_num"="1");
+        """
+    sql """
+        CREATE OR REPLACE PROCEDURE plsql_variable5()
+        BEGIN
+            INSERT INTO plsql_variable2 select 1, to_date("2024-04-07 00:00:00"), 9999 * 999 + 99 / 9;
+        END;
+        """
+    qt_select """call plsql_variable5()"""
+    qt_select "select * from plsql_variable2"
+
     sql """DROP PROCEDURE plsql_variable1"""
     sql """DROP PROCEDURE plsql_variable2"""
     sql """DROP PROCEDURE plsql_variable3"""
+    sql """DROP PROCEDURE plsql_variable4"""
+    sql """DROP PROCEDURE plsql_variable5"""
     sql """DROP PROC plsql_variable_insert"""
 }

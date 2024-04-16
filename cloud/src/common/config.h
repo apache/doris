@@ -125,6 +125,9 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
 
+// Limit kv size of Schema SchemaDictKeyList, default 10MB
+CONF_mInt32(schema_dict_kv_size_limit, "10485760");
+
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
 
