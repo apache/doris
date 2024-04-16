@@ -113,10 +113,10 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
             transactionManager.commit(txnId);
             summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
-            Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(
+            Env.getCurrentEnv().getRefreshManager().refreshTable(
+                    catalogName,
                     dbName,
                     tbName,
-                    catalogName,
                     true);
         }
     }

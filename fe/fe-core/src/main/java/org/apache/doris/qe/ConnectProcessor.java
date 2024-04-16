@@ -150,7 +150,7 @@ public abstract class ConnectProcessor {
 
         // check catalog and db exists
         if (catalogName != null) {
-            CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
+            CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalogIf == null) {
                 ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
                 return;
@@ -579,21 +579,16 @@ public abstract class ConnectProcessor {
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
-                if (packet == null) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("packet == null");
-                    }
-                    return;
-                }
             }
         } else {
             packet = getResultPacket();
-            if (packet == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("packet == null");
-                }
-                return;
+        }
+
+        if (packet == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("packet == null");
             }
+            return;
         }
 
         MysqlChannel channel = ctx.getMysqlChannel();

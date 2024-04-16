@@ -268,7 +268,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -1198,8 +1197,7 @@ public class ShowExecutor {
                 for (Index index : indexes) {
                     rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
                             "", String.join(",", index.getColumns()), "", "", "", "",
-                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString(),
-                            String.valueOf(index.getIndexId())));
+                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
                 }
             } finally {
                 table.readUnlock();
@@ -1307,7 +1305,7 @@ public class ShowExecutor {
         // add the nerieds load info
         JobManager loadMgr = env.getJobManager();
         loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
-                showStmt.isAccurateMatch(), showStmt.getStateV2()));
+                showStmt.isAccurateMatch(), showStmt.getStateV2(), db.getCatalog().getName()));
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -3084,11 +3082,8 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
-            rows = Stream.concat(
-                            resp.getObjInfoList().stream()
-                                    .map(StorageVault::convertToShowStorageVaultProperties),
-                            resp.getStorageVaultList().stream()
-                                    .map(StorageVault::convertToShowStorageVaultProperties))
+            rows = resp.getStorageVaultList().stream()
+                            .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());

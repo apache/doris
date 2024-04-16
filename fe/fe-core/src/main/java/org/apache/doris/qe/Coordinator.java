@@ -903,9 +903,7 @@ public class Coordinator implements CoordInterface {
             // For example: select * from numbers("number"="10") will generate ExchangeNode and
             // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does not
             // send data until ExchangeNode is ready to receive.
-            boolean twoPhaseExecution = ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable().isEnableSinglePhaseExecutionCommitOpt()
-                    ? fragments.size() > 1 && addressToBackendID.size() > 1 : fragments.size() > 1;
+            boolean twoPhaseExecution = fragments.size() > 1;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 

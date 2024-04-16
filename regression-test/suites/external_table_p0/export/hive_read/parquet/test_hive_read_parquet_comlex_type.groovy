@@ -152,7 +152,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table};"""
             
     } finally {
     }
@@ -191,7 +191,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
     } finally {
     }
@@ -231,7 +231,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        qt_hive_docker_03 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_03 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
     } finally {
     }
@@ -276,7 +276,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        qt_hive_docker_04 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_04 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
     } finally {
     }

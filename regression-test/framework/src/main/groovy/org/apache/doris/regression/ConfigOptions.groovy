@@ -52,6 +52,7 @@ class ConfigOptions {
     static Option realDataOpt
     static Option cacheDataOpt
     static Option enableCacheDataOpt
+    static Option enableStorageVaultOpt
     static Option pluginOpt
     static Option sslCertificateOpt
     static Option imageOpt
@@ -181,6 +182,14 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("enableCacheData")
                 .desc("enable caches data for stream load from s3")
+                .build()
+        enableStorageVaultOpt = Option.builder("ESV")
+                .argName("enableStorageVault")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("enableStorageVault")
+                .desc("does cloud mode enable storage vault")
                 .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
