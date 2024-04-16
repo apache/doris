@@ -105,9 +105,10 @@ Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     auto* sink_local_state = _runtime_state->get_sink_local_state();
     DCHECK(sink_local_state != nullptr);
 
-    _profile->add_info_string("TOP-N", *sink_local_state->profile()->get_info_string("TOP-N"));
+    RETURN_IF_ERROR(sink_local_state->open(state));
 
-    return sink_local_state->open(state);
+    _profile->add_info_string("TOP-N", *sink_local_state->profile()->get_info_string("TOP-N"));
+    return Status::OK();
 }
 
 SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id,
@@ -230,6 +231,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
+    auto query_id = state->query_id();
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
@@ -237,10 +239,11 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
     status = ExecEnv::GetInstance()
                      ->spill_stream_mgr()
                      ->get_spill_io_thread_pool(_spilling_stream->get_spill_root_dir())
-                     ->submit_func([this, state, &parent, execution_context, submit_timer] {
+                     ->submit_func([this, state, query_id, &parent, execution_context,
+                                    submit_timer] {
                          auto execution_context_lock = execution_context.lock();
                          if (!execution_context_lock) {
-                             LOG(INFO) << "query " << print_id(state->query_id())
+                             LOG(INFO) << "query " << print_id(query_id)
                                        << " execution_context released, maybe query was cancelled.";
                              return Status::OK();
                          }
@@ -250,16 +253,14 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
                          Defer defer {[&]() {
                              if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
                                  if (!_shared_state->sink_status.ok()) {
-                                     LOG(WARNING) << "query " << print_id(state->query_id())
-                                                  << " sort node " << _parent->id()
-                                                  << " revoke memory error: "
+                                     LOG(WARNING) << "query " << print_id(query_id) << " sort node "
+                                                  << _parent->id() << " revoke memory error: "
                                                   << _shared_state->sink_status;
                                  }
                                  _shared_state->close();
                              } else {
-                                 VLOG_DEBUG << "query " << print_id(state->query_id())
-                                            << " sort node " << _parent->id()
-                                            << " revoke memory finish";
+                                 VLOG_DEBUG << "query " << print_id(query_id) << " sort node "
+                                            << _parent->id() << " revoke memory finish";
                              }
 
                              _spilling_stream->end_spill(_shared_state->sink_status);

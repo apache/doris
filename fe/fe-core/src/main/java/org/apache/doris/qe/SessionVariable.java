@@ -1688,7 +1688,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用join算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of join operation. "
                             + "The default value is false."},
-            needForward = true)
+            needForward = true, fuzzy = true)
     public boolean enableJoinSpill = false;
 
     @VariableMgr.VarAttr(
@@ -1696,7 +1696,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用排序算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of sort operation. "
                             + "The default value is false."},
-            needForward = true)
+            needForward = true, fuzzy = true)
     public boolean enableSortSpill = false;
 
     @VariableMgr.VarAttr(
@@ -1704,14 +1704,14 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用聚合算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of aggregation operation. "
                             + "The default value is false."},
-            needForward = true)
+            needForward = true, fuzzy = true)
     public boolean enableAggSpill = false;
 
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
     // Set to 0 to disable; min: 128M
     public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 2097152;
     @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
-            checker = "checkExternalSortBytesThreshold", fuzzy = true)
+            checker = "checkExternalSortBytesThreshold", varType = VariableAnnotation.DEPRECATED)
     public long externalSortBytesThreshold = 0;
 
     // Set to 0 to disable; min: 128M
@@ -1722,7 +1722,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // The memory limit of streaming agg when spilling is enabled
     // NOTE: streaming agg operator will not spill to disk.
-    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT)
+    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = true)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
@@ -1861,6 +1861,38 @@ public class SessionVariable implements Serializable, Writable {
 
         // set random 1, 10, 100, 1000, 10000
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
+
+        // for spill to disk
+        /*
+        if (Config.pull_request_id > 10000) {
+            if (Config.pull_request_id % 2 == 1) {
+                this.enablePipelineXEngine = true;
+                this.enableJoinSpill = true;
+                this.enableSortSpill = true;
+                this.enableAggSpill = true;
+
+                randomInt = random.nextInt(4);
+                switch (randomInt) {
+                    case 0:
+                        this.minRevocableMem = 0;
+                        break;
+                    case 1:
+                        this.minRevocableMem = 1;
+                        break;
+                    case 2:
+                        this.minRevocableMem = 1024 * 1024;
+                        break;
+                    default:
+                        this.minRevocableMem = 100 * 1024 * 1024 * 1024;
+                        break;
+                }
+            } else {
+                this.enableJoinSpill = false;
+                this.enableSortSpill = false;
+                this.enableAggSpill = false;
+            }
+        }
+        */
     }
 
     public String printFuzzyVariables() {
