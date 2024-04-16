@@ -4297,10 +4297,6 @@ show_param ::=
     {:
         RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
     :}
-    | KW_WORKLOAD KW_SCHEDULE KW_POLICY
-    {:
-        RESULT = new ShowWorkloadSchedPolicyStmt();
-    :}
     | KW_BACKENDS
     {:
         RESULT = new ShowBackendsStmt();
