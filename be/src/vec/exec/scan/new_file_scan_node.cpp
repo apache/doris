@@ -71,20 +71,34 @@ void NewFileScanNode::set_scan_ranges(RuntimeState* state,
         _scan_ranges = scan_ranges;
     } else {
         // There is no need for the number of scanners to exceed the number of threads in thread pool.
-        _scan_ranges.clear();
-        auto range_iter = scan_ranges.begin();
-        for (int i = 0; i < max_scanners && range_iter != scan_ranges.end(); ++i, ++range_iter) {
-            _scan_ranges.push_back(*range_iter);
-        }
-        for (int i = 0; range_iter != scan_ranges.end(); ++i, ++range_iter) {
-            if (i == max_scanners) {
-                i = 0;
+        // scan_ranges is sorted by path(as well as partition path) in FE, so merge scan ranges in order.
+        // In the insert statement, reading data in partition order can reduce the memory usage of BE
+        // and prevent the generation of smaller tables.
+        _scan_ranges.resize(max_scanners);
+        int num_ranges = scan_ranges.size() / max_scanners;
+        int num_add_one = scan_ranges.size() - num_ranges * max_scanners;
+        int scan_index = 0;
+        int range_index = 0;
+        for (int i = 0; i < num_add_one; ++i) {
+            _scan_ranges[scan_index] = scan_ranges[range_index++];
+            auto& ranges =
+                    _scan_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+            for (int j = 0; j < num_ranges; j++) {
+                auto& merged_ranges =
+                        scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+                ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
             }
-            auto& ranges = _scan_ranges[i].scan_range.ext_scan_range.file_scan_range.ranges;
-            auto& merged_ranges = range_iter->scan_range.ext_scan_range.file_scan_range.ranges;
-            ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
         }
-        _scan_ranges.shrink_to_fit();
+        for (int i = num_add_one; i < max_scanners; ++i) {
+            _scan_ranges[scan_index] = scan_ranges[range_index++];
+            auto& ranges =
+                    _scan_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+            for (int j = 0; j < num_ranges - 1; j++) {
+                auto& merged_ranges =
+                        scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+                ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
+            }
+        }
         LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << _scan_ranges.size();
     }
     if (scan_ranges.size() > 0 &&
