@@ -26,14 +26,20 @@ import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.IOException;
 import java.util.Optional;
 
 public class AuthenticatorManager {
+    private static final Logger LOG = LogManager.getLogger(AuthenticatorManager.class);
+
     private Authenticator defaultAuthenticator;
     private Authenticator authTypeAuthenticator;
 
     public AuthenticatorManager(AuthenticateType type) {
+        LOG.info("authenticate type: {}", type);
         this.defaultAuthenticator = new DefaultAuthenticator();
         switch (type) {
             case LDAP:
