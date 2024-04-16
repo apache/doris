@@ -46,7 +46,9 @@
 #include "vec/core/block.h"
 
 namespace doris {
-
+// TODO: Currently this function is only used to report profile.
+// In the future, all exec status and query statistics should be reported
+// thorough this function.
 static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
                                         const TReportExecStatusParams& req,
                                         TReportExecStatusResult& res) {
@@ -55,7 +57,7 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
                                          &client_status);
     if (!client_status.ok()) {
         LOG_WARNING(
-                "could not get client rpc client of {} when reporting profiles, reason is {}, "
+                "Could not get client rpc client of {} when reporting profiles, reason is {}, "
                 "not reporting, profile will be lost",
                 PrintThriftNetworkAddress(coor_addr), client_status.to_string());
         return Status::RpcError("Client rpc client failed");
@@ -78,20 +80,20 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
     } catch (apache::thrift::TApplicationException& e) {
         if (e.getType() == e.UNKNOWN_METHOD) {
             LOG_WARNING(
-                    "Failed to send statistics to {} due to {}, usually because the frontend "
+                    "Failed to report query profile to {} due to {}, usually because the frontend "
                     "is not upgraded, check the version",
                     PrintThriftNetworkAddress(coor_addr), e.what());
         } else {
             LOG_WARNING(
-                    "Failed to send statistics to {}, reason: {}, you can see fe log for "
+                    "Failed to report query profile to {}, reason: {}, you can see fe log for "
                     "details.",
                     PrintThriftNetworkAddress(coor_addr), e.what());
         }
         return Status::RpcError("Send stats failed");
     } catch (std::exception& e) {
-        LOG_WARNING("Failed to send statistics to {}, reason: {}, you can see fe log for details.",
+        LOG_WARNING("Failed to report query profile to {}, reason: {}, you can see fe log for details.",
                     PrintThriftNetworkAddress(coor_addr), e.what());
-        return Status::RpcError("Send stats failed");
+        return Status::RpcError("Send report query profile failed");
     }
 
     return Status::OK();
