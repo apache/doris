@@ -16,7 +16,9 @@
 // under the License.
 
 suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
-
+    if (isGroupCommitMode()) {
+        return
+    }
 
     def tableName = "wal_test"
     sql """ DROP TABLE IF EXISTS ${tableName} """

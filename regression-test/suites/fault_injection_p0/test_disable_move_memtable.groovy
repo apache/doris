@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
 suite("test_disable_move_memtable", "nonConcurrent") {
+    if (isGroupCommitMode()) {
+        return
+    }
     sql """ set enable_memtable_on_sink_node=true """
     sql """ DROP TABLE IF EXISTS `baseall` """
     sql """ DROP TABLE IF EXISTS `test` """

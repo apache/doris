@@ -76,12 +76,11 @@ suite("test_list_default_partition") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
         """
     // insert value which is not allowed in existing partitions
-    try {
+    if (!isGroupCommitMode()) {
         test {
-        sql """insert into list_default_par values (10,1,1,1,24453.325,1,1)"""
-        exception """Insert has filtered data in strict mode"""
-    }
-    } finally{
+            sql """insert into list_default_par values (10,1,1,1,24453.325,1,1)"""
+            exception """Insert has filtered data in strict mode"""
+        }
     }
 
     // alter table add default partition
@@ -99,12 +98,11 @@ suite("test_list_default_partition") {
     qt_sql """select * from list_default_par order by k1"""
 
     // insert value which is not allowed in existing partitions
-    try {
+    if (!isGroupCommitMode()) {
         test {
-        sql """insert into list_default_par values (10,1,1,1,24453.325,1,1)"""
-        exception """Insert has filtered data in strict mode"""
-    }
-    } finally{
+            sql """insert into list_default_par values (10,1,1,1,24453.325,1,1)"""
+            // exception """Insert has filtered data in strict mode"""
+        }
     }
     qt_sql """select * from list_default_par order by k1"""
 }

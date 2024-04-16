@@ -308,7 +308,7 @@ suite("test_auto_partition_behavior") {
     test{
         sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
 
-        exception "Partition name's length is over limit of 50."
+        exception "Partition name\'s length is over limit of 50."
     }
 
     // illegal partiton definetion
