@@ -164,6 +164,8 @@ public:
         offsets.push_back(new_size);
     }
 
+    bool is_column_string64() const override { return sizeof(T) == sizeof(uint64_t); }
+
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnStr<T>& src = assert_cast<const ColumnStr<T>&>(src_);
         const size_t size_to_append =

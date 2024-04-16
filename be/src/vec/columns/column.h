@@ -652,6 +652,8 @@ public:
 
     virtual bool is_column_string() const { return false; }
 
+    virtual bool is_column_string64() const { return false; }
+
     virtual bool is_column_decimal() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
@@ -664,8 +666,6 @@ public:
 
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
-
-    virtual bool low_cardinality() const { return false; }
 
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,

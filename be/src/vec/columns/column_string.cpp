@@ -132,34 +132,43 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
 template <typename T>
 void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
-    const auto& src_str = assert_cast<const ColumnStr<T>&>(src);
-    const auto* src_offset_data = src_str.offsets.data();
+    auto do_insert = [&](const auto& src_str) {
+        const auto* __restrict src_offset_data = src_str.get_offsets().data();
 
-    auto old_char_size = chars.size();
-    size_t total_chars_size = old_char_size;
+        auto old_char_size = chars.size();
+        size_t total_chars_size = old_char_size;
 
-    auto dst_offsets_pos = offsets.size();
-    offsets.resize(offsets.size() + indices_end - indices_begin);
-    auto* dst_offsets_data = offsets.data();
+        auto dst_offsets_pos = offsets.size();
+        offsets.resize(offsets.size() + indices_end - indices_begin);
+        auto* dst_offsets_data = offsets.data();
 
-    for (const auto* x = indices_begin; x != indices_end; ++x) {
-        total_chars_size += src_offset_data[*x] - src_offset_data[int(*x) - 1];
-        dst_offsets_data[dst_offsets_pos++] = total_chars_size;
-    }
-    check_chars_length(total_chars_size, offsets.size());
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            int64_t src_offset = *x;
+            total_chars_size += src_offset_data[src_offset] - src_offset_data[src_offset - 1];
+            dst_offsets_data[dst_offsets_pos++] = total_chars_size;
+        }
+        check_chars_length(total_chars_size, offsets.size());
 
-    chars.resize(total_chars_size);
+        chars.resize(total_chars_size);
 
-    const auto* src_data_ptr = src_str.chars.data();
-    auto* dst_data_ptr = chars.data();
+        const auto* __restrict src_data_ptr = src_str.get_chars().data();
+        auto* dst_data_ptr = chars.data();
 
-    size_t dst_chars_pos = old_char_size;
-    for (const auto* x = indices_begin; x != indices_end; ++x) {
-        const size_t size_to_append = src_offset_data[*x] - src_offset_data[int(*x) - 1];
-        const size_t offset = src_offset_data[int(*x) - 1];
-        memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
-                                                 src_data_ptr + offset, size_to_append);
-        dst_chars_pos += size_to_append;
+        size_t dst_chars_pos = old_char_size;
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            int64_t src_offset = *x;
+            const size_t size_to_append =
+                    src_offset_data[src_offset] - src_offset_data[src_offset - 1];
+            const size_t offset = src_offset_data[src_offset - 1];
+            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
+                                                     src_data_ptr + offset, size_to_append);
+            dst_chars_pos += size_to_append;
+        }
+    };
+    if (src.is_column_string64()) {
+        do_insert(assert_cast<const ColumnStr<uint64_t>&>(src));
+    } else {
+        do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
 }
 
