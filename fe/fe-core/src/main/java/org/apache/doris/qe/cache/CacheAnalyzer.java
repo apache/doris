@@ -428,6 +428,12 @@ public class CacheAnalyzer {
             return CacheMode.NoNeed;
         }
 
+        boolean isNewAllViewExpandStmtListStr = allViewExpandStmtListStr == null;
+        if (isNewAllViewExpandStmtListStr) {
+            allViewStmtSet.addAll(((LogicalPlanAdapter) parsedStmt).getViewDdlSqls());
+            allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
+        }
+
         if (now == 0) {
             now = nowtime();
         }
@@ -443,14 +449,16 @@ public class CacheAnalyzer {
                     .getOriginStatement().originStmt;
             cache = new SqlCache(this.queryId, originStmt);
             SqlCache sqlCache = (SqlCache) cache;
-            NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
-            Optional<SqlCacheContext> sqlCacheContext = nereidsPlanner
-                    .getCascadesContext()
-                    .getStatementContext()
-                    .getSqlCacheContext();
             PUniqueId existsMd5 = null;
-            if (sqlCacheContext.isPresent()) {
-                existsMd5 = sqlCacheContext.get().getOrComputeCacheKeyMd5();
+            if (planner instanceof NereidsPlanner) {
+                NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
+                Optional<SqlCacheContext> sqlCacheContext = nereidsPlanner
+                        .getCascadesContext()
+                        .getStatementContext()
+                        .getSqlCacheContext();
+                if (sqlCacheContext.isPresent()) {
+                    existsMd5 = sqlCacheContext.get().getOrComputeCacheKeyMd5();
+                }
             }
 
             sqlCache.setCacheInfo(this.latestTable, allViewExpandStmtListStr);
