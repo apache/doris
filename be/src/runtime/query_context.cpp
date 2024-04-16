@@ -103,7 +103,7 @@ QueryContext::~QueryContext() {
     std::string mem_tracker_msg;
     if (query_mem_tracker->peak_consumption() != 0) {
         mem_tracker_msg = fmt::format(
-                ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+                "deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                 "PeakUsed={}",
                 print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
                 MemTracker::print_bytes(query_mem_tracker->consumption()),

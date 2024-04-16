@@ -1337,6 +1337,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _is_broadcast_join = desc->is_broadcast_join;
     _has_local_target = desc->has_local_targets;
     _has_remote_target = desc->has_remote_targets;
+    DCHECK_NE(_has_local_target, _has_remote_target);
     _expr_order = desc->expr_order;
     _opt_remote_rf = desc->__isset.opt_remote_rf && desc->opt_remote_rf;
     vectorized::VExprContextSPtr build_ctx;
