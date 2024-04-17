@@ -305,6 +305,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
@@ -379,7 +380,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfrom
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
@@ -1589,6 +1589,10 @@ public interface ScalarFunctionVisitor<R, C> {
     default R visitNvl(Nvl nvl, C context) {
         return visitScalarFunction(nvl, context);
     }
+    
+    default R visitOverlay(Overlay overlay, C context) {
+        return visitScalarFunction(overlay, context);
+    }
 
     default R visitParseUrl(ParseUrl parseUrl, C context) {
         return visitScalarFunction(parseUrl, context);
@@ -1884,10 +1888,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStartsWith(StartsWith startsWith, C context) {
         return visitScalarFunction(startsWith, context);
-    }
-
-    default R visitStrInsert(StrInsert strinsert, C context) {
-        return visitScalarFunction(strinsert, context);
     }
 
     default R visitStrLeft(StrLeft strLeft, C context) {

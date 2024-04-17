@@ -306,6 +306,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
@@ -381,7 +382,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfrom
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
@@ -764,6 +764,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(NullIf.class, "nullif"),
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),
+            scalar(Overlay.class, "overlay"),
             scalar(ParseUrl.class, "parse_url"),
             scalar(Password.class, "password"),
             scalar(Pi.class, "pi"),
@@ -846,7 +847,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StY.class, "st_y"),
             scalar(StartsWith.class, "starts_with"),
             scalar(Strcmp.class, "strcmp"),
-            scalar(StrInsert.class, "str_insert"),
             scalar(StrLeft.class, "strleft"),
             scalar(StrRight.class, "strright"),
             scalar(StrToDate.class, "str_to_date"),

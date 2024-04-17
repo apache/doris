@@ -1199,8 +1199,8 @@ TEST(function_string_test, function_uuid_test) {
     }
 }
 
-TEST(function_string_test, function_str_insert_test) {
-    std::string func_name = "str_insert";
+TEST(function_string_test, function_overlay_test) {
+    std::string func_name = "overlay";
     {
         InputTypeSet input_types = {
                 TypeIndex::String,

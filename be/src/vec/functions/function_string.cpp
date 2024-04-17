@@ -1159,7 +1159,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMaskPartial<false>>();
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
-    factory.register_function<FunctionStrInsert>();
+    factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
 
     /// @TEMPORARY: for be_exec_version=3

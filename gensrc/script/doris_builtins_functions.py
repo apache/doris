@@ -1621,7 +1621,7 @@ visible_functions = {
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
         [['strcmp'], 'INT', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
 
-        [['str_insert'], 'VARCHAR', ['VARCHAR', 'INT', 'INT', 'VARCHAR'], ''],
+        [['overlay'], 'VARCHAR', ['VARCHAR', 'INT', 'INT', 'VARCHAR'], ''],
 
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
@@ -1675,7 +1675,7 @@ visible_functions = {
         [['url_decode'], 'STRING', ['STRING'], ''],
         [['random_bytes'], 'STRING', ['INT'], ''],
 
-        [['str_insert'], 'STRING', ['STRING', 'INT', 'INT', 'STRING'], ''],
+        [['overlay'], 'STRING', ['STRING', 'INT', 'INT', 'STRING'], ''],
         [['strcmp'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 

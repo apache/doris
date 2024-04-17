@@ -3915,10 +3915,10 @@ private:
     }
 };
 
-class FunctionStrInsert : public IFunction {
+class FunctionOverlay : public IFunction {
 public:
-    static constexpr auto name = "str_insert";
-    static FunctionPtr create() { return std::make_shared<FunctionStrInsert>(); }
+    static constexpr auto name = "overlay";
+    static FunctionPtr create() { return std::make_shared<FunctionOverlay>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 4; }
 
