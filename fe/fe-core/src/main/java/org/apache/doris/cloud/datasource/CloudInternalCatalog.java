@@ -67,10 +67,12 @@ import doris.segment_v2.SegmentV2;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class CloudInternalCatalog extends InternalCatalog {
     private static final Logger LOG = LogManager.getLogger(CloudInternalCatalog.class);
@@ -616,7 +618,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         long tableId = -1;
         List<Long> partitionIds = Lists.newArrayList();
-        List<Long> indexIds = Lists.newArrayList();
+        Set<Long> indexIds = new HashSet<>();
         for (Partition partition : partitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 indexIds.add(index.getId());
@@ -637,7 +639,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
             }
             try {
-                dropCloudPartition(partition0.getDbId(), tableId, partitionIds, indexIds);
+                dropCloudPartition(partition0.getDbId(), tableId, partitionIds,
+                        indexIds.stream().collect(Collectors.toList()));
             } catch (Exception e) {
                 LOG.warn("failed to drop partition {} of table {}, try cnt {}, execption {}",
                         partitionIds, tableId, tryCnt, e);
