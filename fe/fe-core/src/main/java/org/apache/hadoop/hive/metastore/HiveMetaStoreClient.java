@@ -1090,7 +1090,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
         throws AlreadyExistsException, InvalidObjectException,
         MetaException, NoSuchObjectException, TException {
     if (hiveVersion != HiveVersion.V3_0) {
-      throw new MetaException("Table with default values is not supported "
+      throw new UnsupportedOperationException("Table with default values is not supported "
           + "if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties.");
     }
     if (!tbl.isSetCatName()) {
@@ -2175,10 +2175,6 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   @Override
   public List<SQLDefaultConstraint> getDefaultConstraints(DefaultConstraintsRequest req)
       throws MetaException, NoSuchObjectException, TException {
-    if (hiveVersion != HiveVersion.V3_0) {
-      throw new MetaException("Table writing with the default value is not supported "
-          + "if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties.");
-    }
     if (!req.isSetCatName()) {
       req.setCatName(getDefaultCatalog(conf));
     }

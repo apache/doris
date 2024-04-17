@@ -61,6 +61,7 @@ import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import shade.doris.hive.org.apache.thrift.TApplicationException;
 
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
@@ -326,7 +327,17 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 DefaultConstraintsRequest req = new DefaultConstraintsRequest();
                 req.setDb_name(dbName);
                 req.setTbl_name(tblName);
-                List<SQLDefaultConstraint> dvcs = ugiDoAs(() -> client.client.getDefaultConstraints(req));
+                List<SQLDefaultConstraint> dvcs = ugiDoAs(() -> {
+                    try {
+                        return client.client.getDefaultConstraints(req);
+                    } catch (TApplicationException e) {
+                        if (e.getMessage().contains("Invalid method name: 'get_default_constraints'")) {
+                            // the getDefaultConstraints method only supported on hive3
+                            return ImmutableList.of();
+                        }
+                        throw e;
+                    }
+                });
                 for (SQLDefaultConstraint dvc : dvcs) {
                     res.put(dvc.getColumn_name().toLowerCase(Locale.ROOT), dvc.getDefault_value());
                 }
