@@ -152,7 +152,7 @@ static size_t allocator_malloc_usable_size(void* ptr) {
         !defined(THREAD_SANITIZER) && defined(USE_JEMALLOC)
     return jemalloc_usable_size(ptr);
 #else
-    return malloc_usable_size(ptr);
+    return 0; // TODO, ASAN malloc_usable_size(ptr) exist bug, may return 0.
 #endif
 }
 
