@@ -26,12 +26,21 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/hdfs_util.h"
 #include "service/backend_options.h"
+#include "util/bvar_helper.h"
 
 namespace doris::io {
+
+bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer", "total_num");
+bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer", "bytes_written");
+bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer", "file_created");
+bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer", "file_being_written");
 
 HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file,
                                std::string fs_name, const FileWriterOptions* opts)
@@ -39,7 +48,18 @@ HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_fi
           _hdfs_handler(handler),
           _hdfs_file(hdfs_file),
           _fs_name(std::move(fs_name)),
-          _sync_file_data(opts ? opts->sync_file_data : true) {}
+          _sync_file_data(opts ? opts->sync_file_data : true),
+          _expiration_time(opts == nullptr ? 0 : opts->file_cache_expiration),
+          _is_cold_data(opts == nullptr ? false : opts->is_cold_data),
+          _write_file_cache(opts == nullptr ? false : opts->write_file_cache) {
+    _batch_buffer.reserve(config::hdfs_write_batch_buffer_size);
+    if (config::enable_file_cache && _write_file_cache) {
+        _cache_hash = BlockFileCache::hash(_path.filename().native());
+        _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
+    }
+    hdfs_file_writer_total << 1;
+    hdfs_file_being_written << 1;
+}
 
 HdfsFileWriter::~HdfsFileWriter() {
     if (_hdfs_file) {
@@ -51,6 +71,7 @@ HdfsFileWriter::~HdfsFileWriter() {
     } else {
         delete _hdfs_handler;
     }
+    hdfs_file_being_written << -1;
 }
 
 Status HdfsFileWriter::close() {
@@ -58,7 +79,6 @@ Status HdfsFileWriter::close() {
         return Status::OK();
     }
     _closed = true;
-
     if (_sync_file_data) {
         int ret = hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file);
         if (ret != 0) {
@@ -66,17 +86,110 @@ Status HdfsFileWriter::close() {
                                          _fs_name, _path.native(), hdfs_error());
         }
     }
-
-    // The underlying implementation will invoke `hdfsHFlush` to flush buffered data and wait for
-    // the HDFS response, but won't guarantee the synchronization of data to HDFS.
-    int ret = hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+    
+    int ret;
+    {
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_flush_latency);
+        // The underlying implementation will invoke `hdfsHFlush` to flush buffered data and wait for
+        // the HDFS response, but won't guarantee the synchronization of data to HDFS.
+        result = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
+    }
+    if (ret == -1) {
+        std::stringstream ss;
+        ss << "failed to flush hdfs file. "
+           << "fs_name:" << _fs_name << " path:" << _path << ", err: " << hdfs_error();
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+    {
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
+        ret = hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+    }
     _hdfs_file = nullptr;
     if (ret != 0) {
         return Status::InternalError(
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
                 BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error());
     }
+        hdfs_file_created_total << 1;
+    return Status::OK();
+}
 
+static FileBlocksHolderPtr allocate_cache_holder(BlockFileCache* cache, UInt128Wrapper cache_hash,
+                                                 size_t offset, uint64_t expiration_time,
+                                                 bool is_cold) {
+    CacheContext ctx;
+    ctx.cache_type = expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
+    ctx.expiration_time = expiration_time;
+    ctx.is_cold_data = is_cold;
+    auto holder = cache->get_or_set(cache_hash, offset, config::hdfs_write_batch_buffer_size, ctx);
+    return std::make_unique<FileBlocksHolder>(std::move(holder));
+}
+
+// TODO(ByteYue): Refactor Upload Buffer to reduce this duplicate code
+void HdfsFileWriter::_write_into_local_file_cache() {
+    auto _holder =
+            allocate_cache_holder(_cache, _cache_hash, _bytes_appended - _batch_buffer.size(),
+                                  _expiration_time, _is_cold_data);
+    size_t pos = 0;
+    size_t data_remain_size = _batch_buffer.size();
+    for (auto& block : _holder->file_blocks) {
+        if (data_remain_size == 0) {
+            break;
+        }
+        size_t block_size = block->range().size();
+        size_t append_size = std::min(data_remain_size, block_size);
+        if (block->state() == FileBlock::State::EMPTY) {
+            if (_index_offset != 0 && block->range().right >= _index_offset) {
+                static_cast<void>(block->change_cache_type_self(FileCacheType::INDEX));
+            }
+            block->get_or_set_downloader();
+            if (block->is_downloader()) {
+                Slice s(_batch_buffer.data() + pos, append_size);
+                Status st = block->append(s);
+                if (st.ok()) {
+                    st = block->finalize();
+                }
+                if (!st.ok()) {
+                    LOG_WARNING("failed to append data to file cache").error(st);
+                }
+            }
+        }
+        data_remain_size -= append_size;
+        pos += append_size;
+    }
+}
+
+Status HdfsFileWriter::_write_into_batch(Slice data) {
+    while (!data.empty()) {
+        size_t append_size = std::min(config::hdfs_write_batch_buffer_size - _batch_buffer.size(),
+                                      data.get_size());
+        std::string_view sv(data.get_data(), append_size);
+        _batch_buffer.append(sv);
+        data.remove_prefix(append_size);
+        if (_batch_buffer.size() == config::hdfs_write_batch_buffer_size) {
+            size_t left_bytes = config::hdfs_write_batch_buffer_size;
+            const char* p = _batch_buffer.data();
+            while (left_bytes > 0) {
+                int64_t written_bytes;
+                {
+                    SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_write_latency);
+                    written_bytes = hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, p, left_bytes);
+                }
+                if (written_bytes < 0) {
+                    return Status::InternalError(
+                            "write hdfs failed. fs_name: {}, path: {}, error: {}", _fs_name,
+                            _path.native(), hdfs_error());
+                }
+                hdfs_bytes_written_total << written_bytes;
+                left_bytes -= written_bytes;
+                p += written_bytes;
+                _bytes_appended += written_bytes;
+            }
+            _write_into_local_file_cache();
+            _batch_buffer.clear();
+        }
+    }
     return Status::OK();
 }
 
@@ -86,19 +199,7 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
     }
 
     for (size_t i = 0; i < data_cnt; i++) {
-        const Slice& result = data[i];
-        size_t left_bytes = result.size;
-        const char* p = result.data;
-        while (left_bytes > 0) {
-            int64_t written_bytes = hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, p, left_bytes);
-            if (written_bytes < 0) {
-                return Status::InternalError("write hdfs failed. fs_name: {}, path: {}, error: {}",
-                                             _fs_name, _path.native(), hdfs_error());
-            }
-            left_bytes -= written_bytes;
-            p += written_bytes;
-            _bytes_appended += written_bytes;
-        }
+        RETURN_IF_ERROR(_write_into_batch(data[i]));
     }
     return Status::OK();
 }
@@ -128,7 +229,11 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, HdfsHandler* handle
     if (exists != 0) {
         // FIXME(plat1ko): Directly return error here?
         VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
-        int ret = hdfsCreateDirectory(handler->hdfs_fs, hdfs_dir.c_str());
+        int ret;
+        {
+            SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_create_dir_latency);
+            ret = hdfsCreateDirectory(handler->hdfs_fs, hdfs_dir.c_str());
+        }
         if (ret != 0) {
             // TODO(plat1ko): Normalized error handling
             std::stringstream ss;
@@ -139,7 +244,11 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, HdfsHandler* handle
         }
     }
     // open file
-    auto* hdfs_file = hdfsOpenFile(handler->hdfs_fs, path.c_str(), O_WRONLY, 0, 0, 0);
+    struct hdfsFile_internal* hdfs_file = nullptr;
+    {
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_open_latency);
+        hdfs_file = hdfsOpenFile(handler->hdfs_fs, path.c_str(), O_WRONLY, 0, 0, 0);
+    }
     if (hdfs_file == nullptr) {
         std::stringstream ss;
         ss << "open file failed. "

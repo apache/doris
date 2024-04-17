@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
@@ -26,6 +27,7 @@
 namespace doris::io {
 
 class HdfsHandler;
+class BlockFileCache;
 
 class HdfsFileWriter final : public FileWriter {
 public:
@@ -48,6 +50,9 @@ public:
     bool closed() const override { return _closed; }
 
 private:
+    Status _write_into_batch(Slice data);
+    void _write_into_local_file_cache();
+
     Path _path;
     HdfsHandler* _hdfs_handler = nullptr;
     hdfsFile _hdfs_file = nullptr;
@@ -55,6 +60,13 @@ private:
     size_t _bytes_appended = 0;
     bool _closed = false;
     bool _sync_file_data;
+    uint64_t _expiration_time;
+    bool _is_cold_data;
+    bool _write_file_cache;
+    UInt128Wrapper _cache_hash;
+    BlockFileCache* _cache;
+    size_t _index_offset {0};
+    std::string _batch_buffer;
 };
 
 } // namespace doris::io

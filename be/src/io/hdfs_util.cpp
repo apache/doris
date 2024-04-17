@@ -67,6 +67,15 @@ uint64 hdfs_hash_code(const THdfsParams& hdfs_params) {
 
 } // namespace
 
+namespace hdfs_bvar {
+bvar::LatencyRecorder hdfs_read_latency("hdfs_read");
+bvar::LatencyRecorder hdfs_write_latency("hdfs_write");
+bvar::LatencyRecorder hdfs_create_dir_latency("hdfs_create_dir");
+bvar::LatencyRecorder hdfs_open_latency("hdfs_open");
+bvar::LatencyRecorder hdfs_close_latency("hdfs_close");
+bvar::LatencyRecorder hdfs_flush_latency("hdfs_flush");
+}; // namespace hdfs_bvar
+
 void HdfsHandlerCache::_clean_invalid() {
     std::vector<uint64> removed_handle;
     for (auto& item : _cache) {
