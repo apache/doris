@@ -25,9 +25,7 @@
 #include <butil/errno.h>
 #include <butil/iobuf.h>
 #include <fcntl.h>
-#include <fmt/core.h>
 #include <gen_cpp/DataSinks_types.h>
-#include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Status_types.h>
@@ -59,6 +57,7 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -552,10 +551,10 @@ void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* controlle
     }
 }
 
-void PInternalService::outfile_write_success(google::protobuf::RpcController* controller,
-                                             const POutfileWriteSuccessRequest* request,
-                                             POutfileWriteSuccessResult* result,
-                                             google::protobuf::Closure* done) {
+void PInternalServiceImpl::outfile_write_success(google::protobuf::RpcController* controller,
+                                                 const POutfileWriteSuccessRequest* request,
+                                                 POutfileWriteSuccessResult* result,
+                                                 google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
         VLOG_RPC << "outfile write success file";
         brpc::ClosureGuard closure_guard(done);
@@ -599,28 +598,30 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             }
         }
 
-        auto&& res = FileFactory::create_file_writer(
+        std::unique_ptr<doris::io::FileWriter> _file_writer_impl;
+        st = FileFactory::create_file_writer(
                 FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
                 ExecEnv::GetInstance(), file_options.broker_addresses,
-                file_options.broker_properties, file_name);
-        using T = std::decay_t<decltype(res)>;
-        if (!res.has_value()) [[unlikely]] {
-            st = std::forward<T>(res).error();
+                file_options.broker_properties, file_name, 0, _file_writer_impl);
+        if (!st.ok()) {
+            LOG(WARNING) << "Outfile write success file failed when create file writer , errmsg = "
+                         << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
 
-        std::unique_ptr<doris::io::FileWriter> _file_writer_impl = std::forward<T>(res).value();
         // must write somthing because s3 file writer can not writer empty file
         st = _file_writer_impl->append({"success"});
         if (!st.ok()) {
-            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            LOG(WARNING) << "outfile write success file failed when write success, errmsg = " << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
+
         st = _file_writer_impl->close();
         if (!st.ok()) {
-            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            LOG(WARNING) << "outfile write success file failed when close file writer, errmsg = "
+                         << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -631,10 +632,10 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
     }
 }
 
-void PInternalService::fetch_table_schema(google::protobuf::RpcController* controller,
-                                          const PFetchTableSchemaRequest* request,
-                                          PFetchTableSchemaResult* result,
-                                          google::protobuf::Closure* done) {
+void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* controller,
+                                              const PFetchTableSchemaRequest* request,
+                                              PFetchTableSchemaResult* result,
+                                              google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
         VLOG_RPC << "fetch table schema";
         brpc::ClosureGuard closure_guard(done);
