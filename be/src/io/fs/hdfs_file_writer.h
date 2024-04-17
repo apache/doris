@@ -51,7 +51,8 @@ public:
     bool closed() const override { return _closed; }
 
 private:
-    Status _write_into_batch();
+    Status _consume_batch_into_hdfs_and_cache();
+    Status _write_batch_into_underlying_hdfs();
     void _write_into_local_file_cache();
 
     Path _path;

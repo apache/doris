@@ -81,11 +81,7 @@ Status HdfsFileWriter::close() {
     }
     _closed = true;
     if (_batch_buffer.size() != 0) {
-        RETURN_IF_ERROR(_write_into_batch());
-        if (_batch_buffer._write_file_cache) {
-            _write_into_local_file_cache();
-        }
-        _batch_buffer.clear();
+        RETURN_IF_ERROR(_consume_batch_into_hdfs_and_cache());
     }
     int ret;
     if (_sync_file_data) {
@@ -198,7 +194,7 @@ void HdfsFileWriter::CachedBatchBuffer::append(Slice& data) {
     data.remove_prefix(append_size);
 }
 
-Status HdfsFileWriter::_write_into_batch() {
+Status HdfsFileWriter::_write_batch_into_underlying_hdfs() {
     size_t left_bytes = _batch_buffer.capacity();
     const char* p = _batch_buffer.data();
     while (left_bytes > 0) {
@@ -219,6 +215,15 @@ Status HdfsFileWriter::_write_into_batch() {
     return Status::OK();
 }
 
+Status HdfsFileWriter::_consume_batch_into_hdfs_and_cache() {
+    RETURN_IF_ERROR(_write_batch_into_underlying_hdfs());
+    if (_batch_buffer._write_file_cache) {
+        _write_into_local_file_cache();
+    }
+    _batch_buffer.clear();
+    return Status::OK();
+}
+
 Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (_closed) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
@@ -228,11 +233,7 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
         while (!data[i].empty()) {
             _batch_buffer.append(const_cast<Slice&>(data[i]));
             if (_batch_buffer.full()) {
-                RETURN_IF_ERROR(_write_into_batch());
-                if (_batch_buffer._write_file_cache) {
-                    _write_into_local_file_cache();
-                }
-                _batch_buffer.clear();
+                RETURN_IF_ERROR(_consume_batch_into_hdfs_and_cache());
             }
         }
     }
@@ -245,11 +246,7 @@ Status HdfsFileWriter::finalize() {
         return Status::InternalError("finalize closed file: {}", _path.native());
     }
     if (_batch_buffer.size() != 0) {
-        RETURN_IF_ERROR(_write_into_batch());
-        if (_batch_buffer._write_file_cache) {
-            _write_into_local_file_cache();
-        }
-        _batch_buffer.clear();
+        RETURN_IF_ERROR(_consume_batch_into_hdfs_and_cache());
     }
 
     // Flush buffered data to HDFS without waiting for HDFS response
