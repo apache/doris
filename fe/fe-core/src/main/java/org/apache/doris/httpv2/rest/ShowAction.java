@@ -324,7 +324,7 @@ public class ShowAction extends RestBaseController {
         return totalSize;
     }
 
-    public Map<String, Long> getDataSizeOfTables(DatabaseIf db, String tableName, boolean singleReplica) {
+    private Map<String, Long> getDataSizeOfTables(DatabaseIf db, String tableName, boolean singleReplica) {
         Map<String, Long> oneEntry = Maps.newHashMap();
         db.readLock();
         try {
@@ -348,7 +348,7 @@ public class ShowAction extends RestBaseController {
         return oneEntry;
     }
 
-    public Map<String, Long> getDataSizeOfTable(Table table, boolean singleReplica) {
+    private Map<String, Long> getDataSizeOfTable(Table table, boolean singleReplica) {
         Map<String, Long> oneEntry = Maps.newHashMap();
         if (table.getType() == TableType.VIEW || table.getType() == TableType.ODBC) {
             oneEntry.put(table.getName(), 0L);
