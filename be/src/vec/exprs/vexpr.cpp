@@ -496,15 +496,16 @@ bool VExpr::check_string_over_limit(fmt::memory_buffer& out) {
 }
 
 std::string VExpr::debug_string(const VExprSPtrs& exprs) {
-    std::stringstream out;
-    out << "[";
+    fmt::memory_buffer out;
+    fmt::format_to(out, "[");
 
     for (int i = 0; i < exprs.size(); ++i) {
-        out << (i == 0 ? "" : " ") << exprs[i]->debug_string();
+        fmt::format_to(out, (i == 0 ? "" : " "));
+        fmt::format_to(out, exprs[i]->debug_string());
     }
 
-    out << "]";
-    return std::move(out).str();
+    fmt::format_to(out, "]");
+    return fmt::to_string(out);
 }
 
 std::string VExpr::debug_string(const VExprContextSPtrs& ctxs) {
