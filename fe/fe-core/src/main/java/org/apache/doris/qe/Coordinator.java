@@ -4109,8 +4109,6 @@ public class Coordinator implements CoordInterface {
                 Client client = ClientPool.backendPool.borrowObject(address);
                 TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
                 req.setId(this.queryId);
-                LOG.debug("Refreshing exec status of query {}, backend {}",
-                            DebugUtil.printId(this.queryId), address.toString());
                 TGetRealtimeExecStatusResponse resp = client.getRealtimeExecStatus(req);
                 if (!resp.isSetStatus()) {
                     LOG.warn("Broken GetRealtimeExecStatusResponse response, query {} backend {}",
