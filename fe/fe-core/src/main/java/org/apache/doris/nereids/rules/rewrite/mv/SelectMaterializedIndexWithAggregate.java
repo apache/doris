@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -340,21 +339,17 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                 // only agg above scan
                 // Aggregate(Repeat(Scan))
-                logicalAggregate(
-                    logicalRepeat(logicalOlapScan().when(this::shouldSelectIndexWithAgg))).thenApplyNoThrow(ctx -> {
-                        LogicalAggregate<LogicalRepeat<LogicalOlapScan>> agg = ctx.root;
-                        LogicalRepeat<LogicalOlapScan> repeat = agg.child();
-                        LogicalOlapScan scan = repeat.child();
-                        SelectResult result = select(
-                                scan,
-                                agg.getInputSlots(),
-                                ImmutableSet.of(),
-                                extractAggFunctionAndReplaceSlot(agg, Optional.empty()),
-                                nonVirtualGroupByExprs(agg),
-                                new HashSet<>(agg.getExpressions()));
+                logicalAggregate(logicalRepeat(logicalOlapScan().when(this::shouldSelectIndexWithAgg)))
+                        .thenApplyNoThrow(ctx -> {
+                            LogicalAggregate<LogicalRepeat<LogicalOlapScan>> agg = ctx.root;
+                            LogicalRepeat<LogicalOlapScan> repeat = agg.child();
+                            LogicalOlapScan scan = repeat.child();
+                            SelectResult result = select(scan, agg.getInputSlots(), ImmutableSet.of(),
+                                    extractAggFunctionAndReplaceSlot(agg, Optional.empty()),
+                                    nonVirtualGroupByExprs(agg), new HashSet<>(agg.getExpressions()));
 
-                        LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
-                        SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
+                            LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
+                            SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
                             return new LogicalProject<>(generateProjectsAlias(agg.getOutputs(), slotContext),
                                     new ReplaceExpressions(slotContext)
@@ -368,7 +363,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                                             result.exprRewriteMap.projectExprMap),
                                                                     mvPlan)),
                                                     mvPlan));
-                    }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_SCAN),
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_SCAN),
 
                 // filter could push down scan.
                 // Aggregate(Repeat(Filter(Scan)))
