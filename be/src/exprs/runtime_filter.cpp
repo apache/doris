@@ -1309,9 +1309,10 @@ void IRuntimeFilter::set_dependency(pipeline::CountedFinishDependency* dependenc
 }
 
 void IRuntimeFilter::set_synced_size(uint64_t global_size) {
-    CHECK(_dependency);
     _synced_size = global_size;
-    _dependency->sub();
+    if (_dependency) {
+        _dependency->sub();
+    }
 }
 
 void IRuntimeFilter::set_ignored() {
