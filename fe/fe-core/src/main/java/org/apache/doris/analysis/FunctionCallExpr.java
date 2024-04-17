@@ -1673,7 +1673,7 @@ public class FunctionCallExpr extends Expr {
                     fn = getTableFunction(fnName.getFunction(), matchFuncChildTypes,
                             Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                     if (fn == null) {
-                        throw new AnalysisException(getFunctionNotFoundError(argTypes));
+                        throw new AnalysisException(getFunctionNotFoundError(argTypes)  + " in table function");
                     }
                     // set param child types
                     fn.setReturnType(((ArrayType) childTypes[0]).getItemType());
@@ -1687,7 +1687,7 @@ public class FunctionCallExpr extends Expr {
                     if (fn != null) {
                         FunctionUtil.checkEnableJavaUdf();
                         if (!fn.isUDTFunction()) {
-                            throw new AnalysisException(getFunctionNotFoundError(argTypes));
+                            throw new AnalysisException(getFunctionNotFoundError(argTypes)  + " in table function");
                         }
                     }
                 }

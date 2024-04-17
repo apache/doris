@@ -73,7 +73,8 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
             if (_fn.is_udtf_function) {
-                _function = FakeJavaUDTF::create(_fn, argument_template, _data_type);
+                // fake function. it's no use and can't execute.
+                _function = FunctionFake<UDTFImpl>::create();
             } else {
                 _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
             }

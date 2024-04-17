@@ -17,26 +17,13 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <string_view>
-#include <vector>
-
 #include "common/status.h"
 #include "jni.h"
 #include "util/jni-util.h"
 #include "vec/columns/column.h"
-#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/array/function_array_utils.h"
-namespace doris {
-namespace vectorized {
-class Block;
-class ColumnString;
-} // namespace vectorized
-} // namespace doris
 
 namespace doris::vectorized {
 
@@ -82,7 +69,6 @@ private:
             if (is_closed) {
                 return Status::OK();
             }
-            VLOG_DEBUG << "Free resources for JniContext";
             JNIEnv* env = nullptr;
             Status status = JniUtil::GetJNIEnv(&env);
             if (!status.ok() || env == nullptr) {

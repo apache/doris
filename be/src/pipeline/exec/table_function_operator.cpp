@@ -140,6 +140,7 @@ bool TableFunctionLocalState::_roll_table_functions(int last_eos_idx) {
 bool TableFunctionLocalState::_is_inner_and_empty() {
     for (int i = 0; i < _parent->cast<TableFunctionOperatorX>()._fn_num; i++) {
         // if any table function is not outer and has empty result, go to next child row
+        // if it's outer function, will be insert into one row NULL
         if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
             return true;
         }

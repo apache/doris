@@ -19,21 +19,11 @@
 
 #include <glog/logging.h>
 
-#include <algorithm>
-#include <iterator>
-#include <memory>
-#include <ostream>
-#include <sstream>
-
-#include "common/status.h"
 #include "runtime/user_function_cache.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/jni_connector.h"
@@ -49,7 +39,9 @@ UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_
     _fn_name = _t_fn.name.function_name;
     _return_type = DataTypeFactory::instance().create_data_type(
             TypeDescriptor::from_thrift(t_fn.ret_type));
-    _return_type = std::make_shared<DataTypeArray>(make_nullable(_return_type));
+    // as the java-utdf function in java code is eg: ArrayList<String>
+    // so we need a array column to save the execute result, and make_nullable could help deal with nullmap
+    _return_type = make_nullable(std::make_shared<DataTypeArray>(make_nullable(_return_type)));
 }
 
 Status UDFTableFunction::open() {
@@ -133,6 +125,8 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     env->DeleteLocalRef(input_map);
     env->DeleteLocalRef(output_map);
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
+    LOG(INFO)<<"block dump: "<<block->dump_structure();
+    LOG(INFO)<<block->dump_data();
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {
         return Status::NotSupported("column type {} not supported now",
@@ -148,6 +142,10 @@ void UDFTableFunction::process_row(size_t row_idx) {
         _array_offset = (*_array_column_detail.offsets_ptr)[row_idx - 1];
         _cur_size = (*_array_column_detail.offsets_ptr)[row_idx] - _array_offset;
     }
+    // so when it's NULL of row_idx, will not update _cur_size
+    // it's will be _cur_size == 0, and means current_empty.
+    // if the fn is outer, will be continue insert_default
+    // if the fn is not outer function, will be not insert any value.
 }
 
 void UDFTableFunction::process_close() {

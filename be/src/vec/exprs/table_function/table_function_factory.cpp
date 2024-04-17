@@ -70,13 +70,16 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode", TableFunctionCreator<VExplodeTableFunction> {}}};
 
 Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn) {
-    const std::string fn_name_raw = t_fn.name.function_name;
+    bool is_outer = match_suffix(t_fn.name.function_name, COMBINATOR_SUFFIX_OUTER);
     if (t_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         *fn = pool->add(UDFTableFunction::create_unique(t_fn).release());
+        if (is_outer) {
+            (*fn)->set_outer();
+        }
         return Status::OK();
     } else {
-        bool is_outer = match_suffix(t_fn.name.function_name, COMBINATOR_SUFFIX_OUTER);
-        std::string fn_name_real =
+        const std::string& fn_name_raw = t_fn.name.function_name;
+        const std::string& fn_name_real =
                 is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;
 
         auto fn_iterator = _function_map.find(fn_name_real);
@@ -89,7 +92,7 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
             return Status::OK();
         }
     }
-    return Status::NotSupported("Table function {} is not support", fn_name_raw);
+    return Status::NotSupported("Table function {} is not support", t_fn.name.function_name);
 }
 
 } // namespace doris::vectorized

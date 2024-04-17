@@ -92,6 +92,7 @@ Status VTableFunctionNode::_prepare_output_slot_ids(const TPlanNode& tnode) {
 bool VTableFunctionNode::_is_inner_and_empty() {
     for (int i = 0; i < _fn_num; i++) {
         // if any table function is not outer and has empty result, go to next child row
+        // if it's outer function, will be insert into NULL
         if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
             return true;
         }

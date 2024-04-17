@@ -330,6 +330,8 @@ public class CreateFunctionStmt extends DdlStmt {
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
         function.setUDTFunction(true);
+        // Todo: maybe in create tables function, need register two function, one is
+        // normal and one is outer as those have different result when result is NULL.
     }
 
     private void analyzeUda() throws AnalysisException {

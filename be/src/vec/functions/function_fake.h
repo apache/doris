@@ -65,35 +65,10 @@ public:
 
 struct UDTFImpl {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(false) << "get_return_type_impl not supported";
+        DCHECK(false) << "get_return_type_impl not supported, shouldn't into here.";
         return nullptr;
     }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
-};
-
-class FakeJavaUDTF : public FunctionFake<UDTFImpl> {
-public:
-    FakeJavaUDTF(const TFunction& fn, const DataTypes& argument_types,
-                 const DataTypePtr& return_type)
-            : _fn(fn), _argument_types(argument_types), _return_type(return_type) {}
-
-    static FunctionPtr create(const TFunction& fn, const ColumnsWithTypeAndName& argument_types,
-                              const DataTypePtr& return_type) {
-        DataTypes data_types(argument_types.size());
-        for (size_t i = 0; i < argument_types.size(); ++i) {
-            data_types[i] = argument_types[i].type;
-        }
-        return std::make_shared<FakeJavaUDTF>(fn, data_types, return_type);
-    }
-    String get_name() const override { return _fn.name.function_name; }
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return _return_type;
-    }
-
-private:
-    const TFunction& _fn;
-    const DataTypes _argument_types;
-    const DataTypePtr _return_type;
 };
 
 } // namespace doris::vectorized
