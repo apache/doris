@@ -125,14 +125,21 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
         return Status::InternalError("Fail to get master client from cache");
     }
 
+    bool catch1 = false, catch2 = false;
+    TTransportException save_e1;
+    std::exception save_e2;
     try {
         try {
             client->report(*result, request);
         } catch (TTransportException& e) {
-            TTransportException::TTransportExceptionType type = e.getType();
+            catch1 = true;
+            save_e1 = e;
+        }
+        if (catch1) {
+            TTransportException::TTransportExceptionType type = save_e1.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
                 // if not TIMED_OUT, retry
-                LOG(WARNING) << "master client, retry finishTask: " << e.what();
+                LOG(WARNING) << "master client, retry finishTask: " << save_e1.what();
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
@@ -147,16 +154,20 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
             } else {
                 // TIMED_OUT exception. do not retry
                 // actually we don't care what FE returns.
-                LOG(WARNING) << "fail to report to master: " << e.what();
+                LOG(WARNING) << "fail to report to master: " << save_e1.what();
                 return Status::InternalError("Fail to report to master");
             }
         }
     } catch (std::exception& e) {
+        catch2 = true;
+        save_e2 = e;
+    }
+    if (catch2) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to report to master. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
-                     << ", code=" << client_status.code() << ", reason=" << e.what();
+                     << ", code=" << client_status.code() << ", reason=" << save_e2.what();
         return Status::InternalError("Fail to report to master");
     }
 
@@ -250,16 +261,12 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
 
     // Get return code of command.
     int32_t status_child = WEXITSTATUS(rc);
-    if (status_child == 0) {
-        return true;
-    } else {
-        return false;
-    }
+    return status_child == 0;
 }
 
 bool AgentUtils::write_json_to_file(const map<string, string>& info, const string& path) {
     rapidjson::Document json_info(rapidjson::kObjectType);
-    for (auto& it : info) {
+    for (const auto& it : info) {
         json_info.AddMember(rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),
                             rapidjson::Value(it.second.c_str(), json_info.GetAllocator()).Move(),
                             json_info.GetAllocator());
