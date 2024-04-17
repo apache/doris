@@ -76,7 +76,7 @@ struct ArrayCountEqual {
 
 struct ParamValue {
     PrimitiveType type;
-    Field query_value;
+    Field value;
 };
 
 template <typename ConcreteAction, bool OldVersion = false>
@@ -107,11 +107,7 @@ public:
         std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
         Field field;
         context->get_constant_col(1)->column_ptr->get(0, field);
-        if (field.is_null()) {
-            return Status::InternalError("field is null");
-        } else {
-            state->query_value = field;
-        }
+        state->value = field;
         state->type = context->get_arg_type(1)->type;
         context->set_function_state(scope, state);
         return Status::OK();
@@ -130,7 +126,7 @@ public:
 
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
-                param_value->type, &param_value->query_value, query_param));
+                param_value->type, &param_value->value, query_param));
         RETURN_IF_ERROR(iter->read_from_inverted_index(
                 data_type_with_name.first, query_param->get_value(),
                 segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, num_rows, roaring));

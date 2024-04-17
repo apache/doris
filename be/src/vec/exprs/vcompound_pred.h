@@ -53,16 +53,6 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    bool is_all_ones(const roaring::Roaring& r) {
-        return r.contains(0);
-        for (roaring::RoaringSetBitForwardIterator i = r.begin(); i != r.end(); ++i) {
-            if (*i == 0) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     //   1. when meet 'or' conjunct: a or b, if b can apply index, return all rows, so b should not be extracted
     //   2. when meet 'and' conjunct, function with column b can not apply inverted index
     //      eg. a and hash(b)=1, if b can apply index, but hash(b)=1 is not for index, so b should not be extracted
@@ -71,19 +61,20 @@ public:
             VExprContext* context,
             const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
                                                          segment_v2::InvertedIndexIterator*>>&
-                    colId_to_inverted_index_iter,
+                    colid_to_inverted_index_iter,
             uint32_t num_rows, roaring::Roaring* bitmap) const override {
+        std::shared_ptr<roaring::Roaring> res = std::make_shared<roaring::Roaring>();
         if (_op == TExprOpcode::COMPOUND_OR) {
             for (auto child : _children) {
                 std::shared_ptr<roaring::Roaring> child_roaring =
                         std::make_shared<roaring::Roaring>();
-                Status st = child->eval_inverted_index(context, colId_to_inverted_index_iter,
+                Status st = child->eval_inverted_index(context, colid_to_inverted_index_iter,
                                                        num_rows, child_roaring.get());
                 if (!st.ok()) {
                     continue;
                 }
-                *bitmap |= *child_roaring;
-                if (!child_roaring->isEmpty()) {
+                *res |= *child_roaring;
+                if (res->cardinality() == num_rows) {
                     // means inverted index filter do not reduce any rows
                     // the left expr no need to be extracted by inverted index,
                     // and cur roaring is all rows which means this inverted index is not useful,
@@ -91,30 +82,31 @@ public:
                     return Status::OK();
                 }
             }
+            *bitmap &= *res;
         } else if (_op == TExprOpcode::COMPOUND_AND) {
             for (auto child : _children) {
                 std::shared_ptr<roaring::Roaring> child_roaring =
                         std::make_shared<roaring::Roaring>();
-                Status st = child->eval_inverted_index(context, colId_to_inverted_index_iter,
+                Status st = child->eval_inverted_index(context, colid_to_inverted_index_iter,
                                                        num_rows, child_roaring.get());
                 if (!st.ok()) {
                     continue;
                 }
-                *bitmap &= *child_roaring;
-                if (child_roaring->isEmpty()) {
+                *res &= *child_roaring;
+                if (res->isEmpty()) {
                     // the left expr no need to be extracted by inverted index, just return 0 rows
                     // res bitmap will be zero
                     return Status::OK();
                 }
             }
+            *bitmap &= *res;
         } else if (_op == TExprOpcode::COMPOUND_NOT) {
-            std::shared_ptr<roaring::Roaring> child_roaring = std::make_shared<roaring::Roaring>();
-            Status st = _children[0]->eval_inverted_index(context, colId_to_inverted_index_iter,
-                                                          num_rows, child_roaring.get());
+            Status st = _children[0]->eval_inverted_index(context, colid_to_inverted_index_iter,
+                                                          num_rows, res.get());
             if (!st.ok()) {
                 return st;
             }
-            *bitmap -= *child_roaring;
+            *bitmap -= *res;
         } else {
             return Status::InternalError(
                     "Compound operator must be AND or OR or Not can execute with inverted index.");

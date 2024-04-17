@@ -140,13 +140,13 @@ Status VectorizedFnCall::eval_inverted_index(
         VExprContext* context,
         const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
                                                      segment_v2::InvertedIndexIterator*>>&
-                colId_to_inverted_index_iter,
+                colid_to_inverted_index_iter,
         uint32_t num_rows, roaring::Roaring* bitmap) const {
     DCHECK_GE(get_num_children(), 1);
     if (get_child(0)->is_slot_ref()) {
         auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        if (auto iter = colId_to_inverted_index_iter.find(column_slot_ref->column_id());
-            iter != colId_to_inverted_index_iter.end()) {
+        if (auto iter = colid_to_inverted_index_iter.find(column_slot_ref->column_id());
+            iter != colid_to_inverted_index_iter.end()) {
             const auto& pair = iter->second;
             return _function->eval_inverted_index(context->fn_context(_fn_context_index),
                                                   pair.first, pair.second, num_rows, bitmap);

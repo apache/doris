@@ -1244,14 +1244,11 @@ Status SegmentIterator::_apply_inverted_index() {
         if (_row_bitmap.isEmpty()) {
             break;
         }
-        roaring::Roaring bitmap = _row_bitmap;
-        const Status st = expr_ctx->eval_inverted_indexs(iter_map, num_rows(), &bitmap);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to evaluate index in expr" << expr_ctx->root()->debug_string()
-                         << ", error msg: " << st;
-        } else {
-            // every single result of expr_ctx must be `and` collection relationship
-            _row_bitmap &= bitmap;
+        // every single result of expr_ctx must be `and` collection relationship
+        if (Status st = expr_ctx->eval_inverted_indexs(iter_map, num_rows(), &_row_bitmap);
+            !st.ok() && st.code() != ErrorCode::NOT_IMPLEMENTED_ERROR) {
+            LOG(WARNING) << "failed to evaluate inverted index for expr_ctx"
+                         << expr_ctx->root()->debug_string() << ", error msg: " << st.to_string();
         }
     }
 
