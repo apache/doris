@@ -25,6 +25,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.fs.FileSystem;
+import org.apache.doris.fs.FileSystemUtil;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THivePartitionUpdate;
@@ -564,7 +565,7 @@ public class HMSTransaction implements Transaction {
     private DeleteRecursivelyResult doRecursiveDeleteFiles(Path directory, boolean deleteEmptyDir) {
         List<RemoteFile> allFiles = new ArrayList<>();
         Set<String> allDirs = new HashSet<>();
-        Status statusFile = fs.listFiles(directory.toString(), allFiles);
+        Status statusFile = fs.listFiles(directory.toString(), true, allFiles);
         Status statusDir = fs.listDirectories(directory.toString(), allDirs);
         if (!statusFile.ok() || !statusDir.ok()) {
             ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
@@ -575,7 +576,7 @@ public class HMSTransaction implements Transaction {
         boolean allDescendentsDeleted = true;
         ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
         for (RemoteFile file : allFiles) {
-            String fileName = file.getName();
+            String fileName = file.getPath().toString();
             if (!deleteIfExists(new Path(fileName))) {
                 allDescendentsDeleted = false;
                 notDeletedEligibleItems.add(fileName);
@@ -1366,22 +1367,24 @@ public class HMSTransaction implements Transaction {
     }
 
     public void wrapperAsyncRenameWithProfileSummary(Executor executor,
-                                                     List<CompletableFuture<?>> renameFileFutures,
-                                                     AtomicBoolean cancelled,
-                                                     String origFilePath,
-                                                     String destFilePath,
-                                                     List<String> fileNames) {
-        fs.asyncRename(executor, renameFileFutures, cancelled, origFilePath, destFilePath, fileNames);
+                                              List<CompletableFuture<?>> renameFileFutures,
+                                              AtomicBoolean cancelled,
+                                              String origFilePath,
+                                              String destFilePath,
+                                              List<String> fileNames) {
+        FileSystemUtil.asyncRenameFiles(
+                fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, fileNames);
         summaryProfile.ifPresent(profile -> profile.addRenameFileCnt(fileNames.size()));
     }
 
     public void wrapperAsyncRenameDirWithProfileSummary(Executor executor,
-                                                        List<CompletableFuture<?>> renameFileFutures,
-                                                        AtomicBoolean cancelled,
-                                                        String origFilePath,
-                                                        String destFilePath,
-                                                        Runnable runWhenPathNotExist) {
-        fs.asyncRenameDir(executor, renameFileFutures, cancelled, origFilePath, destFilePath, runWhenPathNotExist);
+                                                 List<CompletableFuture<?>> renameFileFutures,
+                                                 AtomicBoolean cancelled,
+                                                 String origFilePath,
+                                                 String destFilePath,
+                                                 Runnable runWhenPathNotExist) {
+        FileSystemUtil.asyncRenameDir(
+                fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, runWhenPathNotExist);
         summaryProfile.ifPresent(SummaryProfile::incRenameDirCnt);
     }
 }
