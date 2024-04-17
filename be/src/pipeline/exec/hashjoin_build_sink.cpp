@@ -537,10 +537,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
-        const bool need_local_merge =
-                local_state._parent->cast<HashJoinBuildSinkOperatorX>()._need_local_merge;
         RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
-                state, local_state._shared_state->build_block->rows(), need_local_merge,
+                state, local_state._shared_state->build_block->rows(),
                 (CountedFinishDependency*)(local_state._finish_dependency.get())));
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
