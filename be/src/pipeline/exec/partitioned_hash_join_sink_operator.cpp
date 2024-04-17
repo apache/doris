@@ -145,7 +145,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
         }
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         SCOPED_TIMER(_partition_shuffle_timer);
-        auto* channel_ids = reinterpret_cast<uint32_t*>(_partitioner->get_channel_ids());
+        auto* channel_ids = _partitioner->get_channel_ids().get<uint32_t>();
 
         auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
         std::vector<uint32_t> partition_indices;
