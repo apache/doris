@@ -1,2 +1,0 @@
-src:src/util/thrift_rpc_helper.*
-src:src/util/thrift_client.*
