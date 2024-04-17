@@ -94,12 +94,47 @@ MutableColumnPtr ColumnStr<T>::get_shrinked_column() {
 }
 
 template <typename T>
+void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,
+                                                     size_t start, size_t length) {
+    if (length == 0) {
+        return;
+    }
+
+    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
+    if (start + length > src_concrete.offsets.size()) {
+        throw doris::Exception(
+                doris::ErrorCode::INTERNAL_ERROR,
+                "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
+    }
+
+    size_t nested_offset = src_concrete.offset_at(start);
+    size_t nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
+
+    size_t old_chars_size = chars.size();
+    chars.resize(old_chars_size + nested_length);
+    memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
+
+    if (start == 0 && offsets.empty()) {
+        offsets.assign(src_concrete.offsets.begin(), src_concrete.offsets.begin() + length);
+    } else {
+        size_t old_size = offsets.size();
+        size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
+        offsets.resize(old_size + length);
+
+        for (size_t i = 0; i < length; ++i) {
+            offsets[old_size + i] =
+                    src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
+        }
+    }
+}
+
+template <typename T>
 void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) {
         return;
     }
 
-    const ColumnStr<T>& src_concrete = assert_cast<const ColumnStr<T>&>(src);
+    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
 
     if (start + length > src_concrete.offsets.size()) {
         throw doris::Exception(
