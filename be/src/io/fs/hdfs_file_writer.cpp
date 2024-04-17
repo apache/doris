@@ -112,7 +112,8 @@ Status HdfsFileWriter::close() {
     return Status::OK();
 }
 
-HdfsFileWriter::CachedBatchBuffer::CachedBatchBuffer(size_t capacity) {
+HdfsFileWriter::CachedBatchBuffer::CachedBatchBuffer(size_t capacity)
+        : _is_cold_data(false), _write_file_cache(false), _expiration_time(0) {
     _batch_buffer.reserve(capacity);
 }
 
