@@ -159,7 +159,7 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
             break;
         }
         auto txn_iter = _txn_map.find(iter->second);
-        if (iter->first == txn_iter->second.txn_expiration) {
+        if ((txn_iter != _txn_map.end()) && (iter->first == txn_iter->second.txn_expiration)) {
             LOG_INFO("clean expired delete bitmap")
                     .tag("txn_id", txn_iter->first.txn_id)
                     .tag("expiration", txn_iter->second.txn_expiration)
