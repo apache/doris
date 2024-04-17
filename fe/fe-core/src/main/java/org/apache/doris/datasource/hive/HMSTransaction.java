@@ -239,6 +239,7 @@ public class HMSTransaction implements Transaction {
             hmsCommitter.doCommit();
         } catch (Throwable t) {
             LOG.warn("Failed to commit for {}.{}, abort it.", dbName, tbName);
+            hmsCommitter.abort();
             hmsCommitter.rollback();
             throw t;
         } finally {
@@ -576,7 +577,7 @@ public class HMSTransaction implements Transaction {
         boolean allDescendentsDeleted = true;
         ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
         for (RemoteFile file : allFiles) {
-            String fileName = file.getPath().toString();
+            String fileName = file.getName();
             if (!deleteIfExists(new Path(fileName))) {
                 allDescendentsDeleted = false;
                 notDeletedEligibleItems.add(fileName);
@@ -1330,13 +1331,17 @@ public class HMSTransaction implements Transaction {
             doNothing();
         }
 
-        public void rollback() {
+        public void abort() {
             cancelUnStartedAsyncFileSystemTask();
             undoUpdateStatisticsTasks();
             undoAddPartitionsTask();
             waitForAsyncFileSystemTaskSuppressThrowable();
             runDirectoryClearUpTasksForAbort();
             runRenameDirTasksForAbort();
+        }
+
+        public void rollback() {
+            //delete write path
         }
     }
 
