@@ -764,6 +764,7 @@ message AlterObjStoreInfoRequest {
         ADD_S3_VAULT = 103;
 
         SET_DEFAULT_VAULT = 200;
+        UNSET_DEFAULT_VAULT = 201;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
