@@ -684,7 +684,7 @@ public class Util {
             uniqueId.setHi(Long.parseUnsignedLong(parts[0], 16));
             uniqueId.setLo(Long.parseUnsignedLong(parts[1], 16));
         } catch (Exception e) {
-            LOG.warn("Failed to refresh query exec status, query {}", id, e);
+            LOG.warn("Failed to parse TUniqueId from string {}", id, e);
             return null;
         }
 
