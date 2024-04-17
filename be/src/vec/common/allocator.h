@@ -90,6 +90,10 @@ public:
     void consume_memory(size_t size) const;
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
+#ifdef DEBUG
+    void add_address_sanitizers(void* buf, size_t size) const;
+    void remove_address_sanitizers(void* buf, size_t size) const;
+#endif
 
     void* alloc(size_t size, size_t alignment = 0);
     void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
@@ -97,6 +101,7 @@ public:
     /// Allocate memory range.
     void* alloc_impl(size_t size, size_t alignment = 0) {
         memory_check(size);
+        // consume memory in tracker before alloc, similar to early declaration.
         consume_memory(size);
         void* buf;
 
@@ -125,6 +130,9 @@ public:
                     release_memory(size);
                     throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
                 }
+#ifdef DEBUG
+                add_address_sanitizers(buf, size);
+#endif
             } else {
                 buf = nullptr;
                 int res = posix_memalign(&buf, alignment, size);
@@ -134,6 +142,9 @@ public:
                     throw_bad_alloc(
                             fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
+#ifdef DEBUG
+                add_address_sanitizers(buf, size);
+#endif
 
                 if constexpr (clear_memory) memset(buf, 0, size);
             }
@@ -148,6 +159,9 @@ public:
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             }
         } else {
+#ifdef DEBUG
+            remove_address_sanitizers(buf, size);
+#endif
             ::free(buf);
         }
         release_memory(size);
@@ -176,6 +190,10 @@ public:
                 throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
                                             new_size));
             }
+#ifdef DEBUG
+            remove_address_sanitizers(buf, old_size); // buf addr = new_buf addr
+            add_address_sanitizers(new_buf, new_size);
+#endif
 
             buf = new_buf;
             if constexpr (clear_memory)
@@ -205,6 +223,10 @@ public:
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));
+#ifdef DEBUG
+            add_address_sanitizers(new_buf, new_size);
+            remove_address_sanitizers(buf, old_size);
+#endif
             free(buf, old_size);
             buf = new_buf;
         }
