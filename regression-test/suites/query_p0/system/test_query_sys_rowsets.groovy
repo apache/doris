@@ -16,13 +16,13 @@
 // under the License.
 
 suite("test_query_sys_rowsets", "query,p0") {
-    def dbName1 = "test_query_sys_db_1"
+    def dbName1 = "test_query_sys_rowsets"
 
     sql("drop database IF EXISTS ${dbName1}")
 
     // test rowsets
     qt_desc_rowsets """ desc information_schema.rowsets """ 
-    def rowsets_table_name = """ test_query_sys_db_1.test_query_rowset """  
+    def rowsets_table_name = """ test_query_sys_rowsets.test_query_rowset """  
     sql """ drop table if exists ${rowsets_table_name}  """ 
 
     sql """ 
