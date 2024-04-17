@@ -104,7 +104,7 @@ public abstract class ExternalCatalog
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty;
     @SerializedName(value = "initialized")
-    private boolean initialized = false;
+    protected boolean initialized = false;
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
