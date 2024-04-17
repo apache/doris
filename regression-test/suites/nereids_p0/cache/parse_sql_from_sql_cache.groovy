@@ -68,9 +68,14 @@ suite("parse_sql_from_sql_cache") {
             sql "select * from test_use_plan_cache2"
             assertHasCache "select * from test_use_plan_cache2"
 
-            // add empty partition can use cache
+            // NOTE: in cloud mode, add empty partition can not use cache, because the table version already update,
+            //       but in native mode, add empty partition can not use cache
             sql "alter table test_use_plan_cache2 add partition p6 values[('6'),('7'))"
-            assertHasCache "select * from test_use_plan_cache2"
+            if (isCloudMode()) {
+                assertNoCache "select * from test_use_plan_cache2"
+            } else {
+                assertHasCache "select * from test_use_plan_cache2"
+            }
 
             // insert data can not use cache
             sql "insert into test_use_plan_cache2 values(6, 1)"
@@ -279,6 +284,13 @@ suite("parse_sql_from_sql_cache") {
             sql "create user test_cache_user1 identified by 'DORIS@2024'"
             def dbName = context.config.getDbNameByFile(context.file)
             sql """GRANT SELECT_PRIV ON *.* TO test_cache_user1"""
+            //cloud-mode
+            if (isCloudMode()) {
+                def clusters = sql " SHOW CLUSTERS; "
+                assertTrue(!clusters.isEmpty())
+                def validCluster = clusters[0][0]
+                sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user1"""
+            }
 
             createTestTable "test_use_plan_cache12"
 
@@ -319,6 +331,13 @@ suite("parse_sql_from_sql_cache") {
             sql "drop user if exists test_cache_user2"
             sql "create user test_cache_user2 identified by 'DORIS@2024'"
             sql """GRANT SELECT_PRIV ON *.* TO test_cache_user2"""
+            //cloud-mode
+            if (isCloudMode()) {
+                def clusters = sql " SHOW CLUSTERS; "
+                assertTrue(!clusters.isEmpty())
+                def validCluster = clusters[0][0]
+                sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user2"""
+            }
 
             createTestTable "test_use_plan_cache13"
 
@@ -374,6 +393,13 @@ suite("parse_sql_from_sql_cache") {
             sql "drop user if exists test_cache_user3"
             sql "create user test_cache_user3 identified by 'DORIS@2024'"
             sql """GRANT SELECT_PRIV ON *.* TO test_cache_user3"""
+            //cloud-mode
+            if (isCloudMode()) {
+                def clusters = sql " SHOW CLUSTERS; "
+                assertTrue(!clusters.isEmpty())
+                def validCluster = clusters[0][0]
+                sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user3"""
+            }
 
             createTestTable "test_use_plan_cache14"
 
@@ -436,6 +462,13 @@ suite("parse_sql_from_sql_cache") {
             sql "create user test_cache_user4 identified by 'DORIS@2024'"
             sql "GRANT SELECT_PRIV ON regression_test.* TO test_cache_user4"
             sql "GRANT SELECT_PRIV ON ${dbName}.test_use_plan_cache15 TO test_cache_user4"
+            //cloud-mode
+            if (isCloudMode()) {
+                def clusters = sql " SHOW CLUSTERS; "
+                assertTrue(!clusters.isEmpty())
+                def validCluster = clusters[0][0]
+                sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user4"""
+            }
 
             sql "sync"
 
@@ -618,6 +651,34 @@ suite("parse_sql_from_sql_cache") {
                 sql "select * from test_use_plan_cache18"
                 assertHasCache "select * from test_use_plan_cache18"
             }
+        }),
+        extraThread("test_dry_run_query", {
+            createTestTable "test_use_plan_cache19"
+
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+            sql "set enable_sql_cache=true"
+
+            sql "set dry_run_query=true"
+            assertNoCache "select * from test_use_plan_cache19 order by 1, 2"
+            def result1 = sql "select * from test_use_plan_cache19 order by 1, 2"
+            assertTrue(result1.size() == 1)
+            assertNoCache "select * from test_use_plan_cache19 order by 1, 2"
+
+            sql "set dry_run_query=false"
+            assertNoCache "select * from test_use_plan_cache19 order by 1, 2"
+            def result2 = sql "select * from test_use_plan_cache19 order by 1, 2"
+            assertTrue(result2.size() > 1)
+            assertHasCache "select * from test_use_plan_cache19 order by 1, 2"
+
+            sql "set dry_run_query=true"
+            assertNoCache "select * from test_use_plan_cache19 order by 1, 2"
+            def result3 = sql "select * from test_use_plan_cache19 order by 1, 2"
+            assertTrue(result3.size() == 1)
+            assertNoCache "select * from test_use_plan_cache19 order by 1, 2"
         })
     ).get()
 }

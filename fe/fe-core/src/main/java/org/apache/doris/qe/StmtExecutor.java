@@ -1838,6 +1838,8 @@ public class StmtExecutor {
                 return;
             }
 
+            boolean isDryRun = ConnectContext.get().getSessionVariable().dryRunQuery;
+
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
@@ -1846,7 +1848,7 @@ public class StmtExecutor {
 
                 // for outfile query, there will be only one empty batch send back with eos flag
                 // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
-                if (cacheAnalyzer != null && !isOutfileQuery) {
+                if (cacheAnalyzer != null && !isOutfileQuery && !isDryRun) {
                     cacheAnalyzer.copyRowBatch(batch);
                 }
                 if (batch.getBatch() != null) {
@@ -1877,10 +1879,10 @@ public class StmtExecutor {
                     break;
                 }
             }
-            if (cacheAnalyzer != null) {
+            if (cacheAnalyzer != null && !isDryRun) {
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
                     isSendFields =
-                            sendCachedValues(channel, cacheResult.getValuesList(), (Queriable) queryStmt, isSendFields,
+                            sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields,
                                     false);
                 }
 
@@ -1898,7 +1900,7 @@ public class StmtExecutor {
             }
             if (!isSendFields) {
                 if (!isOutfileQuery) {
-                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                    if (ConnectContext.get() != null && isDryRun) {
                         // Return a one row one column result set, with the real result number
                         List<String> data = Lists.newArrayList(batch.getQueryStatistics() == null ? "0"
                                 : batch.getQueryStatistics().getReturnedRows() + "");
