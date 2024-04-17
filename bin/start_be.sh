@@ -252,6 +252,7 @@ fi
 export AWS_MAX_ATTEMPTS=2
 
 ## set asan and ubsan env to generate core file
+## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
 export UBSAN_OPTIONS=print_stacktrace=1
 
