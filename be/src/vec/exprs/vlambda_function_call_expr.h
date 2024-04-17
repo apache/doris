@@ -67,22 +67,26 @@ public:
         return _lambda_function->execute(context, block, result_column_id, _data_type, _children);
     }
 
-    std::string debug_string() const override {
-        std::stringstream out;
-        out << "VLambdaFunctionCallExpr[";
-        out << _expr_name;
-        out << "]{";
+    void debug_string(fmt::memory_buffer& out) const override {
+        if (check_string_over_limit(out)) {
+            return;
+        }
+        fmt::format_to(out, "VLambdaFunctionCallExpr[{}]", _expr_name);
+        fmt::format_to(out, "{");
         bool first = true;
-        for (auto& input_expr : children()) {
+        for (const auto& input_expr : children()) {
             if (first) {
                 first = false;
             } else {
-                out << ",";
+                fmt::format_to(out, ",");
             }
-            out << "\n" << input_expr->debug_string();
+            fmt::format_to(out, "\n");
+            input_expr->debug_string(out);
+            if (check_string_over_limit(out)) {
+                return;
+            }
         }
-        out << "}";
-        return out.str();
+        fmt::format_to(out, "}");
     }
 
 private:

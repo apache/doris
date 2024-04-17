@@ -129,20 +129,25 @@ const std::string& VCastExpr::expr_name() const {
     return _expr_name;
 }
 
-std::string VCastExpr::debug_string() const {
-    std::stringstream out;
-    out << "CastExpr(CAST " << _cast_param_data_type->get_name() << " to "
-        << _target_data_type->get_name() << "){";
+void VCastExpr::debug_string(fmt::memory_buffer& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
+    fmt::format_to(out, "CastExpr(CAST {} to {})", _cast_param_data_type->get_name(),
+                   _target_data_type->get_name());
+    fmt::format_to(out, "}");
     bool first = true;
-    for (auto& input_expr : children()) {
+    for (const auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {
-            out << ",";
+            fmt::format_to(out, ",");
         }
-        out << input_expr->debug_string();
+        input_expr->debug_string(out);
+        if (check_string_over_limit(out)) {
+            return;
+        }
     }
-    out << "}";
-    return out.str();
+    fmt::format_to(out, "}");
 }
 } // namespace doris::vectorized

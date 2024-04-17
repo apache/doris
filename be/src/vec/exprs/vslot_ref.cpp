@@ -17,6 +17,7 @@
 
 #include "vec/exprs/vslot_ref.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
@@ -99,9 +100,12 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
 const std::string& VSlotRef::expr_name() const {
     return *_column_name;
 }
-std::string VSlotRef::debug_string() const {
-    std::stringstream out;
-    out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ")";
-    return out.str();
+void VSlotRef::debug_string(fmt::memory_buffer& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
+    fmt::format_to(out, "SlotRef(slot_id={}", _slot_id);
+    VExpr::debug_string(out);
+    fmt::format_to(out, ")");
 }
 } // namespace doris::vectorized

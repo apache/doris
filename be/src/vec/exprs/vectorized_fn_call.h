@@ -45,6 +45,7 @@ class VectorizedFnCall : public VExpr {
     ENABLE_FACTORY_CREATOR(VectorizedFnCall);
 
 public:
+    using VExpr::debug_string;
     VectorizedFnCall(const TExprNode& node);
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
@@ -55,7 +56,7 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
-    std::string debug_string() const override;
+    void debug_string(fmt::memory_buffer& out) const override;
     bool is_constant() const override {
         if (!_function->is_use_default_implementation_for_constants() ||
             // udf function with no argument, can't sure it's must return const column

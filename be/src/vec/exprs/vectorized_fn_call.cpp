@@ -213,31 +213,36 @@ const std::string& VectorizedFnCall::expr_name() const {
     return _expr_name;
 }
 
-std::string VectorizedFnCall::debug_string() const {
-    std::stringstream out;
-    out << "VectorizedFn[";
-    out << _expr_name;
-    out << "]{";
+void VectorizedFnCall::debug_string(fmt::memory_buffer& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
+    fmt::format_to(out, "VectorizedFn[{}]", _expr_name);
+    fmt::format_to(out, "{");
     bool first = true;
     for (const auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {
-            out << ",";
+            fmt::format_to(out, ",");
         }
-        out << "\n" << input_expr->debug_string();
+        fmt::format_to(out, "\n");
+        input_expr->debug_string(out);
+        if (check_string_over_limit(out)) {
+            return;
+        }
     }
-    out << "}";
-    return out.str();
+    fmt::format_to(out, "}");
 }
 
 std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>& agg_fns) {
-    std::stringstream out;
-    out << "[";
+    fmt::memory_buffer out;
+    fmt::format_to(out, "[");
     for (int i = 0; i < agg_fns.size(); ++i) {
-        out << (i == 0 ? "" : " ") << agg_fns[i]->debug_string();
+        fmt::format_to(out, i == 0 ? "" : " ");
+        agg_fns[i]->debug_string(out);
     }
-    out << "]";
-    return out.str();
+    fmt::format_to(out, "]");
+    return fmt::to_string(out);
 }
 } // namespace doris::vectorized

@@ -66,9 +66,12 @@ public:
         return _filter;
     }
 
-    std::string debug_string() const override {
-        return fmt::format(" VBitmapPredicate:{}", VExpr::debug_string());
-    }
+    void debug_string(fmt::memory_buffer& out) const override {
+        if (check_string_over_limit(out)) {
+            return;
+        }
+        fmt::format_to(out, " VBitmapPredicate:{}", VExpr::debug_string());
+    };
 
 private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;

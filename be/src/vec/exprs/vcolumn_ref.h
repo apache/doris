@@ -16,6 +16,8 @@
 // under the License.
 
 #pragma once
+#include <fmt/format.h>
+
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
@@ -67,11 +69,13 @@ public:
 
     const std::string& expr_name() const override { return _column_name; }
 
-    std::string debug_string() const override {
-        std::stringstream out;
-        out << "VColumnRef(slot_id: " << _column_id << ",column_name: " << _column_name
-            << VExpr::debug_string() << ")";
-        return out.str();
+    void debug_string(fmt::memory_buffer& out) const override {
+        if (check_string_over_limit(out)) {
+            return;
+        }
+        fmt::format_to(out, "VColumnRef(slot_id: {},column_name: {}", _column_id, _column_name);
+        VExpr::debug_string(out);
+        fmt::format_to(out, ")");
     }
 
 private:

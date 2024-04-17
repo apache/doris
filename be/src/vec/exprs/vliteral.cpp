@@ -87,13 +87,12 @@ std::string VLiteral::value() const {
     return out.str();
 }
 
-std::string VLiteral::debug_string() const {
-    std::stringstream out;
-    out << "VLiteral (name = " << _expr_name;
-    out << ", type = " << _data_type->get_name();
-    out << ", value = (" << value();
-    out << "))";
-    return out.str();
+void VLiteral::debug_string(fmt::memory_buffer& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
+    fmt::format_to(out, "VLiteral (name = {}, type = {}, value = ({}))", _expr_name,
+                   _data_type->get_name(), value());
 }
 
 } // namespace doris::vectorized

@@ -149,17 +149,24 @@ const std::string& VMatchPredicate::function_name() const {
     return _function_name;
 }
 
-std::string VMatchPredicate::debug_string() const {
-    std::stringstream out;
-    out << "MatchPredicate(" << children()[0]->debug_string() << ",[";
+void VMatchPredicate::debug_string(fmt::memory_buffer& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
+    fmt::format_to(out, "MatchPredicate(");
+    children()[0]->debug_string(out);
+    fmt::format_to(out, ",[");
     int num_children = children().size();
 
     for (int i = 1; i < num_children; ++i) {
-        out << (i == 1 ? "" : " ") << children()[i]->debug_string();
+        fmt::format_to(out, (i == 1 ? "" : " "));
+        children()[i]->debug_string(out);
+        if (check_string_over_limit(out)) {
+            return;
+        }
     }
 
-    out << "])";
-    return out.str();
+    fmt::format_to(out, "])");
 }
 
 } // namespace doris::vectorized

@@ -50,7 +50,12 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    std::string debug_string() const override { return _impl->debug_string(); }
+    void debug_string(fmt::memory_buffer& out) const override {
+        if (check_string_over_limit(out)) {
+            return;
+        }
+        out.append(_impl->debug_string());
+    }
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }

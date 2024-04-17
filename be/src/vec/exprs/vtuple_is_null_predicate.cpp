@@ -17,6 +17,7 @@
 
 #include "vec/exprs/vtuple_is_null_predicate.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
@@ -70,12 +71,11 @@ const std::string& VTupleIsNullPredicate::expr_name() const {
     return _expr_name;
 }
 
-std::string VTupleIsNullPredicate::debug_string() const {
-    std::stringstream out;
-    out << "TupleIsNullPredicate(_column_to_check=[";
-    out << _column_to_check;
-    out << "])";
-    return out.str();
+void VTupleIsNullPredicate::debug_string(fmt::memory_buffer& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
+    fmt::format_to(out, "TupleIsNullPredicate(_column_to_check=[{}])", _column_to_check);
 }
 
 } // namespace doris::vectorized

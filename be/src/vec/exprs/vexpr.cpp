@@ -475,15 +475,24 @@ Status VExpr::clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* s
 }
 
 std::string VExpr::debug_string() const {
-    // TODO: implement partial debug string for member vars
-    std::stringstream out;
-    out << " type=" << _type.debug_string();
+    fmt::memory_buffer out;
+    debug_string(out);
+    return fmt::to_string(out);
+}
 
-    if (!_children.empty()) {
-        out << " children=" << debug_string(_children);
+void VExpr::debug_string(fmt::memory_buffer& out) const {
+    if (check_string_over_limit(out)) {
+        return;
     }
+    fmt::format_to(out, " type={}", _type.debug_string());
+    if (!_children.empty()) {
+        fmt::format_to(out, " children=");
+        debug_string(_children, out);
+    }
+}
 
-    return out.str();
+bool VExpr::check_string_over_limit(fmt::memory_buffer& out) {
+    return out.size() > config::expr_debug_string_limit_length;
 }
 
 std::string VExpr::debug_string(const VExprSPtrs& exprs) {
@@ -495,7 +504,7 @@ std::string VExpr::debug_string(const VExprSPtrs& exprs) {
     }
 
     out << "]";
-    return out.str();
+    return std::move(out).str();
 }
 
 std::string VExpr::debug_string(const VExprContextSPtrs& ctxs) {
@@ -506,6 +515,19 @@ std::string VExpr::debug_string(const VExprContextSPtrs& ctxs) {
     return debug_string(exprs);
 }
 
+void VExpr::debug_string(const VExprSPtrs& exprs, fmt::memory_buffer& out) {
+    if (check_string_over_limit(out)) {
+        return;
+    }
+    fmt::format_to(out, "[");
+
+    for (int i = 0; i < exprs.size(); ++i) {
+        fmt::format_to(out, i == 0 ? "" : " ");
+        exprs[i]->debug_string(out);
+    }
+
+    fmt::format_to(out, "]");
+}
 bool VExpr::is_constant() const {
     return std::all_of(_children.begin(), _children.end(),
                        [](const VExprSPtr& expr) { return expr->is_constant(); });
